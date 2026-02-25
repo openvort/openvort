@@ -1,0 +1,68 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "openvort"
+version = "0.1.0"
+description = "开源 AI 研发工作流引擎 — 通过 IM 与 AI 交互，自动化项目管理、代码仓库、团队协作"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+authors = [
+    { name = "Yang Qiang" },
+]
+keywords = ["ai", "workflow", "devops", "wecom", "agent"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+    "anthropic>=0.40",
+    "click>=8.1",
+    "httpx>=0.27",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "sqlalchemy[asyncio]>=2.0",
+    "aiosqlite>=0.20",
+    "apscheduler>=3.10",
+    "cryptography>=42.0",
+    "lxml>=5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.8",
+    "mypy>=1.10",
+]
+
+[project.scripts]
+openvort = "openvort.cli:main"
+
+[project.entry-points."openvort.channels"]
+wecom = "openvort.channels.wecom:WeComChannel"
+
+[project.urls]
+Homepage = "https://github.com/nicekate/openvort"
+Repository = "https://github.com/nicekate/openvort"
+Issues = "https://github.com/nicekate/openvort/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/openvort"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

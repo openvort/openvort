@@ -1,0 +1,83 @@
+"""
+定时任务调度器
+
+基于 APScheduler，支持 cron 表达式和间隔执行。
+"""
+
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+from openvort.utils.logging import get_logger
+
+log = get_logger("core.scheduler")
+
+
+class Scheduler:
+    """定时任务调度器"""
+
+    def __init__(self):
+        self._scheduler = AsyncIOScheduler()
+
+    def add_cron(self, job_id: str, func, cron_expr: str, **kwargs) -> None:
+        """添加 cron 任务
+
+        Args:
+            job_id: 任务 ID
+            func: 异步函数
+            cron_expr: cron 表达式（分 时 日 月 周）
+        """
+        parts = cron_expr.split()
+        if len(parts) != 5:
+            log.error(f"无效的 cron 表达式: {cron_expr}")
+            return
+
+        self._scheduler.add_job(
+            func,
+            "cron",
+            id=job_id,
+            minute=parts[0],
+            hour=parts[1],
+            day=parts[2],
+            month=parts[3],
+            day_of_week=parts[4],
+            replace_existing=True,
+            **kwargs,
+        )
+        log.info(f"已添加 cron 任务: {job_id} ({cron_expr})")
+
+    def add_interval(self, job_id: str, func, seconds: int, **kwargs) -> None:
+        """添加间隔任务"""
+        self._scheduler.add_job(
+            func,
+            "interval",
+            id=job_id,
+            seconds=seconds,
+            replace_existing=True,
+            **kwargs,
+        )
+        log.info(f"已添加间隔任务: {job_id} (每 {seconds}s)")
+
+    def remove(self, job_id: str) -> None:
+        """移除任务"""
+        try:
+            self._scheduler.remove_job(job_id)
+        except Exception:
+            pass
+
+    def start(self) -> None:
+        """启动调度器"""
+        if not self._scheduler.running:
+            self._scheduler.start()
+            log.info("调度器已启动")
+
+    def stop(self) -> None:
+        """停止调度器"""
+        if self._scheduler.running:
+            self._scheduler.shutdown(wait=False)
+            log.info("调度器已停止")
+
+    def list_jobs(self) -> list[dict]:
+        """列出所有任务"""
+        return [
+            {"id": job.id, "next_run": str(job.next_run_time), "trigger": str(job.trigger)}
+            for job in self._scheduler.get_jobs()
+        ]
