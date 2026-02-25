@@ -211,3 +211,123 @@ class WeComChannel(BaseChannel):
                     raw=raw,
                 ))
         return result
+
+    # ---- Relay 中继模式 ----
+
+    def _get_relay_http(self) -> httpx.AsyncClient:
+        """获取 relay HTTP 客户端"""
+        if self._relay_http is None:
+            headers = {}
+            if self._relay_secret:
+                headers["Authorization"] = f"Bearer {self._relay_secret}"
+            self._relay_http = httpx.AsyncClient(
+                base_url=self._relay_url,
+                headers=headers,
+                timeout=15,
+            )
+        return self._relay_http
+
+    async def start_relay(self, relay_url: str, relay_secret: str = "",
+                          poll_interval: float = 3, aggregate_wait: float = 3) -> None:
+        """启动 Relay 中继模式
+
+        通过 Relay Server 的 REST API 拉取消息和代理发送。
+
+        Args:
+            relay_url: Relay Server 地址，如 https://your-server.com
+            relay_secret: Relay 鉴权密钥（可选）
+            poll_interval: 轮询间隔（秒）
+            aggregate_wait: 消息聚合等待时间（秒）
+        """
+        if not self._handler:
+            log.error("未注册消息 handler，无法启动 relay")
+            return
+
+        self._relay_url = relay_url.rstrip("/")
+        self._relay_secret = relay_secret
+        self._running = True
+        self._poll_task = asyncio.create_task(
+            self._relay_poll_loop(poll_interval, aggregate_wait)
+        )
+        log.info(f"企微 Relay 模式已启动 → {self._relay_url}")
+
+    async def _relay_poll_loop(self, interval: float, agg_wait: float) -> None:
+        """Relay 轮询主循环"""
+        last_id = 0
+        http = self._get_relay_http()
+
+        while self._running:
+            try:
+                resp = await http.get("/relay/messages", params={"since_id": last_id, "limit": 50})
+                data = resp.json()
+                messages = data.get("messages", [])
+
+                if messages:
+                    # 聚合窗口
+                    await asyncio.sleep(agg_wait)
+                    resp2 = await http.get("/relay/messages", params={"since_id": messages[-1]["id"], "limit": 50})
+                    extra = resp2.json().get("messages", [])
+                    if extra:
+                        messages.extend(extra)
+
+                    # 转换格式并聚合
+                    raw_msgs = []
+                    for m in messages:
+                        raw_msgs.append({
+                            "db_id": m["id"],
+                            "msg_id": m.get("msg_id", ""),
+                            "from_user": m["from_user"],
+                            "msg_type": m["msg_type"],
+                            "content": m["content"],
+                            "raw": m.get("raw_data", {}),
+                        })
+
+                    aggregated = self._aggregate(raw_msgs)
+                    for msg in aggregated:
+                        if self._handler:
+                            reply = await self._handler(msg)
+                            if reply:
+                                await self.send(msg.sender_id, Message(content=reply, channel="wecom"))
+
+                    # 标记已处理
+                    for m in messages:
+                        try:
+                            await http.post(f"/relay/messages/{m['id']}/ack")
+                        except Exception:
+                            pass
+
+                    last_id = messages[-1]["id"]
+
+                await asyncio.sleep(interval)
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.error(f"Relay 轮询异常: {e}")
+                await asyncio.sleep(interval * 2)
+
+    async def _relay_send(self, target: str, message: Message) -> None:
+        """通过 Relay 代理发送消息"""
+        http = self._get_relay_http()
+        try:
+            resp = await http.post("/relay/send", json={
+                "touser": target,
+                "content": message.content,
+                "msg_type": message.msg_type,
+            })
+            data = resp.json()
+            if not data.get("ok"):
+                log.error(f"Relay 发送失败: {data}")
+        except Exception as e:
+            log.error(f"Relay 发送异常: {e}")
+
+    async def relay_health_check(self) -> bool:
+        """检查 Relay Server 连通性"""
+        try:
+            http = self._get_relay_http()
+            resp = await http.get("/relay/health")
+            data = resp.json()
+            return data.get("status") == "ok"
+        except Exception as e:
+            log.error(f"Relay 健康检查失败: {e}")
+            return False

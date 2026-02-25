@@ -32,6 +32,8 @@ dependencies = [
     "apscheduler>=3.10",
     "cryptography>=42.0",
     "lxml>=5.0",
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
 ]
 
 [project.optional-dependencies]

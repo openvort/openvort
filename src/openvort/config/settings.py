@@ -15,7 +15,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class LLMSettings(BaseSettings):
     """LLM 提供商配置"""
 
-    model_config = SettingsConfigDict(env_prefix="OPENVORT_LLM_")
+    model_config = SettingsConfigDict(env_prefix="OPENVORT_LLM_", env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     provider: str = "anthropic"
     api_key: str = ""
@@ -28,7 +28,7 @@ class LLMSettings(BaseSettings):
 class WeComSettings(BaseSettings):
     """企业微信 Channel 配置"""
 
-    model_config = SettingsConfigDict(env_prefix="OPENVORT_WECOM_")
+    model_config = SettingsConfigDict(env_prefix="OPENVORT_WECOM_", env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     corp_id: str = ""
     app_secret: str = ""
@@ -36,6 +36,16 @@ class WeComSettings(BaseSettings):
     callback_token: str = ""
     callback_aes_key: str = ""
     api_base_url: str = "https://qyapi.weixin.qq.com/cgi-bin"
+
+
+class RelaySettings(BaseSettings):
+    """Relay 中继配置"""
+
+    model_config = SettingsConfigDict(env_prefix="OPENVORT_RELAY_", env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    url: str = ""  # Relay Server 地址，如 https://your-server.com
+    secret: str = ""  # 鉴权密钥
+    port: int = 8080  # Relay Server 监听端口（服务端用）
 
 
 class Settings(BaseSettings):
@@ -61,6 +71,9 @@ class Settings(BaseSettings):
 
     # 企微
     wecom: WeComSettings = Field(default_factory=WeComSettings)
+
+    # Relay
+    relay: RelaySettings = Field(default_factory=RelaySettings)
 
 
 # 全局单例（延迟初始化）

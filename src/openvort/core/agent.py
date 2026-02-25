@@ -43,11 +43,13 @@ class AgentRuntime:
         session_store: SessionStore,
         system_prompt: str = SYSTEM_PROMPT,
     ):
-        self._client = anthropic.AsyncAnthropic(
-            api_key=llm_settings.api_key,
-            base_url=llm_settings.api_base if llm_settings.api_base != "https://api.anthropic.com" else None,
-            timeout=llm_settings.timeout,
-        )
+        client_kwargs = {
+            "api_key": llm_settings.api_key,
+            "timeout": llm_settings.timeout,
+        }
+        if llm_settings.api_base and llm_settings.api_base != "https://api.anthropic.com":
+            client_kwargs["base_url"] = llm_settings.api_base
+        self._client = anthropic.AsyncAnthropic(**client_kwargs)
         self._model = llm_settings.model
         self._max_tokens = llm_settings.max_tokens
         self._registry = registry

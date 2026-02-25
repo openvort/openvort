@@ -279,3 +279,83 @@ async def _agent_chat(message: str):
 
 if __name__ == "__main__":
     main()
+
+
+# ============ relay ============
+
+
+@main.group()
+def relay():
+    """Relay 消息中继服务"""
+    pass
+
+
+@relay.command("start")
+@click.option("--port", default=None, type=int, help="监听端口")
+@click.option("--host", default="0.0.0.0", help="监听地址")
+@click.option("--db-path", default="relay.db", help="SQLite 数据库路径")
+def relay_start(port, host, db_path):
+    """启动 Relay Server（部署在公网服务器）"""
+    from openvort.config.settings import get_settings
+    from openvort.utils.logging import setup_logging
+
+    settings = get_settings()
+    setup_logging(settings.log_level)
+
+    effective_port = port or settings.relay.port or 8080
+
+    if not settings.wecom.corp_id or not settings.wecom.app_secret:
+        click.echo("❌ 企微未配置，请先在 .env 中设置 OPENVORT_WECOM_CORP_ID 和 OPENVORT_WECOM_APP_SECRET")
+        return
+
+    from openvort.relay.server import create_app
+
+    app = create_app(
+        corp_id=settings.wecom.corp_id,
+        app_secret=settings.wecom.app_secret,
+        agent_id=settings.wecom.agent_id,
+        callback_token=settings.wecom.callback_token,
+        callback_aes_key=settings.wecom.callback_aes_key,
+        relay_secret=settings.relay.secret,
+        db_path=db_path,
+    )
+
+    click.echo(f"🚀 Relay Server 启动中 → {host}:{effective_port}")
+    click.echo(f"   回调地址: http://<your-domain>:{effective_port}/callback/wecom")
+    click.echo(f"   API 地址: http://<your-domain>:{effective_port}/relay/")
+
+    import uvicorn
+    uvicorn.run(app, host=host, port=effective_port, log_level="info")
+
+
+@relay.command("health")
+@click.option("--url", default=None, help="Relay Server 地址")
+def relay_health(url):
+    """检查 Relay Server 连通性"""
+    _run_async(_relay_health(url))
+
+
+async def _relay_health(url: str | None):
+    from openvort.config.settings import get_settings
+
+    settings = get_settings()
+    effective_url = url or settings.relay.url
+
+    if not effective_url:
+        click.echo("❌ 未配置 Relay URL，请通过 --url 参数或 OPENVORT_RELAY_URL 环境变量指定")
+        return
+
+    import httpx
+    try:
+        headers = {}
+        if settings.relay.secret:
+            headers["Authorization"] = f"Bearer {settings.relay.secret}"
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(f"{effective_url.rstrip('/')}/relay/health", headers=headers)
+            data = resp.json()
+            if data.get("status") == "ok":
+                click.echo(f"✅ Relay Server 正常 ({effective_url})")
+            else:
+                click.echo(f"⚠️ Relay Server 异常: {data}")
+    except Exception as e:
+        click.echo(f"❌ 连接失败: {e}")
