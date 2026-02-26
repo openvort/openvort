@@ -10,6 +10,7 @@
 import asyncio
 import base64
 import json
+from pathlib import Path
 
 import httpx
 
@@ -27,6 +28,9 @@ class WeComChannel(BaseChannel):
     name = "wecom"
     display_name = "企业微信"
 
+    # 持久化文件：记录各模式的消费位点，重启后从断点继续
+    _CURSOR_FILE = Path.home() / ".openvort" / "wecom_cursor.json"
+
     def __init__(self, settings: WeComSettings | None = None):
         if settings is None:
             settings = WeComSettings()
@@ -38,6 +42,30 @@ class WeComChannel(BaseChannel):
         self._relay_url: str = ""
         self._relay_secret: str = ""
         self._relay_http: httpx.AsyncClient | None = None
+
+    # ---- 消费位点持久化 ----
+
+    def _load_cursor(self, mode: str) -> int:
+        """加载持久化的消费位点"""
+        try:
+            if self._CURSOR_FILE.exists():
+                data = json.loads(self._CURSOR_FILE.read_text(encoding="utf-8"))
+                return data.get(mode, 0)
+        except Exception as e:
+            log.warning(f"加载消费位点失败: {e}")
+        return 0
+
+    def _save_cursor(self, mode: str, last_id: int) -> None:
+        """持久化消费位点"""
+        try:
+            self._CURSOR_FILE.parent.mkdir(parents=True, exist_ok=True)
+            data = {}
+            if self._CURSOR_FILE.exists():
+                data = json.loads(self._CURSOR_FILE.read_text(encoding="utf-8"))
+            data[mode] = last_id
+            self._CURSOR_FILE.write_text(json.dumps(data), encoding="utf-8")
+        except Exception as e:
+            log.warning(f"保存消费位点失败: {e}")
 
     @property
     def api(self) -> WeComAPI:
@@ -120,8 +148,10 @@ class WeComChannel(BaseChannel):
         log.info(f"企微轮询模式已启动（间隔 {poll_interval}s）")
 
     async def _poll_loop(self, db_config: dict, interval: float, agg_wait: float) -> None:
-        last_id = 0
+        last_id = self._load_cursor("poll_db")
         processed_ids: set = set()
+        if last_id > 0:
+            log.info(f"从持久化位点恢复 poll-db: last_id={last_id}")
         while self._running:
             try:
                 messages = await asyncio.to_thread(self._fetch_messages, db_config, last_id)
@@ -143,6 +173,7 @@ class WeComChannel(BaseChannel):
                             else:
                                 processed_ids.add(msg.raw.get("msg_id", ""))
                     last_id = messages[-1]["db_id"]
+                    self._save_cursor("poll_db", last_id)
                     if len(processed_ids) > 500:
                         processed_ids = set(list(processed_ids)[-250:])
                 await asyncio.sleep(interval)
@@ -240,23 +271,31 @@ class WeComChannel(BaseChannel):
         """Relay 轮询主循环"""
         http = self._get_relay_http()
 
-        # 启动时跳过历史消息：拉一次获取最新 ID，只 ack 不处理
-        try:
-            resp = await http.get("/relay/messages", params={"since_id": 0, "limit": 50})
-            old_msgs = resp.json().get("messages", [])
-            if old_msgs:
-                last_id = old_msgs[-1]["id"]
-                for m in old_msgs:
-                    try:
-                        await http.post(f"/relay/messages/{m['id']}/ack")
-                    except Exception:
-                        pass
-                log.info(f"跳过 {len(old_msgs)} 条历史消息 (last_id={last_id})")
-            else:
+        # 从持久化位点恢复，跳过已处理的消息
+        last_id = self._load_cursor("relay")
+
+        if last_id > 0:
+            log.info(f"从持久化位点恢复 relay: last_id={last_id}")
+        else:
+            # 首次启动：跳过历史消息，只 ack 不处理
+            try:
+                resp = await http.get("/relay/messages", params={"since_id": 0, "limit": 50})
+                old_msgs = resp.json().get("messages", [])
+                while old_msgs:
+                    last_id = old_msgs[-1]["id"]
+                    for m in old_msgs:
+                        try:
+                            await http.post(f"/relay/messages/{m['id']}/ack")
+                        except Exception:
+                            pass
+                    log.info(f"跳过 {len(old_msgs)} 条历史消息 (last_id={last_id})")
+                    # 继续拉取，直到没有更多历史消息
+                    resp = await http.get("/relay/messages", params={"since_id": last_id, "limit": 50})
+                    old_msgs = resp.json().get("messages", [])
+                self._save_cursor("relay", last_id)
+            except Exception as e:
+                log.error(f"获取历史消息失败: {e}")
                 last_id = 0
-        except Exception as e:
-            log.error(f"获取历史消息失败: {e}")
-            last_id = 0
 
         while self._running:
             try:
@@ -330,6 +369,7 @@ class WeComChannel(BaseChannel):
                             pass
 
                     last_id = messages[-1]["id"]
+                    self._save_cursor("relay", last_id)
 
                 await asyncio.sleep(interval)
             except asyncio.CancelledError:

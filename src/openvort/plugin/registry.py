@@ -17,6 +17,25 @@ class PluginRegistry:
         self._channels: dict[str, BaseChannel] = {}
         self._tools: dict[str, BaseTool] = {}
         self._prompts: list[str] = []
+        self._plugins: dict[str, "BasePlugin"] = {}
+
+    # ---- Plugin 管理 ----
+
+    def register_plugin(self, plugin: "BasePlugin") -> None:
+        """注册一个 Plugin 实例"""
+        from openvort.plugin.base import BasePlugin
+        if not isinstance(plugin, BasePlugin):
+            return
+        self._plugins[plugin.name] = plugin
+        log.info(f"已注册 Plugin: {plugin.name}")
+
+    def get_plugin(self, name: str) -> "BasePlugin | None":
+        """获取指定 Plugin"""
+        return self._plugins.get(name)
+
+    def list_plugins(self) -> list["BasePlugin"]:
+        """列出所有已注册的 Plugin"""
+        return list(self._plugins.values())
 
     # ---- Channel 管理 ----
 

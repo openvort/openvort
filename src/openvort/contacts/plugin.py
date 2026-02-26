@@ -6,6 +6,7 @@
 """
 
 from openvort.contacts.sync import ContactSyncProvider
+from openvort.contacts.tools.bind_identity import BindIdentityTool
 from openvort.contacts.tools.match_suggestions import MatchSuggestionsTool
 from openvort.contacts.tools.resolve_match import ResolveMatchTool
 from openvort.contacts.tools.search_member import SearchMemberTool
@@ -29,6 +30,7 @@ class ContactsPlugin(BasePlugin):
         self._search_tool = SearchMemberTool()
         self._suggestions_tool = MatchSuggestionsTool()
         self._resolve_tool = ResolveMatchTool()
+        self._bind_tool = BindIdentityTool()
 
     def set_providers(self, providers: list[ContactSyncProvider]) -> None:
         """注入同步提供者（由 PluginLoader 在加载完成后调用）"""
@@ -45,6 +47,7 @@ class ContactsPlugin(BasePlugin):
             self._search_tool,
             self._suggestions_tool,
             self._resolve_tool,
+            self._bind_tool,
         ]
 
     def get_permissions(self) -> list[dict]:

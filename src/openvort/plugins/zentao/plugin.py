@@ -75,3 +75,60 @@ class ZentaoPlugin(BasePlugin):
         """返回禅道通讯录同步提供者"""
         from openvort.plugins.zentao.sync import ZentaoContactSyncProvider
         return ZentaoContactSyncProvider(self._db)
+
+    # ---- 插件引导接口 ----
+
+    def get_platform(self) -> str:
+        return "zentao"
+
+    async def get_setup_status(self, ctx) -> str:
+        """检查禅道插件对当前用户的就绪状态"""
+        from sqlalchemy import func, select
+
+        from openvort.contacts.models import PlatformIdentity
+        from openvort.db.engine import get_session_factory
+
+        session_factory = get_session_factory()
+        async with session_factory() as session:
+            # 1. 检查是否有禅道通讯录同步过
+            count_result = await session.execute(
+                select(func.count()).where(PlatformIdentity.platform == "zentao")
+            )
+            synced_count = count_result.scalar_one()
+            if synced_count == 0:
+                return "not_synced"
+
+            # 2. 检查当前用户是否已关联禅道身份
+            if ctx.member and ctx.platform_accounts.get("zentao"):
+                return "ready"
+
+            return "not_bound"
+
+    def get_onboarding_prompt(self, status: str, is_admin: bool) -> str:
+        """返回禅道引导 prompt"""
+        prompt_path = Path(__file__).parent / "prompts" / "onboarding.md"
+        if not prompt_path.exists():
+            return ""
+        full_prompt = prompt_path.read_text(encoding="utf-8")
+
+        # 根据状态和角色提取对应段落
+        if status == "not_synced":
+            tag = "[NOT_SYNCED_ADMIN]" if is_admin else "[NOT_SYNCED_USER]"
+        elif status == "not_bound":
+            tag = "[NOT_BOUND]"
+        else:
+            return ""
+
+        # 简单按标签提取
+        lines = []
+        in_section = False
+        for line in full_prompt.splitlines():
+            if line.strip() == tag:
+                in_section = True
+                continue
+            if in_section and line.strip().startswith("[") and line.strip().endswith("]"):
+                break
+            if in_section:
+                lines.append(line)
+
+        return "\n".join(lines).strip()

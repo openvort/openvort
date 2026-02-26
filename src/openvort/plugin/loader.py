@@ -69,6 +69,7 @@ class PluginLoader:
                     f"— {len(tools)} 个 Tool, {len(prompts)} 条 Prompt"
                 )
                 self._plugins.append(plugin)
+                self.registry.register_plugin(plugin)
             except Exception as e:
                 log.error(f"加载 Plugin '{ep.name}' 失败: {e}")
 

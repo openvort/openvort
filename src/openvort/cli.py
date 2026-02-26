@@ -172,6 +172,25 @@ async def _start_service(relay_url: str | None, poll_db_json: str | None):
     auth_service = AuthService(session_factory)
     await auth_service.init_builtin()
 
+    # ---- 首次启动向导 ----
+    from openvort.core.setup import is_initialized
+
+    if not await is_initialized(session_factory):
+        log.info("检测到首次启动，进入初始化向导...")
+        await _run_bootstrap_wizard(settings, session_factory, auth_service)
+        # 向导完成后再次检查
+        if not await is_initialized(session_factory):
+            log.error("初始化未完成，退出")
+            _cleanup_pid()
+            return
+
+    # 加载 AI 人设（如果存在）
+    identity_prompt = ""
+    identity_file = Path("data/identity.md")
+    if identity_file.exists():
+        identity_prompt = identity_file.read_text(encoding="utf-8")
+        log.info("已加载 AI 人设配置")
+
     # 初始化插件系统
     registry = PluginRegistry()
     loader = PluginLoader(registry, auth_service=auth_service)
@@ -189,6 +208,10 @@ async def _start_service(relay_url: str | None, poll_db_json: str | None):
     # 初始化 Agent
     session_store = SessionStore()
     agent = AgentRuntime(settings.llm, registry, session_store)
+
+    # 注入 AI 人设到 system prompt
+    if identity_prompt:
+        agent._system_prompt += f"\n\n# AI 身份\n\n{identity_prompt}"
 
     # 确定 relay 配置（CLI 参数优先，其次 .env）
     effective_relay_url = relay_url or settings.relay.url
@@ -248,6 +271,16 @@ async def _start_service(relay_url: str | None, poll_db_json: str | None):
             _ch = ch  # 闭包捕获
 
             async def handle_message(msg):
+                # 初始化守卫：未初始化时拒绝外部渠道消息
+                from openvort.core.setup import is_initialized as _is_init
+                if not await _is_init(session_factory):
+                    log.warning(f"系统未初始化，忽略来自 {msg.channel}:{msg.sender_id} 的消息")
+                    from openvort.plugin.base import Message as Msg
+                    await _ch.send(msg.sender_id, Msg(
+                        content="系统正在初始化中，请稍后再试。", channel="wecom",
+                    ))
+                    return None
+
                 ctx = await build_context(msg.channel, msg.sender_id)
                 ctx.images = getattr(msg, "images", []) or []
 
@@ -624,3 +657,69 @@ async def _contacts_reject(suggestion_id: int):
 
     from openvort.db import close_db
     await close_db()
+
+
+# ============ Bootstrap Wizard ============
+
+
+async def _run_bootstrap_wizard(settings, session_factory, auth_service):
+    """AI 驱动的首次启动向导（CLI 对话循环）"""
+    from pathlib import Path
+
+    from openvort.core.agent import AgentRuntime
+    from openvort.core.bootstrap import SetupCompleteTool
+    from openvort.core.session import SessionStore
+    from openvort.core.setup import is_initialized
+    from openvort.plugin.registry import PluginRegistry
+
+    click.echo("\n" + "=" * 50)
+    click.echo("  🚀 OpenVort 首次启动向导")
+    click.echo("=" * 50 + "\n")
+
+    # 加载 bootstrap prompt
+    prompt_path = Path(__file__).parent / "core" / "prompts" / "bootstrap.md"
+    bootstrap_prompt = prompt_path.read_text(encoding="utf-8")
+
+    # 创建临时 registry，只注册 setup_complete 工具
+    wizard_registry = PluginRegistry()
+    setup_tool = SetupCompleteTool(session_factory, auth_service)
+    wizard_registry.register_tool(setup_tool)
+
+    # 创建临时 Agent
+    wizard_session = SessionStore()
+    wizard_agent = AgentRuntime(
+        settings.llm,
+        wizard_registry,
+        wizard_session,
+        system_prompt=bootstrap_prompt,
+    )
+
+    # 用空消息触发 AI 先开口
+    from openvort.core.context import RequestContext
+
+    ctx = RequestContext(channel="cli", user_id="admin_setup", permissions={"*"})
+    click.echo("⏳ 正在准备...\n")
+    greeting = await wizard_agent.process(ctx, "你好，我刚启动了 OpenVort")
+    click.echo(f"🤖 {greeting}\n")
+
+    # 对话循环
+    while True:
+        try:
+            user_input = input("👤 ").strip()
+        except (EOFError, KeyboardInterrupt):
+            click.echo("\n初始化已取消。")
+            return
+
+        if not user_input:
+            continue
+
+        click.echo("⏳ 思考中...\n")
+        reply = await wizard_agent.process(ctx, user_input)
+        click.echo(f"🤖 {reply}\n")
+
+        # 检查是否已完成初始化
+        if await is_initialized(session_factory):
+            click.echo("=" * 50)
+            click.echo("  ✅ 初始化完成，正在启动服务...")
+            click.echo("=" * 50 + "\n")
+            return

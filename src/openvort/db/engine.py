@@ -29,6 +29,7 @@ async def init_db(database_url: str) -> None:
     # 延迟导入所有 ORM 模型，确保 Base.metadata 包含所有表
     import openvort.auth.models  # noqa: F401
     import openvort.contacts.models  # noqa: F401
+    import openvort.core.setup  # noqa: F401
     import openvort.db.models  # noqa: F401
 
     _engine = create_async_engine(database_url, echo=False)

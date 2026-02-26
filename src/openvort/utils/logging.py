@@ -14,6 +14,9 @@ def setup_logging(level: str = "INFO") -> None:
         datefmt="%Y-%m-%d %H:%M:%S",
         handlers=[logging.StreamHandler(sys.stdout)],
     )
+    # 抑制 httpx 的请求日志刷屏
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 def get_logger(name: str) -> logging.Logger:

@@ -192,3 +192,38 @@ class BasePlugin(ABC):
                 "permissions": ["zentao.create_task", "zentao.view_task"]}]
         """
         return []
+
+    # ---- 插件引导接口 ----
+
+    def get_platform(self) -> str:
+        """返回插件关联的平台标识（如 "zentao"、"gitee"）
+
+        用于与 PlatformIdentity 表关联，判断用户是否已绑定该平台身份。
+        返回空字符串表示该插件不关联特定平台。
+        """
+        return ""
+
+    async def get_setup_status(self, ctx: Any) -> str:
+        """检查插件对当前用户的就绪状态
+
+        Args:
+            ctx: RequestContext，包含 member、platform_accounts 等
+
+        Returns:
+            "ready"      — 插件已就绪，用户已关联
+            "not_synced" — 该平台通讯录尚未同步
+            "not_bound"  — 通讯录已同步但当前用户未关联该平台身份
+        """
+        return "ready"
+
+    def get_onboarding_prompt(self, status: str, is_admin: bool) -> str:
+        """根据就绪状态和用户角色返回引导 prompt
+
+        Args:
+            status: get_setup_status 返回的状态
+            is_admin: 当前用户是否为管理员
+
+        Returns:
+            引导 prompt 文本，注入到 Agent system prompt 中
+        """
+        return ""
