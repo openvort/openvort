@@ -1,7 +1,7 @@
 """
 插件注册中心
 
-管理所有已加载的 Channel 和 Tool 实例。
+管理所有已加载的 Channel、Tool 和 Plugin Prompt 实例。
 """
 
 from openvort.plugin.base import BaseChannel, BaseTool
@@ -16,6 +16,7 @@ class PluginRegistry:
     def __init__(self):
         self._channels: dict[str, BaseChannel] = {}
         self._tools: dict[str, BaseTool] = {}
+        self._prompts: list[str] = []
 
     # ---- Channel 管理 ----
 
@@ -65,3 +66,15 @@ class PluginRegistry:
     def to_claude_tools(self) -> list[dict]:
         """将所有 Tool 转换为 Claude tool use 格式"""
         return [tool.to_claude_tool() for tool in self._tools.values()]
+
+    # ---- Prompt 管理（插件领域知识）----
+
+    def register_prompt(self, prompt: str) -> None:
+        """注册一条插件领域知识 prompt"""
+        self._prompts.append(prompt)
+
+    def get_system_prompt_extension(self) -> str:
+        """拼接所有插件的领域知识，用于追加到 Agent system prompt"""
+        if not self._prompts:
+            return ""
+        return "\n\n".join(self._prompts)

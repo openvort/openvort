@@ -99,3 +99,45 @@ class BaseTool(ABC):
             "description": self.description,
             "input_schema": self.input_schema(),
         }
+
+
+# ============ Plugin 基类 ============
+
+
+class BasePlugin(ABC):
+    """插件基类 — Plugin 是 Tool + Prompt + Config 的容器
+
+    参考 Dify Provider + Semantic Kernel Plugin 设计：
+    - 一个 Plugin 包含一组相关的 Tool（如禅道的任务/Bug/需求操作）
+    - 可包含领域知识 Prompt（自动注入 Agent system prompt）
+    - 统一管理凭证/配置校验
+
+    第三方插件通过 pyproject.toml entry_points 注册：
+        [project.entry-points."openvort.plugins"]
+        zentao = "openvort_zentao:ZentaoPlugin"
+    """
+
+    name: str = ""                # 插件标识，如 "zentao", "gitee", "jenkins"
+    display_name: str = ""        # 显示名称，如 "禅道项目管理"
+    description: str = ""         # 插件描述
+    version: str = "0.1.0"
+
+    @abstractmethod
+    def get_tools(self) -> list[BaseTool]:
+        """返回插件提供的所有 Tool 实例"""
+        ...
+
+    def get_prompts(self) -> list[str]:
+        """返回插件的领域知识 prompt 列表（可选）
+
+        每个 prompt 是一段 markdown 文本，会被自动追加到 Agent 的 system prompt 中，
+        让 Agent 具备该插件领域的业务知识和流程规则。
+        """
+        return []
+
+    def validate_credentials(self) -> bool:
+        """校验插件凭证/配置是否有效（可选）
+
+        返回 False 时插件不会被加载，其 Tools 和 Prompts 不会注册。
+        """
+        return True

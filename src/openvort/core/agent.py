@@ -78,10 +78,16 @@ class AgentRuntime:
         max_rounds = 10  # 防止无限循环
         for _ in range(max_rounds):
             try:
+                # 动态拼接插件领域知识到 system prompt
+                system = self._system_prompt
+                plugin_prompts = self._registry.get_system_prompt_extension()
+                if plugin_prompts:
+                    system += "\n\n# 插件能力\n\n" + plugin_prompts
+
                 kwargs = {
                     "model": self._model,
                     "max_tokens": self._max_tokens,
-                    "system": self._system_prompt,
+                    "system": system,
                     "messages": messages,
                 }
                 if tools:
