@@ -26,6 +26,11 @@ async def init_db(database_url: str) -> None:
     """初始化数据库连接并创建表"""
     global _engine, _session_factory
 
+    # 延迟导入所有 ORM 模型，确保 Base.metadata 包含所有表
+    import openvort.auth.models  # noqa: F401
+    import openvort.contacts.models  # noqa: F401
+    import openvort.db.models  # noqa: F401
+
     _engine = create_async_engine(database_url, echo=False)
     _session_factory = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
 
@@ -50,3 +55,10 @@ def get_session() -> AsyncSession:
     if _session_factory is None:
         raise RuntimeError("数据库未初始化，请先调用 init_db()")
     return _session_factory()
+
+
+def get_session_factory() -> async_sessionmaker[AsyncSession]:
+    """获取 session 工厂（用于需要 context manager 的场景）"""
+    if _session_factory is None:
+        raise RuntimeError("数据库未初始化，请先调用 init_db()")
+    return _session_factory

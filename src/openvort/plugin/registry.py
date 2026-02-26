@@ -63,9 +63,28 @@ class PluginRegistry:
             log.error(f"工具 '{name}' 执行失败: {e}")
             return f"工具执行失败: {e}"
 
-    def to_claude_tools(self) -> list[dict]:
-        """将所有 Tool 转换为 Claude tool use 格式"""
-        return [tool.to_claude_tool() for tool in self._tools.values()]
+    def to_claude_tools(
+        self,
+        permissions: set[str] | None = None,
+        allowed_tools: list[str] | None = None,
+    ) -> list[dict]:
+        """将 Tool 转换为 Claude tool use 格式，支持按权限和渠道过滤
+
+        Args:
+            permissions: 用户权限集合，None 表示不过滤
+            allowed_tools: 渠道允许的 Tool 名称列表，None 表示不限制
+        """
+        result = []
+        for tool in self._tools.values():
+            # 渠道过滤
+            if allowed_tools is not None and tool.name not in allowed_tools:
+                continue
+            # 权限过滤
+            if permissions is not None and tool.required_permission:
+                if "*" not in permissions and tool.required_permission not in permissions:
+                    continue
+            result.append(tool.to_claude_tool())
+        return result
 
     # ---- Prompt 管理（插件领域知识）----
 

@@ -8,6 +8,7 @@
 """
 
 import asyncio
+import base64
 import json
 
 import httpx
@@ -49,6 +50,28 @@ class WeComChannel(BaseChannel):
                 api_base=self._settings.api_base_url,
             )
         return self._api
+
+    def get_sync_provider(self):
+        """返回企微通讯录同步提供者"""
+        from openvort.channels.wecom.sync import WeComContactSyncProvider
+        if not self.is_configured():
+            return None
+        return WeComContactSyncProvider(self.api)
+
+    def get_channel_prompt(self) -> str:
+        """返回企微渠道的回复风格 prompt"""
+        from pathlib import Path
+        prompt_file = Path(__file__).parent / "prompts" / "channel_style.md"
+        if prompt_file.exists():
+            try:
+                return prompt_file.read_text(encoding="utf-8").strip()
+            except Exception:
+                pass
+        return ""
+
+    def get_max_reply_length(self) -> int:
+        """企微单条消息限制"""
+        return 2000
 
     async def start(self) -> None:
         """启动通道"""
@@ -164,15 +187,30 @@ class WeComChannel(BaseChannel):
             user_msgs.setdefault(m["from_user"], []).append(m)
         result = []
         for uid, msgs in user_msgs.items():
+            # 合并图片
+            all_images = []
+            for m in msgs:
+                all_images.extend(m.get("images", []))
+
             if len(msgs) == 1:
                 m = msgs[0]
-                result.append(Message(content=m["content"], sender_id=m["from_user"], channel="wecom", msg_type=m["msg_type"], raw=m))
+                result.append(Message(
+                    content=m["content"], sender_id=m["from_user"],
+                    channel="wecom", msg_type=m["msg_type"],
+                    images=all_images, raw=m,
+                ))
             else:
-                combined = "\n".join(m["content"] for m in msgs)
+                combined = "\n".join(m["content"] for m in msgs if m["content"])
                 last = msgs[-1]
                 raw = dict(last)
                 raw["_all_msg_ids"] = [m["msg_id"] for m in msgs]
-                result.append(Message(content=combined, sender_id=uid, channel="wecom", msg_type=last["msg_type"], raw=raw))
+                # 有图片时 msg_type 标记为 mixed
+                msg_type = "mixed" if all_images and combined else last["msg_type"]
+                result.append(Message(
+                    content=combined, sender_id=uid,
+                    channel="wecom", msg_type=msg_type,
+                    images=all_images, raw=raw,
+                ))
         return result
 
     # ---- Relay 中继模式 ----
@@ -200,8 +238,26 @@ class WeComChannel(BaseChannel):
 
     async def _relay_poll_loop(self, interval: float, agg_wait: float) -> None:
         """Relay 轮询主循环"""
-        last_id = 0
         http = self._get_relay_http()
+
+        # 启动时跳过历史消息：拉一次获取最新 ID，只 ack 不处理
+        try:
+            resp = await http.get("/relay/messages", params={"since_id": 0, "limit": 50})
+            old_msgs = resp.json().get("messages", [])
+            if old_msgs:
+                last_id = old_msgs[-1]["id"]
+                for m in old_msgs:
+                    try:
+                        await http.post(f"/relay/messages/{m['id']}/ack")
+                    except Exception:
+                        pass
+                log.info(f"跳过 {len(old_msgs)} 条历史消息 (last_id={last_id})")
+            else:
+                last_id = 0
+        except Exception as e:
+            log.error(f"获取历史消息失败: {e}")
+            last_id = 0
+
         while self._running:
             try:
                 resp = await http.get("/relay/messages", params={"since_id": last_id, "limit": 50})
@@ -219,16 +275,48 @@ class WeComChannel(BaseChannel):
                     # 转换格式并聚合
                     raw_msgs = []
                     for m in messages:
+                        msg_type = m["msg_type"]
+                        raw_data = m.get("raw_data", {})
+                        images = []
+
+                        # 图片消息：提取 PicUrl / MediaId
+                        if msg_type == "image":
+                            pic_url = raw_data.get("PicUrl", "")
+                            media_id = raw_data.get("MediaId", "")
+                            if pic_url or media_id:
+                                images.append({"pic_url": pic_url, "media_id": media_id})
+
                         raw_msgs.append({
                             "db_id": m["id"], "msg_id": m.get("msg_id", ""),
-                            "from_user": m["from_user"], "msg_type": m["msg_type"],
-                            "content": m["content"], "raw": m.get("raw_data", {}),
+                            "from_user": m["from_user"], "msg_type": msg_type,
+                            "content": m["content"], "raw": raw_data,
+                            "images": images,
                         })
 
                     aggregated = self._aggregate(raw_msgs)
                     for msg in aggregated:
+                        # 纯图片消息（无文本）：补充描述
+                        if not msg.content or not msg.content.strip():
+                            if msg.images:
+                                msg.content = "[用户发送了图片]"
+                            elif msg.msg_type and msg.msg_type not in ("text", "mixed"):
+                                log.info(f"收到不支持的消息类型: {msg.sender_id} (type={msg.msg_type})")
+                                await self.send(
+                                    msg.sender_id,
+                                    Message(content="暂时只支持文字和图片消息哦，语音/文件等后续会支持 🙂", channel="wecom"),
+                                )
+                                continue
+                            else:
+                                log.warning(f"跳过空消息: {msg.sender_id} (msg_type={msg.msg_type})")
+                                continue
+
+                        # 下载图片（PicUrl → base64）
+                        if msg.images:
+                            msg.images = await self._download_images(msg.images)
+
                         if self._handler:
                             log.info(f"处理消息: {msg.sender_id} -> {msg.content[:50]}")
+                            # handler 返回 None 表示消息已入队（dispatcher 模式），不发送
                             reply = await self._handler(msg)
                             if reply:
                                 log.info(f"回复: {reply[:50]}")
@@ -272,3 +360,43 @@ class WeComChannel(BaseChannel):
         except Exception as e:
             log.error(f"Relay 健康检查失败: {e}")
             return False
+
+    # ---- 图片处理 ----
+
+    async def _download_images(self, images: list[dict]) -> list[dict]:
+        """下载图片并转为 base64，返回增强后的 images 列表
+
+        每个 image dict 增加 data (base64) 和 media_type 字段。
+        """
+        result = []
+        async with httpx.AsyncClient(timeout=30) as client:
+            for img in images:
+                pic_url = img.get("pic_url", "")
+                if not pic_url:
+                    log.warning("图片缺少 pic_url，跳过")
+                    continue
+                try:
+                    resp = await client.get(pic_url)
+                    if resp.status_code != 200:
+                        log.error(f"下载图片失败: HTTP {resp.status_code}")
+                        continue
+                    # 检测 media type
+                    content_type = resp.headers.get("content-type", "image/jpeg")
+                    if "png" in content_type:
+                        media_type = "image/png"
+                    elif "gif" in content_type:
+                        media_type = "image/gif"
+                    elif "webp" in content_type:
+                        media_type = "image/webp"
+                    else:
+                        media_type = "image/jpeg"
+                    img_b64 = base64.b64encode(resp.content).decode("ascii")
+                    result.append({
+                        **img,
+                        "data": img_b64,
+                        "media_type": media_type,
+                    })
+                    log.info(f"图片下载成功: {len(resp.content)} bytes ({media_type})")
+                except Exception as e:
+                    log.error(f"下载图片异常: {e}")
+        return result

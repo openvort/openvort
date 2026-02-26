@@ -32,8 +32,7 @@ dependencies = [
     "apscheduler>=3.10",
     "cryptography>=42.0",
     "lxml>=5.0",
-    "fastapi>=0.115",
-    "uvicorn>=0.30",
+    "pymysql>=1.1",
 ]
 
 [project.optional-dependencies]
@@ -49,6 +48,10 @@ openvort = "openvort.cli:main"
 
 [project.entry-points."openvort.channels"]
 wecom = "openvort.channels.wecom:WeComChannel"
+
+[project.entry-points."openvort.plugins"]
+zentao = "openvort.plugins.zentao:ZentaoPlugin"
+contacts = "openvort.contacts.plugin:ContactsPlugin"
 
 [project.urls]
 Homepage = "https://github.com/nicekate/openvort"

@@ -4,7 +4,7 @@ import json
 import asyncio
 
 from openvort.plugin.base import BaseTool
-from openvort.plugins.zentao.db import ZentaoDB, AI_ACCOUNT
+from openvort.plugins.zentao.db import ZentaoDB, AI_ACCOUNT, get_actor
 
 
 class CreateBugTool(BaseTool):
@@ -27,6 +27,8 @@ class CreateBugTool(BaseTool):
                 "bug_type": {"type": "string", "description": "Bug 类型", "default": "codeerror",
                              "enum": ["codeerror", "config", "install", "security", "performance",
                                       "standard", "automation", "designdefect", "others"]},
+                "image_urls": {"type": "array", "items": {"type": "string"},
+                               "description": "截图 URL 列表（用户发送的图片地址，从 _image_urls 获取）"},
             },
             "required": ["product", "title", "steps"],
         }
@@ -40,12 +42,28 @@ class CreateBugTool(BaseTool):
         assigned_to = params.get("assigned_to", "")
         bug_type = params.get("bug_type", "codeerror")
 
+        # 合并图片 URL（AI 传入的 + 注入的）
+        image_urls = params.get("image_urls", []) or []
+        injected_urls = params.get("_image_urls", []) or []
+        for url in injected_urls:
+            if url and url not in image_urls:
+                image_urls.append(url)
+
+        # 图片嵌入 steps（HTML img 标签）
+        if image_urls:
+            img_html = "\n".join(
+                f'<img src="{url}" alt="截图" style="max-width:100%;" />'
+                for url in image_urls
+            )
+            steps = f"{steps}\n<p>截图：</p>\n{img_html}"
+
         # 查产品 ID
         product_id = self._db.find_product_id(product_name)
         if not product_id:
             return json.dumps({"ok": False, "message": f"未找到产品「{product_name}」"}, ensure_ascii=False)
 
         def _do_create():
+            actor = get_actor(params)
             conn = self._db.get_conn()
             try:
                 with conn.cursor() as cur:
@@ -60,13 +78,13 @@ class CreateBugTool(BaseTool):
                             %s, NOW(), %s,
                             'trunk', '0')""",
                         (product_id, title, severity, pri, bug_type, steps,
-                         AI_ACCOUNT, assigned_to),
+                         actor, assigned_to),
                     )
                     bug_id = cur.lastrowid
                     self._db.log_action(
                         cur, "bug", bug_id, "opened",
-                        product=product_id,
-                        comment=f"由 {AI_ACCOUNT} 通过 OpenVort 创建：{title}",
+                        product=product_id, actor=actor,
+                        comment=f"由 {actor} 通过 OpenVort 创建：{title}",
                     )
                 conn.commit()
                 return bug_id

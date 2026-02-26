@@ -145,7 +145,7 @@ class RelayStore:
     def get_messages(self, since_id: int = 0, limit: int = 50) -> list[dict]:
         rows = self.conn.execute(
             "SELECT id, msg_id, from_user, msg_type, content, raw_data, processed, created_at "
-            "FROM messages WHERE id > ? ORDER BY id ASC LIMIT ?",
+            "FROM messages WHERE id > ? AND processed = 0 ORDER BY id ASC LIMIT ?",
             (since_id, limit),
         ).fetchall()
         return [

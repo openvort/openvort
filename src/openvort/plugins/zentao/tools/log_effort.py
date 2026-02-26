@@ -4,7 +4,7 @@ import json
 import asyncio
 
 from openvort.plugin.base import BaseTool
-from openvort.plugins.zentao.db import ZentaoDB, AI_ACCOUNT
+from openvort.plugins.zentao.db import ZentaoDB, AI_ACCOUNT, get_actor
 
 
 class LogEffortTool(BaseTool):
@@ -48,6 +48,7 @@ class LogEffortTool(BaseTool):
         total_consumed = old_consumed + consumed
 
         def _do_log():
+            actor = get_actor(params)
             conn = self._db.get_conn()
             try:
                 with conn.cursor() as cur:
@@ -64,7 +65,7 @@ class LogEffortTool(BaseTool):
 
                     # 更新 zt_task 的 consumed 和 left
                     sets = ["consumed=%s", "`left`=%s", "lastEditedBy=%s", "lastEditedDate=NOW()"]
-                    vals = [total_consumed, left, AI_ACCOUNT]
+                    vals = [total_consumed, left, actor]
 
                     # 如果原状态是 wait，自动改为 doing
                     if task["status"] == "wait":

@@ -7,7 +7,10 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Callable, Coroutine
+from typing import TYPE_CHECKING, Any, Callable, Coroutine
+
+if TYPE_CHECKING:
+    from openvort.contacts.sync import ContactSyncProvider
 
 # ============ 消息模型 ============
 
@@ -68,6 +71,31 @@ class BaseChannel(ABC):
         """检查通道是否已配置（子类可覆盖）"""
         return True
 
+    def get_sync_provider(self) -> "ContactSyncProvider | None":
+        """返回通讯录同步提供者（可选）
+
+        Channel 可实现此方法，提供从 IM 平台同步通讯录的能力。
+        """
+        return None
+
+    def get_channel_prompt(self) -> str:
+        """返回渠道特有的 prompt 片段（回复风格、格式约束）
+
+        Channel 可覆盖此方法，提供差异化的 AI 回复风格。
+        """
+        return ""
+
+    def get_tool_filter(self) -> list[str] | None:
+        """返回该渠道允许使用的 Tool 名称列表
+
+        返回 None 表示不限制（所有 Tool 可用）。
+        """
+        return None
+
+    def get_max_reply_length(self) -> int:
+        """回复长度限制（字符数），0 表示不限制"""
+        return 0
+
 
 # ============ Tool 基类 ============
 
@@ -81,6 +109,7 @@ class BaseTool(ABC):
 
     name: str = ""  # 工具标识，如 "zentao.create_bug"
     description: str = ""  # 工具描述（给 LLM 看，影响调用决策）
+    required_permission: str = ""  # 所需权限码，空字符串表示无需权限
 
     @abstractmethod
     def input_schema(self) -> dict:
@@ -141,3 +170,25 @@ class BasePlugin(ABC):
         返回 False 时插件不会被加载，其 Tools 和 Prompts 不会注册。
         """
         return True
+
+    def get_sync_provider(self) -> "ContactSyncProvider | None":
+        """返回通讯录同步提供者（可选）
+
+        Plugin 可实现此方法，提供从外部系统同步通讯录的能力。
+        """
+        return None
+
+    def get_permissions(self) -> list[dict]:
+        """声明插件提供的权限列表（可选）
+
+        返回: [{"code": "zentao.create_task", "display_name": "创建禅道任务"}, ...]
+        """
+        return []
+
+    def get_roles(self) -> list[dict]:
+        """声明插件提供的自定义角色（可选）
+
+        返回: [{"name": "zentao_pm", "display_name": "禅道项目经理",
+                "permissions": ["zentao.create_task", "zentao.view_task"]}]
+        """
+        return []

@@ -16,14 +16,25 @@ log = get_logger("plugin.loader")
 class PluginLoader:
     """插件加载器"""
 
-    def __init__(self, registry: PluginRegistry):
+    def __init__(self, registry: PluginRegistry, auth_service=None):
         self.registry = registry
+        self._plugins: list[BasePlugin] = []
+        self._auth = auth_service
 
     def load_all(self) -> None:
         """加载所有插件（entry_points）"""
         self._load_plugins()
         self._load_channels()
         self._load_tools()
+        self._inject_sync_providers()
+
+    async def load_all_async(self) -> None:
+        """异步注册插件声明的权限和角色（在 load_all 之后调用）"""
+        await self._register_plugin_permissions()
+
+    def get_plugins(self) -> list[BasePlugin]:
+        """返回已加载的 Plugin 实例列表"""
+        return list(self._plugins)
 
     def _load_plugins(self) -> None:
         """从 entry_points 加载 Plugin（自动注册其 Tools 和 Prompts）"""
@@ -57,6 +68,7 @@ class PluginLoader:
                     f"已加载 Plugin: {plugin.name} ({plugin.display_name}) "
                     f"— {len(tools)} 个 Tool, {len(prompts)} 条 Prompt"
                 )
+                self._plugins.append(plugin)
             except Exception as e:
                 log.error(f"加载 Plugin '{ep.name}' 失败: {e}")
 
@@ -91,3 +103,60 @@ class PluginLoader:
                     log.warning(f"Tool entry_point '{ep.name}' 不是 BaseTool 子类，跳过")
             except Exception as e:
                 log.error(f"加载 Tool '{ep.name}' 失败: {e}")
+
+    def _inject_sync_providers(self) -> None:
+        """收集所有 SyncProvider 并注入到 ContactsPlugin"""
+        from openvort.contacts.plugin import ContactsPlugin
+
+        # 找到 ContactsPlugin 实例
+        contacts_plugin = None
+        for plugin in self._plugins:
+            if isinstance(plugin, ContactsPlugin):
+                contacts_plugin = plugin
+                break
+
+        if not contacts_plugin:
+            return
+
+        # 从所有 Channel 和 Plugin 收集 SyncProvider
+        providers = []
+        for ch in self.registry.list_channels():
+            p = ch.get_sync_provider()
+            if p:
+                providers.append(p)
+
+        for plugin in self._plugins:
+            if plugin is contacts_plugin:
+                continue
+            p = plugin.get_sync_provider()
+            if p:
+                providers.append(p)
+
+                contacts_plugin.set_providers(providers)
+
+    async def _register_plugin_permissions(self) -> None:
+        """注册所有 Plugin 声明的权限和角色到 AuthService"""
+        if not self._auth:
+            return
+
+        for plugin in self._plugins:
+            source = plugin.name
+
+            # 注册权限
+            for perm_def in plugin.get_permissions():
+                await self._auth.register_permission(
+                    code=perm_def["code"],
+                    display_name=perm_def.get("display_name", ""),
+                    source=source,
+                )
+
+            # 注册角色
+            for role_def in plugin.get_roles():
+                await self._auth.register_role(
+                    name=role_def["name"],
+                    display_name=role_def.get("display_name", ""),
+                    permissions=role_def.get("permissions", []),
+                    source=source,
+                )
+
+        log.info("插件权限和角色注册完成")

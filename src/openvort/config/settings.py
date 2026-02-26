@@ -48,6 +48,19 @@ class RelaySettings(BaseSettings):
     port: int = 8080  # Relay Server 监听端口（服务端用）
 
 
+class ContactsSettings(BaseSettings):
+    """通讯录配置"""
+
+    model_config = SettingsConfigDict(
+        env_prefix="OPENVORT_CONTACTS_", env_file=".env", env_file_encoding="utf-8", extra="ignore",
+    )
+
+    auto_match_threshold: float = 0.9  # 自动关联置信度阈值（>= 此值自动关联，< 此值生成建议）
+    sync_interval_minutes: int = 60  # 定时同步间隔（分钟），0 表示不自动同步
+    admin_user_ids: str = ""  # 逗号分隔的管理员 user_id，有权执行同步/匹配管理
+    role_mapping: str = "总经理:admin,副总:admin,总监:manager,经理:manager,主管:manager"  # 职位->角色映射
+
+
 class Settings(BaseSettings):
     """OpenVort 全局配置"""
 
@@ -74,6 +87,9 @@ class Settings(BaseSettings):
 
     # Relay
     relay: RelaySettings = Field(default_factory=RelaySettings)
+
+    # 通讯录
+    contacts: ContactsSettings = Field(default_factory=ContactsSettings)
 
 
 # 全局单例（延迟初始化）

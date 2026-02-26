@@ -90,8 +90,8 @@ class WeComCrypto {
     const decryptedXml = this.decrypt(encrypted);
     // 简单 XML 解析
     const result = {};
-    const tagRegex = /<(\w+)><!\[CDATA\[(.*?)\]\]><\/\1>/g;
-    const tagRegex2 = /<(\w+)>(.*?)<\/\1>/g;
+    const tagRegex = /<(\w+)><!\[CDATA\[([\s\S]*?)\]\]><\/\1>/g;
+    const tagRegex2 = /<(\w+)>([\s\S]*?)<\/\1>/g;
     let m;
     while ((m = tagRegex.exec(decryptedXml)) !== null) result[m[1]] = m[2];
     while ((m = tagRegex2.exec(decryptedXml)) !== null) if (!result[m[1]]) result[m[1]] = m[2];

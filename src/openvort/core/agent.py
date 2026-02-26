@@ -8,6 +8,7 @@ Agent Runtime
 import anthropic
 
 from openvort.config.settings import LLMSettings
+from openvort.core.context import RequestContext
 from openvort.core.session import SessionStore
 from openvort.plugin.registry import PluginRegistry
 from openvort.utils.logging import get_logger
@@ -56,30 +57,47 @@ class AgentRuntime:
         self._sessions = session_store
         self._system_prompt = system_prompt
 
-    async def process(self, channel: str, user_id: str, content: str) -> str:
+    async def process(self, ctx: RequestContext, content: str) -> str:
         """处理一条用户消息，返回回复文本
 
         Args:
-            channel: 来源通道标识（如 "wecom"）
-            user_id: 用户 ID
+            ctx: 请求上下文（渠道、身份、角色、权限等）
             content: 消息内容
 
         Returns:
             AI 回复文本
         """
+        # 0. 空消息保护
+        if not content or not content.strip():
+            if not ctx.images:
+                log.warning(f"收到空消息，跳过处理 ({ctx.channel}:{ctx.user_id})")
+                return ""
+
         # 1. 加载对话历史，追加用户消息
-        messages = self._sessions.get_messages(channel, user_id)
-        messages.append({"role": "user", "content": content})
+        messages = self._sessions.get_messages(ctx.channel, ctx.user_id)
 
-        # 2. 获取可用工具
-        tools = self._registry.to_claude_tools()
+        # 构建 user content（支持多模态：文本 + 图片）
+        user_content = self._build_user_content(content, ctx.images)
+        messages.append({"role": "user", "content": user_content})
 
-        # 3. Agentic loop
-        max_rounds = 10  # 防止无限循环
+        # 2. 构建 system prompt
+        sender_context = ctx.get_sender_prompt()
+        channel_prompt = ctx.channel_prompt
+
+        # 3. 获取可用工具（按权限和渠道过滤）
+        tools = self._registry.to_claude_tools(
+            permissions=ctx.permissions if ctx.permissions else None,
+            allowed_tools=ctx.allowed_tools,
+        )
+
+        # 4. Agentic loop
+        max_rounds = 10
+        response = None
         for _ in range(max_rounds):
             try:
-                # 动态拼接插件领域知识到 system prompt
-                system = self._system_prompt
+                system = self._system_prompt + sender_context
+                if channel_prompt:
+                    system += f"\n\n# 渠道回复规范\n\n{channel_prompt}"
                 plugin_prompts = self._registry.get_system_prompt_extension()
                 if plugin_prompts:
                     system += "\n\n# 插件能力\n\n" + plugin_prompts
@@ -110,7 +128,19 @@ class AgentRuntime:
             for block in response.content:
                 if block.type == "tool_use":
                     log.info(f"调用工具: {block.name}({block.input})")
-                    result = await self._registry.execute_tool(block.name, block.input)
+                    tool_input = dict(block.input)
+                    tool_input["_caller_id"] = ctx.user_id
+                    if ctx.member:
+                        tool_input["_member_id"] = ctx.member.id
+                    # 注入禅道账号（优先用操作人自己的账号）
+                    if ctx.platform_accounts.get("zentao"):
+                        tool_input["_zentao_account"] = ctx.platform_accounts["zentao"]
+                    # 注入图片 URL（pic_url 列表）
+                    if ctx.images:
+                        tool_input["_image_urls"] = [
+                            img["pic_url"] for img in ctx.images if img.get("pic_url")
+                        ]
+                    result = await self._registry.execute_tool(block.name, tool_input)
                     log.info(f"工具结果: {result[:200]}")
                     tool_results.append({
                         "type": "tool_result",
@@ -121,15 +151,19 @@ class AgentRuntime:
             # 回传工具结果
             messages.append({"role": "user", "content": tool_results})
 
-        # 4. 保存对话历史
-        self._sessions.save_messages(channel, user_id, messages)
+        # 5. 保存对话历史
+        self._sessions.save_messages(ctx.channel, ctx.user_id, messages)
 
-        # 5. 提取文本回复
-        return self._extract_text(response)
+        # 6. 提取文本回复（必要时截断）
+        reply = self._extract_text(response) if response else "（无回复内容）"
+        if ctx.max_reply_length and len(reply) > ctx.max_reply_length:
+            reply = reply[: ctx.max_reply_length - 3] + "..."
+        return reply
 
     async def chat(self, content: str) -> str:
         """简单对话接口（无 channel/user 上下文，用于 CLI 调试）"""
-        return await self.process("cli", "debug", content)
+        ctx = RequestContext(channel="cli", user_id="debug")
+        return await self.process(ctx, content)
 
     @staticmethod
     def _extract_text(response) -> str:
@@ -155,3 +189,46 @@ class AgentRuntime:
                     "input": block.input,
                 })
         return serialized
+
+    @staticmethod
+    def _build_user_content(text: str, images: list[dict]) -> str | list[dict]:
+        """构建用户消息 content（纯文本或多模态）
+
+        无图片时返回纯字符串（节省 token），有图片时返回 content blocks。
+        同时把 pic_url 写入文本，确保后续轮次 AI 也能引用图片 URL。
+        """
+        if not images:
+            return text
+
+        blocks: list[dict] = []
+        # 先放图片
+        pic_urls = []
+        for img in images:
+            data = img.get("data")
+            media_type = img.get("media_type", "image/jpeg")
+            if data:
+                blocks.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": media_type,
+                        "data": data,
+                    },
+                })
+            pic_url = img.get("pic_url", "")
+            if pic_url:
+                pic_urls.append(pic_url)
+
+        # 文本中附上 pic_url，确保跨轮次可引用
+        url_hint = ""
+        if pic_urls:
+            url_list = "\n".join(pic_urls)
+            url_hint = f"\n\n[图片URL，可用于嵌入禅道]\n{url_list}"
+
+        if text and text.strip():
+            blocks.append({"type": "text", "text": text + url_hint})
+        else:
+            blocks.append({"type": "text", "text": "请看图片" + url_hint})
+            blocks.append({"type": "text", "text": "请看图片"})
+
+        return blocks

@@ -16,8 +16,13 @@ from openvort.utils.logging import get_logger
 
 log = get_logger("plugins.zentao.db")
 
-# 默认 AI 操作账号
-AI_ACCOUNT = "vortFlowAi"
+# 默认 AI 操作账号（兜底，优先用操作人自己的禅道账号）
+AI_ACCOUNT = "openVortAi"
+
+
+def get_actor(params: dict) -> str:
+    """从 tool params 中获取操作人账号，优先用注入的禅道账号"""
+    return params.get("_zentao_account") or AI_ACCOUNT
 
 
 class ZentaoDB:

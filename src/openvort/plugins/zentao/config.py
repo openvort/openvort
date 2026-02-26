@@ -10,7 +10,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class ZentaoSettings(BaseSettings):
     """禅道数据库连接配置"""
 
-    model_config = SettingsConfigDict(env_prefix="OPENVORT_ZENTAO_")
+    model_config = SettingsConfigDict(
+        env_prefix="OPENVORT_ZENTAO_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     host: str = ""
     port: int = 3306
