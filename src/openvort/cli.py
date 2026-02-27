@@ -132,12 +132,13 @@ def init():
 @main.command()
 @click.option("--relay-url", default=None, help="Relay Server 地址（中继模式）")
 @click.option("--poll-db", default=None, help="远程数据库轮询配置（JSON 字符串）")
-def start(relay_url, poll_db):
+@click.option("--web/--no-web", default=None, help="启用/禁用 Web 管理面板")
+def start(relay_url, poll_db, web):
     """启动 OpenVort 服务"""
-    _run_async(_start_service(relay_url, poll_db))
+    _run_async(_start_service(relay_url, poll_db, web))
 
 
-async def _start_service(relay_url: str | None, poll_db_json: str | None):
+async def _start_service(relay_url: str | None, poll_db_json: str | None, web_flag: bool | None):
     """启动服务的异步实现"""
     from openvort.auth.service import AuthService
     from openvort.config.settings import get_settings
@@ -197,6 +198,11 @@ async def _start_service(relay_url: str | None, poll_db_json: str | None):
     loader.load_all()
     await loader.load_all_async()
 
+    # 加载 Skill（知识注入）
+    from openvort.skill.loader import SkillLoader
+    skill_loader = SkillLoader(registry)
+    skill_loader.load_all()
+
     # 注入 AuthService 到 ContactsPlugin
     for plugin in loader.get_plugins():
         if isinstance(plugin, ContactsPlugin):
@@ -206,8 +212,16 @@ async def _start_service(relay_url: str | None, poll_db_json: str | None):
     resolver = IdentityResolver(session_factory)
 
     # 初始化 Agent
-    session_store = SessionStore()
+    session_store = SessionStore(session_factory=session_factory)
     agent = AgentRuntime(settings.llm, registry, session_store)
+
+    # 初始化 IM 命令处理器
+    from openvort.core.commands import CommandHandler
+    command_handler = CommandHandler(
+        session_store=session_store,
+        llm_client=agent._llm,
+        model_name=settings.llm.model,
+    )
 
     # 注入 AI 人设到 system prompt
     if identity_prompt:
@@ -220,6 +234,28 @@ async def _start_service(relay_url: str | None, poll_db_json: str | None):
     # 构建 RequestContext 的辅助函数
     async def build_context(channel_name: str, user_id: str) -> RequestContext:
         ctx = RequestContext(channel=channel_name, user_id=user_id)
+
+        # 注入身份刷新回调（同步/绑定后可重新解析身份）
+        async def _refresh_identity(ctx: RequestContext) -> None:
+            resolver.invalidate(ctx.channel, ctx.user_id)
+            member = await resolver.resolve(ctx.channel, ctx.user_id)
+            if member:
+                ctx.member = member
+                ctx.roles = await auth_service.get_member_roles(member.id)
+                ctx.permissions = await auth_service.get_member_permissions(member.id)
+                ctx.platform_accounts.clear()
+                from sqlalchemy import select
+                from openvort.contacts.models import PlatformIdentity
+                async with session_factory() as session:
+                    stmt = select(PlatformIdentity.platform, PlatformIdentity.platform_user_id).where(
+                        PlatformIdentity.member_id == member.id,
+                    )
+                    result = await session.execute(stmt)
+                    for row in result.all():
+                        ctx.platform_accounts[row[0]] = row[1]
+
+        ctx._identity_refresher = _refresh_identity
+
         # 解析身份
         try:
             member = await resolver.resolve(channel_name, user_id)
@@ -281,6 +317,14 @@ async def _start_service(relay_url: str | None, poll_db_json: str | None):
                     ))
                     return None
 
+                # IM 命令拦截（/new /status /compact /think /usage /help）
+                cmd_result = await command_handler.handle(msg.channel, msg.sender_id, msg.content)
+                if cmd_result.handled:
+                    if cmd_result.reply:
+                        from openvort.plugin.base import Message as Msg
+                        await _ch.send(msg.sender_id, Msg(content=cmd_result.reply, channel="wecom"))
+                    return None
+
                 ctx = await build_context(msg.channel, msg.sender_id)
                 ctx.images = getattr(msg, "images", []) or []
 
@@ -308,6 +352,47 @@ async def _start_service(relay_url: str | None, poll_db_json: str | None):
 
     mode = "relay" if effective_relay_url else ("poll-db" if poll_db_json else "webhook")
     log.info(f"已加载 {len(channels)} 个 Channel, {len(registry.list_tools())} 个 Tool (模式: {mode})")
+
+    # ---- Web 管理面板 ----
+    web_enabled = web_flag if web_flag is not None else settings.web.enabled
+    web_server = None
+    if web_enabled:
+        try:
+            import uvicorn
+            from openvort.web.app import create_app
+            from openvort.web.deps import set_runtime
+            from openvort.web.routers.logs import install_log_handler
+
+            # 注入运行时依赖
+            set_runtime(agent, registry, session_store, session_factory,
+                        auth_service=auth_service, build_context_fn=build_context,
+                        skill_loader=skill_loader)
+            install_log_handler()
+
+            web_app = create_app()
+            config = uvicorn.Config(
+                web_app,
+                host=settings.web.host,
+                port=settings.web.port,
+                log_level="warning",
+            )
+            web_server = uvicorn.Server(config)
+
+            async def _run_web_server():
+                try:
+                    await web_server.serve()
+                except SystemExit:
+                    pass
+                except Exception as e:
+                    log.warning(f"Web 面板运行异常: {e}")
+
+            asyncio.create_task(_run_web_server())
+            log.info(f"Web 管理面板已启动: http://{settings.web.host}:{settings.web.port}")
+        except ImportError:
+            log.warning("未安装 uvicorn/fastapi，Web 面板未启动。运行 pip install uvicorn fastapi 安装。")
+        except Exception as e:
+            log.warning(f"Web 面板启动失败: {e}")
+
     log.info("OpenVort 已就绪，等待消息...")
 
     # 保持运行
@@ -410,6 +495,39 @@ def tools_list():
     click.echo(f"已注册 {len(ts)} 个 Tool:\n")
     for t in ts:
         click.echo(f"  {t.name:30s} {t.description[:60]}")
+
+
+# ============ plugins ============
+
+
+@main.group()
+def plugins():
+    """管理插件"""
+    pass
+
+
+@plugins.command("list")
+def plugins_list():
+    """列出所有 Plugin（内置 + pip + 本地）"""
+    from openvort.plugin import PluginLoader, PluginRegistry
+
+    registry = PluginRegistry()
+    loader = PluginLoader(registry)
+    loader.load_all()
+
+    all_plugins = registry.list_plugins()
+    if not all_plugins:
+        click.echo("未发现任何 Plugin")
+        return
+
+    click.echo(f"已注册 {len(all_plugins)} 个 Plugin:\n")
+    for p in all_plugins:
+        source_label = {"builtin": "内置", "pip": "pip", "local": "本地"}.get(p.source, p.source)
+        tools_count = len(p.get_tools())
+        click.echo(
+            f"  {p.name:16s} {p.display_name:16s} "
+            f"[{source_label:4s}] {tools_count} 个 Tool"
+        )
 
 
 # ============ agent ============
@@ -657,6 +775,280 @@ async def _contacts_reject(suggestion_id: int):
 
     from openvort.db import close_db
     await close_db()
+
+
+# ============ skills ============
+
+
+@main.group()
+def skills():
+    """管理 Skill（知识注入）"""
+    pass
+
+
+@skills.command("list")
+def skills_list():
+    """列出所有 Skill（内置 + workspace）"""
+    from openvort.plugin import PluginRegistry
+    from openvort.skill.loader import SkillLoader
+
+    registry = PluginRegistry()
+    loader = SkillLoader(registry)
+    loader.load_all()
+
+    all_skills = loader.get_skills()
+    if not all_skills:
+        click.echo("未发现任何 Skill")
+        return
+
+    # 按来源分组
+    builtin = [s for s in all_skills if s.source == "builtin"]
+    workspace = [s for s in all_skills if s.source == "workspace"]
+
+    if builtin:
+        click.echo(f"\n内置 Skill ({len(builtin)}):\n")
+        for s in builtin:
+            status = "✅ 启用" if s.enabled else "❌ 禁用"
+            click.echo(f"  {s.name:20s} {s.description[:40]:40s} {status}")
+
+    if workspace:
+        click.echo(f"\n用户 Skill ({len(workspace)}):\n")
+        for s in workspace:
+            status = "✅ 启用" if s.enabled else "❌ 禁用"
+            click.echo(f"  {s.name:20s} {s.description[:40]:40s} {status}")
+
+    click.echo(f"\n共 {len(all_skills)} 个 Skill")
+
+
+@skills.command("enable")
+@click.argument("name")
+def skills_enable(name):
+    """启用指定 Skill"""
+    from openvort.plugin import PluginRegistry
+    from openvort.skill.loader import SkillLoader
+
+    registry = PluginRegistry()
+    loader = SkillLoader(registry)
+    loader.load_all()
+
+    if loader.enable_skill(name):
+        click.echo(f"✅ Skill '{name}' 已启用")
+    else:
+        click.echo(f"❌ 未找到 Skill '{name}'")
+
+
+@skills.command("disable")
+@click.argument("name")
+def skills_disable(name):
+    """禁用指定 Skill"""
+    from openvort.plugin import PluginRegistry
+    from openvort.skill.loader import SkillLoader
+
+    registry = PluginRegistry()
+    loader = SkillLoader(registry)
+    loader.load_all()
+
+    if loader.disable_skill(name):
+        click.echo(f"✅ Skill '{name}' 已禁用")
+    else:
+        click.echo(f"❌ 未找到 Skill '{name}'")
+
+
+@skills.command("create")
+@click.argument("name")
+def skills_create(name):
+    """在 workspace 创建新 Skill 模板"""
+    from openvort.plugin import PluginRegistry
+    from openvort.skill.loader import SkillLoader
+
+    registry = PluginRegistry()
+    loader = SkillLoader(registry)
+
+    path = loader.create_skill(name)
+    if path:
+        click.echo(f"✅ 已创建 Skill 模板: {path}")
+        click.echo(f"   编辑 {path} 添加 Skill 内容，重启服务后生效")
+    else:
+        click.echo(f"❌ Skill '{name}' 已存在")
+
+
+# ============ pairing ============
+
+
+@main.group()
+def pairing():
+    """DM 配对管理"""
+    pass
+
+
+@pairing.command("approve")
+@click.argument("code")
+def pairing_approve(code):
+    """批准配对码"""
+    from openvort.core.pairing import PairingManager
+    manager = PairingManager()
+    ok, msg = manager.approve(code, approved_by="cli")
+    click.echo(f"{'✅' if ok else '❌'} {msg}")
+
+
+@pairing.command("reject")
+@click.argument("code")
+def pairing_reject(code):
+    """拒绝配对码"""
+    from openvort.core.pairing import PairingManager
+    manager = PairingManager()
+    ok, msg = manager.reject(code)
+    click.echo(f"{'✅' if ok else '❌'} {msg}")
+
+
+@pairing.command("list")
+def pairing_list():
+    """列出待审批的配对请求"""
+    from openvort.core.pairing import PairingManager
+    manager = PairingManager()
+    pending = manager.list_pending()
+    if not pending:
+        click.echo("没有待审批的配对请求")
+        return
+    click.echo(f"待审批 {len(pending)} 条:\n")
+    for p in pending:
+        click.echo(f"  🔑 {p['code']}  {p['channel']}:{p['user_id']}  (剩余 {p['remaining_seconds']}s)")
+
+
+@pairing.command("allowlist")
+def pairing_allowlist():
+    """查看白名单"""
+    from openvort.core.pairing import PairingManager
+    manager = PairingManager()
+    items = manager.list_allowlist()
+    if not items:
+        click.echo("白名单为空")
+        return
+    click.echo(f"白名单 {len(items)} 条:\n")
+    for item in items:
+        click.echo(f"  {item['channel']}:{item['user_id']}  (by {item.get('approved_by', '?')})")
+
+
+# ============ doctor ============
+
+
+@main.command()
+def doctor():
+    """诊断系统配置和连接状态"""
+    _run_async(_doctor())
+
+
+async def _doctor():
+    from openvort.config.settings import get_settings
+    from openvort.utils.logging import setup_logging
+
+    settings = get_settings()
+    setup_logging("WARNING")
+
+    click.echo("🩺 OpenVort Doctor\n")
+    issues = []
+
+    # 1. LLM 配置检查
+    click.echo("── LLM 配置 ──")
+    if not settings.llm.api_key:
+        issues.append("LLM API Key 未配置")
+        click.echo("  ❌ API Key 未配置")
+    else:
+        click.echo(f"  ✅ Provider: {settings.llm.provider}")
+        click.echo(f"  ✅ Model: {settings.llm.model}")
+        # 尝试连接
+        try:
+            from openvort.core.llm import create_provider
+            provider = create_provider(
+                settings.llm.provider, settings.llm.api_key,
+                settings.llm.api_base, timeout=10,
+            )
+            click.echo("  ✅ API 连接正常")
+            await provider.close()
+        except Exception as e:
+            issues.append(f"LLM API 连接失败: {e}")
+            click.echo(f"  ❌ API 连接失败: {e}")
+
+    # 2. 数据库检查
+    click.echo("\n── 数据库 ──")
+    try:
+        from openvort.db import init_db
+        await init_db(settings.database_url)
+        click.echo(f"  ✅ 数据库连接正常: {settings.database_url.split('://')[0]}")
+    except Exception as e:
+        issues.append(f"数据库连接失败: {e}")
+        click.echo(f"  ❌ 数据库连接失败: {e}")
+
+    # 3. 通道配置检查
+    click.echo("\n── 通道配置 ──")
+    from openvort.plugin import PluginLoader, PluginRegistry
+    registry = PluginRegistry()
+    loader = PluginLoader(registry)
+    loader.load_all()
+
+    channels = registry.list_channels()
+    if not channels:
+        click.echo("  ⚠️ 未发现任何 Channel 插件")
+    for ch in channels:
+        if ch.is_configured():
+            click.echo(f"  ✅ {ch.name} ({ch.display_name}) — 已配置")
+            try:
+                result = await ch.test_connection()
+                if result.get("ok"):
+                    click.echo(f"     连接测试: ✅ {result.get('message', '')}")
+                else:
+                    issues.append(f"{ch.name} 连接失败: {result.get('message', '')}")
+                    click.echo(f"     连接测试: ❌ {result.get('message', '')}")
+            except Exception as e:
+                click.echo(f"     连接测试: ⚠️ 跳过 ({e})")
+        else:
+            click.echo(f"  ⚠️ {ch.name} ({ch.display_name}) — 未配置")
+
+    # 4. Relay 检查
+    click.echo("\n── Relay 中继 ──")
+    if settings.relay.url:
+        click.echo(f"  ✅ Relay URL: {settings.relay.url}")
+        if not settings.relay.secret:
+            issues.append("Relay Secret 未配置（安全风险）")
+            click.echo("  ⚠️ Relay Secret 未配置（建议设置鉴权密钥）")
+    else:
+        click.echo("  ℹ️ 未配置 Relay（使用 Webhook 或 Poll-DB 模式）")
+
+    # 5. 安全策略检查
+    click.echo("\n── 安全策略 ──")
+    if not settings.contacts.admin_user_ids:
+        issues.append("未配置管理员 user_id")
+        click.echo("  ⚠️ 未配置管理员 user_id (OPENVORT_CONTACTS_ADMIN_USER_IDS)")
+    else:
+        click.echo(f"  ✅ 管理员: {settings.contacts.admin_user_ids}")
+
+    if settings.web.enabled:
+        if settings.web.default_password == "openvort":
+            issues.append("Web 面板使用默认密码")
+            click.echo("  ⚠️ Web 面板使用默认密码 'openvort'（建议修改 OPENVORT_WEB_DEFAULT_PASSWORD）")
+        else:
+            click.echo("  ✅ Web 面板密码已自定义")
+
+    # 6. 插件检查
+    click.echo("\n── 插件 ──")
+    plugins = registry.list_plugins()
+    tools = registry.list_tools()
+    click.echo(f"  ✅ {len(plugins)} 个 Plugin, {len(tools)} 个 Tool")
+
+    # 总结
+    click.echo("\n" + "=" * 40)
+    if issues:
+        click.echo(f"⚠️ 发现 {len(issues)} 个问题:\n")
+        for i, issue in enumerate(issues, 1):
+            click.echo(f"  {i}. {issue}")
+    else:
+        click.echo("✅ 一切正常！")
+
+    try:
+        from openvort.db import close_db
+        await close_db()
+    except Exception:
+        pass
 
 
 # ============ Bootstrap Wizard ============

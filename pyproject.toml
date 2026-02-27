@@ -33,6 +33,8 @@ dependencies = [
     "cryptography>=42.0",
     "lxml>=5.0",
     "pymysql>=1.1",
+    "fastapi>=0.115",
+    "uvicorn>=0.32",
 ]
 
 [project.optional-dependencies]
@@ -48,6 +50,8 @@ openvort = "openvort.cli:main"
 
 [project.entry-points."openvort.channels"]
 wecom = "openvort.channels.wecom:WeComChannel"
+dingtalk = "openvort.channels.dingtalk:DingTalkChannel"
+feishu = "openvort.channels.feishu:FeishuChannel"
 
 [project.entry-points."openvort.plugins"]
 zentao = "openvort.plugins.zentao:ZentaoPlugin"

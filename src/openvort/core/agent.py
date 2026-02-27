@@ -1,14 +1,14 @@
 """
 Agent Runtime
 
-基于 Claude tool use 的 agentic loop。
+基于 LLM tool use 的 agentic loop。
+支持多 Provider（Anthropic/OpenAI/DeepSeek 等）+ Failover。
 不依赖 LangChain 等框架，保持轻量可控。
 """
 
-import anthropic
-
 from openvort.config.settings import LLMSettings
 from openvort.core.context import RequestContext
+from openvort.core.llm import LLMClient, LLMResponse, TextBlock, ToolUseBlock, Usage
 from openvort.core.session import SessionStore
 from openvort.plugin.registry import PluginRegistry
 from openvort.utils.logging import get_logger
@@ -44,13 +44,7 @@ class AgentRuntime:
         session_store: SessionStore,
         system_prompt: str = SYSTEM_PROMPT,
     ):
-        client_kwargs = {
-            "api_key": llm_settings.api_key,
-            "timeout": llm_settings.timeout,
-        }
-        if llm_settings.api_base and llm_settings.api_base != "https://api.anthropic.com":
-            client_kwargs["base_url"] = llm_settings.api_base
-        self._client = anthropic.AsyncAnthropic(**client_kwargs)
+        self._llm = LLMClient(llm_settings.get_model_chain())
         self._model = llm_settings.model
         self._max_tokens = llm_settings.max_tokens
         self._registry = registry
@@ -74,7 +68,7 @@ class AgentRuntime:
                 return ""
 
         # 1. 加载对话历史，追加用户消息
-        messages = self._sessions.get_messages(ctx.channel, ctx.user_id)
+        messages = await self._sessions.get_messages(ctx.channel, ctx.user_id)
 
         # 构建 user content（支持多模态：文本 + 图片）
         user_content = self._build_user_content(content, ctx.images)
@@ -86,6 +80,7 @@ class AgentRuntime:
 
         # 2.1 插件引导 prompt（检查各插件就绪状态）
         onboarding_hints = []
+        blocked_tools: set[str] = set()  # 未就绪插件的工具，不暴露给 LLM
         is_admin = "*" in (ctx.permissions or set()) or "admin" in {r.name if hasattr(r, "name") else r for r in (ctx.roles or [])}
         for plugin in self._registry.list_plugins():
             platform = plugin.get_platform()
@@ -94,6 +89,9 @@ class AgentRuntime:
             try:
                 status = await plugin.get_setup_status(ctx)
                 if status != "ready":
+                    # 屏蔽该插件的所有工具，强制走引导流程
+                    for tool in plugin.get_tools():
+                        blocked_tools.add(tool.name)
                     hint = plugin.get_onboarding_prompt(status, is_admin)
                     if hint:
                         onboarding_hints.append(f"## {plugin.display_name}引导\n\n{hint}")
@@ -105,10 +103,19 @@ class AgentRuntime:
             permissions=ctx.permissions if ctx.permissions else None,
             allowed_tools=ctx.allowed_tools,
         )
+        # 移除未就绪插件的工具，用户必须先完成引导（同步通讯录 + 绑定身份）
+        if blocked_tools:
+            tools = [t for t in tools if t["name"] not in blocked_tools]
 
         # 4. Agentic loop
         max_rounds = 10
         response = None
+        total_usage = Usage()
+
+        # 获取 per-session thinking 级别
+        thinking_level = self._sessions.get_thinking_level(ctx.channel, ctx.user_id)
+        thinking_param = self._build_thinking_param(thinking_level)
+
         for _ in range(max_rounds):
             try:
                 system = self._system_prompt + sender_context
@@ -120,17 +127,14 @@ class AgentRuntime:
                 if onboarding_hints:
                     system += "\n\n# 插件引导（优先处理）\n\n" + "\n\n".join(onboarding_hints)
 
-                kwargs = {
-                    "model": self._model,
-                    "max_tokens": self._max_tokens,
-                    "system": system,
-                    "messages": messages,
-                }
-                if tools:
-                    kwargs["tools"] = tools
-
-                response = await self._client.messages.create(**kwargs)
-            except anthropic.APIError as e:
+                response = await self._llm.create(
+                    system=system, messages=messages,
+                    tools=tools if tools else None,
+                    thinking=thinking_param,
+                )
+                total_usage.input_tokens += response.usage.input_tokens
+                total_usage.output_tokens += response.usage.output_tokens
+            except Exception as e:
                 log.error(f"LLM API 调用失败: {e}")
                 return "抱歉，AI 服务暂时不可用，请稍后再试。"
 
@@ -143,8 +147,9 @@ class AgentRuntime:
 
             # 执行工具调用
             tool_results = []
+            need_refresh_tools = False
             for block in response.content:
-                if block.type == "tool_use":
+                if getattr(block, "type", None) == "tool_use":
                     log.info(f"调用工具: {block.name}({block.input})")
                     tool_input = dict(block.input)
                     tool_input["_caller_id"] = ctx.user_id
@@ -165,15 +170,59 @@ class AgentRuntime:
                         "tool_use_id": block.id,
                         "content": result,
                     })
+                    # 同步/绑定操作可能改变插件就绪状态，标记需要刷新工具列表
+                    if block.name in ("contacts_sync", "contacts_bind_identity"):
+                        need_refresh_tools = True
+
+            # 引导工具执行后，重新检查插件状态并刷新可用工具列表
+            if need_refresh_tools and blocked_tools:
+                await ctx.refresh_identity()
+                blocked_tools.clear()
+                onboarding_hints.clear()
+                for plugin in self._registry.list_plugins():
+                    platform = plugin.get_platform()
+                    if not platform:
+                        continue
+                    try:
+                        status = await plugin.get_setup_status(ctx)
+                        if status != "ready":
+                            for tool in plugin.get_tools():
+                                blocked_tools.add(tool.name)
+                            hint = plugin.get_onboarding_prompt(status, is_admin)
+                            if hint:
+                                onboarding_hints.append(f"## {plugin.display_name}引导\n\n{hint}")
+                    except Exception as e:
+                        log.warning(f"刷新插件 {plugin.name} 就绪状态失败: {e}")
+                tools = self._registry.to_claude_tools(
+                    permissions=ctx.permissions if ctx.permissions else None,
+                    allowed_tools=ctx.allowed_tools,
+                )
+                if blocked_tools:
+                    tools = [t for t in tools if t["name"] not in blocked_tools]
+                log.info(f"工具列表已刷新，当前可用 {len(tools)} 个工具")
 
             # 回传工具结果
             messages.append({"role": "user", "content": tool_results})
 
-        # 5. 保存对话历史
-        self._sessions.save_messages(ctx.channel, ctx.user_id, messages)
+        # 5. 保存对话历史 + 累计用量
+        await self._sessions.save_messages(ctx.channel, ctx.user_id, messages)
+        self._sessions.add_usage(ctx.channel, ctx.user_id, total_usage.input_tokens, total_usage.output_tokens)
+        log.info(f"本次用量: input={total_usage.input_tokens}, output={total_usage.output_tokens}")
 
         # 6. 提取文本回复（必要时截断）
         reply = self._extract_text(response) if response else "（无回复内容）"
+
+        # 6.1 附加用量信息（根据 per-session usage_mode）
+        usage_mode = self._sessions.get_usage_mode(ctx.channel, ctx.user_id)
+        if usage_mode == "tokens":
+            reply += f"\n\n📊 本次: ↑{total_usage.input_tokens} ↓{total_usage.output_tokens}"
+        elif usage_mode == "full":
+            info = self._sessions.get_session_info(ctx.channel, ctx.user_id)
+            reply += (
+                f"\n\n📊 本次: ↑{total_usage.input_tokens} ↓{total_usage.output_tokens}"
+                f" | 累计: ↑{info['total_input_tokens']} ↓{info['total_output_tokens']}"
+            )
+
         if ctx.max_reply_length and len(reply) > ctx.max_reply_length:
             reply = reply[: ctx.max_reply_length - 3] + "..."
         return reply
@@ -183,30 +232,169 @@ class AgentRuntime:
         ctx = RequestContext(channel="cli", user_id="debug")
         return await self.process(ctx, content)
 
+    async def process_stream_web(self, content: str, member_id: str = "admin", images: list[dict] | None = None):
+        """Web 面板流式对话接口
+
+        使用 Anthropic streaming API，逐块 yield 事件。
+        每个成员有独立的会话历史，使用真实身份构建上下文。
+
+        Args:
+            content: 用户消息
+            member_id: 成员 ID，用于独立会话和身份识别
+
+        Yields:
+            dict: {"type": "text_delta", "text": "..."} |
+                  {"type": "tool_use", "name": "..."} |
+                  {"type": "tool_result", "name": "...", "result": "..."} |
+                  {"type": "thinking"}
+        """
+        # 尝试用真实身份构建上下文
+        from openvort.web.deps import get_build_context_fn
+        build_context = get_build_context_fn()
+        if build_context:
+            try:
+                ctx = await build_context("web", member_id)
+            except Exception as e:
+                log.warning(f"[web] 构建上下文失败，使用默认: {e}")
+                ctx = RequestContext(channel="web", user_id=member_id, permissions={"*"})
+        else:
+            ctx = RequestContext(channel="web", user_id=member_id, permissions={"*"})
+
+        if (not content or not content.strip()) and not images:
+            return
+
+        messages = await self._sessions.get_messages(ctx.channel, ctx.user_id)
+        user_content = self._build_user_content(content, images or [])
+        messages.append({"role": "user", "content": user_content})
+
+        # 构建 system prompt
+        system = self._system_prompt
+        plugin_prompts = self._registry.get_system_prompt_extension()
+        if plugin_prompts:
+            system += "\n\n# 插件能力\n\n" + plugin_prompts
+
+        tools = self._registry.to_claude_tools(permissions={"*"})
+
+        max_rounds = 10
+        current_text = ""  # 累积完整文本，跨轮次保持
+        total_usage = Usage()
+        for _ in range(max_rounds):
+            try:
+                collected_content = []
+                async with self._llm.stream(
+                    system=system, messages=messages,
+                    tools=tools if tools else None,
+                ) as stream:
+                    async for event in stream:
+                        if event.type == "content_block_start":
+                            block = event.content_block
+                            if getattr(block, "type", None) == "text":
+                                pass  # 文本块开始
+                            elif getattr(block, "type", None) == "tool_use":
+                                yield {"type": "tool_use", "name": block.name, "id": block.id}
+                        elif event.type == "content_block_delta":
+                            delta = event.delta
+                            if getattr(delta, "type", None) == "text_delta":
+                                current_text += delta.text
+                                yield {"type": "text", "text": current_text}
+                            elif getattr(delta, "type", None) == "input_json_delta":
+                                pass  # 工具参数增量，不需要推送
+
+                    # 获取最终完整响应
+                    response = await stream.get_final_message()
+                    total_usage.input_tokens += response.usage.input_tokens
+                    total_usage.output_tokens += response.usage.output_tokens
+            except Exception as e:
+                log.error(f"LLM API 流式调用失败: {e}")
+                yield {"type": "text", "text": "抱歉，AI 服务暂时不可用，请稍后再试。"}
+                return
+
+            # 追加 assistant 回复
+            messages.append({"role": "assistant", "content": self._serialize_content(response.content)})
+
+            # 不是 tool_use，说明完成了
+            if response.stop_reason != "tool_use":
+                break
+
+            # 执行工具调用
+            tool_results = []
+            for block in response.content:
+                if getattr(block, "type", None) == "tool_use":
+                    log.info(f"[web] 调用工具: {block.name}({block.input})")
+                    result = await self._registry.execute_tool(block.name, dict(block.input))
+                    log.info(f"[web] 工具结果: {result[:200]}")
+                    yield {"type": "tool_result", "name": block.name, "result": result[:200]}
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": result,
+                    })
+
+            messages.append({"role": "user", "content": tool_results})
+
+        # 保存对话历史 + 累计用量
+        await self._sessions.save_messages(ctx.channel, ctx.user_id, messages)
+        self._sessions.add_usage(ctx.channel, ctx.user_id, total_usage.input_tokens, total_usage.output_tokens)
+
+        # yield 用量信息
+        yield {
+            "type": "usage",
+            "input_tokens": total_usage.input_tokens,
+            "output_tokens": total_usage.output_tokens,
+            "total_input_tokens": self._sessions.get_session_info(ctx.channel, ctx.user_id).get("total_input_tokens", 0),
+            "total_output_tokens": self._sessions.get_session_info(ctx.channel, ctx.user_id).get("total_output_tokens", 0),
+        }
+
     @staticmethod
-    def _extract_text(response) -> str:
-        """从 Claude 响应中提取文本内容"""
+    def _extract_text(response: LLMResponse) -> str:
+        """从 LLM 响应中提取文本内容"""
         parts = []
         for block in response.content:
-            if block.type == "text":
+            if getattr(block, "type", None) == "text":
                 parts.append(block.text)
         return "\n".join(parts) if parts else "（无回复内容）"
 
     @staticmethod
     def _serialize_content(content) -> list[dict]:
-        """将 Claude 响应 content 序列化为可 JSON 化的格式"""
+        """将 LLM 响应 content 序列化为可 JSON 化的格式"""
         serialized = []
         for block in content:
-            if block.type == "text":
-                serialized.append({"type": "text", "text": block.text})
-            elif block.type == "tool_use":
-                serialized.append({
-                    "type": "tool_use",
-                    "id": block.id,
-                    "name": block.name,
-                    "input": block.input,
-                })
+            block_type = getattr(block, "type", None) if not isinstance(block, dict) else block.get("type")
+            if block_type == "text":
+                text = block.text if not isinstance(block, dict) else block.get("text", "")
+                serialized.append({"type": "text", "text": text})
+            elif block_type == "tool_use":
+                if isinstance(block, dict):
+                    serialized.append(block)
+                else:
+                    serialized.append({
+                        "type": "tool_use",
+                        "id": block.id,
+                        "name": block.name,
+                        "input": block.input,
+                    })
         return serialized
+
+    @staticmethod
+    def _build_thinking_param(level: str) -> dict | None:
+        """构建 thinking 参数（仅 Anthropic 支持）
+
+        Args:
+            level: off|low|medium|high 或空字符串
+
+        Returns:
+            thinking dict 或 None
+        """
+        if not level or level == "off":
+            return None
+        # Anthropic extended thinking: budget_tokens 映射
+        budget_map = {
+            "low": 2048,
+            "medium": 5120,
+            "high": 10240,
+        }
+        budget = budget_map.get(level, 5120)
+        return {"type": "enabled", "budget_tokens": budget}
 
     @staticmethod
     def _build_user_content(text: str, images: list[dict]) -> str | list[dict]:

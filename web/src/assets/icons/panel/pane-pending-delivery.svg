@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="25px" height="24px" viewBox="0 0 25 24" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>待发货订单</title>
+    <defs>
+        <linearGradient x1="19.4278629%" y1="35.7484522%" x2="81.0561704%" y2="100%" id="panel-pending-delivery-linearGradient-1">
+            <stop stop-color="currentColor" offset="0.463013549%"></stop>
+            <stop stop-color="currentColor" offset="100%"></stop>
+        </linearGradient>
+        <linearGradient x1="16.2978399%" y1="40.1283726%" x2="77.9024991%" y2="61.8031029%" id="panel-pending-delivery-linearGradient-2">
+            <stop stop-color="currentColor" stop-opacity="0.18" offset="0%"></stop>
+            <stop stop-color="currentColor" stop-opacity="0.12" offset="33.7454821%"></stop>
+            <stop stop-color="#FFFFFF" stop-opacity="0" offset="100%"></stop>
+        </linearGradient>
+        <linearGradient x1="86.2040202%" y1="62.8868153%" x2="2.2067292%" y2="42.4840273%" id="panel-pending-delivery-linearGradient-3">
+            <stop stop-color="currentColor" stop-opacity="0.353111" offset="0%"></stop>
+            <stop stop-color="#FFFFFF" stop-opacity="0.532513385" offset="100%"></stop>
+        </linearGradient>
+    </defs>
+    <g id="VortMall-banner" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="店铺客服" transform="translate(-525.000000, -323.000000)">
+            <g id="编组-11" transform="translate(208.000000, 258.000000)">
+                <g id="编组-7" transform="translate(24.000000, 52.000000)">
+                    <g id="待发货订单" transform="translate(283.000000, 0.000000)">
+                        <g id="编组-9" transform="translate(0.000000, 1.496572)">
+                            <g id="待发货订单" transform="translate(10.925208, 11.503428)">
+                                <g transform="translate(0.091367, 1.626302)">
+                                    <g id="Bold/Handy-Basket" transform="translate(3.732456, 0.000000)">
+                                        <path d="M16.8175515,6.94119805 L13.2698889,1.75606488 C11.6678917,-0.585355931 8.13683079,-0.585354238 6.5348343,1.75606563 L2.98717215,6.94119956 C1.10035722,7.08130097 -0.284996389,8.78449717 0.0501539528,10.6350164 L1.335756,17.7334197 C1.60879355,19.2409867 2.95318164,20.34 4.52430129,20.34 L15.2804354,20.34 C16.8515561,20.34 18.1959428,19.2409867 18.4689801,17.7334197 L19.7545825,10.6350164 C20.0897343,8.7844919 18.7043737,7.08129194 16.8175515,6.94119805 Z M11.9228775,2.6310616 C10.9616798,1.22620972 8.84304343,1.22620991 7.88184569,2.63106235 L4.93921416,6.93190495 L14.8655098,6.93190495 L11.9228775,2.6310616 Z" id="Icon" fill="url(#panel-pending-delivery-linearGradient-1)"></path>
+                                        <line x1="12.4738859" y1="11.5399267" x2="12.4738859" y2="16.3310689" id="路径" stroke="#FFFFFF" stroke-width="1.42433955" stroke-linecap="round" stroke-linejoin="round"></line>
+                                        <path d="M15.7489122,13.1001053 L15.7489122,14.8740779 L15.7489122,13.1001053 Z" id="路径" stroke="#FFFFFF" stroke-width="1.42433955" stroke-linecap="round" stroke-linejoin="round"></path>
+                                    </g>
+                                    <rect id="矩形" stroke="url(#panel-pending-delivery-linearGradient-3)" stroke-width="0.504950495" fill="url(#panel-pending-delivery-linearGradient-2)" x="0.615900401" y="14.0362591" width="12.0590384" height="7.21396842" rx="1.09167543"></rect>
+                                    <polygon id="多边形" fill="#FFFFFF" points="3.18619524 15.4378378 4.22524424 16.1997867 3.82836284 17.4326458 2.54402764 17.4326458 2.14714623 16.1997867"></polygon>
+                                </g>
+                            </g>
+                        </g>
+                    </g>
+                </g>
+            </g>
+        </g>
+    </g>
+</svg>

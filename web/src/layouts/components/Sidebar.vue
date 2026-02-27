@@ -1,0 +1,155 @@
+<script setup lang="ts">
+import { computed } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import { useAppStore, useUserStore } from "@/stores";
+import { menuConfig, type MenuConfig } from "@/router/menus";
+import {
+    Home, BarChart2, FileText, Table, File, AlertTriangle,
+    CheckCircle, User, Settings, ChevronDown, PanelLeftClose, PanelLeftOpen,
+    MessageSquare, Puzzle, Radio, Users, Clock, BookOpen
+} from "lucide-vue-next";
+
+const props = defineProps<{ isMobile?: boolean }>();
+
+const route = useRoute();
+const router = useRouter();
+const appStore = useAppStore();
+const userStore = useUserStore();
+
+const collapsed = computed(() => props.isMobile ? false : appStore.sidebarCollapsed);
+
+// 图标映射
+const iconMap: Record<string, any> = {
+    home: Home, "bar-chart-2": BarChart2, "file-text": FileText,
+    table: Table, file: File, "alert-triangle": AlertTriangle,
+    "check-circle": CheckCircle, user: User, settings: Settings,
+    "message-square": MessageSquare, puzzle: Puzzle, radio: Radio, users: Users,
+    clock: Clock, "book-open": BookOpen
+};
+
+// 按角色过滤菜单
+const filteredMenus = computed(() => {
+    const roles = userStore.userInfo.roles || [];
+    return menuConfig.filter(item => {
+        if (!item.requiredRole) return true;
+        return roles.includes(item.requiredRole);
+    });
+});
+
+// 当前展开的菜单
+const openKeys = computed(() => {
+    const parent = route.meta?.parent as string;
+    if (parent) {
+        const menu = filteredMenus.value.find((m) => m.title === parent);
+        return menu ? [menu.title] : [];
+    }
+    return [];
+});
+
+const isActive = (item: MenuConfig): boolean => {
+    if (item.path) return route.path === item.path;
+    return item.children?.some((c) => c.path === route.path) || false;
+};
+
+const isChildActive = (child: MenuConfig): boolean => {
+    return route.path === child.path;
+};
+
+const handleClick = (item: MenuConfig) => {
+    if (item.path) {
+        router.push(item.path);
+        if (props.isMobile) {
+            appStore.closeMobileSidebar();
+        }
+    }
+};
+
+const handleChildClick = (child: MenuConfig) => {
+    handleClick(child);
+};
+</script>
+
+<template>
+    <aside
+        class="flex flex-col h-full bg-white border-r border-gray-100 transition-all duration-300 flex-shrink-0"
+        :class="[
+            isMobile
+                ? 'fixed inset-y-0 left-0 z-50 w-[220px] shadow-xl'
+                : collapsed ? 'w-[64px]' : 'w-[220px]',
+            isMobile && !appStore.mobileSidebarOpen ? '-translate-x-full' : 'translate-x-0'
+        ]"
+    >
+        <!-- Logo -->
+        <div class="flex items-center h-[56px] px-4 border-b border-gray-100 flex-shrink-0">
+            <div class="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center flex-shrink-0">
+                <span class="text-white font-bold text-sm">O</span>
+            </div>
+            <transition name="fade">
+                <h1 v-if="!collapsed" class="ml-3 text-[16px] font-semibold text-gray-900 whitespace-nowrap">
+                    OpenVort
+                </h1>
+            </transition>
+        </div>
+
+        <!-- 菜单 -->
+        <nav class="flex-1 overflow-y-auto py-2 px-2">
+            <template v-for="item in filteredMenus" :key="item.title">
+                <!-- 无子菜单 -->
+                <div
+                    v-if="!item.children"
+                    class="flex items-center h-[40px] px-3 rounded-md cursor-pointer mb-0.5 transition-colors"
+                    :class="isActive(item) ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50'"
+                    @click="handleClick(item)"
+                >
+                    <component :is="iconMap[item.icon]" v-if="iconMap[item.icon]" :size="18" class="flex-shrink-0" />
+                    <span v-if="!collapsed" class="ml-3 text-[14px] truncate">{{ item.title }}</span>
+                </div>
+
+                <!-- 有子菜单 -->
+                <details
+                    v-else
+                    class="mb-0.5"
+                    :open="openKeys.includes(item.title)"
+                >
+                    <summary
+                        class="flex items-center h-[40px] px-3 rounded-md cursor-pointer transition-colors list-none"
+                        :class="isActive(item) ? 'text-blue-600' : 'text-gray-600 hover:bg-gray-50'"
+                    >
+                        <component :is="iconMap[item.icon]" v-if="iconMap[item.icon]" :size="18" class="flex-shrink-0" />
+                        <span v-if="!collapsed" class="ml-3 text-[14px] flex-1 truncate">{{ item.title }}</span>
+                        <ChevronDown v-if="!collapsed" :size="14" class="text-gray-400 transition-transform" />
+                    </summary>
+
+                    <div v-if="!collapsed" class="ml-4 pl-4 border-l border-gray-100">
+                        <div
+                            v-for="child in item.children"
+                            :key="child.title"
+                            class="flex items-center h-[36px] px-3 rounded-md cursor-pointer text-[13px] transition-colors"
+                            :class="isChildActive(child) ? 'bg-blue-50 text-blue-600' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700'"
+                            @click="handleChildClick(child)"
+                        >
+                            {{ child.title }}
+                        </div>
+                    </div>
+                </details>
+            </template>
+        </nav>
+
+        <!-- 折叠按钮 -->
+        <div
+            v-if="!isMobile"
+            class="flex items-center justify-center h-[48px] border-t border-gray-100 cursor-pointer text-gray-400 hover:text-gray-600 transition-colors flex-shrink-0"
+            @click="appStore.toggleSidebar()"
+        >
+            <PanelLeftClose v-if="!collapsed" :size="18" />
+            <PanelLeftOpen v-else :size="18" />
+        </div>
+    </aside>
+</template>
+
+<style scoped>
+.fade-enter-active, .fade-leave-active { transition: opacity 0.2s; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
+details > summary::-webkit-details-marker { display: none; }
+details[open] > summary .lucide-chevron-down { transform: rotate(180deg); }
+</style>

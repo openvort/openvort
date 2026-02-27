@@ -96,6 +96,40 @@ class BaseChannel(ABC):
         """回复长度限制（字符数），0 表示不限制"""
         return 0
 
+    # ---- 配置管理接口 ----
+
+    def get_config_schema(self) -> list[dict]:
+        """返回配置字段定义，用于前端动态渲染表单
+
+        返回: [{"key": "corp_id", "label": "企业ID", "type": "string",
+                "required": True, "secret": False, "placeholder": ""}, ...]
+        """
+        return []
+
+    def get_current_config(self) -> dict:
+        """返回当前配置值（secret 字段脱敏显示）"""
+        return {}
+
+    def apply_config(self, config: dict) -> None:
+        """应用新配置（运行时生效），子类实现具体逻辑"""
+        pass
+
+    async def test_connection(self) -> dict:
+        """测试通道连通性
+
+        返回: {"ok": True/False, "message": "..."}
+        """
+        if self.is_configured():
+            return {"ok": True, "message": "通道已配置"}
+        return {"ok": False, "message": "通道未配置"}
+
+    def get_connection_info(self) -> dict:
+        """返回当前连接模式信息（只读展示用）
+
+        返回: {"mode": "webhook", "relay_url": "", "relay_secret": ""}
+        """
+        return {"mode": "unknown"}
+
 
 # ============ Tool 基类 ============
 
@@ -150,6 +184,8 @@ class BasePlugin(ABC):
     display_name: str = ""        # 显示名称，如 "禅道项目管理"
     description: str = ""         # 插件描述
     version: str = "0.1.0"
+    source: str = "builtin"       # 来源: "builtin" | "pip" | "local"
+    core: bool = False            # 核心插件不可禁用
 
     @abstractmethod
     def get_tools(self) -> list[BaseTool]:
@@ -192,6 +228,24 @@ class BasePlugin(ABC):
                 "permissions": ["zentao.create_task", "zentao.view_task"]}]
         """
         return []
+
+    # ---- 配置管理接口 ----
+
+    def get_config_schema(self) -> list[dict]:
+        """返回配置字段定义，用于前端动态渲染表单
+
+        返回: [{"key": "host", "label": "数据库地址", "type": "string",
+                "required": True, "secret": False, "placeholder": "127.0.0.1"}, ...]
+        """
+        return []
+
+    def get_current_config(self) -> dict:
+        """返回当前配置值（secret 字段脱敏显示）"""
+        return {}
+
+    def apply_config(self, config: dict) -> None:
+        """应用新配置（运行时生效），子类实现具体逻辑"""
+        pass
 
     # ---- 插件引导接口 ----
 

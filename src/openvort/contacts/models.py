@@ -7,7 +7,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from openvort.db.engine import Base
@@ -27,12 +27,15 @@ class Member(Base):
     email: Mapped[str] = mapped_column(String(128), default="", index=True)
     phone: Mapped[str] = mapped_column(String(32), default="", index=True)
     avatar_url: Mapped[str] = mapped_column(String(512), default="")
+    password_hash: Mapped[str] = mapped_column(String(128), default="")  # 独立密码哈希，为空时 fallback 到 default_password
+    is_account: Mapped[bool] = mapped_column(Boolean, default=False)  # 是否为可登录账号
     status: Mapped[str] = mapped_column(String(16), default="active")  # active / inactive
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
     # 关联
     identities: Mapped[list["PlatformIdentity"]] = relationship(back_populates="member", cascade="all, delete-orphan")
+    department_links: Mapped[list["MemberDepartment"]] = relationship(back_populates="member", cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<Member {self.id[:8]} {self.name}>"
@@ -99,7 +102,34 @@ class Department(Base):
     parent_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("departments.id"), nullable=True)
     platform: Mapped[str] = mapped_column(String(32), index=True)  # 来源平台
     platform_dept_id: Mapped[str] = mapped_column(String(128), default="")  # 平台侧部门 ID
+    order: Mapped[int] = mapped_column(Integer, default=0)  # 排序权重
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    # 关联
+    children: Mapped[list["Department"]] = relationship(back_populates="parent", cascade="all, delete-orphan")
+    parent: Mapped["Department | None"] = relationship(back_populates="children", remote_side=[id])
+    member_links: Mapped[list["MemberDepartment"]] = relationship(back_populates="department", cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<Department {self.platform}:{self.name}>"
+
+
+class MemberDepartment(Base):
+    """成员-部门关联"""
+
+    __tablename__ = "member_departments"
+    __table_args__ = (
+        UniqueConstraint("member_id", "department_id", name="uq_member_dept"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    member_id: Mapped[str] = mapped_column(String(32), ForeignKey("members.id"), index=True)
+    department_id: Mapped[int] = mapped_column(Integer, ForeignKey("departments.id"), index=True)
+    is_primary: Mapped[bool] = mapped_column(Boolean, default=False)  # 主部门标记
+
+    # 关联
+    member: Mapped["Member"] = relationship(back_populates="department_links")
+    department: Mapped["Department"] = relationship(back_populates="member_links")
+
+    def __repr__(self) -> str:
+        return f"<MemberDepartment member={self.member_id[:8]} dept={self.department_id}>"

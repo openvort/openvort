@@ -28,7 +28,7 @@ class IdentityMatcher:
     async def find_matches(self, contact: PlatformContact) -> list[MatchSuggestion]:
         """为一个平台联系人查找可能匹配的已有成员
 
-        匹配优先级: email(1.0) > phone(0.9) > name 相似度(0.0~0.8)
+        匹配优先级: email(1.0) > phone(0.9) > name 相似度(0.0~0.95)
         同时查 Member 表和 PlatformIdentity 表的 email/phone。
 
         Returns:
@@ -85,7 +85,13 @@ class IdentityMatcher:
         return None
 
     async def _match_by_name(self, name: str) -> list[MatchSuggestion]:
-        """按姓名相似度匹配"""
+        """按姓名相似度匹配
+
+        置信度分段策略:
+        - 完全一致 (ratio == 1.0): 0.95 — 超过阈值，自动关联
+        - 高度相似 (ratio >= 0.9): 0.85 — 生成 pending 建议
+        - 一般相似 (ratio >= 0.8): ratio * 0.7 — 生成 pending 建议
+        """
         stmt = select(Member).where(Member.status == "active")
         result = await self._session.execute(stmt)
         members = result.scalars().all()
@@ -93,8 +99,15 @@ class IdentityMatcher:
         suggestions = []
         for member in members:
             ratio = SequenceMatcher(None, name, member.name).ratio()
-            if ratio >= 0.8:
-                suggestions.append(self._make_suggestion(member.id, "name", round(ratio * 0.8, 2)))
+            if ratio == 1.0:
+                confidence = 0.95
+            elif ratio >= 0.9:
+                confidence = 0.85
+            elif ratio >= 0.8:
+                confidence = round(ratio * 0.7, 2)
+            else:
+                continue
+            suggestions.append(self._make_suggestion(member.id, "name", confidence))
 
         # 按置信度降序
         suggestions.sort(key=lambda s: s.confidence, reverse=True)

@@ -37,6 +37,20 @@ class PluginRegistry:
         """列出所有已注册的 Plugin"""
         return list(self._plugins.values())
 
+    def unregister_plugin(self, name: str) -> None:
+        """注销一个 Plugin 及其 Tools 和 Prompts"""
+        plugin = self._plugins.pop(name, None)
+        if not plugin:
+            return
+        # 移除该插件的所有 Tool
+        tool_names = [t.name for t in plugin.get_tools()]
+        for tn in tool_names:
+            self._tools.pop(tn, None)
+        # 移除该插件的 Prompts
+        plugin_prompts = set(plugin.get_prompts())
+        self._prompts = [p for p in self._prompts if p not in plugin_prompts]
+        log.info(f"已注销 Plugin: {name}（移除 {len(tool_names)} 个 Tool）")
+
     # ---- Channel 管理 ----
 
     def register_channel(self, channel: BaseChannel) -> None:

@@ -76,6 +76,49 @@ class ZentaoPlugin(BasePlugin):
         from openvort.plugins.zentao.sync import ZentaoContactSyncProvider
         return ZentaoContactSyncProvider(self._db)
 
+    # ---- 配置管理接口 ----
+
+    def get_config_schema(self) -> list[dict]:
+        return [
+            {"key": "host", "label": "数据库地址", "type": "string", "required": True, "secret": False, "placeholder": "127.0.0.1"},
+            {"key": "port", "label": "端口", "type": "string", "required": False, "secret": False, "placeholder": "3306"},
+            {"key": "user", "label": "用户名", "type": "string", "required": True, "secret": False, "placeholder": "root"},
+            {"key": "password", "label": "密码", "type": "string", "required": True, "secret": True, "placeholder": ""},
+            {"key": "database", "label": "数据库名", "type": "string", "required": False, "secret": False, "placeholder": "zentao"},
+        ]
+
+    def get_current_config(self) -> dict:
+        def _mask(value: str) -> str:
+            if not value:
+                return ""
+            if len(value) <= 4:
+                return "****"
+            return "****" + value[-4:]
+
+        s = self._settings
+        return {
+            "host": s.host,
+            "port": str(s.port),
+            "user": s.user,
+            "password": _mask(s.password),
+            "database": s.database,
+        }
+
+    def apply_config(self, config: dict) -> None:
+        s = self._settings
+        if "host" in config:
+            s.host = config["host"]
+        if "port" in config:
+            s.port = int(config["port"])
+        if "user" in config:
+            s.user = config["user"]
+        if "password" in config:
+            s.password = config["password"]
+        if "database" in config:
+            s.database = config["database"]
+        # 重置 DB 连接，下次使用时重新初始化
+        self._db = ZentaoDB(self._settings)
+
     # ---- 插件引导接口 ----
 
     def get_platform(self) -> str:

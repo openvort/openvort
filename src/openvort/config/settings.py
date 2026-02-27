@@ -12,17 +12,69 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+class LLMModelConfig(BaseSettings):
+    """单个模型配置"""
+
+    model_config = SettingsConfigDict(extra="ignore")
+
+    provider: str = "anthropic"
+    api_key: str = ""
+    api_base: str = ""
+    model: str = "claude-sonnet-4-20250514"
+    max_tokens: int = 4096
+    timeout: int = 120
+
+    def to_dict(self) -> dict:
+        return {
+            "provider": self.provider,
+            "api_key": self.api_key,
+            "api_base": self.api_base,
+            "model": self.model,
+            "max_tokens": self.max_tokens,
+            "timeout": self.timeout,
+        }
+
+
 class LLMSettings(BaseSettings):
-    """LLM 提供商配置"""
+    """LLM 提供商配置（支持多模型 + failover）"""
 
     model_config = SettingsConfigDict(env_prefix="OPENVORT_LLM_", env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
+    # 主模型配置（兼容旧版环境变量）
     provider: str = "anthropic"
     api_key: str = ""
     api_base: str = "https://api.anthropic.com"
     model: str = "claude-sonnet-4-20250514"
     max_tokens: int = 4096
     timeout: int = 120
+
+    # Failover 备选模型（JSON 字符串，如 '[{"provider":"openai","api_key":"sk-...","model":"gpt-4o"}]'）
+    fallback_models: str = ""
+
+    def get_model_chain(self) -> list[dict]:
+        """返回模型链（主模型 + fallback），用于 LLMClient 初始化"""
+        import json
+        chain = [self._primary_dict()]
+        if self.fallback_models:
+            try:
+                fallbacks = json.loads(self.fallback_models)
+                if isinstance(fallbacks, list):
+                    for fb in fallbacks:
+                        cfg = LLMModelConfig(**fb)
+                        chain.append(cfg.to_dict())
+            except (json.JSONDecodeError, Exception):
+                pass
+        return chain
+
+    def _primary_dict(self) -> dict:
+        return {
+            "provider": self.provider,
+            "api_key": self.api_key,
+            "api_base": self.api_base,
+            "model": self.model,
+            "max_tokens": self.max_tokens,
+            "timeout": self.timeout,
+        }
 
 
 class WeComSettings(BaseSettings):
@@ -61,6 +113,19 @@ class ContactsSettings(BaseSettings):
     role_mapping: str = "总经理:admin,副总:admin,总监:manager,经理:manager,主管:manager"  # 职位->角色映射
 
 
+class WebSettings(BaseSettings):
+    """Web 管理面板配置"""
+
+    model_config = SettingsConfigDict(
+        env_prefix="OPENVORT_WEB_", env_file=".env", env_file_encoding="utf-8", extra="ignore",
+    )
+
+    enabled: bool = True  # 是否启用 Web 面板
+    port: int = 8090  # Web 面板端口
+    host: str = "0.0.0.0"  # 监听地址
+    default_password: str = "openvort"  # 所有成员的默认登录密码
+
+
 class Settings(BaseSettings):
     """OpenVort 全局配置"""
 
@@ -90,6 +155,9 @@ class Settings(BaseSettings):
 
     # 通讯录
     contacts: ContactsSettings = Field(default_factory=ContactsSettings)
+
+    # Web 面板
+    web: WebSettings = Field(default_factory=WebSettings)
 
 
 # 全局单例（延迟初始化）

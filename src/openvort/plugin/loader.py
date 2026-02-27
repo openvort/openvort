@@ -4,7 +4,11 @@
 通过 Python entry_points 自动发现并加载 Plugin、Channel 和 Tool。
 """
 
+import importlib.util
+import inspect
+import sys
 from importlib.metadata import entry_points
+from pathlib import Path
 
 from openvort.plugin.base import BaseChannel, BasePlugin, BaseTool
 from openvort.plugin.registry import PluginRegistry
@@ -22,14 +26,17 @@ class PluginLoader:
         self._auth = auth_service
 
     def load_all(self) -> None:
-        """加载所有插件（entry_points）"""
+        """加载所有插件（entry_points + 本地目录）"""
         self._load_plugins()
+        self._load_local_plugins()
         self._load_channels()
         self._load_tools()
         self._inject_sync_providers()
 
     async def load_all_async(self) -> None:
         """异步注册插件声明的权限和角色（在 load_all 之后调用）"""
+        await self._load_channel_configs_from_db()
+        await self._load_plugin_configs_from_db()
         await self._register_plugin_permissions()
 
     def get_plugins(self) -> list[BasePlugin]:
@@ -49,6 +56,13 @@ class PluginLoader:
                     continue
 
                 plugin = cls()
+
+                # 判断来源：模块路径在 openvort 包内的是内置，否则是 pip 安装
+                module = cls.__module__ or ""
+                if module.startswith("openvort."):
+                    plugin.source = "builtin"
+                else:
+                    plugin.source = "pip"
 
                 if not plugin.validate_credentials():
                     log.warning(f"Plugin '{plugin.name}' 凭证校验失败，跳过（请检查配置）")
@@ -73,6 +87,67 @@ class PluginLoader:
             except Exception as e:
                 log.error(f"加载 Plugin '{ep.name}' 失败: {e}")
 
+    def _load_local_plugins(self) -> None:
+        """从 ~/.openvort/plugins/ 扫描本地 Plugin"""
+        from openvort.config.settings import get_settings
+
+        plugins_dir = get_settings().data_dir / "plugins"
+        if not plugins_dir.exists():
+            return
+
+        for plugin_dir in sorted(plugins_dir.iterdir()):
+            if not plugin_dir.is_dir():
+                continue
+            plugin_py = plugin_dir / "plugin.py"
+            if not plugin_py.exists():
+                continue
+
+            module_name = f"openvort_local_plugin_{plugin_dir.name}"
+            try:
+                spec = importlib.util.spec_from_file_location(module_name, plugin_py)
+                if not spec or not spec.loader:
+                    log.warning(f"无法加载本地 Plugin '{plugin_dir.name}'：无效的模块")
+                    continue
+
+                module = importlib.util.module_from_spec(spec)
+                sys.modules[module_name] = module
+                spec.loader.exec_module(module)
+
+                # 在模块中查找 BasePlugin 子类
+                plugin_cls = None
+                for _, obj in inspect.getmembers(module, inspect.isclass):
+                    if issubclass(obj, BasePlugin) and obj is not BasePlugin:
+                        plugin_cls = obj
+                        break
+
+                if not plugin_cls:
+                    log.warning(f"本地 Plugin '{plugin_dir.name}' 中未找到 BasePlugin 子类，跳过")
+                    continue
+
+                plugin = plugin_cls()
+                plugin.source = "local"
+
+                if not plugin.validate_credentials():
+                    log.warning(f"本地 Plugin '{plugin.name}' 凭证校验失败，跳过")
+                    continue
+
+                tools = plugin.get_tools()
+                for tool in tools:
+                    self.registry.register_tool(tool)
+
+                prompts = plugin.get_prompts()
+                for prompt in prompts:
+                    self.registry.register_prompt(prompt)
+
+                log.info(
+                    f"已加载本地 Plugin: {plugin.name} ({plugin.display_name}) "
+                    f"— {len(tools)} 个 Tool, {len(prompts)} 条 Prompt"
+                )
+                self._plugins.append(plugin)
+                self.registry.register_plugin(plugin)
+            except Exception as e:
+                log.error(f"加载本地 Plugin '{plugin_dir.name}' 失败: {e}")
+
     def _load_channels(self) -> None:
         """从 entry_points 加载 Channel 插件"""
         eps = entry_points()
@@ -84,10 +159,23 @@ class PluginLoader:
                 if isinstance(cls, type) and issubclass(cls, BaseChannel):
                     instance = cls()
                     self.registry.register_channel(instance)
+                    # 注册 Channel 提供的工具
+                    self._register_channel_tools(instance)
                 else:
                     log.warning(f"Channel entry_point '{ep.name}' 不是 BaseChannel 子类，跳过")
             except Exception as e:
                 log.error(f"加载 Channel '{ep.name}' 失败: {e}")
+
+    def _register_channel_tools(self, channel: BaseChannel) -> None:
+        """注册 Channel 附带的工具（如企微发消息）"""
+        if channel.name == "wecom":
+            try:
+                from openvort.channels.wecom.tools import SendWeComMessageTool
+                tool = SendWeComMessageTool(channel=channel)
+                self.registry.register_tool(tool)
+                log.info(f"已注册 Channel 工具: {tool.name}")
+            except Exception as e:
+                log.error(f"注册企微 Channel 工具失败: {e}")
 
     def _load_tools(self) -> None:
         """从 entry_points 加载独立 Tool 插件（非 Plugin 管理的散装 Tool）"""
@@ -134,6 +222,63 @@ class PluginLoader:
                 providers.append(p)
 
                 contacts_plugin.set_providers(providers)
+
+    async def _load_channel_configs_from_db(self) -> None:
+        """从数据库加载 channel 配置，覆盖环境变量默认值"""
+        try:
+            import json
+            from sqlalchemy import select
+            from openvort.db.engine import get_session_factory
+            from openvort.db.models import ChannelConfig
+
+            session_factory = get_session_factory()
+            async with session_factory() as session:
+                result = await session.execute(select(ChannelConfig))
+                rows = result.scalars().all()
+
+            for row in rows:
+                ch = self.registry.get_channel(row.channel_name)
+                if ch and row.config_data:
+                    config = json.loads(row.config_data)
+                    if config:
+                        ch.apply_config(config)
+                        log.info(f"从数据库加载 Channel 配置: {row.channel_name}")
+        except Exception as e:
+            log.warning(f"从数据库加载 Channel 配置失败（将使用环境变量）: {e}")
+
+    async def _load_plugin_configs_from_db(self) -> None:
+        """从数据库加载 plugin 配置，覆盖环境变量默认值，处理启用/禁用"""
+        try:
+            import json
+            from sqlalchemy import select
+            from openvort.db.engine import get_session_factory
+            from openvort.db.models import PluginConfig
+
+            session_factory = get_session_factory()
+            async with session_factory() as session:
+                result = await session.execute(select(PluginConfig))
+                rows = result.scalars().all()
+
+            for row in rows:
+                plugin = self.registry.get_plugin(row.plugin_name)
+                if not plugin:
+                    continue
+
+                # 核心插件不可禁用
+                if not row.enabled and not plugin.core:
+                    self.registry.unregister_plugin(row.plugin_name)
+                    self._plugins = [p for p in self._plugins if p.name != row.plugin_name]
+                    log.info(f"Plugin '{row.plugin_name}' 已禁用，跳过加载")
+                    continue
+
+                # 应用 DB 中保存的配置
+                if row.config_data:
+                    config = json.loads(row.config_data)
+                    if config:
+                        plugin.apply_config(config)
+                        log.info(f"从数据库加载 Plugin 配置: {row.plugin_name}")
+        except Exception as e:
+            log.warning(f"从数据库加载 Plugin 配置失败（将使用环境变量）: {e}")
 
     async def _register_plugin_permissions(self) -> None:
         """注册所有 Plugin 声明的权限和角色到 AuthService"""

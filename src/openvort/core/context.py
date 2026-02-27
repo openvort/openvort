@@ -5,8 +5,10 @@
 Agent Runtime 和 Tool 执行时的核心依赖。
 """
 
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from openvort.contacts.models import Member
 
@@ -29,6 +31,14 @@ class RequestContext:
     max_reply_length: int = 0  # 回复长度限制，0=不限
     images: list[dict] = field(default_factory=list)  # 图片列表 [{data, media_type, ...}]
     platform_accounts: dict[str, str] = field(default_factory=dict)  # 平台账号映射 {platform: account}
+    _identity_refresher: Callable[["RequestContext"], Coroutine[Any, Any, None]] | None = field(
+        default=None, repr=False
+    )  # 可选回调：刷新身份信息（member、platform_accounts 等）
+
+    async def refresh_identity(self) -> None:
+        """刷新身份信息（同步/绑定后调用，更新 member 和 platform_accounts）"""
+        if self._identity_refresher:
+            await self._identity_refresher(self)
 
     def get_sender_prompt(self) -> str:
         """生成发送者上下文 prompt 片段"""

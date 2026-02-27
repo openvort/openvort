@@ -101,6 +101,87 @@ class WeComChannel(BaseChannel):
         """企微单条消息限制"""
         return 2000
 
+    # ---- 配置管理 ----
+
+    def get_config_schema(self) -> list[dict]:
+        return [
+            {"key": "corp_id", "label": "企业 ID", "type": "string", "required": True, "secret": False, "placeholder": "ww1234567890abcdef"},
+            {"key": "app_secret", "label": "应用 Secret", "type": "string", "required": True, "secret": True, "placeholder": ""},
+            {"key": "agent_id", "label": "应用 AgentId", "type": "string", "required": True, "secret": False, "placeholder": "1000002"},
+            {"key": "callback_token", "label": "回调 Token", "type": "string", "required": False, "secret": True, "placeholder": "用于 Webhook 回调验证"},
+            {"key": "callback_aes_key", "label": "回调 EncodingAESKey", "type": "string", "required": False, "secret": True, "placeholder": "用于 Webhook 回调解密"},
+            {"key": "api_base_url", "label": "API 地址", "type": "string", "required": False, "secret": False, "placeholder": "https://qyapi.weixin.qq.com/cgi-bin"},
+        ]
+
+    def get_current_config(self) -> dict:
+        def _mask(value: str) -> str:
+            if not value:
+                return ""
+            if len(value) <= 4:
+                return "****"
+            return "****" + value[-4:]
+
+        s = self._settings
+        return {
+            "corp_id": s.corp_id,
+            "app_secret": _mask(s.app_secret),
+            "agent_id": s.agent_id,
+            "callback_token": _mask(s.callback_token),
+            "callback_aes_key": _mask(s.callback_aes_key),
+            "api_base_url": s.api_base_url,
+        }
+
+    def apply_config(self, config: dict) -> None:
+        s = self._settings
+        if "corp_id" in config:
+            s.corp_id = config["corp_id"]
+        if "app_secret" in config:
+            s.app_secret = config["app_secret"]
+        if "agent_id" in config:
+            s.agent_id = config["agent_id"]
+        if "callback_token" in config:
+            s.callback_token = config["callback_token"]
+        if "callback_aes_key" in config:
+            s.callback_aes_key = config["callback_aes_key"]
+        if "api_base_url" in config:
+            s.api_base_url = config["api_base_url"]
+        # 重置 API 客户端，下次使用时重新初始化
+        self._api = None
+
+    async def test_connection(self) -> dict:
+        if not self.is_configured():
+            return {"ok": False, "message": "企业 ID 和应用 Secret 未配置"}
+        try:
+            token = await self.api.get_access_token()
+            if token:
+                return {"ok": True, "message": "连接成功，已获取 access_token"}
+            return {"ok": False, "message": "获取 access_token 失败"}
+        except Exception as e:
+            return {"ok": False, "message": f"连接失败: {e}"}
+
+    def get_connection_info(self) -> dict:
+        def _mask(value: str) -> str:
+            if not value:
+                return ""
+            if len(value) <= 4:
+                return "****"
+            return "****" + value[-4:]
+
+        if self._relay_url:
+            mode = "relay"
+        elif self._poll_task and not self._poll_task.done():
+            mode = "poll-db"
+        elif self._running:
+            mode = "webhook"
+        else:
+            mode = "未启动"
+
+        return {
+            "mode": mode,
+            "relay_url": self._relay_url or "",
+            "relay_secret": _mask(self._relay_secret),
+        }
+
     async def start(self) -> None:
         """启动通道"""
         if not self.is_configured():

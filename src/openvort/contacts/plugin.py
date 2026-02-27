@@ -24,6 +24,7 @@ class ContactsPlugin(BasePlugin):
     display_name = "通讯录管理"
     description = "通讯录同步、成员搜索、身份映射管理"
     version = "0.1.0"
+    core = True  # 核心插件，不可禁用
 
     def __init__(self):
         self._sync_tool = SyncContactsTool()

@@ -1,8 +1,10 @@
 """
 定时任务调度器
 
-基于 APScheduler，支持 cron 表达式和间隔执行。
+基于 APScheduler，支持 cron 表达式、间隔执行和一次性定时任务。
 """
+
+from datetime import datetime
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -55,6 +57,24 @@ class Scheduler:
             **kwargs,
         )
         log.info(f"已添加间隔任务: {job_id} (每 {seconds}s)")
+
+    def add_once(self, job_id: str, func, run_at: datetime, **kwargs) -> None:
+        """添加一次性定时任务
+
+        Args:
+            job_id: 任务 ID
+            func: 异步函数
+            run_at: 执行时间（datetime）
+        """
+        self._scheduler.add_job(
+            func,
+            "date",
+            id=job_id,
+            run_date=run_at,
+            replace_existing=True,
+            **kwargs,
+        )
+        log.info(f"已添加一次性任务: {job_id} ({run_at})")
 
     def remove(self, job_id: str) -> None:
         """移除任务"""

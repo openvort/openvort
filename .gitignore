@@ -43,3 +43,7 @@ htmlcov/
 
 # mypy
 .mypy_cache/
+
+# Web 前端
+web/node_modules/
+web/dist/

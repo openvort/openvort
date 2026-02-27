@@ -171,6 +171,126 @@ class AuthService:
         self._invalidate(member_id)
         return True
 
+    # ---- 角色 CRUD ----
+
+    async def list_all_roles(self) -> list[dict]:
+        """列出所有角色（含权限和成员数）"""
+        from sqlalchemy import func as sa_func
+        async with self._session_factory() as session:
+            result = await session.execute(select(Role).order_by(Role.id))
+            roles = result.scalars().all()
+
+            items = []
+            for r in roles:
+                perm_stmt = (
+                    select(Permission.code, Permission.display_name)
+                    .join(RolePermission, RolePermission.permission_id == Permission.id)
+                    .where(RolePermission.role_id == r.id)
+                )
+                perm_result = await session.execute(perm_stmt)
+                perms = [{"code": row[0], "display_name": row[1]} for row in perm_result.all()]
+
+                from sqlalchemy import func as sa_func
+                count_stmt = select(sa_func.count()).where(MemberRole.role_id == r.id)
+                member_count = (await session.execute(count_stmt)).scalar() or 0
+
+                is_admin = r.name == "admin"
+                items.append({
+                    "id": r.id,
+                    "name": r.name,
+                    "display_name": r.display_name,
+                    "source": r.source,
+                    "is_builtin": r.is_builtin,
+                    "is_admin": is_admin,
+                    "permissions": [{"code": "*", "display_name": "全部权限"}] if is_admin else perms,
+                    "member_count": member_count,
+                })
+            return items
+
+    async def list_all_permissions(self) -> list[dict]:
+        """列出所有已注册权限"""
+        async with self._session_factory() as session:
+            result = await session.execute(select(Permission).order_by(Permission.source, Permission.code))
+            perms = result.scalars().all()
+            return [
+                {"id": p.id, "code": p.code, "display_name": p.display_name, "source": p.source}
+                for p in perms
+            ]
+
+    async def create_role(self, name: str, display_name: str, permission_codes: list[str]) -> dict | None:
+        """创建自定义角色并绑定权限，返回角色信息；name 重复返回 None"""
+        async with self._session_factory() as session:
+            existing = await session.execute(select(Role).where(Role.name == name))
+            if existing.scalar_one_or_none():
+                return None
+
+            role = Role(name=name, display_name=display_name, source="custom", is_builtin=False)
+            session.add(role)
+            await session.flush()
+
+            for code in permission_codes:
+                await self._ensure_role_permission(session, role.id, code)
+
+            await session.commit()
+            log.info(f"已创建角色: {name}")
+            return {"id": role.id, "name": role.name, "display_name": role.display_name}
+
+    async def update_role(self, role_id: int, display_name: str | None, permission_codes: list[str] | None) -> bool:
+        """更新自定义角色（内置角色不可修改权限）"""
+        async with self._session_factory() as session:
+            result = await session.execute(select(Role).where(Role.id == role_id))
+            role = result.scalar_one_or_none()
+            if not role:
+                return False
+
+            if display_name is not None:
+                role.display_name = display_name
+
+            # 内置角色只能改 display_name，不能改权限
+            if permission_codes is not None and not role.is_builtin:
+                # 删除旧权限绑定
+                old_rps = await session.execute(
+                    select(RolePermission).where(RolePermission.role_id == role.id)
+                )
+                for rp in old_rps.scalars().all():
+                    await session.delete(rp)
+                await session.flush()
+
+                # 绑定新权限
+                for code in permission_codes:
+                    await self._ensure_role_permission(session, role.id, code)
+
+            await session.commit()
+
+        self._cache.clear()
+        log.info(f"已更新角色: id={role_id}")
+        return True
+
+    async def delete_role(self, role_id: int) -> bool:
+        """删除自定义角色（内置角色不可删除）"""
+        async with self._session_factory() as session:
+            result = await session.execute(select(Role).where(Role.id == role_id))
+            role = result.scalar_one_or_none()
+            if not role or role.is_builtin:
+                return False
+
+            # 删除角色-权限绑定
+            rp_stmt = select(RolePermission).where(RolePermission.role_id == role.id)
+            for rp in (await session.execute(rp_stmt)).scalars().all():
+                await session.delete(rp)
+
+            # 删除成员-角色绑定
+            mr_stmt = select(MemberRole).where(MemberRole.role_id == role.id)
+            for mr in (await session.execute(mr_stmt)).scalars().all():
+                await session.delete(mr)
+
+            await session.delete(role)
+            await session.commit()
+
+        self._cache.clear()
+        log.info(f"已删除角色: id={role_id}")
+        return True
+
     # ---- 插件权限/角色注册 ----
 
     async def register_permission(self, code: str, display_name: str, source: str = "core") -> None:
