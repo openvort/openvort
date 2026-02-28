@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
 import { useUserStore, useAppStore } from "@/stores";
 import { Bell, Search, LogOut, User, Settings, Menu } from "lucide-vue-next";
@@ -14,18 +14,29 @@ const showUserMenu = ref(false);
 
 const version = ref("");
 const llmHealthy = ref<boolean | null>(null);
+const llmError = ref("");
+let healthTimer: ReturnType<typeof setInterval> | null = null;
 
 const fetchHealth = async () => {
     try {
         const res: any = await getHealthStatus();
         version.value = res.version || "";
         llmHealthy.value = res.llm_healthy ?? null;
+        llmError.value = res.llm_error || "";
     } catch {
         llmHealthy.value = false;
+        llmError.value = "无法连接服务器";
     }
 };
 
-onMounted(fetchHealth);
+onMounted(() => {
+    fetchHealth();
+    healthTimer = setInterval(fetchHealth, 60_000);
+});
+
+onUnmounted(() => {
+    if (healthTimer) clearInterval(healthTimer);
+});
 
 const handleLogout = () => {
     userStore.logout();
@@ -75,7 +86,8 @@ const goProfile = () => {
             </div>
             <!-- 健康状态 -->
             <div class="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px]"
-                :class="llmHealthy === true ? 'bg-green-50 text-green-600' : llmHealthy === false ? 'bg-red-50 text-red-500' : 'bg-gray-50 text-gray-400'">
+                :class="llmHealthy === true ? 'bg-green-50 text-green-600' : llmHealthy === false ? 'bg-red-50 text-red-500' : 'bg-gray-50 text-gray-400'"
+                :title="llmError || ''">
                 <span class="w-1.5 h-1.5 rounded-full inline-block" :class="llmHealthy === true ? 'bg-green-500' : llmHealthy === false ? 'bg-red-400' : 'bg-gray-300'"></span>
                 AI {{ llmHealthy === true ? '在线' : llmHealthy === false ? '离线' : '...' }}
             </div>

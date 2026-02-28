@@ -19,8 +19,10 @@
     "dayjs": "^1.11.19",
     "echarts": "^6.0.0",
     "lucide-vue-next": "^0.563.0",
+    "marked": "^15.0.0",
     "pinia": "^3.0.4",
     "pinia-plugin-persistedstate": "^4.7.1",
+    "pinyin-pro": "^3.28.0",
     "radix-vue": "^1.9.17",
     "reka-ui": "^2.8.0",
     "tailwind-merge": "^3.4.0",
@@ -29,8 +31,7 @@
     "vee-validate": "^4.15.1",
     "vue": "^3.5.25",
     "vue-router": "^4.6.4",
-    "zod": "^3.25.76",
-    "marked": "^15.0.0"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",

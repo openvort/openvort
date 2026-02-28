@@ -84,6 +84,11 @@ export function resetChatSession(sessionId = "default") {
     return request.post("/chat/reset", { session_id: sessionId });
 }
 
+/** 搜索成员（@mention 提示） */
+export function getChatMembers(keyword = "", limit = 20) {
+    return request.get("/chat/members", { params: { keyword, limit } });
+}
+
 // ---- 对话管理 ----
 
 /** 对话列表 */
@@ -590,4 +595,36 @@ export function createAgentRoute(data: {
 /** 删除 Agent 路由 */
 export function deleteAgentRoute(name: string) {
     return request.delete(`/admin/agents/${name}`);
+}
+
+// ---- VortFlow ----
+
+/** VortFlow 看板统计 */
+export function getVortflowStats() {
+    return request.get("/vortflow/dashboard/stats");
+}
+
+/** VortFlow 项目列表 */
+export function getVortflowProjects() {
+    return request.get("/vortflow/projects");
+}
+
+/** VortFlow 需求列表 */
+export function getVortflowStories(params: { state?: string; page?: number; page_size?: number }) {
+    return request.get("/vortflow/stories", { params });
+}
+
+/** VortFlow 任务列表 */
+export function getVortflowTasks(params: { state?: string; page?: number; page_size?: number }) {
+    return request.get("/vortflow/tasks", { params });
+}
+
+/** VortFlow 缺陷列表 */
+export function getVortflowBugs(params: { state?: string; page?: number; page_size?: number }) {
+    return request.get("/vortflow/bugs", { params });
+}
+
+/** VortFlow 里程碑列表 */
+export function getVortflowMilestones(params: { page?: number; page_size?: number }) {
+    return request.get("/vortflow/milestones", { params });
 }

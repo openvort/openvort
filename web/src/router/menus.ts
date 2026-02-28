@@ -3,7 +3,9 @@ export interface MenuConfig {
     title: string;
     icon: string;
     path?: string;
-    requiredRole?: string;  // 需要的角色，不填则所有人可见
+    label?: string;
+    position?: string;
+    requiredRole?: string;
     children?: MenuConfig[];
 }
 

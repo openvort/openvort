@@ -247,6 +247,22 @@ class BasePlugin(ABC):
         """应用新配置（运行时生效），子类实现具体逻辑"""
         pass
 
+    # ---- UI 扩展与 API 路由 ----
+
+    def get_ui_extensions(self) -> dict | None:
+        """声明插件的 UI 扩展（菜单、路由、Dashboard widget 等）
+
+        返回 None 表示该插件无 UI。
+        """
+        return None
+
+    def get_api_router(self) -> Any:
+        """返回插件的 FastAPI sub-router，由宿主动态挂载
+
+        返回 None 表示该插件无独立 API。
+        """
+        return None
+
     # ---- 插件引导接口 ----
 
     def get_platform(self) -> str:

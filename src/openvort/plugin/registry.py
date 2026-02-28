@@ -18,6 +18,7 @@ class PluginRegistry:
         self._tools: dict[str, BaseTool] = {}
         self._prompts: list[str] = []
         self._plugins: dict[str, "BasePlugin"] = {}
+        self._disabled: set[str] = set()
 
     # ---- Plugin 管理 ----
 
@@ -37,18 +38,45 @@ class PluginRegistry:
         """列出所有已注册的 Plugin"""
         return list(self._plugins.values())
 
-    def unregister_plugin(self, name: str) -> None:
-        """注销一个 Plugin 及其 Tools 和 Prompts"""
-        plugin = self._plugins.pop(name, None)
+    def disable_plugin(self, name: str) -> None:
+        """禁用插件：移除 Tools 和 Prompts，但保留 Plugin 对象在注册中心（管理面板可见）"""
+        plugin = self._plugins.get(name)
         if not plugin:
             return
-        # 移除该插件的所有 Tool
         tool_names = [t.name for t in plugin.get_tools()]
         for tn in tool_names:
             self._tools.pop(tn, None)
-        # 移除该插件的 Prompts
         plugin_prompts = set(plugin.get_prompts())
         self._prompts = [p for p in self._prompts if p not in plugin_prompts]
+        self._disabled.add(name)
+        log.info(f"已禁用 Plugin: {name}（移除 {len(tool_names)} 个 Tool）")
+
+    def enable_plugin(self, name: str) -> None:
+        """启用插件：重新注册 Tools 和 Prompts"""
+        plugin = self._plugins.get(name)
+        if not plugin:
+            return
+        for tool in plugin.get_tools():
+            self.register_tool(tool)
+        for prompt in plugin.get_prompts():
+            self.register_prompt(prompt)
+        self._disabled.discard(name)
+        log.info(f"已启用 Plugin: {name}")
+
+    def is_plugin_disabled(self, name: str) -> bool:
+        return name in self._disabled
+
+    def unregister_plugin(self, name: str) -> None:
+        """完全注销一个 Plugin 及其 Tools 和 Prompts（删除插件时使用）"""
+        plugin = self._plugins.pop(name, None)
+        if not plugin:
+            return
+        tool_names = [t.name for t in plugin.get_tools()]
+        for tn in tool_names:
+            self._tools.pop(tn, None)
+        plugin_prompts = set(plugin.get_prompts())
+        self._prompts = [p for p in self._prompts if p not in plugin_prompts]
+        self._disabled.discard(name)
         log.info(f"已注销 Plugin: {name}（移除 {len(tool_names)} 个 Tool）")
 
     # ---- Channel 管理 ----

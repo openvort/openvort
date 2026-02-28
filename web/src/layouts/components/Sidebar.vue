@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { useAppStore, useUserStore } from "@/stores";
+import { useAppStore, useUserStore, usePluginStore } from "@/stores";
 import { menuConfig, type MenuConfig } from "@/router/menus";
 import {
     Home, BarChart2, FileText, Table, File, AlertTriangle,
     CheckCircle, User, Settings, ChevronDown, PanelLeftClose, PanelLeftOpen,
-    MessageSquare, Puzzle, Radio, Users, Clock, BookOpen, Webhook, GitBranch, Cpu
+    MessageSquare, Puzzle, Radio, Users, Clock, BookOpen, Webhook, GitBranch, Cpu,
+    Kanban, LayoutDashboard, ListChecks, CheckSquare, Bug, Milestone
 } from "lucide-vue-next";
 
 const props = defineProps<{ isMobile?: boolean }>();
@@ -15,8 +16,28 @@ const route = useRoute();
 const router = useRouter();
 const appStore = useAppStore();
 const userStore = useUserStore();
+const pluginStore = usePluginStore();
+const SUBMENU_STATE_KEY = "openvort.sidebar.open-submenus";
+const expandedMenus = ref<string[]>([]);
 
 const collapsed = computed(() => props.isMobile ? false : appStore.sidebarCollapsed);
+
+const loadExpandedMenus = () => {
+    if (typeof window === "undefined") return;
+    try {
+        const raw = window.localStorage.getItem(SUBMENU_STATE_KEY);
+        expandedMenus.value = raw ? JSON.parse(raw) : [];
+    } catch {
+        expandedMenus.value = [];
+    }
+};
+
+const persistExpandedMenus = () => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(SUBMENU_STATE_KEY, JSON.stringify(expandedMenus.value));
+};
+
+loadExpandedMenus();
 
 // 图标映射
 const iconMap: Record<string, any> = {
@@ -24,27 +45,60 @@ const iconMap: Record<string, any> = {
     table: Table, file: File, "alert-triangle": AlertTriangle,
     "check-circle": CheckCircle, user: User, settings: Settings,
     "message-square": MessageSquare, puzzle: Puzzle, radio: Radio, users: Users,
-    clock: Clock, "book-open": BookOpen, webhook: Webhook, "git-branch": GitBranch, cpu: Cpu
+    clock: Clock, "book-open": BookOpen, webhook: Webhook, "git-branch": GitBranch, cpu: Cpu,
+    kanban: Kanban, "layout-dashboard": LayoutDashboard, "list-checks": ListChecks,
+    "check-square": CheckSquare, bug: Bug, milestone: Milestone,
 };
 
-// 按角色过滤菜单
+// 按角色过滤菜单，并合并插件动态菜单
 const filteredMenus = computed(() => {
     const roles = userStore.userInfo.roles || [];
-    return menuConfig.filter(item => {
+    const staticMenus = menuConfig.filter(item => {
         if (!item.requiredRole) return true;
         return roles.includes(item.requiredRole);
     });
+    const dynamicMenus = pluginStore.pluginMenus();
+    if (!dynamicMenus.length) return staticMenus;
+
+    // 插件菜单插入到"个人设置"之前
+    const profileIdx = staticMenus.findIndex(m => m.path === "/profile");
+    if (profileIdx >= 0) {
+        const result = [...staticMenus];
+        result.splice(profileIdx, 0, ...dynamicMenus);
+        return result;
+    }
+    return [...staticMenus, ...dynamicMenus];
 });
 
 // 当前展开的菜单
 const openKeys = computed(() => {
+    const keys = new Set(expandedMenus.value);
+
     const parent = route.meta?.parent as string;
     if (parent) {
         const menu = filteredMenus.value.find((m) => m.title === parent);
-        return menu ? [menu.title] : [];
+        if (menu) keys.add(menu.title);
+        return [...keys];
     }
-    return [];
+    const activeParent = filteredMenus.value.find((m) =>
+        m.children?.some((c) => c.path === route.path)
+    );
+    if (activeParent) {
+        keys.add(activeParent.title);
+    }
+    return [...keys];
 });
+
+watch(filteredMenus, () => {
+    const validParentTitles = new Set(
+        filteredMenus.value.filter((m) => m.children?.length).map((m) => m.title)
+    );
+    const nextExpanded = expandedMenus.value.filter((title) => validParentTitles.has(title));
+    if (nextExpanded.length !== expandedMenus.value.length) {
+        expandedMenus.value = nextExpanded;
+        persistExpandedMenus();
+    }
+}, { immediate: true });
 
 const isActive = (item: MenuConfig): boolean => {
     if (item.path) return route.path === item.path;
@@ -66,6 +120,15 @@ const handleClick = (item: MenuConfig) => {
 
 const handleChildClick = (child: MenuConfig) => {
     handleClick(child);
+};
+
+const handleMenuToggle = (title: string, event: Event) => {
+    const isOpen = (event.currentTarget as HTMLDetailsElement).open;
+    const next = new Set(expandedMenus.value);
+    if (isOpen) next.add(title);
+    else next.delete(title);
+    expandedMenus.value = [...next];
+    persistExpandedMenus();
 };
 </script>
 
@@ -110,6 +173,7 @@ const handleChildClick = (child: MenuConfig) => {
                     v-else
                     class="mb-0.5"
                     :open="openKeys.includes(item.title)"
+                    @toggle="handleMenuToggle(item.title, $event)"
                 >
                     <summary
                         class="flex items-center h-[40px] px-3 rounded-md cursor-pointer transition-colors list-none"

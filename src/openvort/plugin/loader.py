@@ -294,9 +294,8 @@ class PluginLoader:
 
                 # 核心插件不可禁用
                 if not row.enabled and not plugin.core:
-                    self.registry.unregister_plugin(row.plugin_name)
-                    self._plugins = [p for p in self._plugins if p.name != row.plugin_name]
-                    log.info(f"Plugin '{row.plugin_name}' 已禁用，跳过加载")
+                    self.registry.disable_plugin(row.plugin_name)
+                    log.info(f"Plugin '{row.plugin_name}' 已禁用")
                     continue
 
                 # 应用 DB 中保存的配置

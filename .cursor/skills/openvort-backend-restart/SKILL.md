@@ -30,6 +30,6 @@
 
 ## 注意事项
 
-- 前端 dev server（`npm run dev`，端口 9000）不需要重启，Vite 有 HMR。
+- 前端 dev server（`npm run dev`，端口 9090）不需要重启，Vite 有 HMR。
 - 后端监听端口 8090，前端通过 Vite proxy 转发 `/api` 请求到后端。
 - 每次修改后端代码后都应该执行重启，否则改动不会生效。

@@ -158,6 +158,27 @@ async def upload_plugin(file: UploadFile):
     return {"success": True, "message": f"插件 '{plugin_dir_name}' 上传成功，重启后生效", "restart_required": True}
 
 
+@router.get("/ui-extensions")
+async def get_ui_extensions():
+    """聚合所有已启用插件的 UI 扩展声明"""
+    registry = get_registry()
+    extensions = []
+    for plugin in registry.list_plugins():
+        if registry.is_plugin_disabled(plugin.name):
+            continue
+        try:
+            ui_ext = plugin.get_ui_extensions()
+            if ui_ext:
+                extensions.append({
+                    "plugin": plugin.name,
+                    "display_name": plugin.display_name,
+                    **ui_ext,
+                })
+        except Exception as e:
+            log.warning(f"获取插件 '{plugin.name}' UI 扩展失败: {e}")
+    return {"extensions": extensions}
+
+
 # ---- 以下为 /{name} 路径参数路由，必须放在固定路径之后 ----
 
 @router.get("/{name}")
@@ -239,7 +260,7 @@ async def update_plugin(name: str, req: UpdatePluginRequest):
 
 @router.post("/{name}/toggle")
 async def toggle_plugin(name: str):
-    """启用/禁用插件"""
+    """启用/禁用插件（立即生效：注册/移除 Tools 和 Prompts）"""
     registry = get_registry()
     plugin = registry.get_plugin(name)
     if not plugin:
@@ -263,7 +284,12 @@ async def toggle_plugin(name: str):
         await session.refresh(config_row)
         new_enabled = config_row.enabled
 
-    return {"success": True, "enabled": new_enabled, "restart_required": True}
+    if new_enabled:
+        registry.enable_plugin(name)
+    else:
+        registry.disable_plugin(name)
+
+    return {"success": True, "enabled": new_enabled, "restart_required": False}
 
 
 @router.delete("/{name}")

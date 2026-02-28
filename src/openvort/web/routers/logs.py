@@ -28,7 +28,7 @@ class WebLogHandler(logging.Handler):
 def install_log_handler():
     """安装 Web 日志处理器到根 logger"""
     handler = WebLogHandler()
-    handler.setLevel(logging.INFO)
+    handler.setLevel(logging.DEBUG)
     logging.getLogger("openvort").addHandler(handler)
 
 

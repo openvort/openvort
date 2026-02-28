@@ -260,6 +260,40 @@ async def compact_session(req: CompactRequest, request: Request):
         return {"success": False, "error": str(e)}
 
 
+@router.get("/members")
+async def search_members(request: Request, keyword: str = "", limit: int = 20):
+    """搜索成员列表（用于 @mention 提示）"""
+    require_auth(request)
+    from sqlalchemy import select
+    from openvort.contacts.models import Member
+    from openvort.web.deps import get_db_session_factory
+
+    session_factory = get_db_session_factory()
+    async with session_factory() as session:
+        stmt = select(Member).where(Member.status == "active").order_by(Member.name)
+        if keyword:
+            pattern = f"%{keyword}%"
+            stmt = stmt.where(
+                (Member.name.ilike(pattern)) |
+                (Member.email.ilike(pattern))
+            )
+        stmt = stmt.limit(limit)
+        result = await session.execute(stmt)
+        members = result.scalars().all()
+
+        return {
+            "members": [
+                {
+                    "id": m.id,
+                    "name": m.name,
+                    "avatar_url": m.avatar_url or "",
+                    "email": m.email or "",
+                }
+                for m in members
+            ]
+        }
+
+
 class ResetRequest(BaseModel):
     session_id: str = "default"
 

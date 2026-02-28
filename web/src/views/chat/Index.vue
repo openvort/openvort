@@ -2,7 +2,7 @@
 import { ref, onMounted, onUnmounted, nextTick, watch, computed } from "vue";
 import { useUserStore } from "@/stores";
 import {
-    Send, Bot, User, Loader2, Wrench, X, ImagePlus, FileText, MonitorPlay, Smile,
+    Send, Bot, Loader2, Wrench, X, ImagePlus, FileText, MonitorPlay, Smile,
     Settings, Check, Brain, PackageMinus, RotateCcw, Zap, MoreHorizontal,
     Pencil, Trash2, MessageSquare, PanelLeftClose, PanelLeftOpen, MessageSquarePlus, ListChecks
 } from "lucide-vue-next";
@@ -11,11 +11,12 @@ import {
     sendChatMessage, getChatStreamUrl, getChatHistory, getChatSessionInfo,
     setChatThinking, compactChatSession, resetChatSession,
     getChatSessions, createChatSession, renameChatSession, deleteChatSession,
-    batchDeleteChatSessions
+    batchDeleteChatSessions, getChatMembers
 } from "@/api";
 import { message } from "@/components/vort/message";
 import { dialog } from "@/components/vort/dialog";
 import { marked } from "marked";
+import { pinyin } from "pinyin-pro";
 
 interface ChatMessage {
     id: string;
@@ -549,6 +550,9 @@ async function handleSend() {
 }
 
 function handlePressEnter(e: KeyboardEvent) {
+    // If mention/command panel is open, let panel handle it
+    if (handlePanelKeydown(e)) return;
+
     if (sendMode.value === 'enter') {
         if (e.ctrlKey || e.metaKey) {
             const textarea = e.target as HTMLTextAreaElement;
@@ -650,8 +654,301 @@ function formatTime(ts: number): string {
     return d.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
 }
 
+// ---- @mention 和 /command 提示 ----
+interface MentionMember {
+    id: string;
+    name: string;
+    avatar_url: string;
+    email: string;
+}
+
+interface SlashCommand {
+    name: string;
+    label: string;
+    description: string;
+}
+
+const slashCommands: SlashCommand[] = [
+    { name: "/new", label: "/new", description: "重置会话" },
+    { name: "/status", label: "/status", description: "查看会话状态" },
+    { name: "/compact", label: "/compact", description: "压缩上下文" },
+    { name: "/think", label: "/think", description: "设置思考级别 (off|low|medium|high)" },
+    { name: "/usage", label: "/usage", description: "设置用量显示 (off|tokens|full)" },
+    { name: "/help", label: "/help", description: "显示帮助" },
+];
+
+const showMentionPanel = ref(false);
+const showCommandPanel = ref(false);
+const mentionMembers = ref<MentionMember[]>([]);
+const filteredCommands = ref<SlashCommand[]>([]);
+const mentionActiveIndex = ref(0);
+const commandActiveIndex = ref(0);
+const mentionQuery = ref("");
+const commandQuery = ref("");
+const panelStyle = ref({ left: '0px' });
+let mentionStartPos = -1;
+
+// All members cache for local pinyin search
+const allMembers = ref<MentionMember[]>([]);
+let allMembersLoaded = false;
+
+async function ensureMembersLoaded() {
+    if (allMembersLoaded) return;
+    try {
+        const res: any = await getChatMembers("", 200);
+        allMembers.value = res?.members || [];
+        allMembersLoaded = true;
+    } catch { /* ignore */ }
+}
+
+/**
+ * Match member name by pinyin initials (supports polyphones)
+ */
+function matchPinyin(name: string, keyword: string): boolean {
+    if (!keyword) return true;
+    const kw = keyword.toLowerCase();
+
+    // Direct name/email match
+    if (name.toLowerCase().includes(kw)) return true;
+
+    // Full pinyin match
+    const fullPy = pinyin(name, { toneType: 'none', type: 'array' }).join('').toLowerCase();
+    if (fullPy.includes(kw)) return true;
+
+    // Pinyin initials match (with polyphone support via multiple mode)
+    const initialsArr = pinyin(name, { pattern: 'first', type: 'array', multiple: true });
+    // Build all possible initial combinations for polyphones
+    const combos = initialsArr.reduce<string[]>((acc, cur) => {
+        // cur may be a string with multiple initials separated by space for polyphones
+        const options = typeof cur === 'string' ? cur.split(' ') : [cur];
+        if (acc.length === 0) return options.map(o => o.toLowerCase());
+        const result: string[] = [];
+        for (const prefix of acc) {
+            for (const opt of options) {
+                result.push(prefix + opt.toLowerCase());
+            }
+        }
+        return result;
+    }, []);
+
+    return combos.some(c => c.includes(kw));
+}
+
+function filterMembersByKeyword(keyword: string): MentionMember[] {
+    if (!keyword) return allMembers.value.slice(0, 20);
+    return allMembers.value.filter(m =>
+        matchPinyin(m.name, keyword) ||
+        (m.email && m.email.toLowerCase().includes(keyword.toLowerCase()))
+    ).slice(0, 20);
+}
+
+async function searchMembers(keyword: string) {
+    await ensureMembersLoaded();
+    mentionMembers.value = filterMembersByKeyword(keyword);
+    mentionActiveIndex.value = 0;
+    showMentionPanel.value = mentionMembers.value.length > 0;
+}
+
+function updatePanelPosition() {
+    const textarea = document.querySelector('textarea.chat-textarea') as HTMLTextAreaElement;
+    const container = document.querySelector('.relative.px-6') as HTMLElement;
+    if (!textarea || !container) return;
+
+    // Create a mirror div to measure cursor position
+    const mirror = document.createElement('div');
+    const style = window.getComputedStyle(textarea);
+    const mirrorProps = [
+        'fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing',
+        'wordSpacing', 'textIndent', 'whiteSpace', 'wordWrap', 'overflowWrap',
+        'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
+        'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
+        'boxSizing', 'width',
+    ];
+    mirror.style.position = 'absolute';
+    mirror.style.visibility = 'hidden';
+    mirror.style.overflow = 'hidden';
+    for (const prop of mirrorProps) {
+        (mirror.style as any)[prop] = style.getPropertyValue(prop.replace(/([A-Z])/g, '-$1').toLowerCase());
+    }
+    document.body.appendChild(mirror);
+
+    const text = textarea.value.substring(0, textarea.selectionStart);
+    mirror.textContent = text;
+    const span = document.createElement('span');
+    span.textContent = '|';
+    mirror.appendChild(span);
+
+    const textareaRect = textarea.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    const spanRect = span.getBoundingClientRect();
+    const mirrorRect = mirror.getBoundingClientRect();
+
+    document.body.removeChild(mirror);
+
+    // Calculate left position relative to container
+    const cursorLeft = textareaRect.left + (spanRect.left - mirrorRect.left) - textarea.scrollLeft;
+    const relativeLeft = Math.max(0, cursorLeft - containerRect.left);
+
+    panelStyle.value = { left: `${relativeLeft}px` };
+}
+
+// Watch inputText to detect @ and / triggers
+watch(inputText, () => {
+    nextTick(() => handleInput());
+});
+
+function handleInput() {
+    const textarea = document.querySelector('textarea.chat-textarea') as HTMLTextAreaElement;
+    if (!textarea) return;
+
+    const cursorPos = textarea.selectionStart;
+    const text = textarea.value;
+
+    // Check for @ mention
+    const textBeforeCursor = text.substring(0, cursorPos);
+    const atMatch = textBeforeCursor.match(/@([^\s@]*)$/);
+    if (atMatch) {
+        mentionStartPos = cursorPos - atMatch[1].length - 1;
+        mentionQuery.value = atMatch[1];
+        mentionActiveIndex.value = 0;
+        showCommandPanel.value = false;
+        updatePanelPosition();
+        searchMembers(atMatch[1]);
+        return;
+    }
+
+    // Check for / command (only at start of input)
+    const slashMatch = textBeforeCursor.match(/^\/(\S*)$/);
+    if (slashMatch) {
+        commandQuery.value = slashMatch[1];
+        commandActiveIndex.value = 0;
+        showMentionPanel.value = false;
+        updatePanelPosition();
+        filterCommands(slashMatch[1]);
+        return;
+    }
+
+    // Close panels
+    showMentionPanel.value = false;
+    showCommandPanel.value = false;
+}
+
+function filterCommands(keyword: string) {
+    const kw = keyword.toLowerCase();
+    filteredCommands.value = slashCommands.filter(
+        c => c.name.toLowerCase().includes(kw) || c.description.includes(kw)
+    );
+    showCommandPanel.value = filteredCommands.value.length > 0;
+}
+
+function selectMention(member: MentionMember) {
+    const textarea = document.querySelector('textarea.chat-textarea') as HTMLTextAreaElement;
+    if (!textarea) return;
+
+    const before = inputText.value.substring(0, mentionStartPos);
+    const after = inputText.value.substring(textarea.selectionStart);
+    inputText.value = before + `@${member.name} ` + after;
+    showMentionPanel.value = false;
+
+    nextTick(() => {
+        const newPos = mentionStartPos + member.name.length + 2; // @name + space
+        textarea.selectionStart = textarea.selectionEnd = newPos;
+        textarea.focus();
+    });
+}
+
+function selectCommand(cmd: SlashCommand) {
+    inputText.value = cmd.name + " ";
+    showCommandPanel.value = false;
+
+    nextTick(() => {
+        const textarea = document.querySelector('textarea.chat-textarea') as HTMLTextAreaElement;
+        if (textarea) {
+            textarea.selectionStart = textarea.selectionEnd = inputText.value.length;
+            textarea.focus();
+        }
+    });
+}
+
+function scrollActiveItemIntoView(type: 'mention' | 'command') {
+    nextTick(() => {
+        const attr = type === 'mention' ? 'data-mention-index' : 'data-command-index';
+        const idx = type === 'mention' ? mentionActiveIndex.value : commandActiveIndex.value;
+        const el = document.querySelector(`[${attr}="${idx}"]`) as HTMLElement;
+        if (el) el.scrollIntoView({ block: 'nearest' });
+    });
+}
+
+function handlePanelKeydown(e: KeyboardEvent) {
+    if (showMentionPanel.value) {
+        const list = mentionMembers.value;
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            mentionActiveIndex.value = (mentionActiveIndex.value + 1) % list.length;
+            scrollActiveItemIntoView('mention');
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            mentionActiveIndex.value = (mentionActiveIndex.value - 1 + list.length) % list.length;
+            scrollActiveItemIntoView('mention');
+        } else if (e.key === 'Enter' || e.key === 'Tab') {
+            e.preventDefault();
+            e.stopPropagation();
+            if (list[mentionActiveIndex.value]) selectMention(list[mentionActiveIndex.value]);
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            showMentionPanel.value = false;
+        }
+        return true;
+    }
+    if (showCommandPanel.value) {
+        const list = filteredCommands.value;
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            commandActiveIndex.value = (commandActiveIndex.value + 1) % list.length;
+            scrollActiveItemIntoView('command');
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            commandActiveIndex.value = (commandActiveIndex.value - 1 + list.length) % list.length;
+            scrollActiveItemIntoView('command');
+        } else if (e.key === 'Enter' || e.key === 'Tab') {
+            e.preventDefault();
+            e.stopPropagation();
+            if (list[commandActiveIndex.value]) selectCommand(list[commandActiveIndex.value]);
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            showCommandPanel.value = false;
+        }
+        return true;
+    }
+    return false;
+}
+
+function handleClickOutsidePanel(e: MouseEvent) {
+    const target = e.target as HTMLElement;
+    if (!target.closest('.mention-popover') && !target.closest('.chat-textarea')) {
+        showMentionPanel.value = false;
+        showCommandPanel.value = false;
+    }
+}
+
 onMounted(async () => {
     document.addEventListener("paste", handlePaste);
+    document.addEventListener("click", handleClickOutsidePanel);
+
+    // Bind native keydown on textarea for arrow keys interception
+    nextTick(() => {
+        const textarea = document.querySelector('textarea.chat-textarea') as HTMLTextAreaElement;
+        if (textarea) {
+            textarea.addEventListener('keydown', (e: KeyboardEvent) => {
+                if (showMentionPanel.value || showCommandPanel.value) {
+                    if (['ArrowUp', 'ArrowDown'].includes(e.key)) {
+                        handlePanelKeydown(e);
+                    }
+                }
+            });
+        }
+    });
+
     await loadSessions();
 
     const lastSessionId = localStorage.getItem('chat-last-session-id');
@@ -665,6 +962,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
     document.removeEventListener("paste", handlePaste);
+    document.removeEventListener("click", handleClickOutsidePanel);
 });
 </script>
 
@@ -878,7 +1176,7 @@ onUnmounted(() => {
                         <div class="flex-shrink-0" :class="msg.role === 'user' ? 'ml-3' : 'mr-3'">
                             <div class="w-8 h-8 rounded-full flex items-center justify-center"
                                 :class="msg.role === 'user' ? 'bg-blue-600' : 'bg-gray-100'">
-                                <User v-if="msg.role === 'user'" :size="16" class="text-white" />
+                                <span v-if="msg.role === 'user'" class="text-white text-xs font-medium">{{ (userStore.userInfo.name || 'U')[0] }}</span>
                                 <Bot v-else :size="16" class="text-blue-600" />
                             </div>
                         </div>
@@ -928,7 +1226,79 @@ onUnmounted(() => {
                         <ImagePlus :size="20" /> 松开以添加图片
                     </div>
                 </div>
-                <div class="chat-input-box bg-white rounded-xl border border-gray-200 overflow-hidden">
+
+                <!-- @mention / /command 弹出面板锚点 -->
+                <div class="absolute pointer-events-none" :style="{ left: panelStyle.left, bottom: '100%' }" style="width: 1px; height: 1px;">
+                    <VortPopover
+                        v-model:open="showMentionPanel"
+                        trigger="manual"
+                        placement="topLeft"
+                        :arrow="false"
+                        overlay-class="mention-popover"
+                    >
+                        <span class="inline-block w-px h-px" />
+                        <template #content>
+                            <div class="w-[280px] -m-3">
+                                <div class="px-3 py-2 text-xs text-gray-400 border-b border-gray-100">提及成员</div>
+                                <VortScrollbar max-height="240px">
+                                    <div class="py-1">
+                                        <div v-for="(member, i) in mentionMembers" :key="member.id"
+                                            :data-mention-index="i"
+                                            class="flex items-center gap-2.5 px-3 py-2 cursor-pointer transition-colors"
+                                            :class="i === mentionActiveIndex ? 'bg-blue-50' : 'hover:bg-gray-50'"
+                                            @click="selectMention(member)"
+                                            @mouseenter="mentionActiveIndex = i">
+                                            <div class="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0 text-xs font-medium text-blue-600">
+                                                {{ member.name.charAt(0) }}
+                                            </div>
+                                            <div class="min-w-0 flex-1">
+                                                <div class="text-sm text-gray-800 truncate">{{ member.name }}</div>
+                                                <div v-if="member.email" class="text-xs text-gray-400 truncate">{{ member.email }}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </VortScrollbar>
+                            </div>
+                        </template>
+                    </VortPopover>
+                </div>
+
+                <div class="absolute pointer-events-none" :style="{ left: panelStyle.left, bottom: '100%' }" style="width: 1px; height: 1px;">
+                    <VortPopover
+                        v-model:open="showCommandPanel"
+                        trigger="manual"
+                        placement="topLeft"
+                        :arrow="false"
+                        overlay-class="mention-popover"
+                    >
+                        <span class="inline-block w-px h-px" />
+                        <template #content>
+                            <div class="w-[320px] -m-3">
+                                <div class="px-3 py-2 text-xs text-gray-400 border-b border-gray-100">快捷命令</div>
+                                <VortScrollbar max-height="240px">
+                                    <div class="py-1">
+                                        <div v-for="(cmd, i) in filteredCommands" :key="cmd.name"
+                                            :data-command-index="i"
+                                            class="flex items-center gap-2.5 px-3 py-2 cursor-pointer transition-colors"
+                                            :class="i === commandActiveIndex ? 'bg-blue-50' : 'hover:bg-gray-50'"
+                                            @click="selectCommand(cmd)"
+                                            @mouseenter="commandActiveIndex = i">
+                                            <div class="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
+                                                <Zap :size="14" class="text-gray-500" />
+                                            </div>
+                                            <div class="min-w-0 flex-1">
+                                                <div class="text-sm text-gray-800 font-mono">{{ cmd.label }}</div>
+                                                <div class="text-xs text-gray-400">{{ cmd.description }}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </VortScrollbar>
+                            </div>
+                        </template>
+                    </VortPopover>
+                </div>
+
+                <div class="chat-input-box bg-white rounded-xl border border-gray-200 overflow-hidden relative">
                     <div v-if="pendingImages.length" class="flex flex-wrap gap-2 px-4 pt-3">
                         <div v-for="(img, i) in pendingImages" :key="i" class="relative group">
                             <img :src="img.preview" class="w-[72px] h-[72px] object-cover rounded-lg border border-gray-200 shadow-sm" />
@@ -940,11 +1310,13 @@ onUnmounted(() => {
                     </div>
                     <VortTextarea
                         v-model="inputText"
-                        placeholder="请描述您问题，支持 Ctrl+V 粘贴图片。"
+                        placeholder="请描述您问题，支持 Ctrl+V 粘贴图片。输入 @ 提及成员，/ 使用命令。"
                         :auto-size="{ minRows: 3, maxRows: 6 }"
                         :bordered="false"
                         class="chat-textarea"
                         @press-enter="handlePressEnter"
+                        @keydown.tab="(e: KeyboardEvent) => { if (showMentionPanel || showCommandPanel) { handlePanelKeydown(e); } }"
+                        @keydown.escape="showMentionPanel = false; showCommandPanel = false"
                     />
                     <div class="flex items-center justify-between px-4 py-2">
                         <div class="flex items-center gap-1">
@@ -1080,5 +1452,13 @@ onUnmounted(() => {
 @keyframes cursor-blink {
     0%, 100% { opacity: 1; }
     50% { opacity: 0; }
+}
+
+.mention-panel {
+    animation: mention-slide-up 0.15s ease-out;
+}
+@keyframes mention-slide-up {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 </style>

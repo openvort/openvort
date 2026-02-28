@@ -22,7 +22,7 @@ export default defineConfig({
         }
     },
     server: {
-        port: 9000,
+        port: 9090,
         host: true,
         proxy: {
             "/api": {

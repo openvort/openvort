@@ -4,6 +4,7 @@ import { getPlugins, getPluginDetail, updatePlugin, togglePlugin, installPlugin,
 import { Puzzle, Wrench, CheckCircle, XCircle, Settings, Plus, Upload, Trash2 } from "lucide-vue-next";
 import { message } from "@/components/vort/message";
 import { dialog } from "@/components/vort/dialog";
+import { usePluginStore } from "@/stores/modules/plugin";
 
 interface PluginTool {
     name: string;
@@ -17,6 +18,7 @@ interface ConfigField {
     required: boolean;
     secret: boolean;
     placeholder: string;
+    options?: { value: string; label: string }[];
 }
 
 interface PluginInfo {
@@ -53,12 +55,16 @@ const loadPlugins = async () => {
     finally { loading.value = false; }
 };
 
-// 启用/禁用
+const needRestart = ref(false);
+
+const pluginStore = usePluginStore();
+
 const handleToggle = async (plugin: PluginInfo) => {
     try {
         const res: any = await togglePlugin(plugin.name);
         plugin.enabled = res.enabled;
-        message.success(res.enabled ? "已启用" : "已禁用，重启后生效");
+        message.success(res.enabled ? "已启用" : "已禁用");
+        pluginStore.fetchExtensions();
     } catch {
         message.error("操作失败");
     }
@@ -113,7 +119,8 @@ const handleInstall = async () => {
     installing.value = true;
     try {
         const res: any = await installPlugin(packageName.value.trim());
-        message.success(res.message || "安装成功，重启后生效");
+        message.success(res.message || "安装成功，需重启服务生效");
+        needRestart.value = true;
         addDialogOpen.value = false;
         packageName.value = "";
     } catch (e: any) {
@@ -127,7 +134,8 @@ const handleUpload = async (file: File) => {
     installing.value = true;
     try {
         const res: any = await uploadPlugin(file);
-        message.success(res.message || "上传成功，重启后生效");
+        message.success(res.message || "上传成功，需重启服务生效");
+        needRestart.value = true;
         addDialogOpen.value = false;
     } catch (e: any) {
         message.error(e?.response?.data?.detail || "上传失败");
@@ -151,7 +159,8 @@ const handleDelete = (plugin: PluginInfo) => {
         onOk: async () => {
             try {
                 await deletePlugin(plugin.name);
-                message.success("已删除，重启后生效");
+                message.success("已删除，需重启服务生效");
+                needRestart.value = true;
                 loadPlugins();
             } catch (e: any) {
                 message.error(e?.response?.data?.detail || "删除失败");
@@ -171,6 +180,16 @@ onMounted(loadPlugins);
                 <Plus :size="14" class="mr-1" /> 添加插件
             </VortButton>
         </div>
+
+        <VortAlert
+            v-if="needRestart"
+            type="warning"
+            class="mb-4"
+        >
+            <template #message>
+                <span>插件状态已变更，请重启 OpenVort 服务使更改生效：<code class="bg-amber-100 px-1.5 py-0.5 rounded text-xs font-mono">openvort start</code></span>
+            </template>
+        </VortAlert>
 
         <VortSpin :spinning="loading">
             <div v-if="plugins.length === 0 && !loading" class="text-center py-12 text-gray-400 text-sm">
@@ -247,6 +266,13 @@ onMounted(loadPlugins);
                             v-model="configForm[field.key]"
                             :placeholder="field.placeholder"
                         />
+                        <VortSelect
+                            v-else-if="field.type === 'select' && field.options"
+                            v-model="configForm[field.key]"
+                            :placeholder="field.placeholder"
+                        >
+                            <VortSelectOption v-for="opt in field.options" :key="opt.value" :value="opt.value">{{ opt.label }}</VortSelectOption>
+                        </VortSelect>
                         <VortInput
                             v-else
                             v-model="configForm[field.key]"

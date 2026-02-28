@@ -1,519 +1,555 @@
-# OpenVort 前端开发 Skill
+# OpenVort 前端开发规范 (VortAdmin 风格)
 
-开发 OpenVort Web 前端页面时，必须遵循以下规范。**核心原则：优先使用 Vort 组件库，禁止在有对应 Vort 组件的场景下使用原生 HTML 元素或第三方 UI 库。**
+## 概述
 
-## 触发条件
-
-- 新增/修改 `web/src/views/` 下的页面组件
-- 使用 Vort / Vort-Biz 组件
-- 创建列表页、表单页、详情页
+OpenVort 前端基于 vortadmin 框架，使用自研 `vort` 组件库。所有页面开发必须遵循以下规范。
 
 ## 技术栈
 
-- Vue 3 + TypeScript + Composition API (`<script setup lang="ts">`)
-- Tailwind CSS（布局和间距）
-- lucide-vue-next（图标）
-- Vort 组件库（通过 VortResolver 自动导入，无需手动 import）
+- Vue 3 + TypeScript (`<script setup lang="ts">`)
+- Tailwind CSS + CSS Variables (`--vort-*`)
+- 自研 `vort` 组件库（Ant Design Vue 风格 API，`vort-*` 前缀自动注册）
+- Pinia 状态管理
+- lucide-vue-next 图标
+- @vueuse/core 工具函数
 
-## Vort-First 原则
+## 组件自动注册
 
-**所有 UI 开发必须优先使用 Vort 组件，不允许用原生 HTML 或第三方库替代：**
+`vort-*` 前缀组件在模板中自动解析，无需 import。业务组件（`vort-biz/*`）需手动 import。
 
-| 场景 | ✅ 正确 | ❌ 错误 |
-|------|---------|---------|
-| 按钮 | `<VortButton>` | `<button>`, `<a-button>`, `<el-button>` |
-| 输入框 | `<VortInput>` | `<input>`, `<a-input>` |
-| 表格 | `<VortTable>` | `<table>`, `<a-table>`, `<el-table>` |
-| 弹窗 | `<VortDialog>` / `DialogForm` | `<a-modal>`, `<el-dialog>` |
-| 下拉选择 | `<VortSelect>` | `<select>`, `<a-select>` |
-| 表单 | `<VortForm>` / `<VortFormItem>` | `<form>`, `<a-form>` |
-| 消息提示 | `message.success()` | `ElMessage`, `antd message` |
-| 确认弹窗 | `dialog.confirm()` / `<DeleteRecord>` | `ElMessageBox`, `Modal.confirm` |
-| 表格操作列 | `<TableActions>` + `<TableActionsItem>` | 手写 `<a>` 链接 + `<VortDivider>` |
-| 搜索栏 | `<SearchToolbar>` 组合 | 手写搜索表单布局 |
-| 删除操作 | `<DeleteRecord>` | 手写 confirm + API 调用 |
-| 弹窗表单 | `<DialogForm>` | 手写 Dialog + 表单逻辑 |
-| 气泡编辑 | `<PopForm>` | 手写 Popover + 输入框 |
-| 批量操作 | `<BatchActions>` | 手写批量删除按钮 |
+已注册的全局组件见 `components.d.ts`，包括：
+- 基础：VortButton, VortInput, VortSelect, VortSelectOption, VortTag, VortSpin, VortTooltip, VortDivider, VortAlert, VortCard
+- 表格：VortTable, VortTableColumn, VortPagination
+- 表单：VortForm, VortFormItem, VortInput, VortInputNumber, VortInputPassword, VortInputSearch, VortSelect, VortTextarea, VortSwitch, VortCheckbox, VortRadioGroup, VortRadioButton
+- 弹层：VortDialog, VortDrawer, VortDropdown, VortDropdownMenuItem, VortDropdownMenuSeparator, VortPopconfirm
+- 布局：VortTabs, VortTabPane, VortScrollbar
+- 搜索（自动注册）：SearchToolbar, SearchForm, SearchFormItem, SearchFormActions
+- 操作（自动注册）：TableActions, TableActionsItem, DeleteRecord
 
-## 组件自动导入
+## 核心 Hooks
 
-所有在 `resolver.ts` 中注册的组件均通过 `unplugin-vue-components` 自动导入，模板中直接使用，无需 import。
+### useCrudPage — CRUD 列表页
 
-消息提示和命令式 API 需要手动 import：
-```ts
-import { message } from "@/components/vort/message";
-import { dialog } from "@/components/vort/dialog";
-import { notification } from "@/components/vort/notification";
+```typescript
+import { useCrudPage } from "@/hooks";
+
+interface XxxItem { id: string; name: string; /* ... */ }
+type FilterParams = { page: number; size: number; keyword?: string; state?: string };
+
+const fetchList = async (params: FilterParams) => {
+    const res = await getXxxList({ ...params, page_size: params.size });
+    return { records: (res as any).items || [], total: (res as any).total || 0 };
+};
+
+const { listData, loading, total, filterParams, showPagination,
+        rowSelection, hasSelection, selectedIds, clearSelection,
+        loadData, onSearchSubmit, resetParams, deleteRow } =
+    useCrudPage<XxxItem, FilterParams>({
+        api: fetchList,
+        defaultParams: { page: 1, size: 20 }
+    });
+
+loadData();
 ```
 
-## 基础组件 (vort/) 关键用法
+返回值说明：
+- `listData` — 列表数据 `Ref<T[]>`
+- `loading` — 加载状态
+- `total` — 总条数
+- `filterParams` — 筛选参数（reactive，含 page/size）
+- `showPagination` — 是否显示分页（total > 0）
+- `rowSelection` — 表格多选配置（直接传给 `:row-selection`）
+- `hasSelection` — 是否有选中项
+- `selectedIds` — 选中的 ID 数组
+- `clearSelection` — 清空选中
+- `loadData` — 加载数据
+- `onSearchSubmit` — 搜索（重置 page=1 后加载）
+- `resetParams` — 重置所有筛选参数并加载
+- `deleteRow` — 删除单行（需配置 `deleteApi`）
 
-### VortButton
+**注意**：API 返回格式必须适配为 `{ records: T[], total: number }`。
+
+### useDialogForm — 弹窗/抽屉表单
+
+```typescript
+import { useDialogForm, type DialogFormProps, type CommonFormParams } from "@/hooks";
+
+const props = defineProps<DialogFormProps<CommonFormParams>>();
+const formRef = ref(null);
+
+const { loading, formState, isEdit, isAdd, onSubmit } =
+    useDialogForm<FormType>({
+        defaultFormState: { name: "", desc: "" },
+        detailApi: (params) => request.get(`/xxx/${params.id}`),
+        submitApi: (op, data) => op === "create" ? request.post("/xxx", data) : request.put(`/xxx/${data.id}`, data),
+        props, formRef
+    });
+
+defineExpose({ onFormSubmit: onSubmit });
+```
+
+返回值说明：
+- `loading` — 加载/提交状态
+- `formState` — 表单数据 `Ref<T>`
+- `isEdit` / `isAdd` — 当前模式
+- `isReadonly` — 只读模式（`params.examine === 1`）
+- `onSubmit` — 提交（自动校验 + 调用 submitApi + 成功回调）
+- `resetFormState` — 重置表单
+
+## 页面布局模式
+
+### 1. 列表页（CRUD Table）— 双卡片布局
+
+搜索区和表格分成两个独立的白色卡片，这是标准布局：
 
 ```vue
-<!-- variant: "primary" | "default" | "dashed" | "text" | "link" | "plain" | "soft" -->
-<VortButton variant="primary" @click="handleSave">保存</VortButton>
-<VortButton variant="primary" :loading="saving">提交</VortButton>
+<script setup lang="ts">
+import { ref } from "vue";
+import { useCrudPage } from "@/hooks";
+import { getXxxList } from "@/api";
+import { Plus } from "lucide-vue-next";
 
-<!-- danger 是独立 boolean prop，不是 variant -->
-<VortButton danger @click="handleDelete">删除</VortButton>
-<VortButton variant="primary" danger>危险操作</VortButton>
+interface XxxItem { id: string; name: string; state: string; createdAt: string; }
+type FilterParams = { page: number; size: number; state: string; keyword: string };
 
-<!-- 带图标 -->
-<VortButton variant="primary">
-    <Plus :size="14" class="mr-1" /> 新增
-</VortButton>
+const stateOptions = [
+    { label: "全部", value: "" },
+    { label: "启用", value: "active" },
+    { label: "禁用", value: "disabled" },
+];
+const stateColorMap: Record<string, string> = { active: "green", disabled: "red" };
+const stateLabel = (val: string) => stateOptions.find(o => o.value === val)?.label || val;
 
-<!-- size: "large" | "middle" | "small" -->
-<VortButton size="small">小按钮</VortButton>
-```
+const fetchList = async (params: FilterParams) => {
+    const res = await getXxxList({ ...params, page_size: params.size });
+    return { records: (res as any).items || [], total: (res as any).total || 0 };
+};
 
-### VortTable + VortTableColumn
+const { listData, loading, total, filterParams, showPagination, rowSelection, loadData, onSearchSubmit, resetParams } =
+    useCrudPage<XxxItem, FilterParams>({
+        api: fetchList,
+        defaultParams: { page: 1, size: 20, state: "", keyword: "" },
+    });
 
-```vue
-<VortTable
-    :data-source="list"
-    :loading="loading"
-    row-key="id"
-    :pagination="false"
-    :row-selection="rowSelection"
->
-    <VortTableColumn label="名称" prop="name" />
-    <VortTableColumn label="操作" :width="160" fixed="right">
-        <template #default="{ row }">
-            <!-- slot 参数: { value, row, index, column }，不是 record -->
-        </template>
-    </VortTableColumn>
-</VortTable>
-```
+// Drawer
+const drawerVisible = ref(false);
+const drawerTitle = ref("");
+const drawerMode = ref<"view" | "edit" | "add">("view");
+const currentRow = ref<Partial<XxxItem>>({});
 
-Props 命名注意：用 `label`（不是 title）、`prop`（不是 dataIndex）。
+const handleAdd = () => { drawerMode.value = "add"; drawerTitle.value = "新增"; currentRow.value = {}; drawerVisible.value = true; };
+const handleEdit = (row: XxxItem) => { drawerMode.value = "edit"; drawerTitle.value = "编辑"; currentRow.value = { ...row }; drawerVisible.value = true; };
+const handleView = (row: XxxItem) => { drawerMode.value = "view"; drawerTitle.value = "详情"; currentRow.value = { ...row }; drawerVisible.value = true; };
+const handleSave = () => { drawerVisible.value = false; loadData(); };
 
-#### 行选择（rowSelection）
+loadData();
+</script>
 
-```ts
-const selectedIds = ref<string[]>([]);
+<template>
+    <div class="space-y-4">
+        <!-- 搜索卡片 -->
+        <div class="bg-white rounded-xl p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-base font-medium text-gray-800">页面标题</h3>
+                <vort-button variant="primary" @click="handleAdd">
+                    <Plus :size="14" class="mr-1" /> 新增
+                </vort-button>
+            </div>
+            <div class="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4">
+                <div class="flex items-center gap-2 w-full sm:w-auto">
+                    <span class="text-sm text-gray-500 whitespace-nowrap">关键词</span>
+                    <vort-input-search
+                        v-model="filterParams.keyword"
+                        placeholder="搜索..."
+                        allow-clear
+                        class="flex-1 sm:w-[220px]"
+                        @search="onSearchSubmit"
+                        @keyup.enter="onSearchSubmit"
+                    />
+                </div>
+                <div class="flex items-center gap-2 w-full sm:w-auto">
+                    <span class="text-sm text-gray-500 whitespace-nowrap">状态</span>
+                    <vort-select v-model="filterParams.state" placeholder="全部" allow-clear class="flex-1 sm:w-[120px]" @change="onSearchSubmit">
+                        <vort-select-option v-for="opt in stateOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</vort-select-option>
+                    </vort-select>
+                </div>
+                <div class="flex items-center gap-2">
+                    <vort-button variant="primary" @click="onSearchSubmit">查询</vort-button>
+                    <vort-button @click="resetParams">重置</vort-button>
+                </div>
+            </div>
+        </div>
 
-const rowSelection = computed(() => ({
-    selectedRowKeys: selectedIds.value,
-    onChange: (keys: (string | number)[]) => {
-        selectedIds.value = keys as string[];
-    },
-    // 可选配置：
-    // type: "checkbox" | "radio"  // 默认 checkbox
-    // fixed: true                 // 固定在左侧
-    // columnWidth: "48px"
-    // hideSelectAll: false
-    // getCheckboxProps: (record) => ({ disabled: record.isAdmin })
-}));
-```
+        <!-- 表格卡片 -->
+        <div class="bg-white rounded-xl p-6">
+            <vort-table :data-source="listData" :loading="loading" :pagination="false" :row-selection="rowSelection">
+                <vort-table-column label="名称" prop="name" />
+                <vort-table-column label="状态" :width="80">
+                    <template #default="{ row }">
+                        <vort-tag :color="stateColorMap[row.state] || 'default'">{{ stateLabel(row.state) }}</vort-tag>
+                    </template>
+                </vort-table-column>
+                <vort-table-column label="创建时间" prop="createdAt" :width="170" />
+                <vort-table-column label="操作" :width="160" fixed="right">
+                    <template #default="{ row }">
+                        <div class="flex items-center gap-2 whitespace-nowrap">
+                            <a class="text-sm text-blue-600 cursor-pointer" @click="handleView(row)">详情</a>
+                            <vort-divider type="vertical" />
+                            <a class="text-sm text-blue-600 cursor-pointer" @click="handleEdit(row)">编辑</a>
+                            <vort-divider type="vertical" />
+                            <vort-popconfirm title="确认删除？" @confirm="handleDelete(row)">
+                                <a class="text-sm text-red-500 cursor-pointer">删除</a>
+                            </vort-popconfirm>
+                        </div>
+                    </template>
+                </vort-table-column>
+            </vort-table>
 
-### VortTabs + VortTabPane
+            <div v-if="showPagination" class="flex justify-end mt-4">
+                <vort-pagination
+                    v-model:current="filterParams.page"
+                    v-model:page-size="filterParams.size"
+                    :total="total"
+                    show-total-info
+                    show-size-changer
+                    @change="loadData"
+                />
+            </div>
+        </div>
 
-```vue
-<VortTabs v-model:activeKey="activeTab">
-    <!-- 注意：用 tab-key，不是 key（key 是 Vue 内置属性，不会传给组件） -->
-    <VortTabPane tab-key="list" tab="列表">内容</VortTabPane>
-    <VortTabPane tab-key="detail" tab="详情">内容</VortTabPane>
-</VortTabs>
-```
-
-### VortTag
-
-```vue
-<!-- 预设颜色: red, blue, green, orange, purple, cyan, gold, magenta, volcano, lime, geekblue, teal -->
-<!-- 状态颜色: success, processing, error, warning, default -->
-<VortTag color="green">启用</VortTag>
-<VortTag color="red">禁用</VortTag>
-
-<!-- 可关闭 / size / 其他 props: bordered, plain, white, solid -->
-<VortTag closable @close="handleClose">可关闭</VortTag>
-<VortTag size="small" color="blue">小标签</VortTag>
-```
-
-### VortDrawer / VortDialog
-
-```vue
-<VortDrawer :open="drawerOpen" title="标题" :width="480" @update:open="drawerOpen = $event">
-    <!-- 内容 -->
-    <template #footer>底部按钮</template>
-</VortDrawer>
-
-<VortDialog :open="dialogOpen" title="标题" @update:open="dialogOpen = $event">
-    <!-- 内容 -->
-</VortDialog>
-```
-
-### VortForm
-
-```vue
-<VortForm label-width="100px">
-    <VortFormItem label="名称" required>
-        <VortInput v-model="form.name" placeholder="请输入" />
-    </VortFormItem>
-    <VortFormItem>
-        <VortButton variant="primary" :loading="saving" @click="handleSave">提交</VortButton>
-        <VortButton class="ml-3" @click="handleCancel">取消</VortButton>
-    </VortFormItem>
-</VortForm>
-```
-
-### VortDropdown
-
-```vue
-<VortDropdown trigger="click">
-    <VortButton>操作 <ChevronDown :size="14" /></VortButton>
-    <template #overlay>
-        <VortDropdownMenuItem @click="handleEdit">编辑</VortDropdownMenuItem>
-        <VortDropdownMenuSeparator />
-        <VortDropdownMenuItem danger @click="handleDelete">删除</VortDropdownMenuItem>
-    </template>
-</VortDropdown>
-```
-
-## 业务组件 (vort-biz/) 关键用法
-
-业务组件封装了常见的 CRUD 交互模式，**必须优先使用，不要手写重复逻辑**。
-
-### TableActions + TableActionsItem（表格操作列）
-
-替代手写 `<a>` 链接 + `<VortDivider type="vertical">`，自动处理分隔线、样式统一。
-
-```vue
-<VortTableColumn label="操作" :width="180" fixed="right">
-    <template #default="{ row }">
-        <TableActions>
-            <TableActionsItem @click="handleEdit(row)">编辑</TableActionsItem>
-            <TableActionsItem danger @click="handleDelete(row)">删除</TableActionsItem>
-
-            <!-- 更多操作折叠到下拉菜单 -->
-            <template #more>
-                <TableActionsMoreItem @click="handleCopy(row)">复制</TableActionsMoreItem>
-                <TableActionsMoreItem danger @click="handleRemove(row)">移除</TableActionsMoreItem>
+        <!-- 抽屉 -->
+        <vort-drawer v-model:open="drawerVisible" :title="drawerTitle" :width="550">
+            <!-- 查看模式 -->
+            <div v-if="drawerMode === 'view'" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                    <span class="text-sm text-gray-400">名称</span>
+                    <div class="text-sm text-gray-800 mt-1">{{ currentRow.name }}</div>
+                </div>
+                <div>
+                    <span class="text-sm text-gray-400">状态</span>
+                    <div class="mt-1">
+                        <vort-tag :color="stateColorMap[currentRow.state!] || 'default'">{{ stateLabel(currentRow.state || '') }}</vort-tag>
+                    </div>
+                </div>
+            </div>
+            <!-- 编辑/新增模式 -->
+            <template v-else>
+                <vort-form label-width="80px">
+                    <vort-form-item label="名称" required>
+                        <vort-input v-model="currentRow.name" placeholder="请输入名称" />
+                    </vort-form-item>
+                </vort-form>
+                <div class="flex justify-end gap-3 mt-6">
+                    <vort-button @click="drawerVisible = false">取消</vort-button>
+                    <vort-button variant="primary" @click="handleSave">确定</vort-button>
+                </div>
             </template>
-        </TableActions>
-    </template>
-</VortTableColumn>
-```
-
-Props：
-- `type`: `"text"` (默认链接样式) | `"button"` (按钮样式)
-- `divider`: 是否显示分隔线，默认 `true`
-- `moreText`: 更多按钮文字，默认 `"更多"`
-
-### DeleteRecord（删除操作）
-
-封装了确认弹窗 + API 调用 + 成功/失败提示，替代手写 `dialog.confirm` + API 调用。
-
-```vue
-<!-- 基础用法：包裹在 TableActionsItem 中 -->
-<TableActions>
-    <TableActionsItem @click="handleEdit(row)">编辑</TableActionsItem>
-    <DeleteRecord
-        :request-api="api.deleteItem"
-        :params="{ id: row.id }"
-        @after-delete="loadData"
-    >
-        <TableActionsItem danger>删除</TableActionsItem>
-    </DeleteRecord>
-</TableActions>
-
-<!-- 在 more 下拉菜单中使用（需要 block + onSuccess） -->
-<template #more>
-    <TableActionsMoreItem>
-        <DeleteRecord
-            block
-            :request-api="api.deleteItem"
-            :params="{ id: row.id }"
-            :on-success="loadData"
-        >删除</DeleteRecord>
-    </TableActionsMoreItem>
+        </vort-drawer>
+    </div>
 </template>
 ```
 
-Props：
-- `requestApi`: 删除 API 函数 `(params) => Promise`
-- `params`: 传给 API 的参数
-- `title`: 确认框标题，默认 `"您确认要删除该数据吗？"`
-- `successMessage`: 成功提示，默认 `"删除成功"`
-- `block`: 块级模式（用于 dropdown 场景）
-- `onSuccess`: 成功回调（用于 teleport 场景如 dropdown 内，替代 `@after-delete`）
+### 2. 操作列
 
-### DialogForm（弹窗/抽屉表单）
+两种写法均可：
 
-封装了 触发器 → 打开弹窗/抽屉 → 渲染表单组件 → 提交/关闭 的完整流程。
+方式一：手写链接 + divider（vortadmin 原生风格）：
 
 ```vue
-<script setup lang="ts">
-import EditForm from "./EditForm.vue";
-</script>
-
-<!-- 基础用法：点击触发器打开 Dialog -->
-<DialogForm :component="EditForm" title="编辑" @ok="loadData">
-    <VortButton variant="primary">新增</VortButton>
-</DialogForm>
-
-<!-- 传参给表单组件 -->
-<DialogForm :component="EditForm" title="编辑" :params="{ id: row.id }" @ok="loadData">
-    <TableActionsItem>编辑</TableActionsItem>
-</DialogForm>
-
-<!-- 抽屉模式 -->
-<DialogForm :component="EditForm" title="编辑" is-drawer :width="600" @ok="loadData">
-    <VortButton>打开抽屉</VortButton>
-</DialogForm>
+<vort-table-column label="操作" :width="160" fixed="right">
+    <template #default="{ row }">
+        <div class="flex items-center gap-2 whitespace-nowrap">
+            <a class="text-sm text-blue-600 cursor-pointer" @click="handleView(row)">详情</a>
+            <vort-divider type="vertical" />
+            <a class="text-sm text-blue-600 cursor-pointer" @click="handleEdit(row)">编辑</a>
+            <vort-divider type="vertical" />
+            <vort-popconfirm title="确认删除？" @confirm="handleDelete(row)">
+                <a class="text-sm text-red-500 cursor-pointer">删除</a>
+            </vort-popconfirm>
+        </div>
+    </template>
+</vort-table-column>
 ```
 
-表单组件约定（EditForm.vue）：
+方式二：TableActions 组件（自动分隔线，支持更多下拉）：
+
 ```vue
-<script setup lang="ts">
-const props = defineProps<{
-    params: Record<string, unknown>;
-    okHandler: (payload?: unknown) => void;
-    cancelHandler: () => void;
-}>();
-
-// 必须暴露 onFormSubmit 方法，DialogForm 的确认按钮会调用它
-// 返回 Promise 时自动管理 loading 状态
-const onFormSubmit = async () => {
-    await api.save(form);
-    props.okHandler(); // 关闭弹窗并触发 ok 事件
-};
-
-defineExpose({ onFormSubmit });
-</script>
+<vort-table-column label="操作" :width="160" fixed="right">
+    <template #default="{ row }">
+        <TableActions>
+            <TableActionsItem @click="handleView(row)">详情</TableActionsItem>
+            <TableActionsItem @click="handleEdit(row)">编辑</TableActionsItem>
+            <TableActionsItem danger @click="handleDelete(row)">删除</TableActionsItem>
+        </TableActions>
+    </template>
+</vort-table-column>
 ```
 
-Props：
-- `component`: 表单组件（必需）
-- `params`: 传给表单组件的参数
-- `isDrawer`: 是否抽屉模式，默认 `false`
-- `title` / `width` / `closable` / `maskClosable`
-- `showFooter` / `showCancel` / `showOk` / `okText` / `cancelText`
-- `closeConfirm`: 关闭时是否确认（表单有未保存更改时提示）
-- `centered` / `bodyNoPadding`（仅 Dialog）
-- `placement`（仅 Drawer，默认 `"right"`）
-
-### SearchToolbar 组合（搜索栏）
-
-替代手写搜索表单布局，提供统一的搜索区域样式。
+带更多下拉菜单：
 
 ```vue
-<SearchToolbar :on-search="handleSearch" :on-reset="handleReset" :loading="loading">
-    <SearchForm :label-width="80">
-        <SearchFormItem label="关键词">
-            <VortInput v-model="params.keyword" placeholder="请输入" />
-        </SearchFormItem>
+<TableActions>
+    <TableActionsItem @click="handleEdit(row)">编辑</TableActionsItem>
+    <template #more>
+        <vort-dropdown-menu-item @click="handleCopy(row)">复制</vort-dropdown-menu-item>
+        <vort-dropdown-menu-item danger @click="handleDelete(row)">删除</vort-dropdown-menu-item>
+    </template>
+</TableActions>
+```
+
+### 3. 搜索区布局
+
+搜索区在卡片顶部，标题行 + 筛选行：
+
+```vue
+<!-- 标题行：左标题，右新增按钮 -->
+<div class="flex items-center justify-between mb-4">
+    <h3 class="text-base font-medium text-gray-800">页面标题</h3>
+    <vort-button variant="primary" @click="handleAdd">
+        <Plus :size="14" class="mr-1" /> 新增
+    </vort-button>
+</div>
+
+<!-- 筛选行：标签 + 控件 横向排列，响应式换行 -->
+<div class="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4">
+    <div class="flex items-center gap-2 w-full sm:w-auto">
+        <span class="text-sm text-gray-500 whitespace-nowrap">关键词</span>
+        <vort-input-search v-model="filterParams.keyword" placeholder="搜索..." allow-clear class="flex-1 sm:w-[220px]" @search="onSearchSubmit" @keyup.enter="onSearchSubmit" />
+    </div>
+    <div class="flex items-center gap-2 w-full sm:w-auto">
+        <span class="text-sm text-gray-500 whitespace-nowrap">状态</span>
+        <vort-select v-model="filterParams.state" placeholder="全部" allow-clear class="flex-1 sm:w-[120px]" @change="onSearchSubmit">
+            <vort-select-option value="active">启用</vort-select-option>
+        </vort-select>
+    </div>
+    <div class="flex items-center gap-2">
+        <vort-button variant="primary" @click="onSearchSubmit">查询</vort-button>
+        <vort-button @click="resetParams">重置</vort-button>
+    </div>
+</div>
+```
+
+也可使用 SearchToolbar 组件（更紧凑，自带查询/重置按钮）：
+
+```vue
+<SearchToolbar :on-search="onSearchSubmit" :on-reset="resetParams" :loading="loading">
+    <SearchForm>
         <SearchFormItem label="状态">
-            <VortSelect v-model="params.status" placeholder="请选择" />
+            <VortSelect v-model="filterParams.state" placeholder="全部" allow-clear style="width: 180px">
+                <VortSelectOption v-for="opt in stateOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</VortSelectOption>
+            </VortSelect>
         </SearchFormItem>
         <SearchFormActions />
     </SearchForm>
-    <template #actions>
-        <VortButton variant="primary">
-            <Plus :size="14" class="mr-1" /> 新增
-        </VortButton>
-    </template>
 </SearchToolbar>
 ```
 
-组件说明：
-- `SearchToolbar`: 外层容器，提供 `onSearch`/`onReset` 给子组件
-- `SearchForm`: 基于 VortForm inline 布局，统一 `labelWidth`
-- `SearchFormItem`: 单个搜索项，`label` + 控件布局，`controlWidth` 默认 270px
-- `SearchFormActions`: 搜索/重置按钮，自动从 SearchToolbar 注入回调
+### 4. 详情展示（Drawer 内 / 独立页面）
 
-### BatchActions（批量操作）
+字段用 grid 布局，标签灰色小字，值黑色：
 
 ```vue
-<BatchActions
-    :selected-count="selectedIds.length"
-    @delete="handleBatchDelete"
-/>
-<!-- 自定义文案 -->
-<BatchActions
-    :selected-count="selectedIds.length"
-    delete-text="批量移除"
-    confirm-text="确认要批量移除所选项吗？"
-    @delete="handleBatchRemove"
-/>
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <div>
+        <span class="text-sm text-gray-400">字段名</span>
+        <div class="text-sm text-gray-800 mt-1">{{ value }}</div>
+    </div>
+    <!-- 跨列字段 -->
+    <div class="sm:col-span-2">
+        <span class="text-sm text-gray-400">描述</span>
+        <div class="text-sm text-gray-800 mt-1 whitespace-pre-wrap">{{ description }}</div>
+    </div>
+    <!-- Tag 类字段 -->
+    <div>
+        <span class="text-sm text-gray-400">状态</span>
+        <div class="mt-1"><vort-tag :color="colorMap[state]">{{ label }}</vort-tag></div>
+    </div>
+</div>
 ```
 
-### PopForm（气泡快速编辑）
-
-用于表格内行内编辑场景，点击弹出气泡框编辑字段值。
+### 5. 表单页
 
 ```vue
-<!-- 基础用法：调用 API 保存 -->
-<PopForm
-    v-model:org-value="row.name"
-    label="名称"
-    :params="{ id: row.id, field: 'name' }"
-    :request-api="api.updateField"
-    @ok="loadData"
-/>
-
-<!-- 直接模式：不调用 API，只更新值 -->
-<PopForm
-    v-model:org-value="form.price"
-    label="价格"
-    type="decimal"
-    is-price
-    is-direct
-    @ok="handlePriceChange"
-/>
+<div class="max-w-[800px] mx-auto">
+    <div class="bg-white rounded-xl p-8">
+        <h3 class="text-lg font-medium text-gray-800 mb-6">标题</h3>
+        <vort-form label-width="100px" :model="formState" ref="formRef">
+            <vort-form-item label="名称" required>
+                <vort-input v-model="formState.name" placeholder="请输入名称" />
+            </vort-form-item>
+            <vort-form-item label="描述">
+                <vort-textarea v-model="formState.desc" placeholder="请输入描述" :rows="4" />
+            </vort-form-item>
+            <vort-form-item>
+                <vort-button variant="primary" :loading="loading" @click="onSubmit">提交</vort-button>
+                <vort-button class="ml-3" @click="cancel">取消</vort-button>
+            </vort-form-item>
+        </vort-form>
+    </div>
+</div>
 ```
 
-Props：
-- `orgValue`: 原始值（v-model）
-- `type`: `"input"` | `"textarea"` | `"integer"` | `"decimal"`
-- `label` / `extra` / `required` / `min` / `max` / `len` / `minNum` / `maxNum`
-- `requestApi` / `params`: API 提交
-- `isDirect`: 直接模式，不调用 API
-- `isHover`: hover 时显示编辑图标（默认 true），false 时常显
-
-### VortIcon（业务图标）
+多区块高级表单用 grid 布局：
 
 ```vue
-<VortIcon name="icon-name" :size="16" />
+<div class="bg-white rounded-xl p-6 mb-6">
+    <h3 class="text-base font-medium text-gray-800 mb-4">区块标题</h3>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6">
+        <vort-form-item label="字段1"><vort-input v-model="formState.field1" /></vort-form-item>
+        <vort-form-item label="字段2"><vort-input v-model="formState.field2" /></vort-form-item>
+    </div>
+</div>
 ```
 
-## 全部可用组件速查
-
-### 基础 UI 组件 (vort/) — 全部自动导入
-
-| 分类 | 组件 |
-|------|------|
-| 通用 | VortButton, VortConfigProvider |
-| 布局 | VortRow, VortCol, VortDivider |
-| 导航 | VortMenu, VortMenuItem, VortSubMenu, VortMenuItemGroup, VortMenuDivider, VortTabs, VortTabPane, VortSteps, VortAnchor, VortAnchorLink |
-| 数据录入 | VortInput, VortInputNumber, VortInputPassword, VortInputSearch, VortTextarea, VortSelect, VortSelectOption, VortCascader, VortAutoComplete, VortCheckbox, VortCheckboxGroup, VortRadio, VortRadioGroup, VortRadioButton, VortSwitch, VortSlider, VortColorPicker, VortDatePicker, VortRangePicker, VortTimePicker, VortUpload, VortUploadDragger |
-| 数据展示 | VortTable, VortTableColumn, VortTag, VortCheckableTag, VortDraggableTags, VortBadge, VortBadgeRibbon, VortStatusDot, VortCard, VortImage, VortImagePreviewGroup, VortStatistic, VortStatisticCountdown, VortTimeline, VortTimelineItem, VortSegmented |
-| 反馈 | VortDialog, VortDrawer, VortSpin, VortAlert, VortSkeleton, VortSkeletonAvatar, VortSkeletonButton, VortSkeletonInput, VortSkeletonImage, VortSkeletonNode |
-| 浮层 | VortTooltip, VortPopover, VortPopconfirm, VortDropdown, VortDropdownButton, VortDropdownMenuItem, VortDropdownMenuSeparator, VortDropdownMenuLabel, VortDropdownMenuGroup, VortDropdownMenuSub, VortDropdownMenuCheckboxItem, VortDropdownMenuRadioGroup, VortDropdownMenuRadioItem |
-| 其他 | VortPagination, VortScrollbar |
-
-### 业务组件 (vort-biz/) — 全部自动导入
-
-| 组件 | 说明 |
-|------|------|
-| SearchToolbar | 搜索栏容器 |
-| SearchForm | 搜索表单（inline 布局） |
-| SearchFormItem | 搜索表单项 |
-| SearchFormActions | 搜索/重置按钮 |
-| DialogForm | 弹窗/抽屉表单 |
-| PopForm | 气泡快速编辑 |
-| TableActions | 表格操作栏容器 |
-| TableActionsItem | 表格操作项 |
-| TableActionsMoreItem | 表格更多操作项（dropdown 内） |
-| DeleteRecord | 删除确认 + API 调用 |
-| BatchActions | 批量操作按钮 |
-| VortIcon | 业务图标 |
-
-## 页面布局规范
-
-### 列表页标准结构
+### 6. 抽屉（查看/编辑/新增三合一）
 
 ```vue
-<template>
-    <div class="space-y-4">
-        <!-- 搜索栏（有搜索条件时使用） -->
-        <div class="bg-white rounded-xl p-6">
-            <SearchToolbar :on-search="handleSearch" :on-reset="handleReset">
-                <SearchForm>
-                    <SearchFormItem label="关键词">
-                        <VortInput v-model="params.keyword" placeholder="请输入" />
-                    </SearchFormItem>
-                    <SearchFormActions />
-                </SearchForm>
-                <template #actions>
-                    <div class="flex items-center gap-2">
-                        <DialogForm :component="EditForm" title="新增" @ok="loadData">
-                            <VortButton variant="primary">
-                                <Plus :size="14" class="mr-1" /> 新增
-                            </VortButton>
-                        </DialogForm>
-                        <BatchActions :selected-count="selectedIds.length" @delete="handleBatchDelete" />
-                    </div>
-                </template>
-            </SearchToolbar>
+<vort-drawer v-model:open="drawerVisible" :title="drawerTitle" :width="550">
+    <!-- 查看模式 -->
+    <div v-if="drawerMode === 'view'" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div><span class="text-sm text-gray-400">名称</span><div class="text-sm text-gray-800 mt-1">{{ currentRow.name }}</div></div>
+        <div><span class="text-sm text-gray-400">状态</span><div class="mt-1"><vort-tag :color="colorMap[currentRow.state]">{{ label }}</vort-tag></div></div>
+    </div>
+    <!-- 编辑/新增模式 -->
+    <template v-else>
+        <vort-form label-width="80px">
+            <vort-form-item label="名称" required><vort-input v-model="currentRow.name" placeholder="请输入名称" /></vort-form-item>
+        </vort-form>
+        <div class="flex justify-end gap-3 mt-6">
+            <vort-button @click="drawerVisible = false">取消</vort-button>
+            <vort-button variant="primary" @click="handleSave">确定</vort-button>
+        </div>
+    </template>
+</vort-drawer>
+```
 
-            <!-- 表格 -->
-            <VortTable :data-source="list" :loading="loading" row-key="id"
-                :pagination="false" :row-selection="rowSelection">
-                <VortTableColumn label="名称" prop="name" />
-                <VortTableColumn label="状态" prop="status">
-                    <template #default="{ row }">
-                        <VortTag :color="row.status === 1 ? 'green' : 'red'">
-                            {{ row.status === 1 ? '启用' : '禁用' }}
-                        </VortTag>
-                    </template>
-                </VortTableColumn>
-                <VortTableColumn label="操作" :width="180" fixed="right">
-                    <template #default="{ row }">
-                        <TableActions>
-                            <DialogForm :component="EditForm" title="编辑" :params="{ id: row.id }" @ok="loadData">
-                                <TableActionsItem>编辑</TableActionsItem>
-                            </DialogForm>
-                            <DeleteRecord :request-api="api.del" :params="{ id: row.id }" @after-delete="loadData">
-                                <TableActionsItem danger>删除</TableActionsItem>
-                            </DeleteRecord>
-                        </TableActions>
-                    </template>
-                </VortTableColumn>
-            </VortTable>
+Drawer 状态管理模板：
 
-            <!-- 分页 -->
-            <div class="flex justify-end mt-4">
-                <VortPagination v-model:current="page" :total="total" @change="loadData" />
-            </div>
+```typescript
+const drawerVisible = ref(false);
+const drawerTitle = ref("");
+const drawerMode = ref<"view" | "edit" | "add">("view");
+const currentRow = ref<Partial<XxxItem>>({});
+
+const handleAdd = () => { drawerMode.value = "add"; drawerTitle.value = "新增XXX"; currentRow.value = {}; drawerVisible.value = true; };
+const handleEdit = (row: XxxItem) => { drawerMode.value = "edit"; drawerTitle.value = "编辑XXX"; currentRow.value = { ...row }; drawerVisible.value = true; };
+const handleView = (row: XxxItem) => { drawerMode.value = "view"; drawerTitle.value = "XXX详情"; currentRow.value = { ...row }; drawerVisible.value = true; };
+const handleSave = () => { drawerVisible.value = false; loadData(); };
+```
+
+### 7. 卡片列表
+
+```vue
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+    <!-- 新增卡片（可选） -->
+    <div class="bg-white rounded-xl border-2 border-dashed border-gray-200 flex items-center justify-center cursor-pointer hover:border-blue-400 transition-colors min-h-[160px]" @click="handleAdd">
+        <div class="text-center text-gray-400"><Plus :size="24" class="mx-auto mb-1" /><span class="text-sm">新增</span></div>
+    </div>
+    <!-- 数据卡片 -->
+    <div v-for="item in list" :key="item.id" class="bg-white rounded-xl overflow-hidden hover:shadow-lg transition-shadow p-4">
+        <h4 class="font-medium text-gray-800 mb-1">{{ item.name }}</h4>
+        <p class="text-xs text-gray-400 line-clamp-2 mb-3">{{ item.description || '暂无描述' }}</p>
+        <div class="flex items-center gap-2">
+            <vort-tag size="small" color="blue">{{ item.tag }}</vort-tag>
         </div>
     </div>
-</template>
+</div>
 ```
 
-### 表单页标准结构
+### 8. 删除确认
+
+使用 `vort-popconfirm` 包裹删除链接：
 
 ```vue
-<template>
-    <div class="space-y-4">
-        <div class="bg-white rounded-xl p-6 max-w-2xl">
-            <h3 class="text-base font-medium text-gray-800 mb-6">表单标题</h3>
-            <VortForm label-width="100px">
-                <VortFormItem label="名称" required>
-                    <VortInput v-model="form.name" placeholder="请输入" />
-                </VortFormItem>
-                <VortFormItem>
-                    <VortButton variant="primary" :loading="saving" @click="handleSave">提交</VortButton>
-                    <VortButton class="ml-3" @click="handleCancel">取消</VortButton>
-                </VortFormItem>
-            </VortForm>
-        </div>
-    </div>
-</template>
+<vort-popconfirm title="确认删除？" @confirm="handleDelete(row)">
+    <a class="text-sm text-red-500 cursor-pointer">删除</a>
+</vort-popconfirm>
 ```
 
-## 注意事项
+或使用 `DeleteRecord` 组件（自带确认弹窗 + API 调用 + 成功提示）：
 
-- 布局用 `<div class="bg-white rounded-xl p-6">` 白卡片，不用 `<VortCard>` 包裹列表
-- `<VortCard>` 适合仪表盘统计卡片、插件卡片等小块内容
-- 表格分页设 `:pagination="false"`，用外部 `VortPagination` 组件
-- 状态标签用 `<VortTag :color="...">`
-- 图标用 lucide-vue-next，常用：Plus, Trash2, RefreshCw, Save, Edit, Search, Shield, Check, X 等
-- API 函数定义在 `web/src/api/index.ts`，请求通过 `@/utils/request` 的 axios 实例
-- Pinia store 在 `web/src/stores/`，用户信息在 `useUserStore()`
+```vue
+<DeleteRecord :request-api="deleteXxx" :params="{ id: row.id }" @after-delete="loadData">
+    <a class="text-sm text-red-500 cursor-pointer">删除</a>
+</DeleteRecord>
+```
 
-## 组件 Props 易错点
+### 9. 多选与批量操作
 
-使用 Vort 组件时，必须查阅对应 `types.ts` 确认 prop 名称，以下是常见易错项：
+```vue
+<!-- 表格启用多选 -->
+<vort-table :data-source="listData" :row-selection="rowSelection">
 
-| 组件 | 正确 prop | 常见错误 |
-|------|-----------|----------|
-| VortSwitch | `v-model:checked` / `:checked` + `@change` | ~~`v-model`~~、~~`:model-value`~~、~~`@update:model-value`~~ |
-| VortTooltip | `title` | ~~`content`~~ |
-| VortTableColumn | `label`、`prop` | ~~`title`~~、~~`dataIndex`~~ |
-| VortTabs / VortTabPane | `v-model:activeKey`、`tab-key` | ~~`key`~~（Vue 内置属性） |
-| VortDialog | `:footer="false"` 隐藏底部按钮 | ~~`:show-footer`~~、~~`:showFooter`~~ |
+<!-- 批量操作栏（表格上方） -->
+<div v-if="hasSelection" class="flex items-center gap-3 mb-4">
+    <span class="text-sm text-gray-500">已选 {{ selectedIds.length }} 项</span>
+    <vort-button size="small" @click="handleBatchDelete">批量删除</vort-button>
+    <vort-button size="small" @click="clearSelection">取消选择</vort-button>
+</div>
+```
 
-**VortDialog 自定义按钮注意事项：** 单表单提交场景优先使用业务组件自身的参数来定义底部按钮，或使用 `#footer` 插槽完全自定义底部内容；当按钮已由弹窗内容内部自行渲染时，再通过 `:footer="false"` 隐藏 Dialog 默认底部区域，避免出现两组按钮。
+## 组件 API 速查
+
+| 组件 | 关键 Props |
+|------|-----------|
+| `vort-button` | `variant="primary\|dashed\|text"`, `:loading`, `size="small\|large"` |
+| `vort-table` | `:data-source`, `:loading`, `:pagination="false"`, `:row-selection`, `row-key`, `size="large\|middle\|small"` |
+| `vort-table-column` | `label`, `prop`, `:width`, `fixed="right"`, `#default="{ row, index }"` |
+| `vort-pagination` | `v-model:current`, `v-model:page-size`, `:total`, `show-total-info`, `show-size-changer`, `show-quick-jumper`, `@change` |
+| `vort-form` | `label-width`, `:model`, `ref` |
+| `vort-form-item` | `label`, `required` |
+| `vort-input` | `v-model`, `placeholder` |
+| `vort-input-search` | `v-model`, `allow-clear`, `@search`, `@keyup.enter` |
+| `vort-select` | `v-model`, `placeholder`, `allow-clear`, `@change` |
+| `vort-select-option` | `value` |
+| `vort-drawer` | `v-model:open`, `:title`, `:width` |
+| `vort-dialog` | `:open`, `:title`, `:width`, `:centered`, `@update:open`, `@ok` |
+| `vort-tag` | `:color="green\|red\|blue\|orange\|cyan\|purple\|default\|processing\|geekblue\|volcano"`, `size="small"` |
+| `vort-popconfirm` | `:title`, `@confirm` |
+| `vort-divider` | `type="vertical"` |
+| `vort-spin` | `:spinning` |
+| `vort-tabs` / `vort-tab-pane` | `v-model`, `key`, `tab` |
+| `vort-textarea` | `v-model`, `:rows` |
+| `vort-switch` | `v-model` |
+| `vort-checkbox` | `v-model` |
+| `vort-tooltip` | `title` |
+
+## CSS 约定
+
+| 场景 | 类名 |
+|------|------|
+| 页面容器 | `div.space-y-4` |
+| 卡片 | `div.bg-white.rounded-xl.p-6` |
+| 区块标题 | `h3.text-base.font-medium.text-gray-800.mb-4` |
+| 标题行（标题+按钮） | `div.flex.items-center.justify-between.mb-4` |
+| 筛选行 | `div.flex.flex-col.sm:flex-row.items-start.sm:items-center.gap-3.sm:gap-4` |
+| 筛选项 | `div.flex.items-center.gap-2.w-full.sm:w-auto` |
+| 筛选标签 | `span.text-sm.text-gray-500.whitespace-nowrap` |
+| 字段标签（详情） | `span.text-sm.text-gray-400` |
+| 字段值（详情） | `div.text-sm.text-gray-800.mt-1` |
+| 日期/次要文本 | `span.text-sm.text-gray-500` 或 `span.text-sm.text-gray-400` |
+| 操作链接 | `a.text-sm.text-blue-600.cursor-pointer` |
+| 危险操作链接 | `a.text-sm.text-red-500.cursor-pointer` |
+| 分页容器 | `div.flex.justify-end.mt-4`（`v-if="showPagination"` 包裹） |
+| 抽屉底部按钮 | `div.flex.justify-end.gap-3.mt-6` |
+
+## API 调用规范
+
+1. API 函数统一定义在 `api/index.ts`，不要在组件内直接调用 `request`
+2. 列表 API 返回适配为 `{ records: T[], total: number }` 格式
+3. 使用 `@/utils/request` 实例（自带 token 注入和错误处理）
+4. API 函数命名：`get{Resource}` / `create{Resource}` / `update{Resource}` / `delete{Resource}`
+
+## 命名约定
+
+| 类型 | 规范 | 示例 |
+|------|------|------|
+| 视图文件 | `views/{module}/{Name}.vue` | `views/vortflow/Stories.vue` |
+| 接口类型 | `{Name}Item` | `StoryItem`, `TaskItem` |
+| 筛选参数类型 | `FilterParams` | `{ page: number; size: number; state: string }` |
+| 事件处理 | `handle{Action}` | `handleEdit`, `handleDelete`, `handleView` |
+| API 函数 | `get/create/update/delete{Resource}` | `getVortflowStories` |
+| 状态映射 | `{field}ColorMap` | `stateColorMap` |
+| 选项数组 | `{field}Options` | `stateOptions` |
+| 标签函数 | `{field}Label` | `stateLabel(val)` |
+| Drawer 状态 | `drawerVisible`, `drawerTitle`, `drawerMode`, `currentRow` | — |

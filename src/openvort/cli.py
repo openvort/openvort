@@ -264,7 +264,16 @@ async def _start_service(relay_url: str | None, poll_db_json: str | None, web_fl
 
         # 解析身份
         try:
-            member = await resolver.resolve(channel_name, user_id)
+            member = None
+            if channel_name == "web":
+                # Web 通道的 user_id 就是 member_id，直接按 ID 查
+                from sqlalchemy import select as _select
+                from openvort.contacts.models import Member as _Member
+                async with session_factory() as _sess:
+                    _result = await _sess.execute(_select(_Member).where(_Member.id == user_id))
+                    member = _result.scalar_one_or_none()
+            else:
+                member = await resolver.resolve(channel_name, user_id)
             if member:
                 ctx.member = member
                 ctx.roles = await auth_service.get_member_roles(member.id)

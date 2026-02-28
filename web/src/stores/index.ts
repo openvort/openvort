@@ -11,3 +11,4 @@ export { useMenuStore } from "./modules/menu";
 export { useTabsStore } from "./modules/tabs";
 export { useAppStore } from "./modules/app";
 export { useConfigStore } from "./modules/config";
+export { usePluginStore } from "./modules/plugin";

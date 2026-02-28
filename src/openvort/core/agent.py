@@ -271,13 +271,38 @@ class AgentRuntime:
         user_content = self._build_user_content(content, images or [])
         messages.append({"role": "user", "content": user_content})
 
-        # 构建 system prompt
-        system = self._system_prompt
+        # 构建 system prompt（注入用户身份 + 插件引导）
+        sender_context = ctx.get_sender_prompt()
+
+        # 检查插件引导状态
+        onboarding_hints = []
+        blocked_tools: set[str] = set()
+        is_admin = "*" in (ctx.permissions or set()) or "admin" in {r.name if hasattr(r, "name") else r for r in (ctx.roles or [])}
+        for plugin in self._registry.list_plugins():
+            platform = plugin.get_platform()
+            if not platform:
+                continue
+            try:
+                status = await plugin.get_setup_status(ctx)
+                if status != "ready":
+                    for tool in plugin.get_tools():
+                        blocked_tools.add(tool.name)
+                    hint = plugin.get_onboarding_prompt(status, is_admin)
+                    if hint:
+                        onboarding_hints.append(f"## {plugin.display_name}引导\n\n{hint}")
+            except Exception as e:
+                log.warning(f"[web] 检查插件 {plugin.name} 就绪状态失败: {e}")
+
+        system = self._system_prompt + sender_context
         plugin_prompts = self._registry.get_system_prompt_extension()
         if plugin_prompts:
             system += "\n\n# 插件能力\n\n" + plugin_prompts
+        if onboarding_hints:
+            system += "\n\n# 插件引导（优先处理）\n\n" + "\n\n".join(onboarding_hints)
 
-        tools = self._registry.to_claude_tools(permissions={"*"})
+        tools = self._registry.to_claude_tools(permissions=ctx.permissions if ctx.permissions else {"*"})
+        if blocked_tools:
+            tools = [t for t in tools if t["name"] not in blocked_tools]
 
         max_rounds = 10
         current_text = ""  # 累积完整文本，跨轮次保持

@@ -88,7 +88,27 @@ def create_app() -> FastAPI:
     app.include_router(agents_router, prefix="/api/admin/agents", tags=["admin-agents"], dependencies=[Depends(require_admin)])
     app.include_router(models_router, prefix="/api/admin/models", tags=["admin-models"], dependencies=[Depends(require_admin)])
 
+    # ---- 动态挂载已启用插件的 API Router ----
+    try:
+        from openvort.web.deps import get_registry as _get_registry
+        from openvort.utils.logging import get_logger
+        _log = get_logger("web.app")
+        registry = _get_registry()
+        for plugin in registry.list_plugins():
+            try:
+                router = plugin.get_api_router()
+                if router is not None:
+                    app.include_router(router, dependencies=[Depends(require_auth)])
+                    _log.info(f"已挂载插件 API Router: {plugin.name}")
+            except Exception as e:
+                _log.warning(f"挂载插件 '{plugin.name}' API Router 失败: {e}")
+    except Exception:
+        pass
+
     # ---- 健康检查（公开，无需认证） ----
+    import time as _time
+    _llm_health_cache: dict[str, object] = {"healthy": None, "checked_at": 0.0, "error": ""}
+
     @app.get("/api/health")
     async def health_check():
         from openvort import __version__
@@ -96,12 +116,54 @@ def create_app() -> FastAPI:
 
         settings = get_settings()
         llm_model = settings.llm.model
-        llm_healthy = bool(settings.llm.api_key and settings.llm.model)
+        has_config = bool(settings.llm.api_key and settings.llm.model)
+
+        # Use cached result if fresh (within 60s)
+        now = _time.monotonic()
+        cache_ttl = 60
+        if _llm_health_cache["healthy"] is not None and (now - _llm_health_cache["checked_at"]) < cache_ttl:
+            return {
+                "version": __version__,
+                "llm_healthy": _llm_health_cache["healthy"],
+                "llm_model": llm_model,
+                "llm_error": _llm_health_cache["error"],
+            }
+
+        # No config → definitely unhealthy
+        if not has_config:
+            _llm_health_cache.update(healthy=False, checked_at=now, error="API key or model not configured")
+            return {
+                "version": __version__,
+                "llm_healthy": False,
+                "llm_model": llm_model,
+                "llm_error": _llm_health_cache["error"],
+            }
+
+        # Actually ping the LLM API with a minimal request
+        try:
+            from openvort.core.llm import create_provider
+            provider = create_provider(
+                provider=settings.llm.provider,
+                api_key=settings.llm.api_key,
+                api_base=settings.llm.api_base,
+                timeout=10,
+            )
+            resp = await provider.create(
+                model=settings.llm.model,
+                max_tokens=1,
+                system="Reply with OK.",
+                messages=[{"role": "user", "content": "hi"}],
+            )
+            await provider.close()
+            _llm_health_cache.update(healthy=True, checked_at=now, error="")
+        except Exception as e:
+            _llm_health_cache.update(healthy=False, checked_at=now, error=str(e)[:200])
 
         return {
             "version": __version__,
-            "llm_healthy": llm_healthy,
+            "llm_healthy": _llm_health_cache["healthy"],
             "llm_model": llm_model,
+            "llm_error": _llm_health_cache["error"],
         }
 
     # 尝试挂载前端静态文件（构建产物）+ SPA fallback

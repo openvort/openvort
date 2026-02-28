@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from "vue-router";
 import type { RouteRecordRaw } from "vue-router";
-import { useUserStore } from "@/stores";
+import { useUserStore, usePluginStore } from "@/stores";
+import { registerPluginRoutes } from "@/router/pluginRoutes";
 
 const BasicLayout = () => import("@/layouts/BasicLayout.vue");
 const BlankLayout = () => import("@/layouts/BlankLayout.vue");
@@ -13,6 +14,7 @@ const routes: RouteRecordRaw[] = [
     },
     {
         path: "/",
+        name: "root",
         component: BasicLayout,
         redirect: "/overview",
         children: [
@@ -48,7 +50,7 @@ const router = createRouter({
 });
 
 // 路由守卫
-router.beforeEach((to, _from, next) => {
+router.beforeEach(async (to, _from, next) => {
     document.title = `${to.meta.title || "OpenVort"} - OpenVort`;
 
     const userStore = useUserStore();
@@ -61,6 +63,27 @@ router.beforeEach((to, _from, next) => {
 
     if (!isLoginPage && !userStore.token) {
         next("/login");
+        return;
+    }
+
+    // 首次进入时加载插件路由，注册后重新导航以匹配新增路由
+    const pluginStore = usePluginStore();
+    if (!isLoginPage && !pluginStore.loaded) {
+        await pluginStore.fetchExtensions();
+        registerPluginRoutes(pluginStore.extensions);
+
+        // 首次刷新进入插件页面时，会先被 404 重定向。
+        // 动态路由注册后，如果原始地址已可匹配，则恢复到原始地址。
+        const redirectedFrom = to.redirectedFrom?.fullPath;
+        if (redirectedFrom && to.name === "exception404") {
+            const resolved = router.resolve(redirectedFrom);
+            if (resolved.name && resolved.name !== "exception404") {
+                next({ path: redirectedFrom, replace: true });
+                return;
+            }
+        }
+
+        next({ ...to, replace: true });
         return;
     }
 
