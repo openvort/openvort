@@ -25,6 +25,22 @@ def get_actor(params: dict) -> str:
     return params.get("_zentao_account") or AI_ACCOUNT
 
 
+def get_actor_display(db: "ZentaoDB", params: dict) -> str:
+    """获取操作人展示名：优先禅道 realname，回退账号"""
+    actor = get_actor(params)
+    try:
+        row = db.fetch_one(
+            "SELECT realname FROM zt_user WHERE account=%s AND deleted='0' LIMIT 1",
+            (actor,),
+        )
+        if row and row.get("realname"):
+            return row["realname"]
+    except Exception:
+        # 展示名查询失败不影响主流程，回退账号
+        pass
+    return actor
+
+
 class ZentaoDB:
     """禅道数据库操作"""
 

@@ -15,6 +15,9 @@ from openvort.web.routers.channels import router as channels_router
 from openvort.web.routers.settings import router as settings_router
 from openvort.web.routers.logs import router as logs_router
 from openvort.web.routers.schedules import schedules_router, admin_schedules_router
+from openvort.web.routers.webhooks import router as webhooks_admin_router
+from openvort.web.routers.agents import router as agents_router
+from openvort.web.routers.models import router as models_router
 
 __all__ = [
     "auth_router",
@@ -31,4 +34,7 @@ __all__ = [
     "logs_router",
     "schedules_router",
     "admin_schedules_router",
+    "webhooks_admin_router",
+    "agents_router",
+    "models_router",
 ]

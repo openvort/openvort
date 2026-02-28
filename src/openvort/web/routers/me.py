@@ -1,9 +1,11 @@
 """个人信息路由 — 所有登录用户可访问"""
 
+import json
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Request, UploadFile, File
+from fastapi import APIRouter, HTTPException, Request, UploadFile, File
+from pydantic import BaseModel
 
 from openvort.web.app import require_auth
 from openvort.web.deps import get_db_session_factory, get_auth_service
@@ -13,14 +15,17 @@ router = APIRouter()
 UPLOAD_DIR = Path(__file__).parent.parent.parent.parent / "web" / "dist" / "uploads" / "avatars"
 
 
-@router.get("/profile")
-async def get_profile(request: Request):
-    """获取当前用户完整信息"""
-    payload = require_auth(request)
-    member_id = payload.get("sub", "")
+# ---- 辅助 ----
 
+def _get_member_id(request: Request) -> str:
+    payload = require_auth(request)
+    return payload.get("sub", "")
+
+
+async def _load_member_full(member_id: str) -> dict | None:
+    """加载成员完整信息（含平台账号、角色、部门名称）"""
     from sqlalchemy import select
-    from openvort.contacts.models import Member, PlatformIdentity
+    from openvort.contacts.models import Member, PlatformIdentity, MemberDepartment, Department
 
     session_factory = get_db_session_factory()
     auth_service = get_auth_service()
@@ -29,9 +34,8 @@ async def get_profile(request: Request):
         stmt = select(Member).where(Member.id == member_id)
         result = await session.execute(stmt)
         member = result.scalar_one_or_none()
-
         if not member:
-            return {"error": "用户不存在"}
+            return None
 
         roles = await auth_service.get_member_roles(member.id)
         if not roles:
@@ -43,13 +47,21 @@ async def get_profile(request: Request):
 
         platform_accounts = {}
         position = ""
-        department = ""
         for ident in identities:
             platform_accounts[ident.platform] = ident.platform_user_id
             if ident.platform_position and not position:
                 position = ident.platform_position
-            if ident.platform_department and not department:
-                department = ident.platform_department
+
+        # 从 MemberDepartment 关联查真实部门名称
+        dept_stmt = (
+            select(Department.name)
+            .join(MemberDepartment, MemberDepartment.department_id == Department.id)
+            .where(MemberDepartment.member_id == member.id)
+            .order_by(MemberDepartment.is_primary.desc())
+        )
+        dept_result = await session.execute(dept_stmt)
+        dept_names = [row[0] for row in dept_result.all()]
+        department = " / ".join(dept_names) if dept_names else ""
 
     return {
         "member_id": member.id,
@@ -57,6 +69,7 @@ async def get_profile(request: Request):
         "email": member.email or "",
         "phone": member.phone or "",
         "avatar_url": member.avatar_url or "",
+        "bio": member.bio if hasattr(member, "bio") else "",
         "roles": roles,
         "position": position,
         "department": department,
@@ -64,11 +77,172 @@ async def get_profile(request: Request):
     }
 
 
+# ---- 个人资料 ----
+
+@router.get("/profile")
+async def get_profile(request: Request):
+    """获取当前用户完整信息"""
+    member_id = _get_member_id(request)
+    data = await _load_member_full(member_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    return data
+
+
+class UpdateProfileRequest(BaseModel):
+    name: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    position: str | None = None
+    department: str | None = None
+    bio: str | None = None
+
+
+@router.put("/profile")
+async def update_profile(request: Request, req: UpdateProfileRequest):
+    """更新个人基本信息"""
+    member_id = _get_member_id(request)
+
+    from sqlalchemy import select
+    from openvort.contacts.models import Member
+
+    session_factory = get_db_session_factory()
+    async with session_factory() as session:
+        stmt = select(Member).where(Member.id == member_id)
+        result = await session.execute(stmt)
+        member = result.scalar_one_or_none()
+        if not member:
+            raise HTTPException(status_code=404, detail="用户不存在")
+
+        if req.name is not None:
+            member.name = req.name.strip()
+        if req.email is not None:
+            member.email = req.email.strip()
+        if req.phone is not None:
+            member.phone = req.phone.strip()
+        # bio 字段可能尚未加到 Member 模型，安全写入
+        if req.bio is not None and hasattr(member, "bio"):
+            member.bio = req.bio.strip()
+        await session.commit()
+
+    return {"success": True}
+
+
+class ChangePasswordRequest(BaseModel):
+    old_password: str
+    new_password: str
+
+
+@router.put("/password")
+async def change_password(request: Request, req: ChangePasswordRequest):
+    """修改密码"""
+    member_id = _get_member_id(request)
+
+    if len(req.new_password) < 6:
+        raise HTTPException(status_code=400, detail="新密码长度不能少于 6 位")
+
+    from sqlalchemy import select
+    from openvort.contacts.models import Member
+    from openvort.web.auth import hash_password, verify_password
+    from openvort.config.settings import get_settings
+
+    settings = get_settings()
+    session_factory = get_db_session_factory()
+
+    async with session_factory() as session:
+        stmt = select(Member).where(Member.id == member_id)
+        result = await session.execute(stmt)
+        member = result.scalar_one_or_none()
+        if not member:
+            raise HTTPException(status_code=404, detail="用户不存在")
+
+        # 验证旧密码
+        if member.password_hash:
+            if not verify_password(req.old_password, member.password_hash):
+                raise HTTPException(status_code=400, detail="原密码错误")
+        else:
+            # 没有独立密码时，用 default_password 验证
+            if req.old_password != settings.web.default_password:
+                raise HTTPException(status_code=400, detail="原密码错误")
+
+        member.password_hash = hash_password(req.new_password)
+        await session.commit()
+
+    return {"success": True}
+
+
+# ---- 通知偏好 ----
+
+class NotificationPreferences(BaseModel):
+    preferences: dict  # { "system": {"web": true, "wecom": false}, ... }
+
+
+@router.get("/notifications")
+async def get_notification_prefs(request: Request):
+    """获取通知偏好设置"""
+    member_id = _get_member_id(request)
+
+    from sqlalchemy import select
+    from openvort.contacts.models import Member
+
+    session_factory = get_db_session_factory()
+    async with session_factory() as session:
+        stmt = select(Member).where(Member.id == member_id)
+        result = await session.execute(stmt)
+        member = result.scalar_one_or_none()
+        if not member:
+            raise HTTPException(status_code=404, detail="用户不存在")
+
+        # 从 notification_prefs 字段读取，字段可能尚未添加
+        raw = getattr(member, "notification_prefs", None) or "{}"
+        try:
+            prefs = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            prefs = {}
+
+    # 返回默认结构（前端可合并）
+    defaults = {
+        "system": {"web": True},
+        "task": {"web": True},
+        "team": {"web": False},
+    }
+    # 合并已保存的偏好
+    for key in defaults:
+        if key in prefs:
+            defaults[key] = prefs[key]
+
+    return {"preferences": defaults}
+
+
+@router.put("/notifications")
+async def update_notification_prefs(request: Request, req: NotificationPreferences):
+    """更新通知偏好设置"""
+    member_id = _get_member_id(request)
+
+    from sqlalchemy import select
+    from openvort.contacts.models import Member
+
+    session_factory = get_db_session_factory()
+    async with session_factory() as session:
+        stmt = select(Member).where(Member.id == member_id)
+        result = await session.execute(stmt)
+        member = result.scalar_one_or_none()
+        if not member:
+            raise HTTPException(status_code=404, detail="用户不存在")
+
+        if hasattr(member, "notification_prefs"):
+            member.notification_prefs = json.dumps(req.preferences, ensure_ascii=False)
+        await session.commit()
+
+    return {"success": True}
+
+
+# ---- 头像上传 ----
+
 @router.post("/profile/avatar")
 async def upload_avatar(request: Request, file: UploadFile = File(...)):
     """上传头像"""
-    payload = require_auth(request)
-    member_id = payload.get("sub", "")
+    member_id = _get_member_id(request)
 
     # 校验文件类型
     allowed = {"image/jpeg", "image/png", "image/gif", "image/webp"}

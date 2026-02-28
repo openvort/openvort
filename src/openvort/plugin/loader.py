@@ -149,7 +149,7 @@ class PluginLoader:
                 log.error(f"加载本地 Plugin '{plugin_dir.name}' 失败: {e}")
 
     def _load_channels(self) -> None:
-        """从 entry_points 加载 Channel 插件"""
+        """从 entry_points 加载 Channel 插件，并兜底注册内置通道"""
         eps = entry_points()
         channel_eps = eps.select(group="openvort.channels") if hasattr(eps, "select") else eps.get("openvort.channels", [])
 
@@ -165,6 +165,34 @@ class PluginLoader:
                     log.warning(f"Channel entry_point '{ep.name}' 不是 BaseChannel 子类，跳过")
             except Exception as e:
                 log.error(f"加载 Channel '{ep.name}' 失败: {e}")
+
+        # 某些开发环境未执行 editable install 时，entry_points 可能不完整。
+        # 这里兜底确保内置通道都能在管理后台可见。
+        self._load_builtin_channels_fallback()
+
+    def _load_builtin_channels_fallback(self) -> None:
+        """兜底加载内置 Channel（wecom/dingtalk/feishu）"""
+        builtin_channels = [
+            ("wecom", "openvort.channels.wecom", "WeComChannel"),
+            ("dingtalk", "openvort.channels.dingtalk", "DingTalkChannel"),
+            ("feishu", "openvort.channels.feishu", "FeishuChannel"),
+        ]
+
+        for channel_name, module_name, class_name in builtin_channels:
+            if self.registry.get_channel(channel_name):
+                continue
+            try:
+                module = __import__(module_name, fromlist=[class_name])
+                cls = getattr(module, class_name)
+                if not (isinstance(cls, type) and issubclass(cls, BaseChannel)):
+                    log.warning(f"内置 Channel '{channel_name}' 类型异常，跳过")
+                    continue
+                instance = cls()
+                self.registry.register_channel(instance)
+                self._register_channel_tools(instance)
+                log.info(f"已通过兜底逻辑加载内置 Channel: {channel_name}")
+            except Exception as e:
+                log.warning(f"兜底加载内置 Channel '{channel_name}' 失败: {e}")
 
     def _register_channel_tools(self, channel: BaseChannel) -> None:
         """注册 Channel 附带的工具（如企微发消息）"""

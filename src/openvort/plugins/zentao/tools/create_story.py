@@ -4,7 +4,7 @@ import json
 import asyncio
 
 from openvort.plugin.base import BaseTool
-from openvort.plugins.zentao.db import ZentaoDB, AI_ACCOUNT, get_actor
+from openvort.plugins.zentao.db import ZentaoDB, AI_ACCOUNT, get_actor, get_actor_display
 
 
 class CreateStoryTool(BaseTool):
@@ -62,6 +62,7 @@ class CreateStoryTool(BaseTool):
 
         def _do_create():
             actor = get_actor(params)
+            actor_display = get_actor_display(self._db, params)
             conn = self._db.get_conn()
             try:
                 with conn.cursor() as cur:
@@ -90,7 +91,7 @@ class CreateStoryTool(BaseTool):
                     self._db.log_action(
                         cur, "story", story_id, "opened",
                         product=product_id, actor=actor,
-                        comment=f"由 {actor} 通过 OpenVort 创建：{title}",
+                        comment=f"由 {actor_display} 通过 OpenVort 创建：{title}",
                     )
                 conn.commit()
                 return story_id

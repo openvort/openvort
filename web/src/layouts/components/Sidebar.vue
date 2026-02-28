@@ -6,7 +6,7 @@ import { menuConfig, type MenuConfig } from "@/router/menus";
 import {
     Home, BarChart2, FileText, Table, File, AlertTriangle,
     CheckCircle, User, Settings, ChevronDown, PanelLeftClose, PanelLeftOpen,
-    MessageSquare, Puzzle, Radio, Users, Clock, BookOpen
+    MessageSquare, Puzzle, Radio, Users, Clock, BookOpen, Webhook, GitBranch, Cpu
 } from "lucide-vue-next";
 
 const props = defineProps<{ isMobile?: boolean }>();
@@ -24,7 +24,7 @@ const iconMap: Record<string, any> = {
     table: Table, file: File, "alert-triangle": AlertTriangle,
     "check-circle": CheckCircle, user: User, settings: Settings,
     "message-square": MessageSquare, puzzle: Puzzle, radio: Radio, users: Users,
-    clock: Clock, "book-open": BookOpen
+    clock: Clock, "book-open": BookOpen, webhook: Webhook, "git-branch": GitBranch, cpu: Cpu
 };
 
 // 按角色过滤菜单

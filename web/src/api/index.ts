@@ -20,28 +20,100 @@ export function uploadAvatar(file: File) {
     });
 }
 
-/** 获取工作台数据 */
-export function getWorkspace() {
-    return request.get("/me/workspace");
+/** 更新个人资料 */
+export function updateProfile(data: { name?: string; email?: string; phone?: string; position?: string; department?: string; bio?: string }) {
+    return request.put("/me/profile", data);
+}
+
+/** 修改密码 */
+export function changePassword(old_password: string, new_password: string) {
+    return request.put("/me/password", { old_password, new_password });
+}
+
+/** 获取通知偏好 */
+export function getNotificationPrefs() {
+    return request.get("/me/notifications");
+}
+
+/** 更新通知偏好 */
+export function updateNotificationPrefs(preferences: Record<string, Record<string, boolean>>) {
+    return request.put("/me/notifications", { preferences });
+}
+
+/** 获取通道列表（用于通知设置等） */
+export function getEnabledChannels() {
+    return request.get("/admin/channels");
 }
 
 /** 获取聊天历史 */
-export function getChatHistory(limit = 50) {
-    return request.get("/chat/history", { params: { limit } });
+export function getChatHistory(limit = 50, sessionId = "default") {
+    return request.get("/chat/history", { params: { limit, session_id: sessionId } });
 }
 
 /** 发送聊天消息，返回 message_id */
 export function sendChatMessage(
     content: string,
-    images: { data: string; media_type: string }[] = []
+    images: { data: string; media_type: string }[] = [],
+    sessionId = "default"
 ) {
-    return request.post("/chat/send", { content, images });
+    return request.post("/chat/send", { content, images, session_id: sessionId });
 }
 
 /** 获取 SSE 流式地址 */
 export function getChatStreamUrl(messageId: string, token: string) {
-    const base = import.meta.env.DEV ? "http://localhost:8090" : "";
-    return `${base}/api/chat/stream/${messageId}?token=${token}`;
+    return `/api/chat/stream/${messageId}?token=${encodeURIComponent(token)}`;
+}
+
+/** 获取会话信息（token 用量、thinking 级别） */
+export function getChatSessionInfo(sessionId = "default") {
+    return request.get("/chat/session-info", { params: { session_id: sessionId } });
+}
+
+/** 设置 thinking 级别 */
+export function setChatThinking(level: string, sessionId = "default") {
+    return request.post("/chat/thinking", { level, session_id: sessionId });
+}
+
+/** 压缩会话上下文 */
+export function compactChatSession(sessionId = "default") {
+    return request.post("/chat/compact", { session_id: sessionId });
+}
+
+/** 重置会话 */
+export function resetChatSession(sessionId = "default") {
+    return request.post("/chat/reset", { session_id: sessionId });
+}
+
+// ---- 对话管理 ----
+
+/** 对话列表 */
+export function getChatSessions() {
+    return request.get("/chat/sessions");
+}
+
+/** 新建对话 */
+export function createChatSession(title = "新对话") {
+    return request.post("/chat/sessions", { title });
+}
+
+/** 重命名对话 */
+export function renameChatSession(sessionId: string, title: string) {
+    return request.put(`/chat/sessions/${sessionId}`, { title });
+}
+
+/** 删除对话 */
+export function deleteChatSession(sessionId: string) {
+    return request.delete(`/chat/sessions/${sessionId}`);
+}
+
+/** 批量删除对话 */
+export function batchDeleteChatSessions(sessionIds: string[]) {
+    return request.post("/chat/sessions/batch-delete", { session_ids: sessionIds });
+}
+
+/** 健康检查（版本号 + LLM 状态） */
+export function getHealthStatus() {
+    return request.get("/health");
 }
 
 /** 仪表盘数据 */
@@ -252,6 +324,23 @@ export function togglePlugin(name: string) {
     return request.post(`/admin/plugins/${name}/toggle`);
 }
 
+/** pip 安装插件 */
+export function installPlugin(packageName: string) {
+    return request.post("/admin/plugins/install", { package_name: packageName });
+}
+
+/** 上传本地插件 zip */
+export function uploadPlugin(file: File) {
+    const formData = new FormData();
+    formData.append("file", file);
+    return request.post("/admin/plugins/upload", formData);
+}
+
+/** 删除本地插件 */
+export function deletePlugin(name: string) {
+    return request.delete(`/admin/plugins/${name}`);
+}
+
 /** 通道列表 */
 export function getChannels() {
     return request.get("/admin/channels");
@@ -280,6 +369,44 @@ export function testChannel(name: string) {
 /** 运行日志 */
 export function getLogs(params?: { page?: number; size?: number; level?: string; keyword?: string }) {
     return request.get("/admin/logs", { params });
+}
+
+/** 模型列表 */
+export function getModels() {
+    return request.get("/admin/models");
+}
+
+/** 新增模型 */
+export function createModel(data: {
+    name: string;
+    provider: string;
+    model: string;
+    api_key?: string;
+    api_base?: string;
+    max_tokens?: number;
+    timeout?: number;
+    enabled?: boolean;
+}) {
+    return request.post("/admin/models", data);
+}
+
+/** 更新模型 */
+export function updateModel(modelId: string, data: {
+    name?: string;
+    provider?: string;
+    model?: string;
+    api_key?: string;
+    api_base?: string;
+    max_tokens?: number;
+    timeout?: number;
+    enabled?: boolean;
+}) {
+    return request.put(`/admin/models/${modelId}`, data);
+}
+
+/** 删除模型 */
+export function deleteModel(modelId: string) {
+    return request.delete(`/admin/models/${modelId}`);
 }
 
 /** 获取系统设置 */
@@ -409,4 +536,58 @@ export function deleteSkill(name: string) {
 /** 启用/禁用 Skill */
 export function toggleSkill(name: string) {
     return request.post(`/admin/skills/${name}/toggle`);
+}
+
+// ---- Webhook 管理（管理员）----
+
+/** Webhook 列表 */
+export function getWebhooks() {
+    return request.get("/admin/webhooks");
+}
+
+/** 创建 Webhook */
+export function createWebhook(data: {
+    name: string;
+    secret?: string;
+    action_type?: string;
+    prompt_template?: string;
+    channel?: string;
+    user_id?: string;
+}) {
+    return request.post("/admin/webhooks", data);
+}
+
+/** 更新 Webhook */
+export function updateWebhook(name: string, data: Record<string, any>) {
+    return request.put(`/admin/webhooks/${name}`, data);
+}
+
+/** 删除 Webhook */
+export function deleteWebhook(name: string) {
+    return request.delete(`/admin/webhooks/${name}`);
+}
+
+// ---- Agent 路由管理（管理员）----
+
+/** Agent 路由列表 */
+export function getAgentRoutes() {
+    return request.get("/admin/agents");
+}
+
+/** 创建 Agent 路由 */
+export function createAgentRoute(data: {
+    name: string;
+    model?: string;
+    system_prompt?: string;
+    max_tokens?: number;
+    channels?: string[];
+    user_ids?: string[];
+    group_ids?: string[];
+}) {
+    return request.post("/admin/agents", data);
+}
+
+/** 删除 Agent 路由 */
+export function deleteAgentRoute(name: string) {
+    return request.delete(`/admin/agents/${name}`);
 }

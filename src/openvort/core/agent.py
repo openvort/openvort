@@ -136,7 +136,10 @@ class AgentRuntime:
                 total_usage.output_tokens += response.usage.output_tokens
             except Exception as e:
                 log.error(f"LLM API 调用失败: {e}")
-                return "抱歉，AI 服务暂时不可用，请稍后再试。"
+                error_text = "抱歉，AI 服务暂时不可用，请稍后再试。"
+                messages.append({"role": "assistant", "content": [{"type": "text", "text": error_text}]})
+                await self._sessions.save_messages(ctx.channel, ctx.user_id, messages)
+                return error_text
 
             # 追加 assistant 回复
             messages.append({"role": "assistant", "content": self._serialize_content(response.content)})
@@ -232,7 +235,7 @@ class AgentRuntime:
         ctx = RequestContext(channel="cli", user_id="debug")
         return await self.process(ctx, content)
 
-    async def process_stream_web(self, content: str, member_id: str = "admin", images: list[dict] | None = None):
+    async def process_stream_web(self, content: str, member_id: str = "admin", images: list[dict] | None = None, session_id: str = "default"):
         """Web 面板流式对话接口
 
         使用 Anthropic streaming API，逐块 yield 事件。
@@ -241,6 +244,7 @@ class AgentRuntime:
         Args:
             content: 用户消息
             member_id: 成员 ID，用于独立会话和身份识别
+            session_id: 会话 ID，支持多会话
 
         Yields:
             dict: {"type": "text_delta", "text": "..."} |
@@ -263,7 +267,7 @@ class AgentRuntime:
         if (not content or not content.strip()) and not images:
             return
 
-        messages = await self._sessions.get_messages(ctx.channel, ctx.user_id)
+        messages = await self._sessions.get_messages(ctx.channel, ctx.user_id, session_id)
         user_content = self._build_user_content(content, images or [])
         messages.append({"role": "user", "content": user_content})
 
@@ -306,7 +310,10 @@ class AgentRuntime:
                     total_usage.output_tokens += response.usage.output_tokens
             except Exception as e:
                 log.error(f"LLM API 流式调用失败: {e}")
-                yield {"type": "text", "text": "抱歉，AI 服务暂时不可用，请稍后再试。"}
+                error_text = "抱歉，AI 服务暂时不可用，请稍后再试。"
+                yield {"type": "text", "text": error_text}
+                messages.append({"role": "assistant", "content": [{"type": "text", "text": error_text}]})
+                await self._sessions.save_messages(ctx.channel, ctx.user_id, messages, session_id)
                 return
 
             # 追加 assistant 回复
@@ -321,7 +328,18 @@ class AgentRuntime:
             for block in response.content:
                 if getattr(block, "type", None) == "tool_use":
                     log.info(f"[web] 调用工具: {block.name}({block.input})")
-                    result = await self._registry.execute_tool(block.name, dict(block.input))
+                    tool_input = dict(block.input)
+                    tool_input["_caller_id"] = ctx.user_id
+                    if ctx.member:
+                        tool_input["_member_id"] = ctx.member.id
+                    if ctx.platform_accounts.get("zentao"):
+                        tool_input["_zentao_account"] = ctx.platform_accounts["zentao"]
+                    if ctx.images:
+                        tool_input["_image_urls"] = [
+                            img["pic_url"] for img in ctx.images if img.get("pic_url")
+                        ]
+
+                    result = await self._registry.execute_tool(block.name, tool_input)
                     log.info(f"[web] 工具结果: {result[:200]}")
                     yield {"type": "tool_result", "name": block.name, "result": result[:200]}
                     tool_results.append({
@@ -333,16 +351,16 @@ class AgentRuntime:
             messages.append({"role": "user", "content": tool_results})
 
         # 保存对话历史 + 累计用量
-        await self._sessions.save_messages(ctx.channel, ctx.user_id, messages)
-        self._sessions.add_usage(ctx.channel, ctx.user_id, total_usage.input_tokens, total_usage.output_tokens)
+        await self._sessions.save_messages(ctx.channel, ctx.user_id, messages, session_id)
+        self._sessions.add_usage(ctx.channel, ctx.user_id, total_usage.input_tokens, total_usage.output_tokens, session_id)
 
         # yield 用量信息
         yield {
             "type": "usage",
             "input_tokens": total_usage.input_tokens,
             "output_tokens": total_usage.output_tokens,
-            "total_input_tokens": self._sessions.get_session_info(ctx.channel, ctx.user_id).get("total_input_tokens", 0),
-            "total_output_tokens": self._sessions.get_session_info(ctx.channel, ctx.user_id).get("total_output_tokens", 0),
+            "total_input_tokens": self._sessions.get_session_info(ctx.channel, ctx.user_id, session_id).get("total_input_tokens", 0),
+            "total_output_tokens": self._sessions.get_session_info(ctx.channel, ctx.user_id, session_id).get("total_output_tokens", 0),
         }
 
     @staticmethod

@@ -109,7 +109,11 @@ class AnthropicProvider(LLMProvider):
         import anthropic
         kwargs: dict[str, Any] = {"api_key": api_key, "timeout": timeout}
         if api_base and api_base != "https://api.anthropic.com":
-            kwargs["base_url"] = api_base
+            # SDK 会自动追加 /v1/messages，确保 base_url 不带 /v1
+            base = api_base.rstrip("/")
+            if base.endswith("/v1"):
+                base = base[:-3]
+            kwargs["base_url"] = base
         self._client = anthropic.AsyncAnthropic(**kwargs)
 
     async def create(self, *, model: str, max_tokens: int, system: str,
@@ -208,7 +212,10 @@ class OpenAICompatibleProvider(LLMProvider):
     def __init__(self, api_key: str, api_base: str = "https://api.openai.com/v1",
                  timeout: int = 120):
         import httpx
-        self._api_base = api_base.rstrip("/")
+        base = api_base.rstrip("/")
+        if not base.endswith("/v1"):
+            base = base + "/v1"
+        self._api_base = base
         self._headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
@@ -218,7 +225,7 @@ class OpenAICompatibleProvider(LLMProvider):
     async def create(self, *, model: str, max_tokens: int, system: str,
                      messages: list[dict], tools: list[dict] | None = None,
                      thinking: dict | None = None) -> LLMResponse:
-        oai_messages = self._convert_messages(system, messages)
+        oai_messages = self._convert_messages(system, messages, model)
         body: dict[str, Any] = {
             "model": model, "max_tokens": max_tokens, "messages": oai_messages,
         }
@@ -231,7 +238,7 @@ class OpenAICompatibleProvider(LLMProvider):
     def stream(self, *, model: str, max_tokens: int, system: str,
                messages: list[dict], tools: list[dict] | None = None,
                thinking: dict | None = None):
-        oai_messages = self._convert_messages(system, messages)
+        oai_messages = self._convert_messages(system, messages, model)
         body: dict[str, Any] = {
             "model": model, "max_tokens": max_tokens,
             "messages": oai_messages, "stream": True,
@@ -244,8 +251,90 @@ class OpenAICompatibleProvider(LLMProvider):
         await self._http.aclose()
 
     @staticmethod
-    def _convert_messages(system: str, messages: list[dict]) -> list[dict]:
-        """将 Anthropic 格式消息转为 OpenAI 格式"""
+    def _supports_vision(model: str) -> bool:
+        """按模型名推断是否支持视觉输入。"""
+        model_lower = model.lower()
+
+        # 明确不支持视觉的常见推理模型
+        no_vision_markers = ("reasoner", "r1", "o1", "o3")
+        if any(marker in model_lower for marker in no_vision_markers):
+            return False
+
+        # 常见视觉模型命名
+        vision_markers = (
+            "gpt-4o",
+            "gpt-4.1",
+            "gpt-4",
+            "gpt-5",
+            "claude",
+            "vision",
+            "qwen-vl",
+            "vl-",
+            "glm-4v",
+            "gemini",
+        )
+        return any(marker in model_lower for marker in vision_markers)
+
+    @staticmethod
+    def _anthropic_image_to_data_url(block: dict) -> str | None:
+        """将 Anthropic image block 转为 data URL。"""
+        source = block.get("source")
+        if not isinstance(source, dict):
+            return None
+
+        source_type = source.get("type")
+        if source_type == "base64":
+            data = source.get("data")
+            if not data:
+                return None
+            media_type = source.get("media_type", "image/jpeg")
+            return f"data:{media_type};base64,{data}"
+
+        if source_type == "url":
+            url = source.get("url")
+            return url if isinstance(url, str) and url else None
+
+        return None
+
+    def _convert_user_content_for_model(self, content: list[dict], model: str) -> Any:
+        """将用户多模态 content 按模型能力转换到 OpenAI 兼容格式。"""
+        image_count = sum(1 for b in content if isinstance(b, dict) and b.get("type") == "image")
+        supports_vision = self._supports_vision(model)
+        if image_count > 0:
+            log.info(f"OpenAI-compatible 多模态转换: model={model}, images={image_count}, supports_vision={supports_vision}")
+
+        if supports_vision:
+            multimodal_parts: list[dict] = []
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                block_type = block.get("type")
+                if block_type == "text":
+                    multimodal_parts.append({"type": "text", "text": block.get("text", "")})
+                elif block_type == "image":
+                    data_url = self._anthropic_image_to_data_url(block)
+                    if data_url:
+                        multimodal_parts.append({
+                            "type": "image_url",
+                            "image_url": {"url": data_url},
+                        })
+
+            if multimodal_parts:
+                if image_count > 0:
+                    log.info(f"OpenAI-compatible 多模态已保留图片: model={model}, parts={len(multimodal_parts)}")
+                return multimodal_parts
+
+        # 不支持视觉或转换失败时，退化为文本并明确标记图片被省略
+        text_parts = [b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"]
+        text = "\n".join(text_parts).strip()
+        if image_count > 0:
+            suffix = f"\n\n[附带图片 {image_count} 张，当前模型按文本模式处理]"
+            text = (text + suffix).strip() if text else suffix.strip()
+            log.warning(f"OpenAI-compatible 多模态降级为文本: model={model}, images={image_count}")
+        return text or str(content)
+
+    def _convert_messages(self, system: str, messages: list[dict], model: str) -> list[dict]:
+        """将 Anthropic 格式消息转为 OpenAI 格式，并按模型处理多模态。"""
         oai = [{"role": "system", "content": system}]
         for msg in messages:
             role = msg["role"]
@@ -261,9 +350,11 @@ class OpenAICompatibleProvider(LLMProvider):
                                 "content": tr.get("content", ""),
                             })
                     else:
-                        # 多模态内容 — 简化为纯文本
-                        text_parts = [b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"]
-                        oai.append({"role": "user", "content": "\n".join(text_parts) or str(content)})
+                        # 多模态内容 — 按模型能力转换
+                        oai.append({
+                            "role": "user",
+                            "content": self._convert_user_content_for_model(content, model),
+                        })
                 else:
                     oai.append({"role": "user", "content": content})
             elif role == "assistant":
@@ -342,7 +433,7 @@ class OpenAIStreamWrapper:
         self._final_usage = Usage()
 
     async def __aenter__(self):
-        self._response = await self._http.stream("POST", self._url, json=self._body)
+        self._response = self._http.stream("POST", self._url, json=self._body)
         self._stream = await self._response.__aenter__()
         return self
 
@@ -363,7 +454,17 @@ class OpenAIStreamWrapper:
                 chunk = json.loads(payload)
             except json.JSONDecodeError:
                 continue
-            delta = chunk.get("choices", [{}])[0].get("delta", {})
+            choices = chunk.get("choices") or []
+            if not choices:
+                # 某些兼容服务会在尾块只返回 usage，不带 choices
+                if chunk.get("usage"):
+                    u = chunk["usage"]
+                    self._final_usage = Usage(
+                        input_tokens=u.get("prompt_tokens", 0),
+                        output_tokens=u.get("completion_tokens", 0),
+                    )
+                continue
+            delta = choices[0].get("delta", {})
             if delta.get("content"):
                 current_text += delta["content"]
                 yield ContentBlockDelta(delta=TextDelta(text=delta["content"]))

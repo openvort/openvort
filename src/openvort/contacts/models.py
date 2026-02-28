@@ -27,9 +27,11 @@ class Member(Base):
     email: Mapped[str] = mapped_column(String(128), default="", index=True)
     phone: Mapped[str] = mapped_column(String(32), default="", index=True)
     avatar_url: Mapped[str] = mapped_column(String(512), default="")
+    bio: Mapped[str] = mapped_column(Text, default="")  # 个人简介
     password_hash: Mapped[str] = mapped_column(String(128), default="")  # 独立密码哈希，为空时 fallback 到 default_password
     is_account: Mapped[bool] = mapped_column(Boolean, default=False)  # 是否为可登录账号
     status: Mapped[str] = mapped_column(String(16), default="active")  # active / inactive
+    notification_prefs: Mapped[str] = mapped_column(Text, default="{}")  # JSON: 通知偏好
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 

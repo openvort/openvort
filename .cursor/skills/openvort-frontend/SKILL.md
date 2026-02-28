@@ -514,3 +514,6 @@ Props：
 | VortTooltip | `title` | ~~`content`~~ |
 | VortTableColumn | `label`、`prop` | ~~`title`~~、~~`dataIndex`~~ |
 | VortTabs / VortTabPane | `v-model:activeKey`、`tab-key` | ~~`key`~~（Vue 内置属性） |
+| VortDialog | `:footer="false"` 隐藏底部按钮 | ~~`:show-footer`~~、~~`:showFooter`~~ |
+
+**VortDialog 自定义按钮注意事项：** 单表单提交场景优先使用业务组件自身的参数来定义底部按钮，或使用 `#footer` 插槽完全自定义底部内容；当按钮已由弹窗内容内部自行渲染时，再通过 `:footer="false"` 隐藏 Dialog 默认底部区域，避免出现两组按钮。

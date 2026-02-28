@@ -4,7 +4,7 @@ import json
 import asyncio
 
 from openvort.plugin.base import BaseTool
-from openvort.plugins.zentao.db import ZentaoDB, AI_ACCOUNT, get_actor
+from openvort.plugins.zentao.db import ZentaoDB, AI_ACCOUNT, get_actor, get_actor_display
 
 
 class UpdateTaskTool(BaseTool):
@@ -58,6 +58,8 @@ class UpdateTaskTool(BaseTool):
                 image_urls.append(url)
 
         def _do_update():
+            actor = get_actor(params)
+            actor_display = get_actor_display(self._db, params)
             conn = self._db.get_conn()
             try:
                 with conn.cursor() as cur:
@@ -75,7 +77,7 @@ class UpdateTaskTool(BaseTool):
                         self._db.log_action(
                             cur, "task", task_id, "assigned",
                             project=project, execution=execution, actor=actor,
-                            comment=f"由 {actor} 指派给 {account}（原：{old_assignee}）",
+                            comment=f"由 {actor_display} 指派给 {account}（原：{old_assignee}）",
                             extra=account,
                         )
                         conn.commit()
@@ -85,7 +87,7 @@ class UpdateTaskTool(BaseTool):
                         consumed = params.get("consumed", 0)
                         old_consumed = float(task.get("consumed", 0))
                         total = old_consumed + consumed if consumed else old_consumed
-                        comment = params.get("comment", f"由 {actor} 标记完成")
+                        comment = params.get("comment", f"由 {actor_display} 标记完成")
                         cur.execute(
                             """UPDATE zt_task SET status='done', finishedBy=%s, finishedDate=NOW(),
                                consumed=%s, `left`=0, lastEditedBy=%s, lastEditedDate=NOW()
@@ -170,7 +172,7 @@ class UpdateTaskTool(BaseTool):
                     self._db.log_action(
                         cur, "task", task_id, "edited",
                         project=project, execution=execution, actor=actor,
-                        comment=f"由 {actor} 通过 OpenVort 更新：{'、'.join(changes)}",
+                        comment=f"由 {actor_display} 通过 OpenVort 更新：{'、'.join(changes)}",
                     )
                 conn.commit()
                 return {"ok": True, "message": f"任务 #{task_id} 已更新：{'、'.join(changes)}"}

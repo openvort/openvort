@@ -16,18 +16,55 @@ BUILTIN_ROLES = [
     {"name": "admin", "display_name": "管理员", "permissions": ["*"]},
     {"name": "manager", "display_name": "部门管理者", "permissions": [
         "contacts.sync", "contacts.search", "contacts.match",
+        "members.view", "departments.view",
+        "plugins.view", "skills.view", "channels.view",
+        "logs.view", "dashboard.view",
+        "schedules.manage", "webhooks.view", "agents.view",
     ]},
     {"name": "member", "display_name": "普通成员", "permissions": [
         "contacts.search",
+        "dashboard.view", "schedules.use",
     ]},
     {"name": "guest", "display_name": "访客", "permissions": []},
 ]
 
 # 内置权限定义
 BUILTIN_PERMISSIONS = [
+    # 通讯录
     {"code": "contacts.sync", "display_name": "同步通讯录"},
     {"code": "contacts.search", "display_name": "搜索成员"},
     {"code": "contacts.match", "display_name": "管理匹配建议"},
+    # 成员管理
+    {"code": "members.view", "display_name": "查看成员"},
+    {"code": "members.manage", "display_name": "管理成员"},
+    # 部门管理
+    {"code": "departments.view", "display_name": "查看部门"},
+    {"code": "departments.manage", "display_name": "管理部门"},
+    # 插件
+    {"code": "plugins.view", "display_name": "查看插件"},
+    {"code": "plugins.manage", "display_name": "管理插件"},
+    # Skill
+    {"code": "skills.view", "display_name": "查看 Skill"},
+    {"code": "skills.manage", "display_name": "管理 Skill"},
+    # 通道
+    {"code": "channels.view", "display_name": "查看通道"},
+    {"code": "channels.manage", "display_name": "管理通道"},
+    # 系统设置
+    {"code": "settings.view", "display_name": "查看设置"},
+    {"code": "settings.manage", "display_name": "管理设置"},
+    # 日志
+    {"code": "logs.view", "display_name": "查看日志"},
+    # 仪表盘
+    {"code": "dashboard.view", "display_name": "查看仪表盘"},
+    # 定时任务
+    {"code": "schedules.use", "display_name": "使用定时任务"},
+    {"code": "schedules.manage", "display_name": "管理定时任务"},
+    # Webhook
+    {"code": "webhooks.view", "display_name": "查看 Webhook"},
+    {"code": "webhooks.manage", "display_name": "管理 Webhook"},
+    # Agent
+    {"code": "agents.view", "display_name": "查看 Agent"},
+    {"code": "agents.manage", "display_name": "管理 Agent"},
 ]
 
 

@@ -53,6 +53,14 @@ class ZentaoPlugin(BasePlugin):
             MyStoriesTool(self._db),
         ]
 
+    def get_permissions(self) -> list[dict]:
+        return [
+            {"code": "zentao.task", "display_name": "禅道任务管理"},
+            {"code": "zentao.bug", "display_name": "禅道 Bug 管理"},
+            {"code": "zentao.story", "display_name": "禅道需求管理"},
+            {"code": "zentao.effort", "display_name": "禅道工时记录"},
+        ]
+
     def get_prompts(self) -> list[str]:
         """读取 prompts/ 目录下的 markdown 文件作为领域知识"""
         prompts_dir = Path(__file__).parent / "prompts"

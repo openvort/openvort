@@ -61,13 +61,26 @@ class ChatSession(Base):
 
     __tablename__ = "chat_sessions"
     __table_args__ = (
-        UniqueConstraint("channel", "user_id", name="uq_chat_session_channel_user"),
+        UniqueConstraint("channel", "user_id", "session_id", name="uq_chat_session_channel_user_session"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     channel: Mapped[str] = mapped_column(String(32), index=True)
     user_id: Mapped[str] = mapped_column(String(64), index=True)
+    session_id: Mapped[str] = mapped_column(String(64), index=True, default="default")
+    title: Mapped[str] = mapped_column(String(200), default="新对话")
     messages: Mapped[str] = mapped_column(Text, default="[]")  # JSON
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class SystemConfig(Base):
+    """系统配置（key-value 存储，Web 面板写入，优先级高于 .env）"""
+
+    __tablename__ = "system_configs"
+
+    key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, default="")
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
@@ -93,6 +106,9 @@ class ScheduleJob(Base):
     # 执行动作
     action_type: Mapped[str] = mapped_column(String(32), default="agent_chat")  # agent_chat
     action_config: Mapped[str] = mapped_column(Text, default="{}")  # JSON: {"prompt": "..."}
+
+    # 可见性（团队任务是否对成员展示）
+    visible: Mapped[bool] = mapped_column(Boolean, default=True)
 
     # 状态
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)

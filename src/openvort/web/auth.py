@@ -104,25 +104,32 @@ async def authenticate_member(user_id: str, password: str) -> dict | None:
     from sqlalchemy import select
     from openvort.contacts.models import Member, PlatformIdentity
     from openvort.web.deps import get_db_session_factory, get_auth_service
+    from openvort.utils.logging import get_logger
+
+    log = get_logger("web.auth")
 
     settings = get_settings()
     session_factory = get_db_session_factory()
     auth_service = get_auth_service()
 
     async with session_factory() as session:
-        # 先按 platform_user_id 查
-        stmt = (
-            select(PlatformIdentity)
-            .where(PlatformIdentity.platform_user_id == user_id)
-        )
-        result = await session.execute(stmt)
-        identity = result.scalar_one_or_none()
-
         member = None
-        if identity:
-            stmt = select(Member).where(Member.id == identity.member_id)
+        # 先按 platform_user_id 查（可能跨平台出现多条，不能用 scalar_one_or_none）
+        stmt = select(PlatformIdentity).where(PlatformIdentity.platform_user_id == user_id)
+        result = await session.execute(stmt)
+        identities = result.scalars().all()
+        if identities:
+            if len(identities) > 1:
+                log.warning(f"登录 user_id={user_id} 命中 {len(identities)} 条平台身份，按可登录账号优先匹配")
+            member_ids = [i.member_id for i in identities]
+            stmt = select(Member).where(Member.id.in_(member_ids), Member.status == "active", Member.is_account)
             result = await session.execute(stmt)
-            member = result.scalar_one_or_none()
+            candidates = result.scalars().all()
+            member_by_id = {m.id: m for m in candidates}
+            for ident in identities:
+                if ident.member_id in member_by_id:
+                    member = member_by_id[ident.member_id]
+                    break
         else:
             # 按姓名查
             stmt = select(Member).where(Member.name == user_id, Member.status == "active")
@@ -149,20 +156,29 @@ async def authenticate_member(user_id: str, password: str) -> dict | None:
         if not roles:
             roles = ["member"]  # 默认角色
 
-        # 查平台账号和职位/部门
+        # 查平台账号和职位
         stmt = select(PlatformIdentity).where(PlatformIdentity.member_id == member.id)
         result = await session.execute(stmt)
         identities = result.scalars().all()
 
         platform_accounts = {}
         position = ""
-        department = ""
         for ident in identities:
             platform_accounts[ident.platform] = ident.platform_user_id
             if ident.platform_position and not position:
                 position = ident.platform_position
-            if ident.platform_department and not department:
-                department = ident.platform_department
+
+        # 从 MemberDepartment 关联查真实部门名称
+        from openvort.contacts.models import MemberDepartment, Department
+        dept_stmt = (
+            select(Department.name)
+            .join(MemberDepartment, MemberDepartment.department_id == Department.id)
+            .where(MemberDepartment.member_id == member.id)
+            .order_by(MemberDepartment.is_primary.desc())
+        )
+        dept_result = await session.execute(dept_stmt)
+        dept_names = [row[0] for row in dept_result.all()]
+        department = " / ".join(dept_names) if dept_names else ""
 
         return {
             "member_id": member.id,

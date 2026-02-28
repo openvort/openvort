@@ -28,6 +28,7 @@ class CreateJobRequest(BaseModel):
     action_type: str = "agent_chat"
     action_config: dict | None = None
     enabled: bool = True
+    visible: bool = True  # 团队任务是否对成员展示
 
 
 class UpdateJobRequest(BaseModel):
@@ -39,6 +40,7 @@ class UpdateJobRequest(BaseModel):
     action_type: str | None = None
     action_config: dict | None = None
     enabled: bool | None = None
+    visible: bool | None = None
 
 
 _scheduler_instance = None
@@ -102,11 +104,8 @@ async def create_my_job(request: Request, req: CreateJobRequest):
         action_type=req.action_type,
         action_config=req.action_config,
         enabled=req.enabled,
-    )
-    return {"success": True, "job": job}
-
-
-@schedules_router.put("/{job_id}")
+        visible=req.visible,
+    )("/{job_id}")
 async def update_my_job(request: Request, job_id: str, req: UpdateJobRequest):
     """编辑个人任务（仅 owner）"""
     member_id = _get_member_id(request)
@@ -178,6 +177,7 @@ async def create_team_job(request: Request, req: CreateJobRequest):
         action_type=req.action_type,
         action_config=req.action_config,
         enabled=req.enabled,
+        visible=req.visible,
     )
     return {"success": True, "job": job}
 

@@ -33,6 +33,8 @@ declare module 'vue' {
     VortInputPassword: typeof import('@/components/vort/input')['InputPassword']
     VortInputSearch: typeof import('@/components/vort/input')['InputSearch']
     VortPagination: typeof import('@/components/vort/pagination')['Pagination']
+    VortRadioButton: typeof import('@/components/vort/radio')['RadioButton']
+    VortRadioGroup: typeof import('@/components/vort/radio')['RadioGroup']
     VortSelect: typeof import('@/components/vort/select')['Select']
     VortSelectOption: typeof import('@/components/vort/select')['SelectOption']
     VortSpin: typeof import('@/components/vort/spin')['Spin']

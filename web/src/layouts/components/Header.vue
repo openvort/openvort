@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { useUserStore, useAppStore } from "@/stores";
 import { Bell, Search, LogOut, User, Settings, Menu } from "lucide-vue-next";
+import { getHealthStatus } from "@/api";
 
 defineProps<{ isScrolled: boolean; isMobile?: boolean }>();
 
@@ -10,6 +11,21 @@ const router = useRouter();
 const userStore = useUserStore();
 const appStore = useAppStore();
 const showUserMenu = ref(false);
+
+const version = ref("");
+const llmHealthy = ref<boolean | null>(null);
+
+const fetchHealth = async () => {
+    try {
+        const res: any = await getHealthStatus();
+        version.value = res.version || "";
+        llmHealthy.value = res.llm_healthy ?? null;
+    } catch {
+        llmHealthy.value = false;
+    }
+};
+
+onMounted(fetchHealth);
 
 const handleLogout = () => {
     userStore.logout();
@@ -53,6 +69,16 @@ const goProfile = () => {
 
         <!-- 右侧 -->
         <div class="flex items-center gap-2 md:gap-4 flex-shrink-0">
+            <!-- 版本号 -->
+            <div class="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-gray-50 text-[11px] text-gray-400 font-mono">
+                v{{ version || 'dev' }}
+            </div>
+            <!-- 健康状态 -->
+            <div class="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px]"
+                :class="llmHealthy === true ? 'bg-green-50 text-green-600' : llmHealthy === false ? 'bg-red-50 text-red-500' : 'bg-gray-50 text-gray-400'">
+                <span class="w-1.5 h-1.5 rounded-full inline-block" :class="llmHealthy === true ? 'bg-green-500' : llmHealthy === false ? 'bg-red-400' : 'bg-gray-300'"></span>
+                AI {{ llmHealthy === true ? '在线' : llmHealthy === false ? '离线' : '...' }}
+            </div>
             <!-- 用户信息 -->
             <div class="relative">
                 <div

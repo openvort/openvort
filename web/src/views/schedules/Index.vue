@@ -25,6 +25,7 @@ interface ScheduleJob {
     action_type: string;
     action_config: Record<string, any>;
     enabled: boolean;
+    visible: boolean;
     last_run_at: string | null;
     last_status: string;
     last_result: string;
@@ -64,6 +65,7 @@ const form = ref({
     timezone: "Asia/Shanghai",
     action_config: { prompt: "" },
     enabled: true,
+    visible: true,
 });
 
 // 执行结果抽屉
@@ -112,6 +114,7 @@ function openCreate(scope: "personal" | "team") {
         timezone: "Asia/Shanghai",
         action_config: { prompt: "" },
         enabled: true,
+        visible: true,
     };
     dialogOpen.value = true;
 }
@@ -128,6 +131,7 @@ function openEdit(job: ScheduleJob) {
         timezone: job.timezone,
         action_config: { prompt: job.action_config?.prompt || "" },
         enabled: job.enabled,
+        visible: job.visible ?? true,
     };
     dialogOpen.value = true;
 }
@@ -330,6 +334,13 @@ const scheduleFieldLabel = computed(() => {
                                 <VortSwitch :checked="row.enabled" @update:checked="handleToggle(row)" />
                             </template>
                         </VortTableColumn>
+                        <VortTableColumn label="可见" :width="80">
+                            <template #default="{ row }">
+                                <VortTag :color="row.visible ? 'green' : 'default'" size="small">
+                                    {{ row.visible ? '可见' : '隐藏' }}
+                                </VortTag>
+                            </template>
+                        </VortTableColumn>
                         <VortTableColumn label="上次执行" :min-width="140">
                             <template #default="{ row }">
                                 <VortTag :color="statusTagColor(row.last_status)" size="small">
@@ -386,6 +397,9 @@ const scheduleFieldLabel = computed(() => {
                 </VortFormItem>
                 <VortFormItem label="立即启用">
                     <VortSwitch v-model:checked="form.enabled" />
+                </VortFormItem>
+                <VortFormItem v-if="dialogScope === 'team'" label="对成员可见">
+                    <VortSwitch v-model:checked="form.visible" />
                 </VortFormItem>
             </VortForm>
             <template #footer>

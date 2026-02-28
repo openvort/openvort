@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
-import { getPlugins, getPluginDetail, updatePlugin, togglePlugin } from "@/api";
-import { Puzzle, Wrench, CheckCircle, XCircle, Settings } from "lucide-vue-next";
+import { getPlugins, getPluginDetail, updatePlugin, togglePlugin, installPlugin, uploadPlugin, deletePlugin } from "@/api";
+import { Puzzle, Wrench, CheckCircle, XCircle, Settings, Plus, Upload, Trash2 } from "lucide-vue-next";
 import { message } from "@/components/vort/message";
+import { dialog } from "@/components/vort/dialog";
 
 interface PluginTool {
     name: string;
@@ -98,12 +99,78 @@ const handleSave = async () => {
     }
 };
 
+// 添加插件弹窗
+const addDialogOpen = ref(false);
+const installMode = ref<"pip" | "upload">("pip");
+const packageName = ref("");
+const installing = ref(false);
+
+const handleInstall = async () => {
+    if (!packageName.value.trim()) {
+        message.error("请输入包名");
+        return;
+    }
+    installing.value = true;
+    try {
+        const res: any = await installPlugin(packageName.value.trim());
+        message.success(res.message || "安装成功，重启后生效");
+        addDialogOpen.value = false;
+        packageName.value = "";
+    } catch (e: any) {
+        message.error(e?.response?.data?.detail || "安装失败");
+    } finally {
+        installing.value = false;
+    }
+};
+
+const handleUpload = async (file: File) => {
+    installing.value = true;
+    try {
+        const res: any = await uploadPlugin(file);
+        message.success(res.message || "上传成功，重启后生效");
+        addDialogOpen.value = false;
+    } catch (e: any) {
+        message.error(e?.response?.data?.detail || "上传失败");
+    } finally {
+        installing.value = false;
+    }
+};
+
+const onFileChange = (e: Event) => {
+    const input = e.target as HTMLInputElement;
+    if (input.files?.[0]) {
+        handleUpload(input.files[0]);
+    }
+};
+
+// 删除本地插件
+const handleDelete = (plugin: PluginInfo) => {
+    dialog.confirm({
+        title: "确认删除",
+        content: `确定要删除插件「${plugin.display_name}」吗？重启后生效。`,
+        onOk: async () => {
+            try {
+                await deletePlugin(plugin.name);
+                message.success("已删除，重启后生效");
+                loadPlugins();
+            } catch (e: any) {
+                message.error(e?.response?.data?.detail || "删除失败");
+            }
+        },
+    });
+};
+
 onMounted(loadPlugins);
 </script>
 
 <template>
     <div class="space-y-6">
-        <h2 class="text-lg font-medium text-gray-800">插件管理</h2>
+        <div class="flex items-center justify-between">
+            <h2 class="text-lg font-medium text-gray-800">插件管理</h2>
+            <VortButton variant="primary" @click="addDialogOpen = true">
+                <Plus :size="14" class="mr-1" /> 添加插件
+            </VortButton>
+        </div>
 
         <VortSpin :spinning="loading">
             <div v-if="plugins.length === 0 && !loading" class="text-center py-12 text-gray-400 text-sm">
@@ -155,6 +222,12 @@ onMounted(loadPlugins);
                         </div>
                     </div>
 
+                    <div v-if="plugin.source === 'local'" class="mt-4 pt-3 border-t border-gray-100 flex justify-end">
+                        <VortButton size="small" variant="text" danger @click="handleDelete(plugin)">
+                            <Trash2 :size="14" class="mr-1" /> 删除
+                        </VortButton>
+                    </div>
+
                 </vort-card>
             </div>
         </VortSpin>
@@ -190,5 +263,43 @@ onMounted(loadPlugins);
                 </div>
             </template>
         </VortDrawer>
+
+        <!-- 添加插件弹窗 -->
+        <VortDialog :open="addDialogOpen" title="添加插件" @update:open="addDialogOpen = $event">
+            <div class="space-y-4">
+                <VortRadioGroup v-model="installMode">
+                    <VortRadioButton value="pip">pip 安装</VortRadioButton>
+                    <VortRadioButton value="upload">上传 zip</VortRadioButton>
+                </VortRadioGroup>
+
+                <div v-if="installMode === 'pip'">
+                    <p class="text-xs text-gray-400 mb-2">输入 PyPI 包名，如 openvort-plugin-gitlab</p>
+                    <VortInput v-model="packageName" placeholder="包名" @keyup.enter="handleInstall" />
+                </div>
+
+                <div v-else>
+                    <p class="text-xs text-gray-400 mb-2">上传包含 plugin.py 的 zip 文件（最大 10MB）</p>
+                    <label class="flex items-center justify-center w-full h-24 border-2 border-dashed border-gray-200 rounded-lg cursor-pointer hover:border-blue-400 transition-colors">
+                        <div class="text-center">
+                            <Upload :size="20" class="mx-auto text-gray-400 mb-1" />
+                            <span class="text-xs text-gray-400">点击选择 .zip 文件</span>
+                        </div>
+                        <input type="file" accept=".zip" class="hidden" @change="onFileChange" />
+                    </label>
+                </div>
+            </div>
+
+            <template #footer>
+                <div class="flex justify-end gap-2">
+                    <VortButton @click="addDialogOpen = false">取消</VortButton>
+                    <VortButton
+                        v-if="installMode === 'pip'"
+                        variant="primary"
+                        :loading="installing"
+                        @click="handleInstall"
+                    >安装</VortButton>
+                </div>
+            </template>
+        </VortDialog>
     </div>
 </template>

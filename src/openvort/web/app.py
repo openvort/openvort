@@ -54,6 +54,7 @@ def create_app() -> FastAPI:
         auth_router, chat_router, dashboard_router, me_router,
         contacts_router, members_router, departments_router, plugins_router, skills_router, channels_router,
         settings_router, logs_router, schedules_router, admin_schedules_router,
+        webhooks_admin_router, agents_router, models_router,
     )
     from openvort.web.ws import ws_router
     from openvort.web.webhooks import webhooks_router
@@ -83,6 +84,25 @@ def create_app() -> FastAPI:
     app.include_router(settings_router, prefix="/api/admin/settings", tags=["admin-settings"], dependencies=[Depends(require_admin)])
     app.include_router(logs_router, prefix="/api/admin/logs", tags=["admin-logs"], dependencies=[Depends(require_admin)])
     app.include_router(admin_schedules_router, prefix="/api/admin/schedules", tags=["admin-schedules"], dependencies=[Depends(require_admin)])
+    app.include_router(webhooks_admin_router, prefix="/api/admin/webhooks", tags=["admin-webhooks"], dependencies=[Depends(require_admin)])
+    app.include_router(agents_router, prefix="/api/admin/agents", tags=["admin-agents"], dependencies=[Depends(require_admin)])
+    app.include_router(models_router, prefix="/api/admin/models", tags=["admin-models"], dependencies=[Depends(require_admin)])
+
+    # ---- 健康检查（公开，无需认证） ----
+    @app.get("/api/health")
+    async def health_check():
+        from openvort import __version__
+        from openvort.config.settings import get_settings
+
+        settings = get_settings()
+        llm_model = settings.llm.model
+        llm_healthy = bool(settings.llm.api_key and settings.llm.model)
+
+        return {
+            "version": __version__,
+            "llm_healthy": llm_healthy,
+            "llm_model": llm_model,
+        }
 
     # 尝试挂载前端静态文件（构建产物）+ SPA fallback
     static_dir = Path(__file__).parent.parent.parent.parent / "web" / "dist"

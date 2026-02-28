@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, onMounted, onUnmounted, nextTick } from "vue";
 import { getDashboard } from "@/api";
-import { Bot, Users, Puzzle, Radio, MessageSquare, Activity } from "lucide-vue-next";
+import { Bot, Users, Puzzle, Radio, MessageSquare, Activity, Zap, ArrowUpRight } from "lucide-vue-next";
+import * as echarts from "echarts";
 
 const stats = ref({
     agentStatus: "running",
@@ -9,14 +10,87 @@ const stats = ref({
     totalContacts: 0,
     totalPlugins: 0,
     totalChannels: 0,
-    recentMessages: [] as { user: string; content: string; time: string }[]
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    sessionUsage: [] as { key: string; user_id: string; channel: string; input_tokens: number; output_tokens: number; messages: number }[],
+    recentMessages: [] as { user: string; content: string; time: string }[],
 });
+
+const tokenChartRef = ref<HTMLElement>();
+const usageChartRef = ref<HTMLElement>();
+let tokenChart: echarts.ECharts | null = null;
+let usageChart: echarts.ECharts | null = null;
+
+function formatTokens(n: number): string {
+    if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
+    if (n >= 1_000) return (n / 1_000).toFixed(1) + "K";
+    return String(n);
+}
+
+// __CONTINUE_HERE__
+
+function renderTokenChart() {
+    if (!tokenChartRef.value) return;
+    if (!tokenChart) tokenChart = echarts.init(tokenChartRef.value);
+    tokenChart.setOption({
+        tooltip: { trigger: "item", formatter: "{b}: {c} ({d}%)" },
+        legend: { bottom: 0, textStyle: { fontSize: 12 } },
+        color: ["#3b82f6", "#f59e0b"],
+        series: [{
+            type: "pie",
+            radius: ["45%", "70%"],
+            center: ["50%", "45%"],
+            avoidLabelOverlap: false,
+            label: { show: false },
+            data: [
+                { value: stats.value.totalInputTokens, name: "Input Tokens" },
+                { value: stats.value.totalOutputTokens, name: "Output Tokens" },
+            ],
+        }],
+    });
+}
+
+function renderUsageChart() {
+    if (!usageChartRef.value || !stats.value.sessionUsage.length) return;
+    if (!usageChart) usageChart = echarts.init(usageChartRef.value);
+    const top = stats.value.sessionUsage.slice(0, 10);
+    const names = top.map(s => s.user_id || s.key).reverse();
+    const input = top.map(s => s.input_tokens).reverse();
+    const output = top.map(s => s.output_tokens).reverse();
+    usageChart.setOption({
+        tooltip: { trigger: "axis" },
+        legend: { bottom: 0, textStyle: { fontSize: 12 } },
+        grid: { left: 80, right: 20, top: 10, bottom: 40 },
+        xAxis: { type: "value" },
+        yAxis: { type: "category", data: names, axisLabel: { fontSize: 11 } },
+        color: ["#3b82f6", "#f59e0b"],
+        series: [
+            { name: "Input", type: "bar", stack: "total", data: input, barWidth: 16 },
+            { name: "Output", type: "bar", stack: "total", data: output, barWidth: 16 },
+        ],
+    });
+}
+
+function handleResize() {
+    tokenChart?.resize();
+    usageChart?.resize();
+}
 
 onMounted(async () => {
     try {
         const res: any = await getDashboard();
         if (res) Object.assign(stats.value, res);
     } catch { /* 后端未就绪时使用默认值 */ }
+    await nextTick();
+    renderTokenChart();
+    renderUsageChart();
+    window.addEventListener("resize", handleResize);
+});
+
+onUnmounted(() => {
+    window.removeEventListener("resize", handleResize);
+    tokenChart?.dispose();
+    usageChart?.dispose();
 });
 </script>
 
@@ -53,23 +127,39 @@ onMounted(async () => {
             <vort-card :shadow="false" padding="small">
                 <div class="flex items-center justify-between">
                     <div>
-                        <p class="text-sm text-gray-500">联系人</p>
-                        <p class="text-2xl font-semibold mt-1 text-purple-600">{{ stats.totalContacts }}</p>
+                        <p class="text-sm text-gray-500">Input Tokens</p>
+                        <p class="text-2xl font-semibold mt-1 text-amber-600">{{ formatTokens(stats.totalInputTokens) }}</p>
                     </div>
-                    <div class="w-12 h-12 rounded-full bg-purple-50 flex items-center justify-center">
-                        <Users :size="24" class="text-purple-600" />
+                    <div class="w-12 h-12 rounded-full bg-amber-50 flex items-center justify-center">
+                        <ArrowUpRight :size="24" class="text-amber-600" />
                     </div>
                 </div>
             </vort-card>
             <vort-card :shadow="false" padding="small">
                 <div class="flex items-center justify-between">
                     <div>
-                        <p class="text-sm text-gray-500">已加载插件</p>
-                        <p class="text-2xl font-semibold mt-1 text-orange-600">{{ stats.totalPlugins }}</p>
+                        <p class="text-sm text-gray-500">Output Tokens</p>
+                        <p class="text-2xl font-semibold mt-1 text-purple-600">{{ formatTokens(stats.totalOutputTokens) }}</p>
                     </div>
-                    <div class="w-12 h-12 rounded-full bg-orange-50 flex items-center justify-center">
-                        <Puzzle :size="24" class="text-orange-600" />
+                    <div class="w-12 h-12 rounded-full bg-purple-50 flex items-center justify-center">
+                        <Zap :size="24" class="text-purple-600" />
                     </div>
+                </div>
+            </vort-card>
+        </div>
+
+        <!-- 图表区域 -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <vort-card :shadow="false" title="Token 用量分布">
+                <div ref="tokenChartRef" class="w-full h-[280px]" />
+                <div v-if="!stats.totalInputTokens && !stats.totalOutputTokens" class="absolute inset-0 flex items-center justify-center text-gray-400 text-sm">
+                    暂无用量数据
+                </div>
+            </vort-card>
+            <vort-card :shadow="false" title="会话用量 Top 10">
+                <div ref="usageChartRef" class="w-full h-[280px]" />
+                <div v-if="!stats.sessionUsage.length" class="absolute inset-0 flex items-center justify-center text-gray-400 text-sm">
+                    暂无会话数据
                 </div>
             </vort-card>
         </div>

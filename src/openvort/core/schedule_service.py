@@ -40,6 +40,7 @@ class ScheduleService:
         action_type: str = "agent_chat",
         action_config: dict | None = None,
         enabled: bool = True,
+        visible: bool = True,
     ) -> dict:
         job_id = f"sched_{uuid.uuid4().hex[:12]}"
         job = ScheduleJob(
@@ -54,6 +55,7 @@ class ScheduleService:
             action_type=action_type,
             action_config=json.dumps(action_config or {}),
             enabled=enabled,
+            visible=visible,
         )
         async with self._session_factory() as session:
             session.add(job)
@@ -82,7 +84,7 @@ class ScheduleService:
             if not is_admin and job.owner_id != owner_id:
                 return None
 
-            for key in ("name", "description", "schedule_type", "schedule", "timezone", "action_type", "enabled"):
+            for key in ("name", "description", "schedule_type", "schedule", "timezone", "action_type", "enabled", "visible"):
                 if key in fields:
                     setattr(job, key, fields[key])
             if "action_config" in fields:
@@ -271,6 +273,7 @@ class ScheduleService:
             "action_type": job.action_type,
             "action_config": config,
             "enabled": job.enabled,
+            "visible": job.visible,
             "last_run_at": job.last_run_at.isoformat() if job.last_run_at else None,
             "last_status": job.last_status or "pending",
             "last_result": job.last_result or "",

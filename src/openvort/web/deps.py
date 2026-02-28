@@ -18,6 +18,7 @@ _session_factory = None  # SQLAlchemy async session factory
 _auth_service = None  # AuthService
 _build_context_fn = None  # async (channel, user_id) -> RequestContext
 _skill_loader = None  # SkillLoader
+_config_service = None  # ConfigService
 
 
 def set_runtime(
@@ -28,8 +29,9 @@ def set_runtime(
     auth_service=None,
     build_context_fn=None,
     skill_loader=None,
+    config_service=None,
 ):
-    global _agent, _registry, _session_store, _session_factory, _auth_service, _build_context_fn, _skill_loader
+    global _agent, _registry, _session_store, _session_factory, _auth_service, _build_context_fn, _skill_loader, _config_service
     _agent = agent
     _registry = registry
     _session_store = session_store
@@ -37,6 +39,7 @@ def set_runtime(
     _auth_service = auth_service
     _build_context_fn = build_context_fn
     _skill_loader = skill_loader
+    _config_service = config_service
 
 
 def get_agent() -> AgentRuntime:
@@ -73,3 +76,9 @@ def get_skill_loader():
     """获取 SkillLoader 实例"""
     assert _skill_loader is not None, "SkillLoader not initialized"
     return _skill_loader
+
+
+def get_config_service():
+    """获取 ConfigService 实例"""
+    assert _config_service is not None, "ConfigService not initialized"
+    return _config_service

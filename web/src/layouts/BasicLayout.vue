@@ -5,7 +5,7 @@ import { useAppStore } from "@/stores";
 import { useBreakpoint } from "@/hooks";
 import Sidebar from "./components/Sidebar.vue";
 import Header from "./components/Header.vue";
-import PageTabs from "./components/PageTabs.vue";
+
 import Footer from "./components/Footer.vue";
 
 const route = useRoute();
@@ -45,16 +45,14 @@ watch(isMobile, (val) => {
         <div class="flex flex-col flex-1 overflow-hidden">
             <!-- 顶部栏 -->
             <Header :is-scrolled="isScrolled" :is-mobile="isMobile" />
-
-            <!-- 标签页 -->
-            <PageTabs />
-
             <!-- 内容区域 -->
             <div class="flex-1 overflow-auto" @scroll="handleScroll">
-                <main :class="isFullscreen ? 'h-full' : 'p-4 md:p-6 min-h-[calc(100vh-160px)]'">
-                    <router-view v-slot="{ Component }">
+                <main class="h-full">
+                    <router-view v-slot="{ Component, route: currentRoute }">
                         <transition name="fade" mode="out-in">
-                            <component :is="Component" />
+                            <div :key="currentRoute.path" :class="currentRoute.meta.fullscreen ? 'h-full' : 'p-4 md:p-6 min-h-[calc(100vh-160px)]'">
+                                <component :is="Component" />
+                            </div>
                         </transition>
                     </router-view>
                 </main>

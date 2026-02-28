@@ -1,16 +1,27 @@
 """插件管理路由"""
 
 import json
+import re
+import shutil
+import subprocess
+import zipfile
+from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import select
 
 from openvort.db.models import PluginConfig
+from openvort.utils.logging import get_logger
 from openvort.web.deps import get_db_session_factory, get_registry
 
+log = get_logger("web.plugins")
 
 router = APIRouter()
+
+# 包名白名单正则：字母、数字、-、_、.
+_VALID_PACKAGE_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$")
+_MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10MB
 
 
 # ---- 辅助函数 ----
@@ -57,6 +68,97 @@ async def list_plugins():
 
     return {"plugins": result}
 
+
+def _get_plugins_dir() -> Path:
+    """获取本地插件目录"""
+    from openvort.config.settings import get_settings
+    plugins_dir = get_settings().data_dir / "plugins"
+    plugins_dir.mkdir(parents=True, exist_ok=True)
+    return plugins_dir
+
+
+class InstallPluginRequest(BaseModel):
+    package_name: str
+
+
+@router.post("/install")
+async def install_plugin(req: InstallPluginRequest):
+    """通过 pip 安装插件包"""
+    name = req.package_name.strip()
+    if not name or not _VALID_PACKAGE_RE.match(name):
+        raise HTTPException(status_code=400, detail="无效的包名，只允许字母、数字、-、_、.")
+
+    try:
+        result = subprocess.run(
+            ["pip", "install", name],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode != 0:
+            log.warning(f"pip install {name} 失败: {result.stderr}")
+            raise HTTPException(status_code=400, detail=f"安装失败: {result.stderr.strip()[-200:]}")
+
+        log.info(f"pip install {name} 成功")
+        return {"success": True, "message": f"'{name}' 安装成功，重启后生效", "restart_required": True}
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=408, detail="安装超时，请检查网络")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"安装异常: {e}")
+
+
+@router.post("/upload")
+async def upload_plugin(file: UploadFile):
+    """上传 zip 格式的本地插件"""
+    if not file.filename or not file.filename.endswith(".zip"):
+        raise HTTPException(status_code=400, detail="请上传 .zip 文件")
+
+    # 读取并检查大小
+    content = await file.read()
+    if len(content) > _MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=400, detail=f"文件过大，最大 {_MAX_UPLOAD_SIZE // 1024 // 1024}MB")
+
+    # 验证 zip 格式
+    import io
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(content))
+    except zipfile.BadZipFile:
+        raise HTTPException(status_code=400, detail="无效的 zip 文件")
+
+    # 路径遍历检查
+    for name in zf.namelist():
+        if name.startswith("/") or ".." in name:
+            raise HTTPException(status_code=400, detail=f"zip 中包含不安全路径: {name}")
+
+    # 查找 plugin.py
+    plugin_files = [n for n in zf.namelist() if n.endswith("plugin.py")]
+    if not plugin_files:
+        raise HTTPException(status_code=400, detail="zip 中未找到 plugin.py，请确认插件结构")
+
+    # 推断插件目录名（取 zip 中第一级目录，或用文件名）
+    top_dirs = {n.split("/")[0] for n in zf.namelist() if "/" in n}
+    if len(top_dirs) == 1:
+        plugin_dir_name = top_dirs.pop()
+    else:
+        plugin_dir_name = file.filename.replace(".zip", "")
+
+    plugins_dir = _get_plugins_dir()
+    target_dir = plugins_dir / plugin_dir_name
+
+    # 如果已存在，先删除旧版
+    if target_dir.exists():
+        shutil.rmtree(target_dir)
+
+    # 解压
+    zf.extractall(plugins_dir)
+    log.info(f"插件上传成功: {plugin_dir_name} -> {target_dir}")
+
+    return {"success": True, "message": f"插件 '{plugin_dir_name}' 上传成功，重启后生效", "restart_required": True}
+
+
+# ---- 以下为 /{name} 路径参数路由，必须放在固定路径之后 ----
 
 @router.get("/{name}")
 async def get_plugin_detail(name: str):
@@ -162,3 +264,38 @@ async def toggle_plugin(name: str):
         new_enabled = config_row.enabled
 
     return {"success": True, "enabled": new_enabled, "restart_required": True}
+
+
+@router.delete("/{name}")
+async def delete_plugin(name: str):
+    """删除本地插件"""
+    registry = get_registry()
+    plugin = registry.get_plugin(name)
+
+    if plugin and plugin.core:
+        raise HTTPException(status_code=400, detail="核心插件不可删除")
+
+    if plugin and plugin.source != "local":
+        raise HTTPException(status_code=400, detail=f"只能删除本地插件，'{name}' 来源为 {plugin.source}")
+
+    # 删除本地目录
+    plugins_dir = _get_plugins_dir()
+    target_dir = plugins_dir / name
+    if target_dir.exists():
+        shutil.rmtree(target_dir)
+        log.info(f"已删除本地插件目录: {target_dir}")
+    else:
+        raise HTTPException(status_code=404, detail=f"本地插件目录 '{name}' 不存在")
+
+    # 清理 DB 配置
+    session_factory = get_db_session_factory()
+    async with session_factory() as session:
+        result = await session.execute(
+            select(PluginConfig).where(PluginConfig.plugin_name == name)
+        )
+        config_row = result.scalar_one_or_none()
+        if config_row:
+            await session.delete(config_row)
+            await session.commit()
+
+    return {"success": True, "message": f"插件 '{name}' 已删除，重启后生效", "restart_required": True}

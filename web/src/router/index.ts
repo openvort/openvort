@@ -14,12 +14,11 @@ const routes: RouteRecordRaw[] = [
     {
         path: "/",
         component: BasicLayout,
-        redirect: "/chat",
+        redirect: "/overview",
         children: [
             // 所有角色可访问
             { path: "chat", name: "chat", component: () => import("@/views/chat/Index.vue"), meta: { title: "AI 助手", fullscreen: true } },
-            { path: "workspace", name: "workspace", component: () => import("@/views/workspace/Index.vue"), meta: { title: "个人工作台" } },
-            { path: "dashboard", name: "dashboard", component: () => import("@/views/dashboard/Index.vue"), meta: { title: "仪表盘" } },
+            { path: "overview", name: "overview", component: () => import("@/views/overview/Index.vue"), meta: { title: "概览" } },
             { path: "schedules", name: "schedules", component: () => import("@/views/schedules/Index.vue"), meta: { title: "定时任务" } },
             { path: "profile", name: "profile", component: () => import("@/views/profile/Index.vue"), meta: { title: "个人设置" } },
             // 仅管理员
@@ -28,8 +27,13 @@ const routes: RouteRecordRaw[] = [
             { path: "skills", name: "skills", component: () => import("@/views/skills/Index.vue"), meta: { title: "技能管理", requiredRole: "admin" } },
             { path: "channels", name: "channels", component: () => import("@/views/channels/Index.vue"), meta: { title: "通道管理", requiredRole: "admin" } },
             { path: "logs", name: "logs", component: () => import("@/views/logs/Index.vue"), meta: { title: "运行日志", requiredRole: "admin" } },
+            { path: "webhooks", name: "webhooks", component: () => import("@/views/webhooks/Index.vue"), meta: { title: "Webhook 管理", requiredRole: "admin" } },
+            { path: "agents", name: "agents", component: () => import("@/views/agents/Index.vue"), meta: { title: "Agent 路由", requiredRole: "admin" } },
+            { path: "models", name: "models", component: () => import("@/views/models/Index.vue"), meta: { title: "模型管理", requiredRole: "admin" } },
             { path: "settings", name: "settings", component: () => import("@/views/settings/Index.vue"), meta: { title: "系统设置", requiredRole: "admin" } },
             // 异常页
+            { path: "dashboard", redirect: "/overview" },
+            { path: "workspace", redirect: "/overview" },
             { path: "exception/403", name: "exception403", component: () => import("@/views/exception/403.vue"), meta: { title: "403" } },
             { path: "exception/404", name: "exception404", component: () => import("@/views/exception/404.vue"), meta: { title: "404" } },
             { path: "exception/500", name: "exception500", component: () => import("@/views/exception/500.vue"), meta: { title: "500" } }

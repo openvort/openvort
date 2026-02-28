@@ -53,7 +53,7 @@ src/openvort/
 ├── plugin/             # 插件框架
 │   ├── base.py         # BasePlugin / BaseChannel / BaseTool / Message
 │   ├── registry.py     # PluginRegistry — Tool/Channel/Prompt 注册中心
-│   └── loader.py       # PluginLoader — entry_points 自动发现加载
+│   └── loader.py       # PluginLoader — entry_points 自动发现 + 内置通道兜底加载
 ├── plugins/            # 内置插件（可独立发布为 pip 包）
 │   └── zentao/         # 禅道项目管理插件
 │       ├── plugin.py   # ZentaoPlugin(BasePlugin) 主类
@@ -62,11 +62,15 @@ src/openvort/
 │       ├── tools/      # 7 个 Tool（任务 CRUD + Bug CRUD）
 │       └── prompts/    # 领域知识 markdown（任务流程/Bug流程）
 ├── channels/           # IM 通道适配器
-│   └── wecom/          # 企业微信 Channel
-│       ├── channel.py  # WeComChannel(BaseChannel)
-│       ├── api.py      # 企微 API 客户端
-│       ├── crypto.py   # 消息加解密
-│       └── callback.py # Webhook 回调处理
+│   ├── wecom/          # 企业微信 Channel
+│   │   ├── channel.py  # WeComChannel(BaseChannel)
+│   │   ├── api.py      # 企微 API 客户端
+│   │   ├── crypto.py   # 消息加解密
+│   │   └── callback.py # Webhook 回调处理
+│   ├── dingtalk/       # 钉钉 Channel
+│   │   └── channel.py  # DingTalkChannel(BaseChannel)
+│   └── feishu/         # 飞书 Channel
+│       └── channel.py  # FeishuChannel(BaseChannel)
 ├── relay/              # 公网中继服务（无 AI，资源极低）
 │   ├── server.py       # FastAPI 应用（接收企微回调 + REST API）
 │   └── store.py        # SQLite 消息存储
@@ -246,6 +250,8 @@ Python entry_points 是标准的插件发现机制：
 - 第三方插件 `pip install openvort-plugin-xxx` 即可自动注册
 - 内置插件和外部插件使用同一套机制
 - 不需要约定目录结构或配置文件
+
+补充：为提升开发环境鲁棒性，`PluginLoader` 对内置通道（`wecom`/`dingtalk`/`feishu`）增加了兜底加载逻辑。当某些环境未正确安装 entry_points 时，仍可在运行时注册内置通道并在管理后台显示。
 
 ### 为什么需要 Relay Server？
 

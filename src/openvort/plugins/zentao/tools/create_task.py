@@ -3,7 +3,7 @@
 import json
 
 from openvort.plugin.base import BaseTool
-from openvort.plugins.zentao.db import ZentaoDB, AI_ACCOUNT, get_actor
+from openvort.plugins.zentao.db import ZentaoDB, AI_ACCOUNT, get_actor, get_actor_display
 
 
 class CreateTaskTool(BaseTool):
@@ -53,6 +53,7 @@ class CreateTaskTool(BaseTool):
         def _do_create():
             import pymysql
             actor = get_actor(params)
+            actor_display = get_actor_display(self._db, params)
             conn = self._db.get_conn()
             try:
                 with conn.cursor() as cur:
@@ -71,7 +72,7 @@ class CreateTaskTool(BaseTool):
                     self._db.log_action(
                         cur, "task", task_id, "opened",
                         product=product, project=project, execution=execution, actor=actor,
-                        comment=f"由 {actor} 创建任务：{name}",
+                        comment=f"由 {actor_display} 创建任务：{name}",
                     )
                 conn.commit()
                 return task_id

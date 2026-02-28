@@ -211,6 +211,12 @@ async def _start_service(relay_url: str | None, poll_db_json: str | None, web_fl
     # 初始化身份解析器
     resolver = IdentityResolver(session_factory)
 
+    # 从 DB 加载配置覆盖（优先级：DB > .env > 默认值）
+    from openvort.config.config_service import ConfigService
+    config_service = ConfigService(session_factory)
+    await config_service.load_all()
+    await config_service.apply_llm_to_settings()
+
     # 初始化 Agent
     session_store = SessionStore(session_factory=session_factory)
     agent = AgentRuntime(settings.llm, registry, session_store)
@@ -366,7 +372,7 @@ async def _start_service(relay_url: str | None, poll_db_json: str | None, web_fl
             # 注入运行时依赖
             set_runtime(agent, registry, session_store, session_factory,
                         auth_service=auth_service, build_context_fn=build_context,
-                        skill_loader=skill_loader)
+                        skill_loader=skill_loader, config_service=config_service)
             install_log_handler()
 
             web_app = create_app()

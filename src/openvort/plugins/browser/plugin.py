@@ -255,6 +255,11 @@ class BrowserPlugin(BasePlugin):
             BrowserTypeTool(),
         ]
 
+    def get_permissions(self) -> list[dict]:
+        return [
+            {"code": "browser.use", "display_name": "使用浏览器"},
+        ]
+
     def get_prompts(self) -> list[str]:
         return [
             "## 浏览器控制\n\n"

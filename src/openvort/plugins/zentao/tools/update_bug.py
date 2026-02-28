@@ -4,7 +4,7 @@ import json
 import asyncio
 
 from openvort.plugin.base import BaseTool
-from openvort.plugins.zentao.db import ZentaoDB, AI_ACCOUNT, get_actor
+from openvort.plugins.zentao.db import ZentaoDB, AI_ACCOUNT, get_actor, get_actor_display
 
 
 class UpdateBugTool(BaseTool):
@@ -57,6 +57,7 @@ class UpdateBugTool(BaseTool):
 
         def _do_update():
             actor = get_actor(params)
+            actor_display = get_actor_display(self._db, params)
             conn = self._db.get_conn()
             try:
                 with conn.cursor() as cur:
@@ -148,7 +149,7 @@ class UpdateBugTool(BaseTool):
                     self._db.log_action(
                         cur, "bug", bug_id, action_type,
                         product=bug.get("product", 0), actor=actor,
-                        comment=f"由 {actor} 通过 OpenVort 更新：{'、'.join(changes)}",
+                        comment=f"由 {actor_display} 通过 OpenVort 更新：{'、'.join(changes)}",
                     )
                 conn.commit()
                 return {"ok": True, "message": f"Bug #{bug_id} 已更新：{'、'.join(changes)}"}

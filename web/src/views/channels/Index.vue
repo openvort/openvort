@@ -121,8 +121,10 @@ async function handleToggle(row: ChannelInfo) {
 function handleDownloadDeploy() {
     if (!currentChannel.value) return;
     const userStore = useUserStore();
-    const base = import.meta.env.DEV ? "http://localhost:8090" : "";
-    window.open(`${base}/api/admin/channels/${currentChannel.value.name}/deploy-package?token=${userStore.token}`, "_blank");
+    window.open(
+        `/api/admin/channels/${currentChannel.value.name}/deploy-package?token=${encodeURIComponent(userStore.token)}`,
+        "_blank",
+    );
 }
 
 const modeLabels: Record<string, string> = {

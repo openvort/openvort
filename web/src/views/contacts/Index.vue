@@ -1078,7 +1078,7 @@ onMounted(() => {
                                 <div class="mb-6">
                                     <div class="text-sm font-medium text-gray-600 mb-2">所有已注册权限</div>
                                     <div class="flex flex-wrap gap-2">
-                                        <VortTag v-for="p in allPermissions" :key="p.code" color="default" size="small">
+                                        <VortTag v-for="p in allPermissions" :key="p.code" color="default" :bordered="false">
                                             {{ p.display_name }} <span class="text-gray-400 ml-1">({{ p.code }})</span>
                                         </VortTag>
                                         <span v-if="!allPermissions.length" class="text-gray-400 text-sm">暂无权限</span>
@@ -1104,9 +1104,9 @@ onMounted(() => {
                                                 {{ m.name }}
                                             </VortTag>
                                             <span
-                                                v-if="roleMembers.length > ROLE_MEMBER_DISPLAY_LIMIT"
+                                                v-if="selectedRole.member_count > roleMembers.length || roleMembers.length > ROLE_MEMBER_DISPLAY_LIMIT"
                                                 class="text-gray-400 text-sm leading-6"
-                                            >等其他 {{ roleMembers.length - ROLE_MEMBER_DISPLAY_LIMIT }} 名成员</span>
+                                            >等其他 {{ selectedRole.member_count - Math.min(roleMembers.length, ROLE_MEMBER_DISPLAY_LIMIT) }} 名成员</span>
                                             <span v-if="!roleMembers.length && !loadingRoleMembers" class="text-gray-400 text-sm">暂无成员</span>
                                         </div>
                                     </VortSpin>
