@@ -55,12 +55,32 @@ src/openvort/
 │   ├── registry.py     # PluginRegistry — Tool/Channel/Prompt 注册中心
 │   └── loader.py       # PluginLoader — entry_points 自动发现 + 内置通道兜底加载
 ├── plugins/            # 内置插件（可独立发布为 pip 包）
-│   └── zentao/         # 禅道项目管理插件
-│       ├── plugin.py   # ZentaoPlugin(BasePlugin) 主类
-│       ├── config.py   # ZentaoSettings
-│       ├── db.py       # 数据库访问层 + zt_action 审计
-│       ├── tools/      # 7 个 Tool（任务 CRUD + Bug CRUD）
-│       └── prompts/    # 领域知识 markdown（任务流程/Bug流程）
+│   ├── zentao/         # 禅道项目管理插件
+│   │   ├── plugin.py   # ZentaoPlugin(BasePlugin) 主类
+│   │   ├── config.py   # ZentaoSettings
+│   │   ├── db.py       # 数据库访问层 + zt_action 审计
+│   │   ├── tools/      # 7 个 Tool（任务 CRUD + Bug CRUD）
+│   │   └── prompts/    # 领域知识 markdown（任务流程/Bug流程）
+│   ├── vortflow/       # VortFlow 项目管理插件（内置轻量 PM）
+│   │   ├── plugin.py   # VortFlowPlugin 主类
+│   │   ├── config.py   # VortFlowSettings
+│   │   ├── models.py   # ORM: flow_projects/stories/tasks/bugs/milestones/events
+│   │   ├── engine.py   # 状态机引擎（需求→任务→Bug 全链路）
+│   │   ├── notifier.py # 事件通知
+│   │   ├── router.py   # FastAPI 路由（REST API）
+│   │   ├── adapters/   # PMAdapter 抽象（local/zentao 双模式）
+│   │   ├── tools/      # 5 个 Tool（project/intake/assign/progress/query）
+│   │   └── prompts/    # 领域知识（onboarding + workflow_guide）
+│   └── vortgit/        # VortGit 代码仓库管理插件
+│       ├── plugin.py   # VortGitPlugin 主类
+│       ├── config.py   # VortGitSettings（Fernet 加密密钥等）
+│       ├── models.py   # ORM: git_providers/repos/repo_members/workspaces/code_tasks
+│       ├── crypto.py   # Fernet 令牌加解密
+│       ├── router.py   # FastAPI 路由（平台/仓库/提交/分支/成员）
+│       ├── workspace.py # WorkspaceManager（成员隔离 Git 工作空间）
+│       ├── providers/  # Git 平台抽象（base + gitee，可扩展 github/gitlab）
+│       ├── tools/      # 4 个 Tool（list_repos/repo_info/query_commits/work_summary）
+│       └── prompts/    # 领域知识（git_guide）
 ├── channels/           # IM 通道适配器
 │   ├── wecom/          # 企业微信 Channel
 │   │   ├── channel.py  # WeComChannel(BaseChannel)
@@ -105,6 +125,8 @@ class BasePlugin(ABC):
 ```toml
 [project.entry-points."openvort.plugins"]
 zentao = "openvort.plugins.zentao:ZentaoPlugin"
+vortflow = "openvort.plugins.vortflow:VortFlowPlugin"
+vortgit = "openvort.plugins.vortgit:VortGitPlugin"
 ```
 
 ### Tool（工具）
@@ -172,55 +194,61 @@ await event_bus.emit("message.received", msg=msg)
 
 基于 APScheduler 的定时任务调度，支持 cron 表达式和间隔执行。
 
-## 已实现功能（v0.1）
+## 已实现功能
 
 | 模块 | 功能 | 状态 |
 |------|------|------|
-| 引擎核心 | AgentRuntime（agentic loop） | ✅ |
-| 引擎核心 | SessionStore（对话历史） | ✅ |
+| 引擎核心 | AgentRuntime（agentic loop + thinking + usage） | ✅ |
+| 引擎核心 | SessionStore（对话历史 + compact 压缩） | ✅ |
 | 引擎核心 | EventBus（事件总线） | ✅ |
 | 引擎核心 | Scheduler（定时任务） | ✅ |
+| 引擎核心 | LLMClient（多 Provider + Failover） | ✅ |
+| 引擎核心 | AgentRouter（多 Agent 路由） | ✅ |
+| 引擎核心 | IM 聊天命令（/new /status /compact /think /usage） | ✅ |
+| 引擎核心 | Agent-to-Agent 通信 | ✅ |
 | 插件框架 | BasePlugin / BaseTool / BaseChannel | ✅ |
 | 插件框架 | PluginRegistry（注册中心） | ✅ |
 | 插件框架 | PluginLoader（entry_points 自动发现） | ✅ |
 | 插件框架 | Prompt 注入（领域知识 → system prompt） | ✅ |
 | Channel | 企业微信（Webhook / Relay / DB轮询） | ✅ |
-| Plugin | 禅道（7 Tool + 2 Prompt） | ✅ |
+| Channel | 钉钉（Webhook + OpenAPI） | ✅ |
+| Channel | 飞书（Event Subscription + OpenAPI） | ✅ |
+| Plugin | 禅道（11 Tool + 2 Prompt，直连 MySQL） | ✅ |
+| Plugin | 浏览器控制（Playwright，5 Tool） | ✅ |
+| Plugin | 通讯录（5 Tool，多平台身份映射） | ✅ |
+| Plugin | VortFlow 项目管理（5 Tool + 2 Prompt，状态机驱动） | ✅ |
+| Plugin | VortGit 代码仓库（4 Tool + 1 Prompt，Gitee 接入） | ✅ |
+| Web | 管理面板（Vue 3 + FastAPI + JWT + WebSocket） | ✅ |
+| Web | VortFlow 前端（看板/需求/任务/Bug/里程碑/项目详情） | ✅ |
+| Web | VortGit 前端（仓库管理/平台配置/提交分析） | ✅ |
+| 安全 | RBAC 权限（admin/manager/member/guest） | ✅ |
+| 安全 | DM 配对（pairing/allowlist/open） | ✅ |
+| 安全 | Docker 沙箱（隔离执行） | ✅ |
 | 基础设施 | Relay Server（公网中继） | ✅ |
-| 基础设施 | CLI（init/start/tools/channels/agent） | ✅ |
+| 基础设施 | CLI（init/start/doctor/tools/channels/agent） | ✅ |
 | 基础设施 | Pydantic Settings 配置管理 | ✅ |
 
 ## 未来规划
 
-### v0.2 — 更多插件 + 权限体系
+### 近期 — VortGit 增强 + CI/CD
 
 | 功能 | 说明 |
 |------|------|
-| Gitee 插件 | 仓库管理、PR/MR、Issue 同步、代码搜索 |
+| GitHub / GitLab Provider | 扩展 VortGit 支持 GitHub 和 GitLab 平台 |
+| Git Webhook 事件驱动 | push/PR/CI 事件触发 Agent 动作 |
+| AI 编码集成 | CLI 工具按需安装 + AI 驱动代码提交/PR 创建 |
 | Jenkins 插件 | 触发构建、查看状态、部署管理 |
-| 禅道插件增强 | 需求管理、迭代看板、统计报表 |
-| 权限系统 | 基于角色的操作权限控制（谁能创建任务、谁能部署） |
-| 用户身份映射 | IM 账号 ↔ 禅道/Gitee 账号自动关联 |
+| RepoDetail 页面 | VortGit 仓库详情独立页面（文件树/提交图谱） |
 
-### v0.3 — 多 LLM + Web UI
+### 中期 — 工作流 + 报表
 
 | 功能 | 说明 |
 |------|------|
-| 多 LLM 支持 | OpenAI / 通义千问 / DeepSeek / 本地模型 |
-| Web 管理后台 | 插件管理、日志查看、对话记录、配置界面 |
-| Session 持久化 | 对话历史存入数据库，支持跨重启恢复 |
-| 多 Agent 协作 | 不同 Agent 负责不同领域（项目管理 Agent、代码 Agent） |
-
-### v0.4 — 多 IM + 工作流
-
-| 功能 | 说明 |
-|------|------|
-| 钉钉 Channel | DingTalk 通道适配器 |
-| 飞书 Channel | Feishu/Lark 通道适配器 |
 | 工作流引擎 | 可视化编排多步骤任务（审批流、发布流） |
-| Webhook 触发 | 外部事件（Git push、CI 完成）触发 Agent 动作 |
+| 统计报表插件 | 研发效能看板（ECharts 可视化） |
+| Session 持久化 | 对话历史存入数据库，支持跨重启恢复 |
 
-### v0.5 — 生态 + 开放
+### 远期 — 生态 + 开放
 
 | 功能 | 说明 |
 |------|------|

@@ -510,8 +510,8 @@ const handleSave = () => { drawerVisible.value = false; loadData(); };
 | `vort-spin` | `:spinning` |
 | `vort-tabs` / `vort-tab-pane` | `v-model`, `key`, `tab` |
 | `vort-textarea` | `v-model`, `:rows` |
-| `vort-switch` | `v-model` |
-| `vort-checkbox` | `v-model` |
+| `vort-switch` | `v-model:checked`（注意：不是 v-model）, `:disabled`, `:loading`, `size="small"`, `:before-change` |
+| `vort-checkbox` | `v-model:model-value`, `@update:model-value` |
 | `vort-tooltip` | `title` |
 
 ## CSS 约定
@@ -532,6 +532,41 @@ const handleSave = () => { drawerVisible.value = false; loadData(); };
 | 危险操作链接 | `a.text-sm.text-red-500.cursor-pointer` |
 | 分页容器 | `div.flex.justify-end.mt-4`（`v-if="showPagination"` 包裹） |
 | 抽屉底部按钮 | `div.flex.justify-end.gap-3.mt-6` |
+
+## 常见易错点
+
+### message 消息提示
+
+导入路径是 `@/components/vort/message`，**不是** `@/utils/message`：
+
+```typescript
+import { message } from "@/components/vort/message";
+
+message.success("操作成功");
+message.error("操作失败");
+message.warning("请填写必填项");
+message.info("提示信息");
+```
+
+### vort-switch 用法
+
+`vort-switch` 使用 `v-model:checked`，**不是** `v-model`：
+
+```vue
+<!-- 正确 -->
+<vort-switch v-model:checked="formState.enabled" />
+
+<!-- 错误 — 点击不会切换！ -->
+<vort-switch v-model="formState.enabled" />
+```
+
+### vort-checkbox 用法
+
+`vort-checkbox` 使用 `model-value` + `@update:model-value`：
+
+```vue
+<vort-checkbox :model-value="checked" @update:model-value="checked = $event" />
+```
 
 ## API 调用规范
 

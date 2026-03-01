@@ -600,31 +600,296 @@ export function deleteAgentRoute(name: string) {
 // ---- VortFlow ----
 
 /** VortFlow 看板统计 */
-export function getVortflowStats() {
-    return request.get("/vortflow/dashboard/stats");
+export function getVortflowStats(project_id?: string) {
+    return request.get("/vortflow/dashboard/stats", { params: project_id ? { project_id } : {} });
 }
+
+// -- 项目 --
 
 /** VortFlow 项目列表 */
 export function getVortflowProjects() {
     return request.get("/vortflow/projects");
 }
 
+/** VortFlow 项目详情 */
+export function getVortflowProject(id: string) {
+    return request.get(`/vortflow/projects/${id}`);
+}
+
+/** VortFlow 创建项目 */
+export function createVortflowProject(data: { name: string; description?: string; product?: string; iteration?: string; version?: string; start_date?: string; end_date?: string }) {
+    return request.post("/vortflow/projects", data);
+}
+
+/** VortFlow 更新项目 */
+export function updateVortflowProject(id: string, data: { name?: string; description?: string; product?: string; iteration?: string; version?: string; start_date?: string; end_date?: string }) {
+    return request.put(`/vortflow/projects/${id}`, data);
+}
+
+/** VortFlow 删除项目 */
+export function deleteVortflowProject(id: string) {
+    return request.delete(`/vortflow/projects/${id}`);
+}
+
+/** VortFlow 项目成员列表 */
+export function getVortflowProjectMembers(projectId: string) {
+    return request.get(`/vortflow/projects/${projectId}/members`);
+}
+
+/** VortFlow 添加项目成员 */
+export function addVortflowProjectMember(projectId: string, data: { member_id: string; role?: string }) {
+    return request.post(`/vortflow/projects/${projectId}/members`, data);
+}
+
+/** VortFlow 移除项目成员 */
+export function removeVortflowProjectMember(projectId: string, memberId: string) {
+    return request.delete(`/vortflow/projects/${projectId}/members/${memberId}`);
+}
+
+// -- 需求 --
+
 /** VortFlow 需求列表 */
-export function getVortflowStories(params: { state?: string; page?: number; page_size?: number }) {
+export function getVortflowStories(params: { project_id?: string; state?: string; keyword?: string; priority?: number; page?: number; page_size?: number }) {
     return request.get("/vortflow/stories", { params });
 }
 
+/** VortFlow 需求详情 */
+export function getVortflowStory(id: string) {
+    return request.get(`/vortflow/stories/${id}`);
+}
+
+/** VortFlow 创建需求 */
+export function createVortflowStory(data: { project_id: string; title: string; description?: string; priority?: number; deadline?: string }) {
+    return request.post("/vortflow/stories", data);
+}
+
+/** VortFlow 更新需求 */
+export function updateVortflowStory(id: string, data: { title?: string; description?: string; priority?: number; deadline?: string }) {
+    return request.put(`/vortflow/stories/${id}`, data);
+}
+
+/** VortFlow 删除需求 */
+export function deleteVortflowStory(id: string) {
+    return request.delete(`/vortflow/stories/${id}`);
+}
+
+/** VortFlow 需求状态流转 */
+export function transitionVortflowStory(id: string, target_state: string) {
+    return request.post(`/vortflow/stories/${id}/transition`, { target_state });
+}
+
+/** VortFlow 需求可用状态 */
+export function getVortflowStoryTransitions(id: string) {
+    return request.get(`/vortflow/stories/${id}/transitions`);
+}
+
+// -- 任务 --
+
 /** VortFlow 任务列表 */
-export function getVortflowTasks(params: { state?: string; page?: number; page_size?: number }) {
+export function getVortflowTasks(params: { story_id?: string; state?: string; task_type?: string; assignee_id?: string; keyword?: string; page?: number; page_size?: number }) {
     return request.get("/vortflow/tasks", { params });
 }
 
+/** VortFlow 任务详情 */
+export function getVortflowTask(id: string) {
+    return request.get(`/vortflow/tasks/${id}`);
+}
+
+/** VortFlow 创建任务 */
+export function createVortflowTask(data: { story_id: string; title: string; description?: string; task_type?: string; assignee_id?: string; estimate_hours?: number; deadline?: string }) {
+    return request.post("/vortflow/tasks", data);
+}
+
+/** VortFlow 更新任务 */
+export function updateVortflowTask(id: string, data: { title?: string; description?: string; task_type?: string; assignee_id?: string; estimate_hours?: number; actual_hours?: number; deadline?: string }) {
+    return request.put(`/vortflow/tasks/${id}`, data);
+}
+
+/** VortFlow 删除任务 */
+export function deleteVortflowTask(id: string) {
+    return request.delete(`/vortflow/tasks/${id}`);
+}
+
+/** VortFlow 任务状态流转 */
+export function transitionVortflowTask(id: string, target_state: string) {
+    return request.post(`/vortflow/tasks/${id}/transition`, { target_state });
+}
+
+/** VortFlow 任务可用状态 */
+export function getVortflowTaskTransitions(id: string) {
+    return request.get(`/vortflow/tasks/${id}/transitions`);
+}
+
+// -- 缺陷 --
+
 /** VortFlow 缺陷列表 */
-export function getVortflowBugs(params: { state?: string; page?: number; page_size?: number }) {
+export function getVortflowBugs(params: { story_id?: string; state?: string; severity?: number; assignee_id?: string; keyword?: string; page?: number; page_size?: number }) {
     return request.get("/vortflow/bugs", { params });
 }
 
+/** VortFlow 缺陷详情 */
+export function getVortflowBug(id: string) {
+    return request.get(`/vortflow/bugs/${id}`);
+}
+
+/** VortFlow 创建缺陷 */
+export function createVortflowBug(data: { story_id?: string; task_id?: string; title: string; description?: string; severity?: number; assignee_id?: string }) {
+    return request.post("/vortflow/bugs", data);
+}
+
+/** VortFlow 更新缺陷 */
+export function updateVortflowBug(id: string, data: { title?: string; description?: string; severity?: number; assignee_id?: string }) {
+    return request.put(`/vortflow/bugs/${id}`, data);
+}
+
+/** VortFlow 删除缺陷 */
+export function deleteVortflowBug(id: string) {
+    return request.delete(`/vortflow/bugs/${id}`);
+}
+
+/** VortFlow 缺陷状态流转 */
+export function transitionVortflowBug(id: string, target_state: string) {
+    return request.post(`/vortflow/bugs/${id}/transition`, { target_state });
+}
+
+/** VortFlow 缺陷可用状态 */
+export function getVortflowBugTransitions(id: string) {
+    return request.get(`/vortflow/bugs/${id}/transitions`);
+}
+
+// -- 里程碑 --
+
 /** VortFlow 里程碑列表 */
-export function getVortflowMilestones(params: { page?: number; page_size?: number }) {
+export function getVortflowMilestones(params: { project_id?: string; keyword?: string; page?: number; page_size?: number }) {
     return request.get("/vortflow/milestones", { params });
+}
+
+/** VortFlow 里程碑详情 */
+export function getVortflowMilestone(id: string) {
+    return request.get(`/vortflow/milestones/${id}`);
+}
+
+/** VortFlow 创建里程碑 */
+export function createVortflowMilestone(data: { project_id: string; name: string; description?: string; due_date?: string; story_id?: string }) {
+    return request.post("/vortflow/milestones", data);
+}
+
+/** VortFlow 更新里程碑 */
+export function updateVortflowMilestone(id: string, data: { name?: string; description?: string; due_date?: string; completed_at?: string }) {
+    return request.put(`/vortflow/milestones/${id}`, data);
+}
+
+/** VortFlow 删除里程碑 */
+export function deleteVortflowMilestone(id: string) {
+    return request.delete(`/vortflow/milestones/${id}`);
+}
+
+/** VortFlow 完成里程碑 */
+export function completeVortflowMilestone(id: string) {
+    return request.post(`/vortflow/milestones/${id}/complete`);
+}
+
+// -- 事件日志 --
+
+/** VortFlow 事件日志 */
+export function getVortflowEvents(params: { entity_type?: string; entity_id?: string; page?: number; page_size?: number }) {
+    return request.get("/vortflow/events", { params });
+}
+
+// ==================== VortGit ====================
+
+// -- Git 平台 --
+
+/** VortGit 平台列表 */
+export function getVortgitProviders() {
+    return request.get("/vortgit/providers");
+}
+
+/** VortGit 平台详情 */
+export function getVortgitProvider(id: string) {
+    return request.get(`/vortgit/providers/${id}`);
+}
+
+/** VortGit 创建平台 */
+export function createVortgitProvider(data: { name: string; platform: string; api_base?: string; access_token?: string; is_default?: boolean }) {
+    return request.post("/vortgit/providers", data);
+}
+
+/** VortGit 更新平台 */
+export function updateVortgitProvider(id: string, data: { name?: string; platform?: string; api_base?: string; access_token?: string; is_default?: boolean }) {
+    return request.put(`/vortgit/providers/${id}`, data);
+}
+
+/** VortGit 删除平台 */
+export function deleteVortgitProvider(id: string) {
+    return request.delete(`/vortgit/providers/${id}`);
+}
+
+/** VortGit 从平台拉取远程仓库列表 */
+export function getVortgitRemoteRepos(providerId: string, params: { page?: number; per_page?: number; search?: string }) {
+    return request.get(`/vortgit/providers/${providerId}/remote-repos`, { params });
+}
+
+// -- Git 仓库 --
+
+/** VortGit 仓库列表 */
+export function getVortgitRepos(params: { provider_id?: string; project_id?: string; keyword?: string; page?: number; page_size?: number }) {
+    return request.get("/vortgit/repos", { params });
+}
+
+/** VortGit 仓库详情 */
+export function getVortgitRepo(id: string) {
+    return request.get(`/vortgit/repos/${id}`);
+}
+
+/** VortGit 创建仓库 */
+export function createVortgitRepo(data: { provider_id: string; name: string; full_name: string; clone_url?: string; ssh_url?: string; default_branch?: string; description?: string; language?: string; repo_type?: string; is_private?: boolean; project_id?: string }) {
+    return request.post("/vortgit/repos", data);
+}
+
+/** VortGit 更新仓库 */
+export function updateVortgitRepo(id: string, data: { name?: string; description?: string; repo_type?: string; project_id?: string; default_branch?: string }) {
+    return request.put(`/vortgit/repos/${id}`, data);
+}
+
+/** VortGit 删除仓库 */
+export function deleteVortgitRepo(id: string) {
+    return request.delete(`/vortgit/repos/${id}`);
+}
+
+/** VortGit 批量导入仓库 */
+export function importVortgitRepos(data: { provider_id: string; repos: { full_name: string; project_id?: string; repo_type?: string }[] }) {
+    return request.post("/vortgit/repos/import", data);
+}
+
+/** VortGit 同步仓库信息 */
+export function syncVortgitRepo(id: string) {
+    return request.post(`/vortgit/repos/${id}/sync`);
+}
+
+/** VortGit 仓库提交记录 */
+export function getVortgitRepoCommits(id: string, params: { branch?: string; since?: string; until?: string; author?: string; page?: number; per_page?: number }) {
+    return request.get(`/vortgit/repos/${id}/commits`, { params });
+}
+
+/** VortGit 仓库分支 */
+export function getVortgitRepoBranches(id: string) {
+    return request.get(`/vortgit/repos/${id}/branches`);
+}
+
+// -- 仓库成员 --
+
+/** VortGit 仓库成员列表 */
+export function getVortgitRepoMembers(repoId: string) {
+    return request.get(`/vortgit/repos/${repoId}/members`);
+}
+
+/** VortGit 添加仓库成员 */
+export function addVortgitRepoMember(repoId: string, data: { member_id: string; access_level?: string; platform_username?: string }) {
+    return request.post(`/vortgit/repos/${repoId}/members`, data);
+}
+
+/** VortGit 移除仓库成员 */
+export function removeVortgitRepoMember(repoId: string, memberId: string) {
+    return request.delete(`/vortgit/repos/${repoId}/members/${memberId}`);
 }

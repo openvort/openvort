@@ -57,6 +57,7 @@ feishu = "openvort.channels.feishu:FeishuChannel"
 zentao = "openvort.plugins.zentao:ZentaoPlugin"
 contacts = "openvort.contacts.plugin:ContactsPlugin"
 vortflow = "openvort.plugins.vortflow:VortFlowPlugin"
+vortgit = "openvort.plugins.vortgit:VortGitPlugin"
 
 [project.urls]
 Homepage = "https://github.com/nicekate/openvort"

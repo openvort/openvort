@@ -472,7 +472,7 @@ defineExpose({
         v-model:search-term="searchValue"
         :multiple="isMultiple"
         :disabled="disabled"
-        :filter-function="() => filteredOptions"
+        :filter-function="() => filteredOptions.map(o => String(o.value))"
         @update:open="handleOpenChange"
     >
         <ComboboxAnchor as-child>
