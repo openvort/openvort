@@ -8,11 +8,21 @@ log = get_logger("plugins.vortflow.notifier")
 
 
 class Notifier:
-    """通知层 — 接 EventBus + WebSocket manager 推送消息"""
+    """通知层 — 接 EventBus + WebSocket + OpenClaw 推送消息"""
 
     def __init__(self):
         self._event_bus = None
         self._ws_manager = None
+        self._openclaw_enabled = False
+        self._check_openclaw()
+
+    def _check_openclaw(self) -> None:
+        try:
+            from openvort.config.settings import get_settings
+            s = get_settings().openclaw
+            self._openclaw_enabled = bool(s.enabled and s.gateway_url and s.hook_token)
+        except Exception:
+            pass
 
     def set_event_bus(self, event_bus) -> None:
         self._event_bus = event_bus
@@ -21,7 +31,7 @@ class Notifier:
         self._ws_manager = ws_manager
 
     async def notify_member(self, member_id: str, title: str, message: str, data: dict | None = None) -> None:
-        """通知指定成员（WebSocket + EventBus）"""
+        """通知指定成员（WebSocket + EventBus + OpenClaw）"""
         payload = {
             "type": "vortflow_notification",
             "title": title,
@@ -48,6 +58,14 @@ class Notifier:
                 )
             except Exception as e:
                 log.warning(f"EventBus 通知失败: {e}")
+
+        # OpenClaw 推送（广播到全球 IM 通道）
+        if self._openclaw_enabled:
+            try:
+                from openvort.web.webhooks import push_to_openclaw
+                await push_to_openclaw(title, message)
+            except Exception as e:
+                log.warning(f"OpenClaw 推送失败: {e}")
 
         log.info(f"通知 {member_id}: {title}")
 

@@ -1,33 +1,10 @@
 import router from "./index";
 import type { PluginExtension } from "@/stores/modules/plugin";
 
-const vortflowViews: Record<string, () => Promise<any>> = {
-    "/vortflow/board": () => import("@/views/vortflow/Board.vue"),
-    "/vortflow/stories": () => import("@/views/vortflow/Stories.vue"),
-    "/vortflow/tasks": () => import("@/views/vortflow/Tasks.vue"),
-    "/vortflow/bugs": () => import("@/views/vortflow/Bugs.vue"),
-    "/vortflow/milestones": () => import("@/views/vortflow/Milestones.vue"),
-};
+const BUILTIN_PLUGINS = new Set(["vortflow", "vortgit"]);
 
-const vortgitViews: Record<string, () => Promise<any>> = {
-    "/vortgit/repos": () => import("@/views/vortgit/Repos.vue"),
-    "/vortgit/providers": () => import("@/views/vortgit/Providers.vue"),
-};
-
-const pluginViews: Record<string, () => Promise<any>> = {
-    ...vortflowViews,
-    ...vortgitViews,
-};
-
-// Extra routes not driven by plugin menus (e.g. detail pages with params)
-const vortflowExtraRoutes = [
-    {
-        path: "vortflow/projects/:id",
-        name: "plugin-vortflow-project-detail",
-        component: () => import("@/views/vortflow/ProjectDetail.vue"),
-        meta: { title: "项目详情" },
-    },
-];
+/** Third-party plugin view mapping — add entries as new plugins are developed */
+const pluginViews: Record<string, () => Promise<any>> = {};
 
 let registered = false;
 
@@ -36,6 +13,7 @@ export function registerPluginRoutes(extensions: PluginExtension[]) {
     registered = true;
 
     for (const ext of extensions) {
+        if (BUILTIN_PLUGINS.has(ext.plugin)) continue;
         if (!ext.menus) continue;
         for (const menu of ext.menus) {
             const children = menu.children || [];
@@ -54,13 +32,6 @@ export function registerPluginRoutes(extensions: PluginExtension[]) {
                     meta: { title: child.label || child.title || "" },
                 });
             }
-        }
-    }
-
-    // Register extra routes (detail pages, etc.)
-    for (const route of vortflowExtraRoutes) {
-        if (!router.hasRoute(route.name)) {
-            router.addRoute("root", route);
         }
     }
 }

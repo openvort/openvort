@@ -22,9 +22,20 @@ const routes: RouteRecordRaw[] = [
             { path: "chat", name: "chat", component: () => import("@/views/chat/Index.vue"), meta: { title: "AI 助手", fullscreen: true } },
             { path: "overview", name: "overview", component: () => import("@/views/overview/Index.vue"), meta: { title: "概览" } },
             { path: "schedules", name: "schedules", component: () => import("@/views/schedules/Index.vue"), meta: { title: "定时任务" } },
+            { path: "reports", name: "reports", component: () => import("@/views/reports/Index.vue"), meta: { title: "汇报中心" } },
             { path: "profile", name: "profile", component: () => import("@/views/profile/Index.vue"), meta: { title: "个人设置" } },
+            // VortFlow
+            { path: "vortflow/board", name: "vortflow-board", component: () => import("@/views/vortflow/Board.vue"), meta: { title: "项目看板" } },
+            { path: "vortflow/stories", name: "vortflow-stories", component: () => import("@/views/vortflow/Stories.vue"), meta: { title: "需求列表" } },
+            { path: "vortflow/tasks", name: "vortflow-tasks", component: () => import("@/views/vortflow/Tasks.vue"), meta: { title: "任务管理" } },
+            { path: "vortflow/bugs", name: "vortflow-bugs", component: () => import("@/views/vortflow/Bugs.vue"), meta: { title: "缺陷跟踪" } },
+            { path: "vortflow/milestones", name: "vortflow-milestones", component: () => import("@/views/vortflow/Milestones.vue"), meta: { title: "里程碑" } },
+            { path: "vortflow/projects/:id", name: "vortflow-project-detail", component: () => import("@/views/vortflow/ProjectDetail.vue"), meta: { title: "项目详情" } },
+            // VortGit
+            { path: "vortgit/repos", name: "vortgit-repos", component: () => import("@/views/vortgit/Repos.vue"), meta: { title: "代码仓库" } },
+            { path: "vortgit/providers", name: "vortgit-providers", component: () => import("@/views/vortgit/Providers.vue"), meta: { title: "平台管理" } },
             // 仅管理员
-            { path: "contacts", name: "contacts", component: () => import("@/views/contacts/Index.vue"), meta: { title: "成员管理", requiredRole: "admin" } },
+            { path: "contacts", name: "contacts", component: () => import("@/views/contacts/Index.vue"), meta: { title: "组织管理", requiredRole: "admin" } },
             { path: "plugins", name: "plugins", component: () => import("@/views/plugins/Index.vue"), meta: { title: "插件管理", requiredRole: "admin" } },
             { path: "skills", name: "skills", component: () => import("@/views/skills/Index.vue"), meta: { title: "技能管理", requiredRole: "admin" } },
             { path: "channels", name: "channels", component: () => import("@/views/channels/Index.vue"), meta: { title: "通道管理", requiredRole: "admin" } },

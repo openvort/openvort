@@ -146,6 +146,8 @@ async def stream_response(message_id: str, request: Request):
                     yield {"event": "tool_use", "data": json.dumps(event, ensure_ascii=False)}
                 elif event_type == "tool_result":
                     yield {"event": "tool_result", "data": json.dumps(event, ensure_ascii=False)}
+                elif event_type == "usage":
+                    yield {"event": "usage", "data": json.dumps(event, ensure_ascii=False)}
 
             # 自动标题：前几轮对话动态更新标题
             if msg["content"].strip() and session_id != "default":
@@ -211,6 +213,8 @@ async def session_info(request: Request, session_id: str = "default"):
         "thinking_level": info.get("thinking_level", "") or "off",
         "total_input_tokens": info.get("total_input_tokens", 0),
         "total_output_tokens": info.get("total_output_tokens", 0),
+        "total_cache_creation_tokens": info.get("total_cache_creation_tokens", 0),
+        "total_cache_read_tokens": info.get("total_cache_read_tokens", 0),
         "message_count": info.get("message_count", 0),
     }
 

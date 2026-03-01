@@ -134,6 +134,8 @@ class AgentRuntime:
                 )
                 total_usage.input_tokens += response.usage.input_tokens
                 total_usage.output_tokens += response.usage.output_tokens
+                total_usage.cache_creation_input_tokens += response.usage.cache_creation_input_tokens
+                total_usage.cache_read_input_tokens += response.usage.cache_read_input_tokens
             except Exception as e:
                 log.error(f"LLM API 调用失败: {e}")
                 error_text = "抱歉，AI 服务暂时不可用，请稍后再试。"
@@ -209,8 +211,17 @@ class AgentRuntime:
 
         # 5. 保存对话历史 + 累计用量
         await self._sessions.save_messages(ctx.channel, ctx.user_id, messages)
-        self._sessions.add_usage(ctx.channel, ctx.user_id, total_usage.input_tokens, total_usage.output_tokens)
-        log.info(f"本次用量: input={total_usage.input_tokens}, output={total_usage.output_tokens}")
+        self._sessions.add_usage(
+            ctx.channel, ctx.user_id, total_usage.input_tokens, total_usage.output_tokens,
+            cache_creation_tokens=total_usage.cache_creation_input_tokens,
+            cache_read_tokens=total_usage.cache_read_input_tokens,
+        )
+        cache_info = ""
+        if total_usage.cache_read_input_tokens:
+            cache_info = f", cache_read={total_usage.cache_read_input_tokens}"
+        if total_usage.cache_creation_input_tokens:
+            cache_info += f", cache_create={total_usage.cache_creation_input_tokens}"
+        log.info(f"本次用量: input={total_usage.input_tokens}, output={total_usage.output_tokens}{cache_info}")
 
         # 6. 提取文本回复（必要时截断）
         reply = self._extract_text(response) if response else "（无回复内容）"
@@ -218,11 +229,17 @@ class AgentRuntime:
         # 6.1 附加用量信息（根据 per-session usage_mode）
         usage_mode = self._sessions.get_usage_mode(ctx.channel, ctx.user_id)
         if usage_mode == "tokens":
-            reply += f"\n\n📊 本次: ↑{total_usage.input_tokens} ↓{total_usage.output_tokens}"
+            cache_suffix = ""
+            if total_usage.cache_read_input_tokens:
+                cache_suffix = f" 💾{total_usage.cache_read_input_tokens}"
+            reply += f"\n\n📊 本次: ↑{total_usage.input_tokens} ↓{total_usage.output_tokens}{cache_suffix}"
         elif usage_mode == "full":
             info = self._sessions.get_session_info(ctx.channel, ctx.user_id)
+            cache_suffix = ""
+            if total_usage.cache_read_input_tokens:
+                cache_suffix = f" 💾{total_usage.cache_read_input_tokens}"
             reply += (
-                f"\n\n📊 本次: ↑{total_usage.input_tokens} ↓{total_usage.output_tokens}"
+                f"\n\n📊 本次: ↑{total_usage.input_tokens} ↓{total_usage.output_tokens}{cache_suffix}"
                 f" | 累计: ↑{info['total_input_tokens']} ↓{info['total_output_tokens']}"
             )
 
@@ -333,6 +350,8 @@ class AgentRuntime:
                     response = await stream.get_final_message()
                     total_usage.input_tokens += response.usage.input_tokens
                     total_usage.output_tokens += response.usage.output_tokens
+                    total_usage.cache_creation_input_tokens += response.usage.cache_creation_input_tokens
+                    total_usage.cache_read_input_tokens += response.usage.cache_read_input_tokens
             except Exception as e:
                 log.error(f"LLM API 流式调用失败: {e}")
                 error_text = "抱歉，AI 服务暂时不可用，请稍后再试。"
@@ -377,15 +396,25 @@ class AgentRuntime:
 
         # 保存对话历史 + 累计用量
         await self._sessions.save_messages(ctx.channel, ctx.user_id, messages, session_id)
-        self._sessions.add_usage(ctx.channel, ctx.user_id, total_usage.input_tokens, total_usage.output_tokens, session_id)
+        self._sessions.add_usage(
+            ctx.channel, ctx.user_id, total_usage.input_tokens, total_usage.output_tokens,
+            session_id,
+            cache_creation_tokens=total_usage.cache_creation_input_tokens,
+            cache_read_tokens=total_usage.cache_read_input_tokens,
+        )
 
         # yield 用量信息
+        session_info = self._sessions.get_session_info(ctx.channel, ctx.user_id, session_id)
         yield {
             "type": "usage",
             "input_tokens": total_usage.input_tokens,
             "output_tokens": total_usage.output_tokens,
-            "total_input_tokens": self._sessions.get_session_info(ctx.channel, ctx.user_id, session_id).get("total_input_tokens", 0),
-            "total_output_tokens": self._sessions.get_session_info(ctx.channel, ctx.user_id, session_id).get("total_output_tokens", 0),
+            "cache_creation_tokens": total_usage.cache_creation_input_tokens,
+            "cache_read_tokens": total_usage.cache_read_input_tokens,
+            "total_input_tokens": session_info.get("total_input_tokens", 0),
+            "total_output_tokens": session_info.get("total_output_tokens", 0),
+            "total_cache_creation_tokens": session_info.get("total_cache_creation_tokens", 0),
+            "total_cache_read_tokens": session_info.get("total_cache_read_tokens", 0),
         }
 
     @staticmethod

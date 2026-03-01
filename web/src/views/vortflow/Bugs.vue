@@ -60,7 +60,7 @@ const stateLabel = (val: string) => stateOptions.find(o => o.value === val)?.lab
 const stories = ref<{ id: string; title: string }[]>([]);
 const loadStories = async () => {
     try {
-        const res = await getVortflowStories({ page: 1, page_size: 200 });
+        const res = await getVortflowStories({ page: 1, page_size: 100 });
         stories.value = ((res as any)?.items || []).map((s: any) => ({ id: s.id, title: s.title }));
     } catch { /* silent */ }
 };

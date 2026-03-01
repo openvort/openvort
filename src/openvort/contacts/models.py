@@ -1,13 +1,14 @@
 """
-通讯录数据模型
+组织管理数据模型
 
 以 Member 为中心，通过 PlatformIdentity 实现多平台身份映射。
+包含汇报关系（ReportingRelation）和企业日历（OrgCalendar）。
 """
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from openvort.db.engine import Base
@@ -135,3 +136,43 @@ class MemberDepartment(Base):
 
     def __repr__(self) -> str:
         return f"<MemberDepartment member={self.member_id[:8]} dept={self.department_id}>"
+
+
+class ReportingRelation(Base):
+    """汇报关系 — 谁向谁汇报"""
+
+    __tablename__ = "reporting_relations"
+    __table_args__ = (
+        UniqueConstraint("reporter_id", "supervisor_id", name="uq_reporter_supervisor"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    reporter_id: Mapped[str] = mapped_column(String(32), ForeignKey("members.id"), index=True)
+    supervisor_id: Mapped[str] = mapped_column(String(32), ForeignKey("members.id"), index=True)
+    relation_type: Mapped[str] = mapped_column(String(16), default="direct")  # direct / dotted / functional
+    is_primary: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    reporter: Mapped["Member"] = relationship(foreign_keys=[reporter_id])
+    supervisor: Mapped["Member"] = relationship(foreign_keys=[supervisor_id])
+
+    def __repr__(self) -> str:
+        return f"<ReportingRelation {self.reporter_id[:8]}→{self.supervisor_id[:8]} {self.relation_type}>"
+
+
+class OrgCalendar(Base):
+    """企业日历 — 节假日与调休"""
+
+    __tablename__ = "org_calendar"
+    __table_args__ = (
+        UniqueConstraint("date", name="uq_org_calendar_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    date: Mapped[date] = mapped_column(Date, index=True)
+    day_type: Mapped[str] = mapped_column(String(16))  # workday (调休上班) / holiday (放假)
+    name: Mapped[str] = mapped_column(String(64), default="")  # "国庆节" / "中秋调休补班"
+    year: Mapped[int] = mapped_column(Integer, index=True)
+
+    def __repr__(self) -> str:
+        return f"<OrgCalendar {self.date} {self.day_type} {self.name}>"

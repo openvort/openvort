@@ -38,6 +38,8 @@ class ToolUseBlock:
 class Usage:
     input_tokens: int = 0
     output_tokens: int = 0
+    cache_creation_input_tokens: int = 0
+    cache_read_input_tokens: int = 0
 
 
 @dataclass
@@ -108,13 +110,14 @@ class AnthropicProvider(LLMProvider):
     def __init__(self, api_key: str, api_base: str = "", timeout: int = 120):
         import anthropic
         kwargs: dict[str, Any] = {"api_key": api_key, "timeout": timeout}
-        if api_base and api_base != "https://api.anthropic.com":
-            # SDK 会自动追加 /v1/messages，确保 base_url 不带 /v1
+        is_official = not api_base or api_base.rstrip("/") == "https://api.anthropic.com"
+        if not is_official:
             base = api_base.rstrip("/")
             if base.endswith("/v1"):
                 base = base[:-3]
             kwargs["base_url"] = base
         self._client = anthropic.AsyncAnthropic(**kwargs)
+        self._enable_caching = is_official
 
     async def create(self, *, model: str, max_tokens: int, system: str,
                      messages: list[dict], tools: list[dict] | None = None,
@@ -127,6 +130,8 @@ class AnthropicProvider(LLMProvider):
             kwargs["tools"] = tools
         if thinking:
             kwargs["thinking"] = thinking
+        if self._enable_caching:
+            self._apply_caching(kwargs)
         resp = await self._client.messages.create(**kwargs)
         return self._convert_response(resp)
 
@@ -141,10 +146,27 @@ class AnthropicProvider(LLMProvider):
             kwargs["tools"] = tools
         if thinking:
             kwargs["thinking"] = thinking
+        if self._enable_caching:
+            self._apply_caching(kwargs)
         return AnthropicStreamWrapper(self._client, kwargs)
 
     async def close(self) -> None:
         pass
+
+    @staticmethod
+    def _apply_caching(kwargs: dict) -> None:
+        """Add cache_control breakpoints to system prompt and tools."""
+        system = kwargs.get("system", "")
+        if system:
+            kwargs["system"] = [
+                {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
+            ]
+
+        tools = kwargs.get("tools")
+        if tools:
+            tools = [dict(t) for t in tools]
+            tools[-1] = {**tools[-1], "cache_control": {"type": "ephemeral"}}
+            kwargs["tools"] = tools
 
     @staticmethod
     def _convert_response(resp) -> LLMResponse:
@@ -157,6 +179,8 @@ class AnthropicProvider(LLMProvider):
         usage = Usage(
             input_tokens=getattr(resp.usage, "input_tokens", 0),
             output_tokens=getattr(resp.usage, "output_tokens", 0),
+            cache_creation_input_tokens=getattr(resp.usage, "cache_creation_input_tokens", 0) or 0,
+            cache_read_input_tokens=getattr(resp.usage, "cache_read_input_tokens", 0) or 0,
         )
         return LLMResponse(content=content, stop_reason=resp.stop_reason or "end_turn", usage=usage)
 
@@ -414,9 +438,11 @@ class OpenAICompatibleProvider(LLMProvider):
         stop = choice.get("finish_reason", "stop")
         stop_reason = "tool_use" if stop == "tool_calls" else "end_turn"
         usage_data = data.get("usage", {})
+        cached = (usage_data.get("prompt_tokens_details") or {}).get("cached_tokens", 0)
         usage = Usage(
             input_tokens=usage_data.get("prompt_tokens", 0),
             output_tokens=usage_data.get("completion_tokens", 0),
+            cache_read_input_tokens=cached,
         )
         return LLMResponse(content=content, stop_reason=stop_reason, usage=usage)
 
@@ -458,11 +484,7 @@ class OpenAIStreamWrapper:
             if not choices:
                 # 某些兼容服务会在尾块只返回 usage，不带 choices
                 if chunk.get("usage"):
-                    u = chunk["usage"]
-                    self._final_usage = Usage(
-                        input_tokens=u.get("prompt_tokens", 0),
-                        output_tokens=u.get("completion_tokens", 0),
-                    )
+                    self._final_usage = self._parse_stream_usage(chunk["usage"])
                 continue
             delta = choices[0].get("delta", {})
             if delta.get("content"):
@@ -482,11 +504,7 @@ class OpenAIStreamWrapper:
                 if fn.get("arguments"):
                     tool_calls[idx]["arguments"] += fn["arguments"]
             if chunk.get("usage"):
-                u = chunk["usage"]
-                self._final_usage = Usage(
-                    input_tokens=u.get("prompt_tokens", 0),
-                    output_tokens=u.get("completion_tokens", 0),
-                )
+                self._final_usage = self._parse_stream_usage(chunk["usage"])
         # 构建 final content
         if current_text:
             self._final_content.append(TextBlock(text=current_text))
@@ -498,6 +516,15 @@ class OpenAIStreamWrapper:
             self._final_content.append(
                 ToolUseBlock(id=tc_data["id"], name=tc_data["name"], input=args)
             )
+
+    @staticmethod
+    def _parse_stream_usage(u: dict) -> Usage:
+        cached = (u.get("prompt_tokens_details") or {}).get("cached_tokens", 0)
+        return Usage(
+            input_tokens=u.get("prompt_tokens", 0),
+            output_tokens=u.get("completion_tokens", 0),
+            cache_read_input_tokens=cached,
+        )
 
     async def get_final_message(self) -> LLMResponse:
         stop = "tool_use" if any(isinstance(b, ToolUseBlock) for b in self._final_content) else "end_turn"

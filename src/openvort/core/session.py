@@ -32,6 +32,8 @@ class Session:
     usage_mode: str = "off"  # off|tokens|full — 用量显示模式
     total_input_tokens: int = 0
     total_output_tokens: int = 0
+    total_cache_creation_tokens: int = 0
+    total_cache_read_tokens: int = 0
 
     @property
     def key(self) -> str:
@@ -183,6 +185,8 @@ class SessionStore:
             "usage_mode": session.usage_mode,
             "total_input_tokens": session.total_input_tokens,
             "total_output_tokens": session.total_output_tokens,
+            "total_cache_creation_tokens": session.total_cache_creation_tokens,
+            "total_cache_read_tokens": session.total_cache_read_tokens,
             "exists": True,
         }
 
@@ -204,10 +208,13 @@ class SessionStore:
         session = self._sessions.get(key)
         return session.usage_mode if session else "off"
 
-    def add_usage(self, channel: str, user_id: str, input_tokens: int, output_tokens: int, session_id: str = "default") -> None:
+    def add_usage(self, channel: str, user_id: str, input_tokens: int, output_tokens: int,
+                  session_id: str = "default", cache_creation_tokens: int = 0, cache_read_tokens: int = 0) -> None:
         session = self._get_or_create(channel, user_id, session_id)
         session.total_input_tokens += input_tokens
         session.total_output_tokens += output_tokens
+        session.total_cache_creation_tokens += cache_creation_tokens
+        session.total_cache_read_tokens += cache_read_tokens
 
     # ---- 多会话管理 ----
 

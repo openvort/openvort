@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, computed, watch } from "vue";
+import { ref, computed, onMounted, onActivated } from "vue";
 import { useCrudPage } from "@/hooks";
 import {
-    getVortgitRepos, createVortgitRepo, updateVortgitRepo, deleteVortgitRepo,
+    getVortgitRepos, updateVortgitRepo, deleteVortgitRepo,
     getVortgitProviders, getVortgitRemoteRepos, importVortgitRepos, syncVortgitRepo,
     getVortgitRepoCommits, getVortgitRepoBranches,
     getVortflowProjects,
@@ -41,6 +41,7 @@ interface BranchItem {
 }
 
 type FilterParams = { page: number; size: number; keyword: string; provider_id: string; project_id: string };
+type GroupBy = "project" | "provider" | "type";
 
 const repoTypeOptions = [
     { label: "前端", value: "frontend" },
@@ -61,6 +62,7 @@ const langColorMap: Record<string, string> = {
 
 const providers = ref<any[]>([]);
 const projects = ref<any[]>([]);
+const groupBy = ref<GroupBy>("project");
 
 const loadProviders = async () => {
     try {
@@ -70,7 +72,7 @@ const loadProviders = async () => {
 };
 const loadProjects = async () => {
     try {
-        const res = await getVortflowProjects({ page: 1, page_size: 200 });
+        const res = await getVortflowProjects({ page: 1, page_size: 100 });
         projects.value = (res as any).items || [];
     } catch { /* ignore */ }
 };
@@ -80,6 +82,44 @@ const projectName = (id: string | null) => {
     if (!id) return "";
     return projects.value.find(p => p.id === id)?.name || "";
 };
+
+const groupByOptions = [
+    { label: "按项目", value: "project" },
+    { label: "按平台", value: "provider" },
+    { label: "按类型", value: "type" },
+];
+
+const groupedRepos = computed(() => {
+    const groups = new Map<string, RepoItem[]>();
+    const sortEntries = (entries: [string, RepoItem[]][]) => entries.sort((a, b) => {
+        const firstHasUnlinked = a[0].includes("未");
+        const secondHasUnlinked = b[0].includes("未");
+        if (firstHasUnlinked !== secondHasUnlinked) {
+            return firstHasUnlinked ? 1 : -1;
+        }
+        return a[0].localeCompare(b[0], "zh-CN");
+    });
+
+    for (const repo of listData.value) {
+        let key = "";
+        if (groupBy.value === "provider") {
+            key = providerName(repo.provider_id);
+        } else if (groupBy.value === "type") {
+            key = repoTypeLabel(repo.repo_type || "other");
+        } else {
+            key = projectName(repo.project_id) || "未关联项目";
+        }
+        if (!groups.has(key)) {
+            groups.set(key, []);
+        }
+        groups.get(key)!.push(repo);
+    }
+
+    return sortEntries(Array.from(groups.entries())).map(([label, items]) => ({
+        label,
+        items,
+    }));
+});
 
 const fetchList = async (params: FilterParams) => {
     const res = await getVortgitRepos({
@@ -104,32 +144,54 @@ const drawerTitle = ref("");
 const drawerMode = ref<"view" | "edit" | "add">("view");
 const currentRow = ref<Partial<RepoItem>>({});
 const saving = ref(false);
-const viewTab = ref("info");
-
 const commits = ref<CommitItem[]>([]);
 const branches = ref<BranchItem[]>([]);
 const commitsLoading = ref(false);
 const branchesLoading = ref(false);
+const commitsPage = ref(1);
+const commitsPerPage = 20;
+const commitsHasMore = ref(false);
+const commitsLoadingMore = ref(false);
 
 const handleView = (row: RepoItem) => {
     drawerMode.value = "view";
     drawerTitle.value = "仓库详情";
     currentRow.value = { ...row };
-    viewTab.value = "info";
     commits.value = [];
     branches.value = [];
+    commitsPage.value = 1;
+    commitsHasMore.value = false;
     drawerVisible.value = true;
+    loadCommits();
+    loadBranches();
 };
 const handleEdit = (row: RepoItem) => { drawerMode.value = "edit"; drawerTitle.value = "编辑仓库"; currentRow.value = { ...row }; drawerVisible.value = true; };
 
 const loadCommits = async () => {
     if (!currentRow.value.id || commitsLoading.value) return;
+    commitsPage.value = 1;
     commitsLoading.value = true;
     try {
-        const res = await getVortgitRepoCommits(currentRow.value.id, { per_page: 30 });
-        commits.value = (res as any).items || [];
-    } catch { commits.value = []; }
+        const res = await getVortgitRepoCommits(currentRow.value.id, { page: 1, per_page: commitsPerPage });
+        const items = (res as any).items || [];
+        commits.value = items;
+        commitsHasMore.value = items.length >= commitsPerPage;
+    } catch { commits.value = []; commitsHasMore.value = false; }
     finally { commitsLoading.value = false; }
+};
+
+const loadMoreCommits = async () => {
+    if (!currentRow.value.id || commitsLoadingMore.value || !commitsHasMore.value) return;
+    commitsLoadingMore.value = true;
+    const nextPage = commitsPage.value + 1;
+    try {
+        const res = await getVortgitRepoCommits(currentRow.value.id, { page: nextPage, per_page: commitsPerPage });
+        const items = (res as any).items || [];
+        commits.value = [...commits.value, ...items];
+        commitsPage.value = nextPage;
+        commitsHasMore.value = items.length >= commitsPerPage;
+    } catch { commitsHasMore.value = false; }
+    finally { commitsLoadingMore.value = false; }
 };
 
 const loadBranches = async () => {
@@ -141,11 +203,6 @@ const loadBranches = async () => {
     } catch { branches.value = []; }
     finally { branchesLoading.value = false; }
 };
-
-watch(viewTab, (tab) => {
-    if (tab === "commits" && commits.value.length === 0) loadCommits();
-    if (tab === "branches" && branches.value.length === 0) loadBranches();
-});
 
 const formatDate = (dateStr: string) => {
     if (!dateStr) return "—";
@@ -228,12 +285,15 @@ const fetchRemoteRepos = async () => {
     }
 };
 
-const toggleImportSelect = (fullName: string) => {
-    if (selectedImports.value.has(fullName)) {
-        selectedImports.value.delete(fullName);
+const toggleImportSelect = (fullName: string, checked?: boolean) => {
+    const next = new Set(selectedImports.value);
+    const shouldChecked = checked ?? !next.has(fullName);
+    if (shouldChecked) {
+        next.add(fullName);
     } else {
-        selectedImports.value.add(fullName);
+        next.delete(fullName);
     }
+    selectedImports.value = next;
 };
 
 const doImport = async () => {
@@ -259,9 +319,19 @@ const doImport = async () => {
     }
 };
 
-loadProviders();
-loadProjects();
-loadData();
+const initPageData = () => {
+    loadProviders();
+    loadProjects();
+    loadData();
+};
+
+onMounted(() => {
+    initPageData();
+});
+
+onActivated(() => {
+    initPageData();
+});
 </script>
 
 <template>
@@ -295,6 +365,12 @@ loadData();
                     </vort-select>
                 </div>
                 <div class="flex items-center gap-2">
+                    <span class="text-sm text-gray-500 whitespace-nowrap">分组</span>
+                    <vort-select v-model="groupBy" class="w-[120px]">
+                        <vort-select-option v-for="opt in groupByOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</vort-select-option>
+                    </vort-select>
+                </div>
+                <div class="flex items-center gap-2">
                     <vort-button variant="primary" @click="onSearchSubmit">查询</vort-button>
                     <vort-button @click="resetParams">重置</vort-button>
                 </div>
@@ -307,21 +383,29 @@ loadData();
                 <div v-if="listData.length === 0 && !loading" class="py-12 text-center text-gray-400">
                     暂无仓库，请先导入
                 </div>
-                <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <div v-for="repo in listData" :key="repo.id" class="border border-gray-100 rounded-xl p-4 hover:shadow-md transition-shadow cursor-pointer" @click="handleView(repo)">
-                        <div class="flex items-start justify-between mb-2">
-                            <div class="flex-1 min-w-0">
-                                <h4 class="font-medium text-gray-800 truncate">{{ repo.name }}</h4>
-                                <p class="text-xs text-gray-400 truncate">{{ repo.full_name }}</p>
-                            </div>
-                            <vort-tag v-if="repo.is_private" size="small" color="default">私有</vort-tag>
+                <div v-else class="space-y-5">
+                    <div v-for="group in groupedRepos" :key="group.label" class="space-y-3">
+                        <div class="flex items-center gap-2">
+                            <h4 class="text-sm font-medium text-gray-700">{{ group.label }}</h4>
+                            <span class="text-xs text-gray-400">{{ group.items.length }} 个仓库</span>
                         </div>
-                        <p class="text-xs text-gray-500 line-clamp-2 mb-3 min-h-[2rem]">{{ repo.description || '暂无描述' }}</p>
-                        <div class="flex items-center gap-2 flex-wrap">
-                            <vort-tag v-if="repo.language" size="small" :color="langColorMap[repo.language] || 'default'">{{ repo.language }}</vort-tag>
-                            <vort-tag size="small" :color="repoTypeColorMap[repo.repo_type] || 'default'">{{ repoTypeLabel(repo.repo_type) }}</vort-tag>
-                            <span v-if="projectName(repo.project_id)" class="text-xs text-blue-500">{{ projectName(repo.project_id) }}</span>
-                            <span v-else class="text-xs text-orange-400">未关联项目</span>
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            <div v-for="repo in group.items" :key="repo.id" class="border border-gray-100 rounded-xl p-4 hover:shadow-md transition-shadow cursor-pointer" @click="handleView(repo)">
+                                <div class="flex items-start justify-between mb-2">
+                                    <div class="flex-1 min-w-0">
+                                        <h4 class="font-medium text-gray-800 truncate">{{ repo.name }}</h4>
+                                        <p class="text-xs text-gray-400 truncate">{{ repo.full_name }}</p>
+                                    </div>
+                                    <vort-tag v-if="repo.is_private" size="small" color="default">私有</vort-tag>
+                                </div>
+                                <p class="text-xs text-gray-500 line-clamp-2 mb-3 min-h-[2rem]">{{ repo.description || '暂无描述' }}</p>
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <vort-tag v-if="repo.language" size="small" :color="langColorMap[repo.language] || 'default'">{{ repo.language }}</vort-tag>
+                                    <vort-tag size="small" :color="repoTypeColorMap[repo.repo_type] || 'default'">{{ repoTypeLabel(repo.repo_type) }}</vort-tag>
+                                    <span v-if="projectName(repo.project_id)" class="text-xs text-blue-500">{{ projectName(repo.project_id) }}</span>
+                                    <span v-else class="text-xs text-orange-400">未关联项目</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -334,82 +418,89 @@ loadData();
 
         <!-- View/Edit Drawer -->
         <vort-drawer v-model:open="drawerVisible" :title="drawerTitle" :width="620">
-            <div v-if="drawerMode === 'view'">
-                <vort-tabs v-model="viewTab">
-                    <vort-tab-pane key="info" tab="基本信息">
-                        <div class="space-y-4 pt-2">
-                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <div><span class="text-sm text-gray-400">仓库名</span><div class="text-sm text-gray-800 mt-1">{{ currentRow.name }}</div></div>
-                                <div><span class="text-sm text-gray-400">完整路径</span><div class="text-sm text-gray-800 mt-1">{{ currentRow.full_name }}</div></div>
-                                <div><span class="text-sm text-gray-400">语言</span><div class="mt-1"><vort-tag v-if="currentRow.language" :color="langColorMap[currentRow.language!] || 'default'">{{ currentRow.language }}</vort-tag><span v-else class="text-sm text-gray-400">—</span></div></div>
-                                <div><span class="text-sm text-gray-400">类型</span><div class="mt-1"><vort-tag :color="repoTypeColorMap[currentRow.repo_type!] || 'default'">{{ repoTypeLabel(currentRow.repo_type || 'other') }}</vort-tag></div></div>
-                                <div><span class="text-sm text-gray-400">默认分支</span><div class="text-sm text-gray-800 mt-1">{{ currentRow.default_branch }}</div></div>
-                                <div><span class="text-sm text-gray-400">平台</span><div class="text-sm text-gray-800 mt-1">{{ providerName(currentRow.provider_id!) }}</div></div>
-                                <div><span class="text-sm text-gray-400">关联项目</span><div class="text-sm mt-1" :class="projectName(currentRow.project_id!) ? 'text-blue-600' : 'text-orange-400'">{{ projectName(currentRow.project_id!) || '未关联' }}</div></div>
-                                <div><span class="text-sm text-gray-400">克隆地址</span><div class="text-sm text-gray-800 mt-1 break-all">{{ currentRow.clone_url }}</div></div>
-                            </div>
-                            <div class="sm:col-span-2"><span class="text-sm text-gray-400">描述</span><div class="text-sm text-gray-800 mt-1 whitespace-pre-wrap">{{ currentRow.description || '暂无描述' }}</div></div>
-                            <div class="flex gap-3 mt-4">
-                                <vort-button @click="handleEdit(currentRow as RepoItem)">编辑</vort-button>
-                                <vort-button @click="handleSync(currentRow as RepoItem)"><RefreshCw :size="14" class="mr-1" />同步</vort-button>
-                                <vort-popconfirm title="确认删除该仓库？" @confirm="handleDelete(currentRow as RepoItem)">
-                                    <vort-button><span class="text-red-500">删除</span></vort-button>
-                                </vort-popconfirm>
+            <div v-if="drawerMode === 'view'" class="space-y-6">
+                <!-- 基本信息 -->
+                <div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div><span class="text-sm text-gray-400">仓库名</span><div class="text-sm text-gray-800 mt-1">{{ currentRow.name }}</div></div>
+                        <div><span class="text-sm text-gray-400">完整路径</span><div class="text-sm text-gray-800 mt-1">{{ currentRow.full_name }}</div></div>
+                        <div><span class="text-sm text-gray-400">语言</span><div class="mt-1"><vort-tag v-if="currentRow.language" :color="langColorMap[currentRow.language!] || 'default'">{{ currentRow.language }}</vort-tag><span v-else class="text-sm text-gray-400">—</span></div></div>
+                        <div><span class="text-sm text-gray-400">类型</span><div class="mt-1"><vort-tag :color="repoTypeColorMap[currentRow.repo_type!] || 'default'">{{ repoTypeLabel(currentRow.repo_type || 'other') }}</vort-tag></div></div>
+                        <div><span class="text-sm text-gray-400">默认分支</span><div class="text-sm text-gray-800 mt-1">{{ currentRow.default_branch }}</div></div>
+                        <div><span class="text-sm text-gray-400">平台</span><div class="text-sm text-gray-800 mt-1">{{ providerName(currentRow.provider_id!) }}</div></div>
+                        <div><span class="text-sm text-gray-400">关联项目</span><div class="text-sm mt-1" :class="projectName(currentRow.project_id!) ? 'text-blue-600' : 'text-orange-400'">{{ projectName(currentRow.project_id!) || '未关联' }}</div></div>
+                        <div><span class="text-sm text-gray-400">克隆地址</span><div class="text-sm text-gray-800 mt-1 break-all">{{ currentRow.clone_url }}</div></div>
+                    </div>
+                    <div class="mt-4"><span class="text-sm text-gray-400">描述</span><div class="text-sm text-gray-800 mt-1 whitespace-pre-wrap">{{ currentRow.description || '暂无描述' }}</div></div>
+                    <div class="flex gap-3 mt-4">
+                        <vort-button @click="handleEdit(currentRow as RepoItem)">编辑</vort-button>
+                        <vort-button @click="handleSync(currentRow as RepoItem)"><RefreshCw :size="14" class="mr-1" />同步</vort-button>
+                        <vort-popconfirm title="确认删除该仓库？" @confirm="handleDelete(currentRow as RepoItem)">
+                            <vort-button><span class="text-red-500">删除</span></vort-button>
+                        </vort-popconfirm>
+                    </div>
+                </div>
+
+                <!-- 分支 -->
+                <div>
+                    <div class="flex items-center justify-between mb-3">
+                        <h4 class="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+                            <GitBranch :size="14" class="text-gray-400" />
+                            分支
+                            <span class="text-xs text-gray-400 font-normal">{{ branches.length }}</span>
+                        </h4>
+                        <vort-button size="small" :loading="branchesLoading" @click="loadBranches">
+                            <RefreshCw :size="12" class="mr-1" />刷新
+                        </vort-button>
+                    </div>
+                    <vort-spin :spinning="branchesLoading">
+                        <div v-if="branches.length === 0 && !branchesLoading" class="py-4 text-center text-gray-400 text-sm">暂无分支信息</div>
+                        <div v-else class="space-y-1">
+                            <div v-for="b in branches" :key="b.name" class="flex items-center gap-3 py-2 px-3 rounded-lg hover:bg-gray-50">
+                                <GitBranch :size="14" class="text-gray-400 shrink-0" />
+                                <span class="text-sm text-gray-800 flex-1">{{ b.name }}</span>
+                                <vort-tag v-if="b.is_default" size="small" color="green">默认</vort-tag>
+                                <code v-if="b.last_commit_sha" class="text-xs text-gray-400">{{ shortSha(b.last_commit_sha) }}</code>
                             </div>
                         </div>
-                    </vort-tab-pane>
+                    </vort-spin>
+                </div>
 
-                    <vort-tab-pane key="commits" tab="提交记录">
-                        <div class="pt-2">
-                            <div class="flex items-center justify-between mb-3">
-                                <span class="text-sm text-gray-500">最近 30 条提交</span>
-                                <vort-button size="small" :loading="commitsLoading" @click="loadCommits">
-                                    <RefreshCw :size="12" class="mr-1" />刷新
-                                </vort-button>
-                            </div>
-                            <vort-spin :spinning="commitsLoading">
-                                <div v-if="commits.length === 0 && !commitsLoading" class="py-8 text-center text-gray-400 text-sm">暂无提交记录</div>
-                                <div v-else class="space-y-1">
-                                    <div v-for="c in commits" :key="c.sha" class="flex items-start gap-3 py-2.5 px-3 rounded-lg hover:bg-gray-50">
-                                        <div class="mt-0.5 shrink-0">
-                                            <GitCommit :size="14" class="text-gray-400" />
-                                        </div>
-                                        <div class="flex-1 min-w-0">
-                                            <div class="text-sm text-gray-800 truncate">{{ commitFirstLine(c.message) }}</div>
-                                            <div class="flex items-center gap-3 mt-1">
-                                                <code class="text-xs text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">{{ shortSha(c.sha) }}</code>
-                                                <span class="text-xs text-gray-400">{{ c.author_name }}</span>
-                                                <span class="text-xs text-gray-400">{{ formatDate(c.authored_date) }}</span>
-                                            </div>
-                                        </div>
+                <!-- 提交记录 -->
+                <div>
+                    <div class="flex items-center justify-between mb-3">
+                        <h4 class="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+                            <GitCommit :size="14" class="text-gray-400" />
+                            提交记录
+                            <span class="text-xs text-gray-400 font-normal">{{ commits.length }}</span>
+                        </h4>
+                        <vort-button size="small" :loading="commitsLoading" @click="loadCommits">
+                            <RefreshCw :size="12" class="mr-1" />刷新
+                        </vort-button>
+                    </div>
+                    <vort-spin :spinning="commitsLoading">
+                        <div v-if="commits.length === 0 && !commitsLoading" class="py-4 text-center text-gray-400 text-sm">暂无提交记录</div>
+                        <div v-else class="space-y-1">
+                            <div v-for="c in commits" :key="c.sha" class="flex items-start gap-3 py-2.5 px-3 rounded-lg hover:bg-gray-50">
+                                <div class="mt-0.5 shrink-0">
+                                    <GitCommit :size="14" class="text-gray-400" />
+                                </div>
+                                <div class="flex-1 min-w-0">
+                                    <div class="text-sm text-gray-800 truncate">{{ commitFirstLine(c.message) }}</div>
+                                    <div class="flex items-center gap-3 mt-1">
+                                        <code class="text-xs text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">{{ shortSha(c.sha) }}</code>
+                                        <span class="text-xs text-gray-400">{{ c.author_name }}</span>
+                                        <span class="text-xs text-gray-400">{{ formatDate(c.authored_date) }}</span>
                                     </div>
                                 </div>
-                            </vort-spin>
-                        </div>
-                    </vort-tab-pane>
-
-                    <vort-tab-pane key="branches" tab="分支">
-                        <div class="pt-2">
-                            <div class="flex items-center justify-between mb-3">
-                                <span class="text-sm text-gray-500">{{ branches.length }} 个分支</span>
-                                <vort-button size="small" :loading="branchesLoading" @click="loadBranches">
-                                    <RefreshCw :size="12" class="mr-1" />刷新
-                                </vort-button>
                             </div>
-                            <vort-spin :spinning="branchesLoading">
-                                <div v-if="branches.length === 0 && !branchesLoading" class="py-8 text-center text-gray-400 text-sm">暂无分支信息</div>
-                                <div v-else class="space-y-1">
-                                    <div v-for="b in branches" :key="b.name" class="flex items-center gap-3 py-2.5 px-3 rounded-lg hover:bg-gray-50">
-                                        <GitBranch :size="14" class="text-gray-400 shrink-0" />
-                                        <span class="text-sm text-gray-800 flex-1">{{ b.name }}</span>
-                                        <vort-tag v-if="b.is_default" size="small" color="green">默认</vort-tag>
-                                        <code v-if="b.last_commit_sha" class="text-xs text-gray-400">{{ shortSha(b.last_commit_sha) }}</code>
-                                    </div>
-                                </div>
-                            </vort-spin>
                         </div>
-                    </vort-tab-pane>
-                </vort-tabs>
+                    </vort-spin>
+                    <div v-if="commitsHasMore" class="flex justify-center mt-3">
+                        <vort-button size="small" :loading="commitsLoadingMore" @click="loadMoreCommits">加载更多</vort-button>
+                    </div>
+                    <div v-if="!commitsHasMore && commits.length > 0" class="text-center text-xs text-gray-400 mt-3">已加载全部提交</div>
+                </div>
             </div>
             <template v-else>
                 <vort-form label-width="100px">
@@ -439,7 +530,7 @@ loadData();
 
         <!-- Import Dialog -->
         <vort-dialog :open="importVisible" title="从平台导入仓库" :width="700" @update:open="importVisible = $event">
-            <div class="space-y-4">
+            <div class="space-y-4 min-h-[460px] flex flex-col">
                 <div class="flex items-center gap-3">
                     <vort-select v-model="importProviderId" placeholder="选择平台" class="w-[200px]">
                         <vort-select-option v-for="p in providers" :key="p.id" :value="p.id">{{ p.name }}</vort-select-option>
@@ -447,9 +538,12 @@ loadData();
                     <vort-input-search v-model="importSearch" placeholder="搜索仓库..." class="flex-1" @search="fetchRemoteRepos" @keyup.enter="fetchRemoteRepos" />
                     <vort-button variant="primary" :loading="importLoading" @click="fetchRemoteRepos">获取</vort-button>
                 </div>
-                <div v-if="remoteRepos.length > 0" class="max-h-[400px] overflow-y-auto space-y-2">
+                <div v-if="remoteRepos.length > 0" class="h-[460px] overflow-y-auto space-y-2">
                     <div v-for="repo in remoteRepos" :key="repo.full_name" class="flex items-center gap-3 p-3 border border-gray-100 rounded-lg hover:bg-gray-50">
-                        <vort-checkbox :model-value="selectedImports.has(repo.full_name)" @update:model-value="toggleImportSelect(repo.full_name)" />
+                        <vort-checkbox
+                            :checked="selectedImports.has(repo.full_name)"
+                            @update:checked="(checked) => toggleImportSelect(repo.full_name, checked)"
+                        />
                         <div class="flex-1 min-w-0">
                             <div class="text-sm font-medium text-gray-800 truncate">{{ repo.full_name }}</div>
                             <div class="text-xs text-gray-400 truncate">{{ repo.description || '无描述' }}</div>
@@ -462,8 +556,11 @@ loadData();
                         </vort-select>
                     </div>
                 </div>
-                <div v-else-if="!importLoading" class="py-8 text-center text-gray-400 text-sm">
+                <div v-else-if="!importLoading" class="h-[360px] flex items-center justify-center text-gray-400 text-sm">
                     点击「获取」从平台拉取仓库列表
+                </div>
+                <div v-else class="h-[360px] flex items-center justify-center text-gray-400 text-sm">
+                    正在获取仓库列表...
                 </div>
             </div>
             <template #footer>

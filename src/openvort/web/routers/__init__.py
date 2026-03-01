@@ -9,6 +9,8 @@ from openvort.web.routers.me import router as me_router
 from openvort.web.routers.contacts import router as contacts_router
 from openvort.web.routers.members import router as members_router
 from openvort.web.routers.departments import router as departments_router
+from openvort.web.routers.reporting import router as reporting_router
+from openvort.web.routers.org_calendar import router as org_calendar_router
 from openvort.web.routers.plugins import router as plugins_router
 from openvort.web.routers.skills import router as skills_router
 from openvort.web.routers.channels import router as channels_router
@@ -27,6 +29,8 @@ __all__ = [
     "contacts_router",
     "members_router",
     "departments_router",
+    "reporting_router",
+    "org_calendar_router",
     "plugins_router",
     "skills_router",
     "channels_router",

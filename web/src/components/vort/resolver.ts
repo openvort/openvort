@@ -203,7 +203,10 @@ const componentMap: Record<string, { from: string; name: string }> = {
     DeleteRecord: { from: "@/components/vort-biz/delete-record", name: "DeleteRecord" },
 
     // BatchActions
-    BatchActions: { from: "@/components/vort-biz/batch-actions", name: "BatchActions" }
+    BatchActions: { from: "@/components/vort-biz/batch-actions", name: "BatchActions" },
+
+    // AiAssistButton
+    AiAssistButton: { from: "@/components/vort-biz/ai-assist-button", name: "AiAssistButton" }
 };
 
 /**

@@ -4,10 +4,11 @@ import { useRoute, useRouter } from "vue-router";
 import { useAppStore, useUserStore, usePluginStore } from "@/stores";
 import { menuConfig, type MenuConfig } from "@/router/menus";
 import {
-    Home, BarChart2, FileText, Table, File, AlertTriangle,
+    Home, BarChart2, FileText, FileBarChart, Table, File, AlertTriangle,
     CheckCircle, User, Settings, ChevronDown, PanelLeftClose, PanelLeftOpen,
     MessageSquare, Puzzle, Radio, Users, Clock, BookOpen, Webhook, GitBranch, Cpu,
-    Kanban, LayoutDashboard, ListChecks, CheckSquare, Bug, Milestone
+    Kanban, LayoutDashboard, ListChecks, CheckSquare, Bug, Milestone,
+    Wrench, FolderGit2, Server, Shield
 } from "lucide-vue-next";
 
 const props = defineProps<{ isMobile?: boolean }>();
@@ -41,13 +42,14 @@ loadExpandedMenus();
 
 // 图标映射
 const iconMap: Record<string, any> = {
-    home: Home, "bar-chart-2": BarChart2, "file-text": FileText,
+    home: Home, "bar-chart-2": BarChart2, "file-text": FileText, "file-bar-chart": FileBarChart,
     table: Table, file: File, "alert-triangle": AlertTriangle,
     "check-circle": CheckCircle, user: User, settings: Settings,
     "message-square": MessageSquare, puzzle: Puzzle, radio: Radio, users: Users,
     clock: Clock, "book-open": BookOpen, webhook: Webhook, "git-branch": GitBranch, cpu: Cpu,
     kanban: Kanban, "layout-dashboard": LayoutDashboard, "list-checks": ListChecks,
     "check-square": CheckSquare, bug: Bug, milestone: Milestone,
+    wrench: Wrench, "folder-git-2": FolderGit2, server: Server, shield: Shield,
 };
 
 // 按角色过滤菜单，并合并插件动态菜单

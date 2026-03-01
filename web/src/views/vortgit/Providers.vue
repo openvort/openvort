@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, onMounted, onActivated } from "vue";
 import { useCrudPage } from "@/hooks";
 import { getVortgitProviders, createVortgitProvider, updateVortgitProvider, deleteVortgitProvider } from "@/api";
-import { Plus, Eye, EyeOff } from "lucide-vue-next";
+import { Plus, Eye, EyeOff, RefreshCw } from "lucide-vue-next";
 import { message } from "@/components/vort/message";
 
 interface ProviderItem {
@@ -107,7 +107,17 @@ const handleDelete = async (row: ProviderItem) => {
     }
 };
 
-loadData();
+const handleRefresh = () => {
+    loadData();
+};
+
+onMounted(() => {
+    loadData();
+});
+
+onActivated(() => {
+    loadData();
+});
 </script>
 
 <template>
@@ -115,9 +125,14 @@ loadData();
         <div class="bg-white rounded-xl p-6">
             <div class="flex items-center justify-between mb-2">
                 <h3 class="text-base font-medium text-gray-800">Git 平台管理</h3>
-                <vort-button variant="primary" @click="handleAdd">
-                    <Plus :size="14" class="mr-1" /> 添加平台
-                </vort-button>
+                <div class="flex items-center gap-2">
+                    <vort-button @click="handleRefresh">
+                        <RefreshCw :size="14" class="mr-1" /> 刷新
+                    </vort-button>
+                    <vort-button variant="primary" @click="handleAdd">
+                        <Plus :size="14" class="mr-1" /> 添加平台
+                    </vort-button>
+                </div>
             </div>
             <p class="text-sm text-gray-400 mb-4">接入 Gitee、GitHub、GitLab 等代码托管平台，统一管理多平台仓库与 AI 编码能力。配置平台 Token 后即可导入仓库。</p>
 

@@ -176,6 +176,7 @@ class PluginLoader:
             ("wecom", "openvort.channels.wecom", "WeComChannel"),
             ("dingtalk", "openvort.channels.dingtalk", "DingTalkChannel"),
             ("feishu", "openvort.channels.feishu", "FeishuChannel"),
+            ("openclaw", "openvort.channels.openclaw", "OpenClawChannel"),
         ]
 
         for channel_name, module_name, class_name in builtin_channels:

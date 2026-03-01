@@ -52,7 +52,8 @@ def create_app() -> FastAPI:
     # 注册路由
     from openvort.web.routers import (
         auth_router, chat_router, dashboard_router, me_router,
-        contacts_router, members_router, departments_router, plugins_router, skills_router, channels_router,
+        contacts_router, members_router, departments_router, reporting_router, org_calendar_router,
+        plugins_router, skills_router, channels_router,
         settings_router, logs_router, schedules_router, admin_schedules_router,
         webhooks_admin_router, agents_router, models_router,
     )
@@ -78,6 +79,8 @@ def create_app() -> FastAPI:
     app.include_router(contacts_router, prefix="/api/admin/contacts", tags=["admin-contacts"], dependencies=[Depends(require_admin)])
     app.include_router(members_router, prefix="/api/admin/members", tags=["admin-members"], dependencies=[Depends(require_admin)])
     app.include_router(departments_router, prefix="/api/admin/departments", tags=["admin-departments"], dependencies=[Depends(require_admin)])
+    app.include_router(reporting_router, prefix="/api/admin/reporting-relations", tags=["admin-reporting"], dependencies=[Depends(require_admin)])
+    app.include_router(org_calendar_router, prefix="/api/admin/org-calendar", tags=["admin-org-calendar"], dependencies=[Depends(require_admin)])
     app.include_router(plugins_router, prefix="/api/admin/plugins", tags=["admin-plugins"], dependencies=[Depends(require_admin)])
     app.include_router(skills_router, prefix="/api/admin/skills", tags=["admin-skills"], dependencies=[Depends(require_admin)])
     app.include_router(channels_router, prefix="/api/admin/channels", tags=["admin-channels"], dependencies=[Depends(require_admin)])

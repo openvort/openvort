@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, nextTick, watch, computed } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { useUserStore } from "@/stores";
 import {
     Send, Bot, Loader2, Wrench, X, ImagePlus, FileText, MonitorPlay, Smile,
@@ -41,6 +42,8 @@ interface PendingImage {
     preview: string;
 }
 
+const route = useRoute();
+const router = useRouter();
 const userStore = useUserStore();
 const messages = ref<ChatMessage[]>([]);
 const inputText = ref("");
@@ -54,7 +57,7 @@ const settingsOpen = ref(false);
 const emojiOpen = ref(false);
 const thinkingLevel = ref<string>("off");
 const thinkingOpen = ref(false);
-const sessionTokens = ref({ input: 0, output: 0, messages: 0 });
+const sessionTokens = ref({ input: 0, output: 0, messages: 0, cacheCreation: 0, cacheRead: 0 });
 const compacting = ref(false);
 let messageCounter = 0;
 
@@ -218,7 +221,7 @@ function handleNewSession() {
     currentSessionId.value = "";
     messages.value = [];
     messageCounter = 0;
-    sessionTokens.value = { input: 0, output: 0, messages: 0 };
+    sessionTokens.value = { input: 0, output: 0, messages: 0, cacheCreation: 0, cacheRead: 0 };
     loading.value = false;
     thinkingLevel.value = "off";
     restoreDraft("");
@@ -241,7 +244,7 @@ async function switchSession(sessionId: string) {
 
     currentSessionId.value = sessionId;
     messageCounter = 0;
-    sessionTokens.value = { input: 0, output: 0, messages: 0 };
+    sessionTokens.value = { input: 0, output: 0, messages: 0, cacheCreation: 0, cacheRead: 0 };
 
     // 清除红点
     unreadSessionIds.value.delete(sessionId);
@@ -524,6 +527,19 @@ async function handleSend() {
             } catch { /* ignore */ }
         });
 
+        eventSource.addEventListener("usage", (e: MessageEvent) => {
+            try {
+                const data = JSON.parse(e.data);
+                sessionTokens.value = {
+                    input: data.total_input_tokens || 0,
+                    output: data.total_output_tokens || 0,
+                    messages: sessionTokens.value.messages,
+                    cacheCreation: data.total_cache_creation_tokens || 0,
+                    cacheRead: data.total_cache_read_tokens || 0,
+                };
+            } catch { /* ignore */ }
+        });
+
         eventSource.addEventListener("done", (_e: MessageEvent) => {
             eventSource.close();
             flushAndFinish();
@@ -601,6 +617,8 @@ async function loadSessionInfo() {
                 input: res.total_input_tokens || 0,
                 output: res.total_output_tokens || 0,
                 messages: res.message_count || 0,
+                cacheCreation: res.total_cache_creation_tokens || 0,
+                cacheRead: res.total_cache_read_tokens || 0,
             };
         }
     } catch { /* ignore */ }
@@ -634,7 +652,7 @@ async function handleReset() {
     try {
         await resetChatSession(currentSessionId.value);
         messages.value = [];
-        sessionTokens.value = { input: 0, output: 0, messages: 0 };
+        sessionTokens.value = { input: 0, output: 0, messages: 0, cacheCreation: 0, cacheRead: 0 };
         message.success("会话已重置");
     } catch { message.error("重置失败"); }
 }
@@ -958,6 +976,18 @@ onMounted(async () => {
     } else if (sessions.value.length > 0) {
         await switchSession(sessions.value[0].session_id);
     }
+
+    // Handle pre-filled prompt from query parameter (e.g., AiAssistButton)
+    const promptParam = route.query.prompt as string | undefined;
+    if (promptParam) {
+        handleNewSession();
+        inputText.value = promptParam;
+        router.replace({ name: "chat", query: {} });
+        nextTick(() => {
+            const textarea = document.querySelector('textarea.chat-textarea') as HTMLTextAreaElement;
+            if (textarea) textarea.focus();
+        });
+    }
 });
 
 onUnmounted(() => {
@@ -969,7 +999,12 @@ onUnmounted(() => {
 <template>
     <div class="flex h-full">
         <!-- 左侧对话列表 -->
-        <div v-if="!sidebarCollapsed" class="w-[260px] flex-shrink-0 border-r border-gray-100 flex flex-col bg-white">
+        <div
+            class="flex-shrink-0 flex flex-col bg-white overflow-hidden transition-[width,opacity,transform,border-color] duration-300 ease-in-out"
+            :class="sidebarCollapsed
+                ? 'w-0 opacity-0 -translate-x-2 pointer-events-none border-r-0'
+                : 'w-[260px] opacity-100 translate-x-0 border-r border-gray-100'"
+        >
             <!-- 顶部操作栏 -->
             <div class="flex items-center justify-between px-4 h-14 border-b border-gray-100">
                 <VortTooltip title="收起侧边栏">
@@ -1116,10 +1151,19 @@ onUnmounted(() => {
                     </span>
                 </div>
                 <div class="flex items-center gap-2">
-                    <VortTooltip :title="`Input: ${formatTokens(sessionTokens.input)} / Output: ${formatTokens(sessionTokens.output)} / 消息: ${sessionTokens.messages}`">
+                    <VortTooltip :overlay-style="{ maxWidth: 'none' }">
+                        <template #title>
+                            <div class="flex flex-col leading-tight">
+                                <span>输入 tokens: {{ formatTokens(sessionTokens.input) }} / 输出 tokens: {{ formatTokens(sessionTokens.output) }} / 缓存命中: {{ formatTokens(sessionTokens.cacheRead) }} / 消息数: {{ sessionTokens.messages }}</span>
+                                <span class="text-[11px] text-gray-400 mt-1">Token 统计受模型网关返回影响，可能存在偏差</span>
+                            </div>
+                        </template>
                         <span class="text-xs text-gray-400 flex items-center gap-1 cursor-default">
                             <Zap :size="14" />
                             {{ formatTokens(sessionTokens.input + sessionTokens.output) }}
+                            <span v-if="sessionTokens.cacheRead > 0" class="text-green-500 flex items-center">
+                                💾{{ formatTokens(sessionTokens.cacheRead) }}
+                            </span>
                         </span>
                     </VortTooltip>
                     <VortPopover v-model:open="thinkingOpen" trigger="click" placement="bottomRight" :arrow="false">

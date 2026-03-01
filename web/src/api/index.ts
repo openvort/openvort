@@ -309,6 +309,70 @@ export function removeDepartmentMember(deptId: number, memberId: string) {
     return request.delete(`/admin/departments/${deptId}/members/${memberId}`);
 }
 
+// -- 汇报关系 --
+
+/** 汇报关系列表 */
+export function getReportingRelations(memberId?: string) {
+    return request.get("/admin/reporting-relations", { params: { member_id: memberId } });
+}
+
+/** 创建汇报关系 */
+export function createReportingRelation(data: { reporter_id: string; supervisor_id: string; relation_type?: string; is_primary?: boolean }) {
+    return request.post("/admin/reporting-relations", data);
+}
+
+/** 更新汇报关系 */
+export function updateReportingRelation(id: number, data: { relation_type?: string; is_primary?: boolean }) {
+    return request.put(`/admin/reporting-relations/${id}`, data);
+}
+
+/** 删除汇报关系 */
+export function deleteReportingRelation(id: number) {
+    return request.delete(`/admin/reporting-relations/${id}`);
+}
+
+/** 获取下属 */
+export function getSubordinates(memberId: string) {
+    return request.get(`/admin/reporting-relations/subordinates/${memberId}`);
+}
+
+/** 获取上级 */
+export function getSupervisors(memberId: string) {
+    return request.get(`/admin/reporting-relations/supervisors/${memberId}`);
+}
+
+// -- 企业日历 --
+
+/** 企业日历列表 */
+export function getOrgCalendar(year?: number) {
+    return request.get("/admin/org-calendar", { params: { year } });
+}
+
+/** 新增日历条目 */
+export function createOrgCalendarEntry(data: { date: string; day_type: string; name?: string }) {
+    return request.post("/admin/org-calendar", data);
+}
+
+/** 批量导入日历条目 */
+export function batchCreateOrgCalendar(entries: { date: string; day_type: string; name?: string }[]) {
+    return request.post("/admin/org-calendar/batch", { entries });
+}
+
+/** 删除日历条目 */
+export function deleteOrgCalendarEntry(id: number) {
+    return request.delete(`/admin/org-calendar/${id}`);
+}
+
+/** 同步法定节假日 */
+export function syncHolidays(year?: number) {
+    return request.post("/admin/org-calendar/sync-holidays", null, { params: { year } });
+}
+
+/** 获取工时设置 */
+export function getWorkSettings() {
+    return request.get("/admin/org-calendar/work-settings");
+}
+
 /** 插件列表 */
 export function getPlugins() {
     return request.get("/admin/plugins");
@@ -548,6 +612,23 @@ export function toggleSkill(name: string) {
 /** Webhook 列表 */
 export function getWebhooks() {
     return request.get("/admin/webhooks");
+}
+
+/** Webhook 预置模板列表 */
+export function getWebhookPresets() {
+    return request.get("/admin/webhooks/presets");
+}
+
+/** 预置模板详情 */
+export function getWebhookPresetDetail(presetId: string) {
+    return request.get(`/admin/webhooks/presets/${presetId}`);
+}
+
+/** 一键安装预置模板 */
+export function installWebhookPreset(presetId: string, secret?: string) {
+    return request.post(`/admin/webhooks/presets/${presetId}/install`, null, {
+        params: secret ? { secret } : {},
+    });
 }
 
 /** 创建 Webhook */
@@ -802,7 +883,9 @@ export function getVortflowEvents(params: { entity_type?: string; entity_id?: st
 
 /** VortGit 平台列表 */
 export function getVortgitProviders() {
-    return request.get("/vortgit/providers");
+    return request.get("/vortgit/providers", {
+        params: { _t: Date.now() }
+    });
 }
 
 /** VortGit 平台详情 */
@@ -892,4 +975,72 @@ export function addVortgitRepoMember(repoId: string, data: { member_id: string; 
 /** VortGit 移除仓库成员 */
 export function removeVortgitRepoMember(repoId: string, memberId: string) {
     return request.delete(`/vortgit/repos/${repoId}/members/${memberId}`);
+}
+
+// ====== 汇报管理 ======
+
+// -- 汇报模板 --
+
+/** 汇报模板列表 */
+export function getReportTemplates() {
+    return request.get("/reports/templates");
+}
+
+/** 创建汇报模板 */
+export function createReportTemplate(data: { name: string; report_type: string; content_schema?: object; auto_collect?: object }) {
+    return request.post("/reports/templates", data);
+}
+
+/** 删除汇报模板 */
+export function deleteReportTemplate(id: string) {
+    return request.delete(`/reports/templates/${id}`);
+}
+
+// -- 汇报规则 --
+
+/** 汇报规则列表 */
+export function getReportRules(templateId?: string) {
+    return request.get("/reports/rules", { params: { template_id: templateId } });
+}
+
+/** 创建汇报规则 */
+export function createReportRule(data: { template_id: string; scope: string; target_id: string; reviewer_id?: string; deadline_cron?: string; reminder_minutes?: number; escalation_minutes?: number; enabled?: boolean }) {
+    return request.post("/reports/rules", data);
+}
+
+/** 删除汇报规则 */
+export function deleteReportRule(id: string) {
+    return request.delete(`/reports/rules/${id}`);
+}
+
+// -- 汇报 --
+
+/** 汇报列表 */
+export function getReports(params: { report_type?: string; status?: string; since?: string; until?: string; reporter_id?: string; reviewer_id?: string; page?: number; page_size?: number }) {
+    return request.get("/reports", { params });
+}
+
+/** 汇报详情 */
+export function getReportDetail(id: string) {
+    return request.get(`/reports/${id}`);
+}
+
+/** 提交汇报 */
+export function submitReport(data: { report_type: string; report_date?: string; title: string; content: string; template_id?: string; reviewer_id?: string }) {
+    return request.post("/reports", data);
+}
+
+/** 更新汇报 */
+export function updateReport(id: string, data: { title?: string; content?: string; reviewer_id?: string }) {
+    return request.put(`/reports/${id}`, data);
+}
+
+/** 审阅汇报 */
+export function reviewReport(id: string, data: { status: string; comment?: string }) {
+    return request.put(`/reports/${id}/review`, data);
+}
+
+/** 汇报统计 */
+export function getReportStats(params?: { reviewer_id?: string; since?: string; until?: string }) {
+    return request.get("/reports/stats", { params });
 }

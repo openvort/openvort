@@ -5,6 +5,7 @@ import { FolderKanban, ListChecks, CheckSquare, Bug, Plus, Settings, Trash2 } fr
 import {
     getVortflowStats, getVortflowProjects, createVortflowProject,
     updateVortflowProject, deleteVortflowProject,
+    getVortgitRepos,
 } from "@/api";
 
 interface ProjectItem {
@@ -26,10 +27,18 @@ interface DashboardStats {
     bugs: { total: number; closed: number };
 }
 
+interface VortgitRepoItem {
+    id: string;
+    project_id: string | null;
+    name: string;
+    full_name: string;
+}
+
 const router = useRouter();
 const loading = ref(true);
 const stats = ref<DashboardStats>({ stories: { total: 0, done: 0 }, tasks: { total: 0, done: 0 }, bugs: { total: 0, closed: 0 } });
 const projects = ref<ProjectItem[]>([]);
+const projectRepoMap = ref<Record<string, VortgitRepoItem[]>>({});
 
 const storyProgress = computed(() => {
     const s = stats.value.stories;
@@ -43,6 +52,8 @@ const bugCloseRate = computed(() => {
     const b = stats.value.bugs;
     return b.total ? Math.round((b.closed / b.total) * 100) : 0;
 });
+
+const projectRepos = (projectId: string) => projectRepoMap.value[projectId] || [];
 
 const loadData = async () => {
     loading.value = true;
@@ -59,6 +70,20 @@ const loadData = async () => {
             };
         }
         projects.value = (projectsRes as any)?.items || [];
+
+        try {
+            const reposRes = await getVortgitRepos({ page: 1, page_size: 100 });
+            const repos = ((reposRes as any)?.items || []) as VortgitRepoItem[];
+            const grouped: Record<string, VortgitRepoItem[]> = {};
+            for (const repo of repos) {
+                if (!repo.project_id) continue;
+                if (!grouped[repo.project_id]) grouped[repo.project_id] = [];
+                grouped[repo.project_id].push(repo);
+            }
+            projectRepoMap.value = grouped;
+        } catch {
+            projectRepoMap.value = {};
+        }
     } catch { /* silent */ }
     finally { loading.value = false; }
 };
@@ -227,6 +252,25 @@ onMounted(loadData);
                                 {{ p.start_date.split('T')[0] }} ~ {{ p.end_date ? p.end_date.split('T')[0] : '未定' }}
                             </span>
                         </div>
+                        <div class="mt-3 pt-3 border-t border-gray-100">
+                            <div v-if="projectRepos(p.id).length > 0" class="space-y-2">
+                                <div class="text-xs text-gray-500">关联仓库 {{ projectRepos(p.id).length }}</div>
+                                <div class="flex flex-wrap gap-1.5">
+                                    <vort-tag
+                                        v-for="repo in projectRepos(p.id).slice(0, 3)"
+                                        :key="repo.id"
+                                        size="small"
+                                        color="processing"
+                                    >
+                                        {{ repo.name }}
+                                    </vort-tag>
+                                    <span v-if="projectRepos(p.id).length > 3" class="text-xs text-gray-400">
+                                        +{{ projectRepos(p.id).length - 3 }}
+                                    </span>
+                                </div>
+                            </div>
+                            <div v-else class="text-xs text-gray-300">未关联仓库</div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -248,10 +292,10 @@ onMounted(loadData);
                     <vort-input v-model="currentProject.version" placeholder="版本号（可选）" />
                 </vort-form-item>
                 <vort-form-item label="开始日期">
-                    <vort-input v-model="currentProject.start_date" type="date" class="w-full" />
+                    <vort-date-picker v-model="currentProject.start_date" value-format="YYYY-MM-DD" placeholder="请选择开始日期" class="w-full" />
                 </vort-form-item>
                 <vort-form-item label="结束日期">
-                    <vort-input v-model="currentProject.end_date" type="date" class="w-full" />
+                    <vort-date-picker v-model="currentProject.end_date" value-format="YYYY-MM-DD" placeholder="请选择结束日期" class="w-full" />
                 </vort-form-item>
                 <vort-form-item label="描述">
                     <vort-textarea v-model="currentProject.description" placeholder="请输入项目描述" :rows="4" />

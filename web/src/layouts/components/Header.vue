@@ -2,7 +2,7 @@
 import { ref, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
 import { useUserStore, useAppStore } from "@/stores";
-import { Bell, Search, LogOut, User, Settings, Menu } from "lucide-vue-next";
+import { Bell, LogOut, User, Settings, Menu } from "lucide-vue-next";
 import { getHealthStatus } from "@/api";
 
 defineProps<{ isScrolled: boolean; isMobile?: boolean }>();
@@ -17,12 +17,28 @@ const llmHealthy = ref<boolean | null>(null);
 const llmError = ref("");
 let healthTimer: ReturnType<typeof setInterval> | null = null;
 
+const checkVersionUpdate = (serverVersion: string) => {
+    if (!serverVersion) return;
+    const cachedVersion = localStorage.getItem("app_version");
+    if (!cachedVersion) {
+        localStorage.setItem("app_version", serverVersion);
+        return;
+    }
+    if (cachedVersion !== serverVersion) {
+        localStorage.clear();
+        sessionStorage.clear();
+        localStorage.setItem("app_version", serverVersion);
+        location.reload();
+    }
+};
+
 const fetchHealth = async () => {
     try {
         const res: any = await getHealthStatus();
         version.value = res.version || "";
         llmHealthy.value = res.llm_healthy ?? null;
         llmError.value = res.llm_error || "";
+        checkVersionUpdate(res.version);
     } catch {
         llmHealthy.value = false;
         llmError.value = "无法连接服务器";
@@ -64,18 +80,6 @@ const goProfile = () => {
                 <Menu :size="20" class="text-gray-600" />
             </div>
 
-            <div class="hidden md:flex items-center h-[36px] px-3 bg-gray-50 rounded-lg border border-gray-200 w-[260px]">
-                <Search :size="16" class="text-gray-400 mr-2" />
-                <input
-                    type="text"
-                    placeholder="搜索..."
-                    class="bg-transparent border-none outline-none text-[13px] text-gray-600 w-full placeholder-gray-400"
-                />
-            </div>
-
-            <div v-if="isMobile" class="p-2 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
-                <Search :size="18" class="text-gray-500" />
-            </div>
         </div>
 
         <!-- 右侧 -->

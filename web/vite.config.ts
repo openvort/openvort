@@ -23,7 +23,11 @@ export default defineConfig({
     },
     server: {
         port: 9090,
+        strictPort: true,
         host: true,
+        headers: {
+            "Cache-Control": "no-store"
+        },
         proxy: {
             "/api": {
                 target: "http://localhost:8090",

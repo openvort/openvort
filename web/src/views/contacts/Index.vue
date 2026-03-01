@@ -11,13 +11,15 @@ import {
     acceptSuggestion, rejectSuggestion, dedupContacts,
     getDepartmentTree, getDepartmentMembers, createDepartment,
     updateDepartment, deleteDepartment, addDepartmentMember,
-    removeDepartmentMember, getChannels
+    removeDepartmentMember, getChannels,
+    getReportingRelations, createReportingRelation, deleteReportingRelation,
+    getOrgCalendar, createOrgCalendarEntry, deleteOrgCalendarEntry, syncHolidays, getWorkSettings,
 } from "@/api";
 import {
     RefreshCw, Search, Shield, UserCheck, UserX, Key,
     AlertTriangle, Check, X, Link, Unlink, Lock, Trash2,
     ChevronRight, ChevronDown, FolderTree, Plus, Pencil, UserPlus, UserMinus,
-    Download
+    Download, ArrowRight, Calendar, CloudDownload,
 } from "lucide-vue-next";
 import { message } from "@/components/vort/message";
 import { dialog } from "@/components/vort/dialog";
@@ -802,6 +804,181 @@ async function handleRemoveMemberFromDept(memberId: string) {
     } catch { message.error("移除失败"); }
 }
 
+// ---- 汇报关系 ----
+
+interface RelationItem {
+    id: number;
+    reporter_id: string;
+    reporter_name: string;
+    supervisor_id: string;
+    supervisor_name: string;
+    relation_type: string;
+    is_primary: boolean;
+    created_at: string;
+}
+
+const relations = ref<RelationItem[]>([]);
+const loadingRelations = ref(false);
+
+const relationDialogOpen = ref(false);
+const relationForm = ref({ reporter_id: "", supervisor_id: "", relation_type: "direct" });
+const savingRelation = ref(false);
+const relationMemberSearch = ref("");
+const relationMemberResults = ref<MemberItem[]>([]);
+
+const relationTypeOptions = [
+    { label: "直属", value: "direct" },
+    { label: "虚线", value: "dotted" },
+    { label: "职能", value: "functional" },
+];
+
+const relationTypeLabel = (val: string) => relationTypeOptions.find(o => o.value === val)?.label || val;
+
+async function loadRelations() {
+    loadingRelations.value = true;
+    try {
+        const res: any = await getReportingRelations();
+        relations.value = res?.relations || [];
+    } catch { /* ignore */ }
+    finally { loadingRelations.value = false; }
+}
+
+function openRelationDialog() {
+    relationForm.value = { reporter_id: "", supervisor_id: "", relation_type: "direct" };
+    relationDialogOpen.value = true;
+}
+
+async function searchRelationMembers() {
+    if (!relationMemberSearch.value.trim()) return;
+    try {
+        const res: any = await getMembers({ search: relationMemberSearch.value, size: 20 });
+        relationMemberResults.value = res?.members || [];
+    } catch { relationMemberResults.value = []; }
+}
+
+async function handleSaveRelation() {
+    if (!relationForm.value.reporter_id || !relationForm.value.supervisor_id) {
+        message.error("请选择汇报人和上级");
+        return;
+    }
+    savingRelation.value = true;
+    try {
+        const res: any = await createReportingRelation(relationForm.value);
+        if (res?.success) {
+            message.success("汇报关系已创建");
+            relationDialogOpen.value = false;
+            await loadRelations();
+        } else { message.error(res?.error || "创建失败"); }
+    } catch { message.error("创建失败"); }
+    finally { savingRelation.value = false; }
+}
+
+async function handleDeleteRelation(id: number) {
+    try {
+        const res: any = await deleteReportingRelation(id);
+        if (res?.success) {
+            message.success("已删除");
+            await loadRelations();
+        } else { message.error("删除失败"); }
+    } catch { message.error("删除失败"); }
+}
+
+// ---- 企业日历 ----
+
+interface CalendarEntry {
+    id: number;
+    date: string;
+    day_type: string;
+    name: string;
+    year: number;
+}
+
+interface WorkSettingsData {
+    timezone: string;
+    work_start: string;
+    work_end: string;
+    work_days: string;
+    lunch_start: string;
+    lunch_end: string;
+}
+
+const calendarEntries = ref<CalendarEntry[]>([]);
+const loadingCalendar = ref(false);
+const calendarYear = ref(new Date().getFullYear());
+const syncingHolidays = ref(false);
+const workSettings = ref<WorkSettingsData | null>(null);
+
+const calendarDialogOpen = ref(false);
+const calendarForm = ref({ date: "", day_type: "holiday", name: "" });
+const savingCalendar = ref(false);
+
+const dayTypeOptions = [
+    { label: "放假", value: "holiday" },
+    { label: "调休上班", value: "workday" },
+];
+const dayTypeLabel = (val: string) => dayTypeOptions.find(o => o.value === val)?.label || val;
+const dayTypeColor = (val: string) => val === "holiday" ? "red" : "blue";
+
+async function loadCalendar() {
+    loadingCalendar.value = true;
+    try {
+        const res: any = await getOrgCalendar(calendarYear.value);
+        calendarEntries.value = res?.entries || [];
+    } catch { /* ignore */ }
+    finally { loadingCalendar.value = false; }
+}
+
+async function loadWorkSettings() {
+    try {
+        const res: any = await getWorkSettings();
+        workSettings.value = res;
+    } catch { /* ignore */ }
+}
+
+async function handleSyncHolidays() {
+    syncingHolidays.value = true;
+    try {
+        const res: any = await syncHolidays(calendarYear.value);
+        if (res?.success) {
+            message.success(`同步完成：新增 ${res.created} 条，跳过 ${res.skipped} 条`);
+            await loadCalendar();
+        } else { message.error(res?.error || "同步失败"); }
+    } catch { message.error("同步失败"); }
+    finally { syncingHolidays.value = false; }
+}
+
+function openCalendarDialog() {
+    calendarForm.value = { date: "", day_type: "holiday", name: "" };
+    calendarDialogOpen.value = true;
+}
+
+async function handleSaveCalendar() {
+    if (!calendarForm.value.date) {
+        message.error("请选择日期");
+        return;
+    }
+    savingCalendar.value = true;
+    try {
+        const res: any = await createOrgCalendarEntry(calendarForm.value);
+        if (res?.success) {
+            message.success("已添加");
+            calendarDialogOpen.value = false;
+            await loadCalendar();
+        } else { message.error(res?.error || "添加失败"); }
+    } catch { message.error("添加失败"); }
+    finally { savingCalendar.value = false; }
+}
+
+async function handleDeleteCalendar(id: number) {
+    try {
+        const res: any = await deleteOrgCalendarEntry(id);
+        if (res?.success) {
+            message.success("已删除");
+            await loadCalendar();
+        } else { message.error("删除失败"); }
+    } catch { message.error("删除失败"); }
+}
+
 // ---- 头像工具 ----
 
 const AVATAR_COLORS = [
@@ -838,6 +1015,9 @@ onMounted(() => {
     loadPermissions();
     loadDeptTree();
     loadChannels();
+    loadRelations();
+    loadCalendar();
+    loadWorkSettings();
 });
 </script>
 
@@ -1267,6 +1447,107 @@ onMounted(() => {
                         </div>
                     </div>
                 </VortTabPane>
+
+                <VortTabPane tab-key="reporting" tab="汇报关系">
+                    <div class="flex items-center justify-between mb-4">
+                        <h4 class="text-base font-medium text-gray-800">汇报关系</h4>
+                        <VortButton variant="primary" @click="openRelationDialog">
+                            <Plus :size="14" class="mr-1" /> 新增
+                        </VortButton>
+                    </div>
+
+                    <VortSpin :spinning="loadingRelations">
+                        <div v-if="relations.length" class="space-y-2">
+                            <div
+                                v-for="r in relations" :key="r.id"
+                                class="flex items-center justify-between px-5 py-3.5 rounded-lg border border-gray-100 hover:bg-gray-50"
+                            >
+                                <div class="flex items-center gap-3 text-sm">
+                                    <span
+                                        class="inline-flex items-center justify-center w-7 h-7 rounded-full text-white text-xs font-medium flex-shrink-0"
+                                        :class="getAvatarColor(r.reporter_name)"
+                                    >{{ getInitial(r.reporter_name) }}</span>
+                                    <span class="font-medium text-gray-800">{{ r.reporter_name }}</span>
+                                    <ArrowRight :size="14" class="text-gray-400" />
+                                    <span
+                                        class="inline-flex items-center justify-center w-7 h-7 rounded-full text-white text-xs font-medium flex-shrink-0"
+                                        :class="getAvatarColor(r.supervisor_name)"
+                                    >{{ getInitial(r.supervisor_name) }}</span>
+                                    <span class="font-medium text-gray-800">{{ r.supervisor_name }}</span>
+                                    <VortTag :color="r.relation_type === 'direct' ? 'blue' : r.relation_type === 'dotted' ? 'orange' : 'cyan'" size="small">
+                                        {{ relationTypeLabel(r.relation_type) }}
+                                    </VortTag>
+                                    <VortTag v-if="r.is_primary" color="green" size="small">主要</VortTag>
+                                </div>
+                                <VortPopconfirm title="确认删除此汇报关系？" @confirm="handleDeleteRelation(r.id)">
+                                    <a class="text-sm text-red-500 cursor-pointer">删除</a>
+                                </VortPopconfirm>
+                            </div>
+                        </div>
+                        <div v-else class="text-gray-400 text-sm text-center py-16">
+                            暂无汇报关系，点击右上角「新增」添加
+                        </div>
+                    </VortSpin>
+                </VortTabPane>
+
+                <VortTabPane tab-key="calendar" tab="企业日历">
+                    <!-- 工时设置 -->
+                    <div v-if="workSettings" class="flex flex-wrap gap-6 mb-6 p-4 bg-gray-50 rounded-lg">
+                        <div><span class="text-xs text-gray-400">时区</span><div class="text-sm text-gray-800 mt-0.5">{{ workSettings.timezone }}</div></div>
+                        <div><span class="text-xs text-gray-400">工作时间</span><div class="text-sm text-gray-800 mt-0.5">{{ workSettings.work_start }} - {{ workSettings.work_end }}</div></div>
+                        <div><span class="text-xs text-gray-400">午休时间</span><div class="text-sm text-gray-800 mt-0.5">{{ workSettings.lunch_start }} - {{ workSettings.lunch_end }}</div></div>
+                        <div><span class="text-xs text-gray-400">工作日</span><div class="text-sm text-gray-800 mt-0.5">{{ workSettings.work_days.split(',').map((d: string) => ['','周一','周二','周三','周四','周五','周六','周日'][+d] || d).join('、') }}</div></div>
+                    </div>
+
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="flex items-center gap-3">
+                            <h4 class="text-base font-medium text-gray-800">{{ calendarYear }} 年节假日</h4>
+                            <div class="flex items-center gap-1">
+                                <VortButton size="small" @click="calendarYear--; loadCalendar()">←</VortButton>
+                                <VortButton size="small" @click="calendarYear++; loadCalendar()">→</VortButton>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <VortButton :loading="syncingHolidays" @click="handleSyncHolidays">
+                                <CloudDownload :size="14" class="mr-1" /> 同步法定节假日
+                            </VortButton>
+                            <VortButton variant="primary" @click="openCalendarDialog">
+                                <Plus :size="14" class="mr-1" /> 手动添加
+                            </VortButton>
+                        </div>
+                    </div>
+
+                    <VortSpin :spinning="loadingCalendar">
+                        <div v-if="calendarEntries.length">
+                            <VortTable :data-source="calendarEntries" :loading="false" :pagination="false" row-key="id">
+                                <VortTableColumn label="日期" prop="date" :width="140">
+                                    <template #default="{ row }">
+                                        <div class="flex items-center gap-2">
+                                            <Calendar :size="14" class="text-gray-400" />
+                                            <span>{{ row.date }}</span>
+                                        </div>
+                                    </template>
+                                </VortTableColumn>
+                                <VortTableColumn label="类型" :width="120">
+                                    <template #default="{ row }">
+                                        <VortTag :color="dayTypeColor(row.day_type)" size="small">{{ dayTypeLabel(row.day_type) }}</VortTag>
+                                    </template>
+                                </VortTableColumn>
+                                <VortTableColumn label="名称" prop="name" />
+                                <VortTableColumn label="操作" :width="80" fixed="right">
+                                    <template #default="{ row }">
+                                        <VortPopconfirm title="确认删除？" @confirm="handleDeleteCalendar(row.id)">
+                                            <a class="text-sm text-red-500 cursor-pointer">删除</a>
+                                        </VortPopconfirm>
+                                    </template>
+                                </VortTableColumn>
+                            </VortTable>
+                        </div>
+                        <div v-else class="text-gray-400 text-sm text-center py-16">
+                            暂无日历数据，点击「同步法定节假日」或手动添加
+                        </div>
+                    </VortSpin>
+                </VortTabPane>
             </VortTabs>
         </div>
 
@@ -1596,6 +1877,91 @@ onMounted(() => {
                     </div>
                 </div>
                 <div v-else-if="addMemberSearch && !addMemberLoading" class="text-gray-400 text-sm text-center py-4">未找到匹配成员</div>
+            </div>
+        </VortDialog>
+
+        <!-- 新增汇报关系弹窗 -->
+        <VortDialog
+            :open="relationDialogOpen"
+            title="新增汇报关系"
+            :ok-text="'创建'"
+            :confirm-loading="savingRelation"
+            @update:open="relationDialogOpen = $event"
+            @ok="handleSaveRelation"
+        >
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">搜索成员</label>
+                    <VortInputSearch
+                        v-model="relationMemberSearch"
+                        placeholder="输入姓名搜索"
+                        @search="searchRelationMembers"
+                        @press-enter="searchRelationMembers"
+                    />
+                </div>
+                <div v-if="relationMemberResults.length" class="max-h-40 overflow-y-auto border border-gray-100 rounded-lg p-2 space-y-1">
+                    <div
+                        v-for="m in relationMemberResults" :key="m.id"
+                        class="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-gray-50 text-sm"
+                    >
+                        <span class="font-medium text-gray-800">{{ m.name }}</span>
+                        <div class="flex items-center gap-1">
+                            <VortButton size="small" @click="relationForm.reporter_id = m.id; message.info(`已选为汇报人: ${m.name}`)">
+                                设为汇报人
+                            </VortButton>
+                            <VortButton size="small" @click="relationForm.supervisor_id = m.id; message.info(`已选为上级: ${m.name}`)">
+                                设为上级
+                            </VortButton>
+                        </div>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">汇报人（下级）</label>
+                        <div class="text-sm text-gray-800 px-3 py-2 bg-gray-50 rounded-lg min-h-[36px]">
+                            {{ members.find(m => m.id === relationForm.reporter_id)?.name || '未选择' }}
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">上级</label>
+                        <div class="text-sm text-gray-800 px-3 py-2 bg-gray-50 rounded-lg min-h-[36px]">
+                            {{ members.find(m => m.id === relationForm.supervisor_id)?.name || '未选择' }}
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">关系类型</label>
+                    <VortSelect v-model="relationForm.relation_type" style="width: 100%">
+                        <VortSelectOption v-for="opt in relationTypeOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</VortSelectOption>
+                    </VortSelect>
+                </div>
+            </div>
+        </VortDialog>
+
+        <!-- 新增日历条目弹窗 -->
+        <VortDialog
+            :open="calendarDialogOpen"
+            title="添加日历条目"
+            :ok-text="'添加'"
+            :confirm-loading="savingCalendar"
+            @update:open="calendarDialogOpen = $event"
+            @ok="handleSaveCalendar"
+        >
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">日期</label>
+                    <VortDatePicker v-model="calendarForm.date" value-format="YYYY-MM-DD" placeholder="请选择日期" style="width: 100%" />
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">类型</label>
+                    <VortSelect v-model="calendarForm.day_type" style="width: 100%">
+                        <VortSelectOption v-for="opt in dayTypeOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</VortSelectOption>
+                    </VortSelect>
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">名称</label>
+                    <VortInput v-model="calendarForm.name" placeholder="如：国庆节、中秋调休补班" />
+                </div>
             </div>
         </VortDialog>
     </div>

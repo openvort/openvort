@@ -113,6 +113,35 @@ class ContactsSettings(BaseSettings):
     role_mapping: str = "总经理:admin,副总:admin,总监:manager,经理:manager,主管:manager"  # 职位->角色映射
 
 
+class OrgSettings(BaseSettings):
+    """组织管理配置（工时、时区等）"""
+
+    model_config = SettingsConfigDict(
+        env_prefix="OPENVORT_ORG_", env_file=".env", env_file_encoding="utf-8", extra="ignore",
+    )
+
+    timezone: str = "Asia/Shanghai"
+    work_start: str = "09:00"
+    work_end: str = "18:00"
+    work_days: str = "1,2,3,4,5"  # 1=Mon ... 7=Sun
+    lunch_start: str = "12:00"
+    lunch_end: str = "13:30"
+
+
+class OpenClawSettings(BaseSettings):
+    """OpenClaw 集成配置"""
+
+    model_config = SettingsConfigDict(
+        env_prefix="OPENVORT_OPENCLAW_", env_file=".env", env_file_encoding="utf-8", extra="ignore",
+    )
+
+    gateway_url: str = ""  # OpenClaw Gateway 地址，如 http://127.0.0.1:18789
+    hook_token: str = ""  # OpenClaw hooks.token（双向认证）
+    enabled: bool = False  # 是否启用 OpenClaw 集成
+    deliver_channel: str = "last"  # 推送到 OpenClaw 的目标通道（last/whatsapp/telegram/slack/discord 等）
+    deliver_to: str = ""  # 推送目标（手机号/chat ID 等），空则用 OpenClaw 默认
+
+
 class WebSettings(BaseSettings):
     """Web 管理面板配置"""
 
@@ -155,6 +184,12 @@ class Settings(BaseSettings):
 
     # 通讯录
     contacts: ContactsSettings = Field(default_factory=ContactsSettings)
+
+    # 组织管理
+    org: OrgSettings = Field(default_factory=OrgSettings)
+
+    # OpenClaw 集成
+    openclaw: OpenClawSettings = Field(default_factory=OpenClawSettings)
 
     # Web 面板
     web: WebSettings = Field(default_factory=WebSettings)

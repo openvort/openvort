@@ -52,12 +52,15 @@ openvort = "openvort.cli:main"
 wecom = "openvort.channels.wecom:WeComChannel"
 dingtalk = "openvort.channels.dingtalk:DingTalkChannel"
 feishu = "openvort.channels.feishu:FeishuChannel"
+openclaw = "openvort.channels.openclaw:OpenClawChannel"
 
 [project.entry-points."openvort.plugins"]
 zentao = "openvort.plugins.zentao:ZentaoPlugin"
 contacts = "openvort.contacts.plugin:ContactsPlugin"
 vortflow = "openvort.plugins.vortflow:VortFlowPlugin"
 vortgit = "openvort.plugins.vortgit:VortGitPlugin"
+schedule = "openvort.plugins.schedule:SchedulePlugin"
+report = "openvort.plugins.report:ReportPlugin"
 
 [project.urls]
 Homepage = "https://github.com/nicekate/openvort"

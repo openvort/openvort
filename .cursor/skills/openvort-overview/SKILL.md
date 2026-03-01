@@ -44,7 +44,8 @@ src/openvort/
 │   ├── zentao/              # 禅道插件（11 个 Tool，直连 MySQL）
 │   ├── browser/             # 浏览器控制插件（Playwright，5 个 Tool）
 │   ├── vortflow/            # VortFlow 项目管理插件（需求/任务/Bug 状态机，5 个 Tool）
-│   └── vortgit/             # VortGit 代码仓库插件（Git 平台接入/提交分析/工作汇报，4 个 Tool）
+│   ├── vortgit/             # VortGit 代码仓库插件（Git 平台接入/提交分析/工作汇报，4 个 Tool）
+│   └── schedule/            # 定时任务插件（AI 驱动定时任务管理，2 个 Tool）
 ├── channels/
 │   ├── wecom/               # 企业微信通道（Webhook/Relay/DB轮询）
 │   ├── dingtalk/            # 钉钉通道（Webhook 回调 + OpenAPI）
@@ -107,6 +108,7 @@ zentao = "openvort.plugins.zentao:ZentaoPlugin"
 contacts = "openvort.contacts.plugin:ContactsPlugin"
 vortflow = "openvort.plugins.vortflow:VortFlowPlugin"
 vortgit = "openvort.plugins.vortgit:VortGitPlugin"
+schedule = "openvort.plugins.schedule:SchedulePlugin"
 ```
 
 ## 核心类签名
@@ -234,6 +236,9 @@ openvort pairing approve|reject|list|allowlist    # DM 配对管理
 
 ### VortGit 代码仓库插件 (plugins/vortgit/)
 Git 平台接入 + 提交分析 + 多维度工作汇报。通过 Provider 抽象支持多平台（首期 Gitee，可扩展 GitHub/GitLab）。Token 使用 Fernet 加密存储。4 个 AI Tool：git_list_repos（列出仓库）、git_repo_info（仓库详情含分支/提交）、git_query_commits（跨仓库提交查询）、git_work_summary（Git 提交 + VortFlow 任务联合分析，生成日/周/月报）。WorkspaceManager 提供成员隔离的本地 Git 工作空间（shallow clone + asyncio.subprocess）。数据模型：git_providers, git_repos, git_repo_members, git_workspaces, git_code_tasks。前端页面：Repos.vue（仓库卡片+详情含提交/分支 Tab）、Providers.vue（平台管理）。与 VortFlow 集成：仓库通过 project_id 关联项目，ProjectDetail.vue 展示关联仓库。
+
+### Schedule 定时任务插件 (plugins/schedule/)
+AI 驱动的定时任务管理。2 个 AI Tool：schedule_manage（创建/更新/删除/启停/立即执行定时任务）、schedule_query（查询任务列表和详情）。支持三种调度方式：cron 定时（5段式表达式）、interval 固定间隔（秒数）、once 一次性（ISO时间）。执行方式为 agent_chat，到期后 AI 自动执行指定 prompt。底层复用 core/scheduler.py（APScheduler）+ core/schedule_service.py（CRUD 业务层）。数据模型：schedule_jobs。前端页面：schedules/Index.vue（任务列表+新建/编辑/执行）。
 
 ## 通道系统
 

@@ -6,7 +6,7 @@ import {
     getAdminSchedules, createAdminSchedule, updateAdminSchedule, deleteAdminSchedule,
     toggleAdminSchedule, runAdminSchedule,
 } from "@/api";
-import { Plus, Play, Users, User, RefreshCw } from "lucide-vue-next";
+import { Plus, Play, Users, User, RefreshCw, HelpCircle } from "lucide-vue-next";
 import { message } from "@/components/vort/message";
 import { useUserStore } from "@/stores";
 
@@ -245,9 +245,12 @@ const scheduleFieldLabel = computed(() => {
                             <User :size="14" />
                             <span>共 {{ myJobs.length }} 个任务</span>
                         </div>
-                        <VortButton variant="primary" @click="openCreate('personal')">
-                            <Plus :size="14" class="mr-1" /> 新建任务
-                        </VortButton>
+                        <div class="flex items-center gap-2">
+                            <VortButton variant="primary" @click="openCreate('personal')">
+                                <Plus :size="14" class="mr-1" /> 新建任务
+                            </VortButton>
+                            <AiAssistButton prompt="我想创建一个定时任务，请引导我完成设置。我需要设置任务名称、调度规则（支持 cron 定时/固定间隔/一次性执行）以及任务到期后 AI 要执行的内容。" />
+                        </div>
                     </div>
 
                     <VortTable :data-source="myJobs" :loading="loadingMy" row-key="job_id" :pagination="false">
@@ -276,20 +279,22 @@ const scheduleFieldLabel = computed(() => {
                                 </VortButton>
                             </template>
                         </VortTableColumn>
-                        <VortTableColumn label="操作" :width="140" fixed="right">
+                        <VortTableColumn label="操作" :width="180" fixed="right">
                             <template #default="{ row }">
-                                <TableActions>
-                                    <TableActionsItem @click="handleRun(row)">执行</TableActionsItem>
-                                    <TableActionsItem @click="openEdit(row)">编辑</TableActionsItem>
+                                <div class="flex items-center gap-2 whitespace-nowrap">
+                                    <a class="text-sm text-blue-600 cursor-pointer" @click="handleRun(row)">执行</a>
+                                    <VortDivider type="vertical" />
+                                    <a class="text-sm text-blue-600 cursor-pointer" @click="openEdit(row)">编辑</a>
+                                    <VortDivider type="vertical" />
                                     <DeleteRecord
                                         :request-api="deleteApi"
                                         :params="{ job_id: row.job_id }"
                                         :title="`确定删除任务「${row.name}」？`"
                                         :on-success="refresh"
                                     >
-                                        <TableActionsItem danger>删除</TableActionsItem>
+                                        <a class="text-sm text-red-500 cursor-pointer">删除</a>
                                     </DeleteRecord>
-                                </TableActions>
+                                </div>
                             </template>
                         </VortTableColumn>
                     </VortTable>
@@ -352,20 +357,22 @@ const scheduleFieldLabel = computed(() => {
                                 </VortButton>
                             </template>
                         </VortTableColumn>
-                        <VortTableColumn label="操作" :width="140" fixed="right">
+                        <VortTableColumn label="操作" :width="180" fixed="right">
                             <template #default="{ row }">
-                                <TableActions>
-                                    <TableActionsItem @click="handleRun(row)">执行</TableActionsItem>
-                                    <TableActionsItem @click="openEdit(row)">编辑</TableActionsItem>
+                                <div class="flex items-center gap-2 whitespace-nowrap">
+                                    <a class="text-sm text-blue-600 cursor-pointer" @click="handleRun(row)">执行</a>
+                                    <VortDivider type="vertical" />
+                                    <a class="text-sm text-blue-600 cursor-pointer" @click="openEdit(row)">编辑</a>
+                                    <VortDivider type="vertical" />
                                     <DeleteRecord
                                         :request-api="deleteApi"
                                         :params="{ job_id: row.job_id }"
                                         :title="`确定删除任务「${row.name}」？`"
                                         :on-success="refresh"
                                     >
-                                        <TableActionsItem danger>删除</TableActionsItem>
+                                        <a class="text-sm text-red-500 cursor-pointer">删除</a>
                                     </DeleteRecord>
-                                </TableActions>
+                                </div>
                             </template>
                         </VortTableColumn>
                     </VortTable>
@@ -375,7 +382,7 @@ const scheduleFieldLabel = computed(() => {
 
         <!-- 新建/编辑弹窗 -->
         <VortDialog :open="dialogOpen" :title="dialogMode === 'create' ? '新建任务' : '编辑任务'" @update:open="dialogOpen = $event">
-            <VortForm label-width="100px">
+            <VortForm label-width="120px">
                 <VortFormItem label="任务名称" required>
                     <VortInput v-model="form.name" placeholder="例如：每日站会提醒" />
                 </VortFormItem>
@@ -385,7 +392,29 @@ const scheduleFieldLabel = computed(() => {
                 <VortFormItem label="调度类型" required>
                     <VortSelect v-model="form.schedule_type" :options="scheduleTypeOptions" placeholder="请选择" />
                 </VortFormItem>
-                <VortFormItem :label="scheduleFieldLabel" required>
+                <VortFormItem required>
+                    <template #label>
+                        <span>{{ scheduleFieldLabel }}</span>
+                        <VortTooltip v-if="form.schedule_type === 'cron'">
+                            <template #title>
+                                <div class="leading-normal" style="min-width: 200px;">
+                                    <div class="font-medium mb-1.5">格式：分 时 日 月 周</div>
+                                    <table class="w-full mb-2" style="border-spacing: 4px 2px; border-collapse: separate;">
+                                        <tr><td class="text-yellow-300 font-mono">*</td><td>每个</td><td class="text-yellow-300 font-mono">-</td><td>范围</td></tr>
+                                        <tr><td class="text-yellow-300 font-mono">,</td><td>列举</td><td class="text-yellow-300 font-mono">/</td><td>步长</td></tr>
+                                    </table>
+                                    <div class="font-medium mb-1">示例</div>
+                                    <table class="w-full" style="border-spacing: 4px 2px; border-collapse: separate;">
+                                        <tr><td class="font-mono whitespace-nowrap">0 9 * * 1-5</td><td class="text-gray-300">工作日 9:00</td></tr>
+                                        <tr><td class="font-mono whitespace-nowrap">0 */2 * * *</td><td class="text-gray-300">每 2 小时</td></tr>
+                                        <tr><td class="font-mono whitespace-nowrap">30 8 1 * *</td><td class="text-gray-300">每月 1 号 8:30</td></tr>
+                                        <tr><td class="font-mono whitespace-nowrap">0 0 * * 0</td><td class="text-gray-300">每周日 0:00</td></tr>
+                                    </table>
+                                </div>
+                            </template>
+                            <HelpCircle :size="14" class="ml-1 text-gray-400 cursor-help inline-block align-middle" />
+                        </VortTooltip>
+                    </template>
                     <VortInput v-model="form.schedule" :placeholder="schedulePlaceholder" />
                 </VortFormItem>
                 <VortFormItem label="时区">

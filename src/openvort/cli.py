@@ -365,8 +365,56 @@ async def _start_service(relay_url: str | None, poll_db_json: str | None, web_fl
             else:
                 await ch.start()
 
+        # ---- OpenClaw Channel ----
+        if ch.name == "openclaw" and ch.is_configured():
+            _oc_ch = ch
+
+            async def handle_openclaw_message(msg):
+                from openvort.core.setup import is_initialized as _is_init
+                if not await _is_init(session_factory):
+                    log.warning(f"系统未初始化，忽略来自 openclaw:{msg.sender_id} 的消息")
+                    return None
+
+                cmd_result = await command_handler.handle(msg.channel, msg.sender_id, msg.content)
+                if cmd_result.handled:
+                    if cmd_result.reply:
+                        from openvort.plugin.base import Message as Msg
+                        await _oc_ch.send(msg.sender_id, Msg(content=cmd_result.reply, channel="openclaw"))
+                    return None
+
+                ctx = await build_context(msg.channel, msg.sender_id)
+                ctx.images = getattr(msg, "images", []) or []
+
+                async def process_fn(ctx_, content_):
+                    return await agent.process(ctx_, content_)
+
+                async def send_fn(reply_):
+                    log.info(f"OpenClaw 回复: {reply_[:50]}")
+                    from openvort.plugin.base import Message as Msg
+                    await _oc_ch.send(msg.sender_id, Msg(content=reply_, channel="openclaw"))
+
+                reply = await dispatcher.dispatch(ctx, msg.content, process_fn, send_fn)
+                return reply
+
+            ch.on_message(handle_openclaw_message)
+            await ch.start()
+
     mode = "relay" if effective_relay_url else ("poll-db" if poll_db_json else "webhook")
     log.info(f"已加载 {len(channels)} 个 Channel, {len(registry.list_tools())} 个 Tool (模式: {mode})")
+
+    # ---- 定时任务调度器 ----
+    from openvort.core.scheduler import Scheduler as _Scheduler
+    from openvort.core.schedule_service import ScheduleService as _ScheduleService
+
+    _scheduler = _Scheduler()
+    _scheduler.start()
+    schedule_service = _ScheduleService(session_factory, _scheduler, agent)
+    try:
+        count = await schedule_service.sync_to_scheduler()
+        if count:
+            log.info(f"已恢复 {count} 个定时任务")
+    except Exception as e:
+        log.warning(f"恢复定时任务失败: {e}")
 
     # ---- Web 管理面板 ----
     web_enabled = web_flag if web_flag is not None else settings.web.enabled
@@ -381,7 +429,8 @@ async def _start_service(relay_url: str | None, poll_db_json: str | None, web_fl
             # 注入运行时依赖
             set_runtime(agent, registry, session_store, session_factory,
                         auth_service=auth_service, build_context_fn=build_context,
-                        skill_loader=skill_loader, config_service=config_service)
+                        skill_loader=skill_loader, config_service=config_service,
+                        schedule_service=schedule_service)
             install_log_handler()
 
             web_app = create_app()
@@ -416,6 +465,7 @@ async def _start_service(relay_url: str | None, poll_db_json: str | None, web_fl
             await asyncio.sleep(1)
     except (KeyboardInterrupt, asyncio.CancelledError):
         log.info("正在关闭...")
+        _scheduler.stop()
         for ch in channels:
             await ch.stop()
         from openvort.db import close_db

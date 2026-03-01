@@ -245,7 +245,7 @@ loadData();
                         <vort-input v-model="currentRow.name" placeholder="请输入里程碑名称" />
                     </vort-form-item>
                     <vort-form-item label="截止日期">
-                        <vort-input v-model="currentRow.due_date" type="date" class="w-full" />
+                        <vort-date-picker v-model="currentRow.due_date" value-format="YYYY-MM-DD" placeholder="请选择截止日期" class="w-full" />
                     </vort-form-item>
                     <vort-form-item label="描述">
                         <vort-textarea v-model="currentRow.description" placeholder="请输入描述" :rows="4" />

@@ -57,7 +57,7 @@ const stateLabel = (val: string) => stateOptions.find(o => o.value === val)?.lab
 const stories = ref<{ id: string; title: string }[]>([]);
 const loadStories = async () => {
     try {
-        const res = await getVortflowStories({ page: 1, page_size: 200 });
+        const res = await getVortflowStories({ page: 1, page_size: 100 });
         stories.value = ((res as any)?.items || []).map((s: any) => ({ id: s.id, title: s.title }));
     } catch { /* silent */ }
 };
@@ -318,7 +318,7 @@ loadData();
                         <vort-input-number v-model="currentRow.actual_hours" placeholder="小时" :min="0" class="w-full" />
                     </vort-form-item>
                     <vort-form-item label="截止日期">
-                        <vort-input v-model="currentRow.deadline" type="date" class="w-full" />
+                        <vort-date-picker v-model="currentRow.deadline" value-format="YYYY-MM-DD" placeholder="请选择截止日期" class="w-full" />
                     </vort-form-item>
                     <vort-form-item label="描述">
                         <vort-textarea v-model="currentRow.description" placeholder="请输入任务描述" :rows="4" />

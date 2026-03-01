@@ -1,7 +1,7 @@
 """
-通讯录插件
+组织管理插件
 
-将通讯录 Tool 注册到 Agent，让用户通过聊天管理通讯录。
+将通讯录 Tool 注册到 Agent，让用户通过聊天管理组织架构。
 作为核心模块的 Plugin 壳，通过 entry_points 自动发现。
 """
 
@@ -18,11 +18,11 @@ log = get_logger("contacts.plugin")
 
 
 class ContactsPlugin(BasePlugin):
-    """通讯录插件 — 提供聊天式通讯录管理能力"""
+    """组织管理插件 — 提供聊天式通讯录和组织架构管理能力"""
 
     name = "contacts"
-    display_name = "通讯录管理"
-    description = "通讯录同步、成员搜索、身份映射管理"
+    display_name = "组织管理"
+    description = "通讯录同步、成员搜索、身份映射、汇报关系管理"
     version = "0.1.0"
     core = True  # 核心插件，不可禁用
 
@@ -60,7 +60,7 @@ class ContactsPlugin(BasePlugin):
 
     def get_prompts(self) -> list[str]:
         return [
-            "## 通讯录管理\n"
+            "## 组织管理\n"
             "- 用户可以要求同步通讯录（需管理员权限）\n"
             "- 可以搜索成员，查看其在各平台的身份映射\n"
             "- 管理员可以查看和处理待确认的匹配建议\n"

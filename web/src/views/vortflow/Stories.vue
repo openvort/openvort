@@ -317,7 +317,7 @@ loadData();
                         </vort-select>
                     </vort-form-item>
                     <vort-form-item label="截止日期">
-                        <vort-input v-model="currentRow.deadline" type="date" class="w-full" />
+                        <vort-date-picker v-model="currentRow.deadline" value-format="YYYY-MM-DD" placeholder="请选择截止日期" class="w-full" />
                     </vort-form-item>
                     <vort-form-item label="描述">
                         <vort-textarea v-model="currentRow.description" placeholder="请输入需求描述" :rows="4" />

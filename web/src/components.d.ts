@@ -11,6 +11,7 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    AiAssistButton: typeof import('@/components/vort-biz/ai-assist-button')['AiAssistButton']
     DeleteRecord: typeof import('@/components/vort-biz/delete-record')['DeleteRecord']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
@@ -24,6 +25,7 @@ declare module 'vue' {
     VortButton: typeof import('@/components/vort/button')['Button']
     VortCard: typeof import('@/components/vort/card')['Card']
     VortCheckbox: typeof import('@/components/vort/checkbox')['Checkbox']
+    VortDatePicker: typeof import('@/components/vort/date-picker')['DatePicker']
     VortDialog: typeof import('@/components/vort/dialog')['Dialog']
     VortDivider: typeof import('@/components/vort/divider')['Divider']
     VortDrawer: typeof import('@/components/vort/drawer')['Drawer']
@@ -40,6 +42,7 @@ declare module 'vue' {
     VortPopconfirm: typeof import('@/components/vort/popconfirm')['Popconfirm']
     VortRadioButton: typeof import('@/components/vort/radio')['RadioButton']
     VortRadioGroup: typeof import('@/components/vort/radio')['RadioGroup']
+    VortRangePicker: typeof import('@/components/vort/date-picker')['RangePicker']
     VortScrollbar: typeof import('@/components/vort/scrollbar')['Scrollbar']
     VortSelect: typeof import('@/components/vort/select')['Select']
     VortSelectOption: typeof import('@/components/vort/select')['SelectOption']

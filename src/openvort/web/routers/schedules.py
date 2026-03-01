@@ -48,6 +48,14 @@ _service_instance = None
 
 
 def _get_service():
+    from openvort.web.deps import get_schedule_service
+
+    # Prefer the centrally-initialized instance from deps (startup with sync)
+    svc = get_schedule_service()
+    if svc is not None:
+        return svc
+
+    # Fallback: lazy init (e.g. deps not yet populated)
     from openvort.web.deps import get_db_session_factory, get_agent
     from openvort.core.schedule_service import ScheduleService
     from openvort.core.scheduler import Scheduler
@@ -105,7 +113,11 @@ async def create_my_job(request: Request, req: CreateJobRequest):
         action_config=req.action_config,
         enabled=req.enabled,
         visible=req.visible,
-    )("/{job_id}")
+    )
+    return {"success": True, "job": job}
+
+
+@schedules_router.put("/{job_id}")
 async def update_my_job(request: Request, job_id: str, req: UpdateJobRequest):
     """编辑个人任务（仅 owner）"""
     member_id = _get_member_id(request)
