@@ -23,7 +23,6 @@ class ReportQueryTool(BaseTool):
     def __init__(self, session_factory_getter):
         self._sf_getter = session_factory_getter
 
-    @property
     def input_schema(self) -> dict:
         return {
             "type": "object",
@@ -63,25 +62,28 @@ class ReportQueryTool(BaseTool):
             "required": ["query_type"],
         }
 
-    async def execute(self, **kwargs) -> dict:
+    async def execute(self, params: dict) -> str:
+        import json
         from openvort.plugins.report.service import ReportService
 
-        query_type = kwargs.get("query_type", "")
+        query_type = params.get("query_type", "")
         service = ReportService(self._sf_getter())
 
         if query_type == "my_reports":
-            return await self._my_reports(service, kwargs)
+            result = await self._my_reports(service, params)
         elif query_type == "subordinate_reports":
-            return await self._subordinate_reports(service, kwargs)
+            result = await self._subordinate_reports(service, params)
         elif query_type == "report_detail":
-            return await self._report_detail(service, kwargs)
+            result = await self._report_detail(service, params)
         elif query_type == "review":
-            return await self._review(service, kwargs)
+            result = await self._review(service, params)
         elif query_type == "stats":
-            return await self._stats(service, kwargs)
+            result = await self._stats(service, params)
         elif query_type == "team_summary":
-            return await self._team_summary(service, kwargs)
-        return {"ok": False, "error": f"未知查询类型: {query_type}"}
+            result = await self._team_summary(service, params)
+        else:
+            result = {"ok": False, "error": f"未知查询类型: {query_type}"}
+        return json.dumps(result, ensure_ascii=False, default=str)
 
     async def _my_reports(self, service, kwargs: dict) -> dict:
         member_name = kwargs.get("member_name", "")

@@ -97,6 +97,7 @@ class GitCodeTask(Base):
     member_id: Mapped[str] = mapped_column(String(32), ForeignKey("members.id"), index=True)
     story_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     task_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    bug_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     cli_tool: Mapped[str] = mapped_column(String(32), default="")
     task_description: Mapped[str] = mapped_column(Text, default="")
     branch_name: Mapped[str] = mapped_column(String(128), default="")

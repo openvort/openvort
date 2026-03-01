@@ -54,6 +54,8 @@ declare module 'vue' {
     VortTabs: typeof import('@/components/vort/tabs')['Tabs']
     VortTag: typeof import('@/components/vort/tag')['Tag']
     VortTextarea: typeof import('@/components/vort/textarea')['Textarea']
+    VortTimeline: typeof import('@/components/vort/timeline')['Timeline']
+    VortTimelineItem: typeof import('@/components/vort/timeline')['TimelineItem']
     VortTooltip: typeof import('@/components/vort/tooltip')['Tooltip']
   }
 }

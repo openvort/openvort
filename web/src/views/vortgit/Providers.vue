@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted, onActivated } from "vue";
 import { useCrudPage } from "@/hooks";
-import { getVortgitProviders, createVortgitProvider, updateVortgitProvider, deleteVortgitProvider } from "@/api";
-import { Plus, Eye, EyeOff, RefreshCw } from "lucide-vue-next";
+import { getVortgitProviders, createVortgitProvider, updateVortgitProvider, deleteVortgitProvider, getVortgitCodingEnvStatus } from "@/api";
+import { Plus, Eye, EyeOff, RefreshCw, CheckCircle2, XCircle, AlertCircle, Terminal, Container } from "lucide-vue-next";
 import { message } from "@/components/vort/message";
 
 interface ProviderItem {
@@ -111,8 +111,36 @@ const handleRefresh = () => {
     loadData();
 };
 
+// ---- Coding Environment ----
+const activeTab = ref("providers");
+const envStatus = ref<Record<string, any> | null>(null);
+const envLoading = ref(false);
+
+async function loadEnvStatus() {
+    envLoading.value = true;
+    try {
+        envStatus.value = await getVortgitCodingEnvStatus() as any;
+    } catch {
+        envStatus.value = null;
+    }
+    envLoading.value = false;
+}
+
+function envModeLabel(mode: string): string {
+    if (mode === "local") return "本地执行";
+    if (mode === "docker") return "Docker 容器";
+    return "不可用";
+}
+
+function envModeColor(mode: string): string {
+    if (mode === "local") return "success";
+    if (mode === "docker") return "processing";
+    return "error";
+}
+
 onMounted(() => {
     loadData();
+    loadEnvStatus();
 });
 
 onActivated(() => {
@@ -123,52 +151,153 @@ onActivated(() => {
 <template>
     <div class="space-y-4">
         <div class="bg-white rounded-xl p-6">
-            <div class="flex items-center justify-between mb-2">
-                <h3 class="text-base font-medium text-gray-800">Git 平台管理</h3>
-                <div class="flex items-center gap-2">
-                    <vort-button @click="handleRefresh">
-                        <RefreshCw :size="14" class="mr-1" /> 刷新
-                    </vort-button>
-                    <vort-button variant="primary" @click="handleAdd">
-                        <Plus :size="14" class="mr-1" /> 添加平台
-                    </vort-button>
-                </div>
-            </div>
-            <p class="text-sm text-gray-400 mb-4">接入 Gitee、GitHub、GitLab 等代码托管平台，统一管理多平台仓库与 AI 编码能力。配置平台 Token 后即可导入仓库。</p>
-
-            <vort-table :data-source="listData" :loading="loading" :pagination="false">
-                <vort-table-column label="名称" prop="name" />
-                <vort-table-column label="平台" :width="100">
-                    <template #default="{ row }">
-                        <vort-tag :color="platformColorMap[row.platform] || 'default'">{{ platformLabel(row.platform) }}</vort-tag>
-                    </template>
-                </vort-table-column>
-                <vort-table-column label="API 地址" prop="api_base" />
-                <vort-table-column label="Token" :width="80">
-                    <template #default="{ row }">
-                        <vort-tag :color="row.has_token ? 'green' : 'default'">{{ row.has_token ? '已配置' : '未配置' }}</vort-tag>
-                    </template>
-                </vort-table-column>
-                <vort-table-column label="默认" :width="60">
-                    <template #default="{ row }">
-                        <span v-if="row.is_default" class="text-blue-600 text-sm">是</span>
-                        <span v-else class="text-gray-400 text-sm">—</span>
-                    </template>
-                </vort-table-column>
-                <vort-table-column label="操作" :width="160" fixed="right">
-                    <template #default="{ row }">
-                        <div class="flex items-center gap-2 whitespace-nowrap">
-                            <a class="text-sm text-blue-600 cursor-pointer" @click="handleView(row)">详情</a>
-                            <vort-divider type="vertical" />
-                            <a class="text-sm text-blue-600 cursor-pointer" @click="handleEdit(row)">编辑</a>
-                            <vort-divider type="vertical" />
-                            <vort-popconfirm title="确认删除？" @confirm="handleDelete(row)">
-                                <a class="text-sm text-red-500 cursor-pointer">删除</a>
-                            </vort-popconfirm>
+            <VortTabs v-model:activeKey="activeTab">
+                <!-- Git 平台 Tab -->
+                <VortTabPane tab-key="providers" tab="Git 平台">
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="flex items-center gap-2">
+                            <vort-button @click="handleRefresh">
+                                <RefreshCw :size="14" class="mr-1" /> 刷新
+                            </vort-button>
+                            <vort-button variant="primary" @click="handleAdd">
+                                <Plus :size="14" class="mr-1" /> 添加平台
+                            </vort-button>
                         </div>
-                    </template>
-                </vort-table-column>
-            </vort-table>
+                    </div>
+                    <p class="text-sm text-gray-400 mb-4">接入 Gitee、GitHub、GitLab 等代码托管平台，统一管理多平台仓库与 AI 编码能力。配置平台 Token 后即可导入仓库。</p>
+
+                    <vort-table :data-source="listData" :loading="loading" :pagination="false">
+                        <vort-table-column label="名称" prop="name" />
+                        <vort-table-column label="平台" :width="100">
+                            <template #default="{ row }">
+                                <vort-tag :color="platformColorMap[row.platform] || 'default'">{{ platformLabel(row.platform) }}</vort-tag>
+                            </template>
+                        </vort-table-column>
+                        <vort-table-column label="API 地址" prop="api_base" />
+                        <vort-table-column label="Token" :width="80">
+                            <template #default="{ row }">
+                                <vort-tag :color="row.has_token ? 'green' : 'default'">{{ row.has_token ? '已配置' : '未配置' }}</vort-tag>
+                            </template>
+                        </vort-table-column>
+                        <vort-table-column label="默认" :width="60">
+                            <template #default="{ row }">
+                                <span v-if="row.is_default" class="text-blue-600 text-sm">是</span>
+                                <span v-else class="text-gray-400 text-sm">—</span>
+                            </template>
+                        </vort-table-column>
+                        <vort-table-column label="操作" :width="160" fixed="right">
+                            <template #default="{ row }">
+                                <div class="flex items-center gap-2 whitespace-nowrap">
+                                    <a class="text-sm text-blue-600 cursor-pointer" @click="handleView(row)">详情</a>
+                                    <vort-divider type="vertical" />
+                                    <a class="text-sm text-blue-600 cursor-pointer" @click="handleEdit(row)">编辑</a>
+                                    <vort-divider type="vertical" />
+                                    <vort-popconfirm title="确认删除？" @confirm="handleDelete(row)">
+                                        <a class="text-sm text-red-500 cursor-pointer">删除</a>
+                                    </vort-popconfirm>
+                                </div>
+                            </template>
+                        </vort-table-column>
+                    </vort-table>
+                </VortTabPane>
+
+                <!-- 编码环境 Tab -->
+                <VortTabPane tab-key="coding-env" tab="编码环境">
+                    <div class="flex items-center justify-between mb-4">
+                        <p class="text-sm text-gray-400">AI 编码环境的运行状态、CLI 工具安装情况、API Key 配置。</p>
+                        <vort-button @click="loadEnvStatus">
+                            <RefreshCw :size="14" class="mr-1" /> 刷新
+                        </vort-button>
+                    </div>
+
+                    <VortSpin :spinning="envLoading">
+                        <div v-if="envStatus" class="space-y-6">
+                            <!-- Mode card -->
+                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                <div class="border rounded-lg p-4">
+                                    <div class="flex items-center gap-2 mb-2">
+                                        <Terminal :size="16" class="text-gray-500" />
+                                        <span class="text-sm font-medium text-gray-700">执行模式</span>
+                                    </div>
+                                    <vort-tag :color="envModeColor(envStatus.mode)" size="small">
+                                        {{ envModeLabel(envStatus.mode) }}
+                                    </vort-tag>
+                                </div>
+                                <div class="border rounded-lg p-4">
+                                    <div class="flex items-center gap-2 mb-2">
+                                        <Container :size="16" class="text-gray-500" />
+                                        <span class="text-sm font-medium text-gray-700">Docker</span>
+                                    </div>
+                                    <vort-tag v-if="envStatus.docker_available" color="success" size="small">可用</vort-tag>
+                                    <vort-tag v-else color="default" size="small">未安装</vort-tag>
+                                    <span v-if="envStatus.docker_image_ready" class="text-xs text-green-600 ml-2">镜像已拉取</span>
+                                </div>
+                                <div class="border rounded-lg p-4">
+                                    <div class="flex items-center gap-2 mb-2">
+                                        <Terminal :size="16" class="text-gray-500" />
+                                        <span class="text-sm font-medium text-gray-700">默认工具</span>
+                                    </div>
+                                    <span class="text-sm text-gray-700">{{ envStatus.cli_default_tool === 'claude-code' ? 'Claude Code' : envStatus.cli_default_tool }}</span>
+                                </div>
+                            </div>
+
+                            <!-- CLI tools status -->
+                            <div>
+                                <h4 class="text-sm font-medium text-gray-700 mb-3">CLI 工具</h4>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div v-for="tool in (envStatus.cli_tools || [])" :key="tool.name" class="border rounded-lg p-3 flex items-center justify-between">
+                                        <div>
+                                            <span class="text-sm font-medium text-gray-800">{{ tool.name }}</span>
+                                            <span v-if="tool.version" class="text-xs text-gray-400 ml-2">v{{ tool.version }}</span>
+                                        </div>
+                                        <CheckCircle2 v-if="tool.installed" :size="16" class="text-green-500" />
+                                        <XCircle v-else :size="16" class="text-gray-300" />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- API Keys -->
+                            <div>
+                                <h4 class="text-sm font-medium text-gray-700 mb-3">API Key 配置</h4>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div class="border rounded-lg p-3 flex items-center justify-between">
+                                        <span class="text-sm text-gray-700">Claude Code API Key</span>
+                                        <vort-tag :color="envStatus.has_claude_key ? 'success' : 'default'" size="small">
+                                            {{ envStatus.has_claude_key ? '已配置' : '未配置' }}
+                                        </vort-tag>
+                                    </div>
+                                    <div class="border rounded-lg p-3 flex items-center justify-between">
+                                        <span class="text-sm text-gray-700">Aider API Key</span>
+                                        <vort-tag :color="envStatus.has_aider_key ? 'success' : 'default'" size="small">
+                                            {{ envStatus.has_aider_key ? '已配置' : '未配置' }}
+                                        </vort-tag>
+                                    </div>
+                                </div>
+                                <p class="text-xs text-gray-400 mt-2">API Key 可在「插件管理 → VortGit」中配置，或由管理员通过 <code class="bg-gray-100 px-1 rounded">openvort coding setup</code> 命令设置。</p>
+                            </div>
+
+                            <!-- Unavailable guide -->
+                            <div v-if="envStatus.mode === 'unavailable'" class="border border-orange-200 bg-orange-50 rounded-lg p-4">
+                                <div class="flex items-start gap-2">
+                                    <AlertCircle :size="16" class="text-orange-500 mt-0.5 shrink-0" />
+                                    <div>
+                                        <div class="text-sm font-medium text-orange-700 mb-1">编码环境未就绪</div>
+                                        <div class="text-sm text-orange-600">
+                                            需要管理员在服务器上执行以下命令完成初始化：
+                                        </div>
+                                        <code class="block mt-2 bg-white px-3 py-2 rounded text-sm text-gray-800 border border-orange-200">openvort coding setup</code>
+                                        <div class="text-xs text-orange-500 mt-2">该命令会自动检测环境、拉取 Docker 镜像、引导配置 API Key。</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-else class="text-center text-gray-400 py-12">
+                            加载编码环境状态失败，请点击刷新重试
+                        </div>
+                    </VortSpin>
+                </VortTabPane>
+            </VortTabs>
         </div>
 
         <vort-drawer v-model:open="drawerVisible" :title="drawerTitle" :width="500">

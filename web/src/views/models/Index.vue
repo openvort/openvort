@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
 import { Plus } from "lucide-vue-next";
-import { createModel, deleteModel, getModels, updateModel } from "@/api";
+import { createModel, deleteModel, getModels, testModel, updateModel } from "@/api";
 import { message } from "@/components/vort/message";
 
 interface ModelItem {
@@ -93,6 +93,20 @@ function handleEdit(row: ModelItem) {
     dialogOpen.value = true;
 }
 
+function handleCopy(row: ModelItem) {
+    editing.value = false;
+    editingId.value = "";
+    editingApiKey.value = true;
+    apiKeyBackup.value = "";
+    form.value = {
+        ...row,
+        id: "",
+        name: `${row.name} (副本)`,
+        api_key: "",
+    };
+    dialogOpen.value = true;
+}
+
 function startEditApiKey() {
     apiKeyBackup.value = form.value.api_key;
     editingApiKey.value = true;
@@ -181,6 +195,31 @@ async function deleteModelChecked(modelId: string) {
     }
 }
 
+const testingMap = ref<Record<string, boolean>>({});
+const testResults = ref<Record<string, { success: boolean; latency_ms?: number; reply?: string; error?: string }>>({});
+
+async function handleTest(row: ModelItem) {
+    if (testingMap.value[row.id]) {
+        return;
+    }
+    testingMap.value[row.id] = true;
+    delete testResults.value[row.id];
+    try {
+        const ret: any = await testModel(row.id);
+        testResults.value[row.id] = ret;
+        if (ret.success) {
+            message.success(`连接成功，延迟 ${ret.latency_ms}ms`);
+        } else {
+            message.error(ret.error || "测试失败");
+        }
+    } catch {
+        testResults.value[row.id] = { success: false, error: "请求异常" };
+        message.error("测试请求失败");
+    } finally {
+        delete testingMap.value[row.id];
+    }
+}
+
 onMounted(loadData);
 </script>
 
@@ -218,14 +257,37 @@ onMounted(loadData);
                         <VortSwitch :checked="row.enabled" @change="handleToggle(row)" />
                     </template>
                 </VortTableColumn>
-                <VortTableColumn label="操作" :width="140" fixed="right">
+                <VortTableColumn label="操作" :width="230" fixed="right">
                     <template #default="{ row }">
-                        <TableActions>
-                            <TableActionsItem @click="handleEdit(row)">编辑</TableActionsItem>
-                            <DeleteRecord class="ml-2" :request-api="() => deleteModelChecked(row.id)" :params="{}" @after-delete="loadData">
-                                <TableActionsItem danger>删除</TableActionsItem>
+                        <div class="flex items-center gap-2 whitespace-nowrap">
+                            <a
+                                class="text-sm cursor-pointer"
+                                :class="testingMap[row.id] ? 'text-gray-400 pointer-events-none' : 'text-green-600 hover:text-green-700'"
+                                @click="handleTest(row)"
+                            >
+                                <span v-if="testingMap[row.id]" class="inline-flex items-center gap-1">
+                                    <svg class="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                                    测试中
+                                </span>
+                                <span v-else>测试</span>
+                            </a>
+                            <vort-divider type="vertical" />
+                            <a class="text-sm text-blue-600 cursor-pointer" @click="handleCopy(row)">复制</a>
+                            <vort-divider type="vertical" />
+                            <a class="text-sm text-blue-600 cursor-pointer" @click="handleEdit(row)">编辑</a>
+                            <vort-divider type="vertical" />
+                            <DeleteRecord :request-api="() => deleteModelChecked(row.id)" :params="{}" @after-delete="loadData">
+                                <a class="text-sm text-red-500 cursor-pointer">删除</a>
                             </DeleteRecord>
-                        </TableActions>
+                        </div>
+                        <div v-if="testResults[row.id]" class="mt-1 text-xs">
+                            <span v-if="testResults[row.id].success" class="text-green-600">
+                                ✓ 连接正常 · {{ testResults[row.id].latency_ms }}ms
+                            </span>
+                            <span v-else class="text-red-500" :title="testResults[row.id].error">
+                                ✗ {{ testResults[row.id].error?.slice(0, 60) }}
+                            </span>
+                        </div>
                     </template>
                 </VortTableColumn>
             </VortTable>

@@ -27,6 +27,7 @@ class WeComChannel(BaseChannel):
 
     name = "wecom"
     display_name = "企业微信"
+    description = "企业微信 IM 通道，支持 Webhook/Relay/DB轮询三种模式接收消息"
 
     # 持久化文件：记录各模式的消费位点，重启后从断点继续
     _CURSOR_FILE = Path.home() / ".openvort" / "wecom_cursor.json"
@@ -105,13 +106,30 @@ class WeComChannel(BaseChannel):
 
     def get_config_schema(self) -> list[dict]:
         return [
-            {"key": "corp_id", "label": "企业 ID", "type": "string", "required": True, "secret": False, "placeholder": "ww1234567890abcdef"},
-            {"key": "app_secret", "label": "应用 Secret", "type": "string", "required": True, "secret": True, "placeholder": ""},
-            {"key": "agent_id", "label": "应用 AgentId", "type": "string", "required": True, "secret": False, "placeholder": "1000002"},
-            {"key": "callback_token", "label": "回调 Token", "type": "string", "required": False, "secret": True, "placeholder": "用于 Webhook 回调验证"},
-            {"key": "callback_aes_key", "label": "回调 EncodingAESKey", "type": "string", "required": False, "secret": True, "placeholder": "用于 Webhook 回调解密"},
-            {"key": "api_base_url", "label": "API 地址", "type": "string", "required": False, "secret": False, "placeholder": "https://qyapi.weixin.qq.com/cgi-bin"},
+            {"key": "corp_id", "label": "企业 ID", "type": "string", "required": True, "secret": False, "placeholder": "ww1234567890abcdef",
+             "description": "企微管理后台 → 我的企业 → 企业信息 → 企业 ID"},
+            {"key": "app_secret", "label": "应用 Secret", "type": "string", "required": True, "secret": True, "placeholder": "",
+             "description": "企微管理后台 → 应用管理 → 自建应用 → Secret"},
+            {"key": "agent_id", "label": "应用 AgentId", "type": "string", "required": True, "secret": False, "placeholder": "1000002",
+             "description": "自建应用详情页顶部的 AgentId"},
+            {"key": "callback_token", "label": "回调 Token", "type": "string", "required": False, "secret": True, "placeholder": "用于 Webhook 回调验证",
+             "description": "自建应用 → API接收消息 → 设置接收事件服务器时生成"},
+            {"key": "callback_aes_key", "label": "回调 EncodingAESKey", "type": "string", "required": False, "secret": True, "placeholder": "用于 Webhook 回调解密",
+             "description": "与回调 Token 一同生成，用于消息解密"},
+            {"key": "api_base_url", "label": "API 地址", "type": "string", "required": False, "secret": False, "placeholder": "https://qyapi.weixin.qq.com/cgi-bin",
+             "description": "企微 API 地址，通常无需修改"},
         ]
+
+    def get_setup_guide(self) -> str:
+        return (
+            "### 企业微信配置指南\n\n"
+            "1. 登录 [企业微信管理后台](https://work.weixin.qq.com/wework_admin/frame)\n"
+            "2. 进入「我的企业」→「企业信息」，复制 **企业 ID**\n"
+            "3. 进入「应用管理」→「自建」→ 创建应用（或选择已有应用）\n"
+            "4. 在应用详情页获取 **AgentId** 和 **Secret**\n"
+            "5. 如需 Webhook 模式：在「API接收消息」中设置接收服务器，获取 **Token** 和 **EncodingAESKey**\n"
+            "6. 如无公网 IP，推荐使用 Relay 中继模式（启动时加 `--relay-url`）\n"
+        )
 
     def get_current_config(self) -> dict:
         def _mask(value: str) -> str:

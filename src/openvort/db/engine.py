@@ -55,6 +55,7 @@ async def init_db(database_url: str) -> None:
 
         # 自动迁移：给已有表添加缺失的列（create_all 不会修改已有表）
         await conn.run_sync(_migrate_chat_sessions)
+        await conn.run_sync(_migrate_add_missing_columns)
 
     log.info(f"数据库已初始化: {database_url.split('://')[0]}")
 
@@ -172,3 +173,52 @@ def _rebuild_chat_sessions_table(connection, existing_cols: set[str]) -> None:
     connection.execute(text("CREATE INDEX IF NOT EXISTS ix_chat_sessions_session_id ON chat_sessions (session_id)"))
 
     log.info("chat_sessions 表已重建：唯一约束更新为 (channel, user_id, session_id)")
+
+
+def _migrate_add_missing_columns(connection) -> None:
+    """Auto-add missing columns to existing tables based on ORM metadata."""
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(connection)
+    existing_tables = set(inspector.get_table_names())
+
+    tables_to_check = {
+        "git_code_tasks",
+        "git_repos",
+        "git_providers",
+        "git_workspaces",
+    }
+
+    _type_map = {
+        "VARCHAR": "VARCHAR",
+        "TEXT": "TEXT",
+        "INTEGER": "INTEGER",
+        "BOOLEAN": "BOOLEAN",
+        "DATETIME": "DATETIME",
+    }
+
+    for table in Base.metadata.sorted_tables:
+        if table.name not in tables_to_check or table.name not in existing_tables:
+            continue
+
+        existing_cols = {col["name"] for col in inspector.get_columns(table.name)}
+        for col in table.columns:
+            if col.name in existing_cols:
+                continue
+
+            col_type = str(col.type)
+            for key in _type_map:
+                if key in col_type.upper():
+                    col_type = _type_map[key]
+                    break
+
+            default_clause = ""
+            if col.default is not None and col.default.arg is not None and not callable(col.default.arg):
+                val = col.default.arg
+                default_clause = f" DEFAULT '{val}'" if isinstance(val, str) else f" DEFAULT {val}"
+            elif col.nullable:
+                default_clause = " DEFAULT NULL"
+
+            sql = f"ALTER TABLE {table.name} ADD COLUMN {col.name} {col_type}{default_clause}"
+            connection.execute(text(sql))
+            log.info(f"迁移 {table.name}: 添加列 {col.name} ({col_type})")

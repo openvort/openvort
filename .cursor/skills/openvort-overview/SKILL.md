@@ -45,11 +45,13 @@ src/openvort/
 │   ├── browser/             # 浏览器控制插件（Playwright，5 个 Tool）
 │   ├── vortflow/            # VortFlow 项目管理插件（需求/任务/Bug 状态机，5 个 Tool）
 │   ├── vortgit/             # VortGit 代码仓库插件（Git 平台接入/提交分析/工作汇报，4 个 Tool）
-│   └── schedule/            # 定时任务插件（AI 驱动定时任务管理，2 个 Tool）
+│   ├── schedule/            # 定时任务插件（AI 驱动定时任务管理，2 个 Tool）
+│   └── system/              # 系统管理插件（通道配置 + 诊断，2 个 Tool）
 ├── channels/
 │   ├── wecom/               # 企业微信通道（Webhook/Relay/DB轮询）
 │   ├── dingtalk/            # 钉钉通道（Webhook 回调 + OpenAPI）
-│   └── feishu/              # 飞书通道（Event Subscription + OpenAPI）
+│   ├── feishu/              # 飞书通道（Event Subscription + OpenAPI）
+│   └── openclaw/            # OpenClaw 多平台网关（WhatsApp/Telegram/Slack/Discord 桥接）
 ├── contacts/                # 通讯录（Member 中心，多平台身份映射）
 ├── skill/                   # Skill 知识注入系统
 ├── auth/                    # RBAC（admin/manager/member/guest）
@@ -102,6 +104,7 @@ openvort = "openvort.cli:main"
 wecom = "openvort.channels.wecom:WeComChannel"
 dingtalk = "openvort.channels.dingtalk:DingTalkChannel"
 feishu = "openvort.channels.feishu:FeishuChannel"
+openclaw = "openvort.channels.openclaw:OpenClawChannel"
 
 [project.entry-points."openvort.plugins"]
 zentao = "openvort.plugins.zentao:ZentaoPlugin"
@@ -109,6 +112,7 @@ contacts = "openvort.contacts.plugin:ContactsPlugin"
 vortflow = "openvort.plugins.vortflow:VortFlowPlugin"
 vortgit = "openvort.plugins.vortgit:VortGitPlugin"
 schedule = "openvort.plugins.schedule:SchedulePlugin"
+system = "openvort.plugins.system:SystemPlugin"
 ```
 
 ## 核心类签名
@@ -235,10 +239,13 @@ openvort pairing approve|reject|list|allowlist    # DM 配对管理
 内置轻量项目管理，不依赖外部系统。需求→任务→Bug 全链路状态机驱动。5 个 Tool：vortflow_create_project, vortflow_intake_story, vortflow_assign, vortflow_update_progress, vortflow_query。支持 PMAdapter 抽象（本地/禅道双模式）。数据模型：flow_projects, flow_stories, flow_tasks, flow_bugs, flow_milestones, flow_events。前端页面：Board.vue（看板）、Stories/Tasks/Bugs/Milestones.vue（列表）、ProjectDetail.vue（项目详情）。
 
 ### VortGit 代码仓库插件 (plugins/vortgit/)
-Git 平台接入 + 提交分析 + 多维度工作汇报。通过 Provider 抽象支持多平台（首期 Gitee，可扩展 GitHub/GitLab）。Token 使用 Fernet 加密存储。4 个 AI Tool：git_list_repos（列出仓库）、git_repo_info（仓库详情含分支/提交）、git_query_commits（跨仓库提交查询）、git_work_summary（Git 提交 + VortFlow 任务联合分析，生成日/周/月报）。WorkspaceManager 提供成员隔离的本地 Git 工作空间（shallow clone + asyncio.subprocess）。数据模型：git_providers, git_repos, git_repo_members, git_workspaces, git_code_tasks。前端页面：Repos.vue（仓库卡片+详情含提交/分支 Tab）、Providers.vue（平台管理）。与 VortFlow 集成：仓库通过 project_id 关联项目，ProjectDetail.vue 展示关联仓库。
+Git 平台接入 + 提交分析 + 多维度工作汇报 + AI 编码调度。通过 Provider 抽象支持多平台（首期 Gitee，可扩展 GitHub/GitLab）。Token 使用 Fernet 加密存储。8 个 AI Tool：git_list_repos（列出仓库）、git_repo_info（仓库详情含分支/提交）、git_query_commits（跨仓库提交查询）、git_work_summary（Git 提交 + VortFlow 任务联合分析，生成日/周/月报）、git_manage_provider（平台管理）、git_code_task（AI 编码任务：工作空间准备→CLI 执行→提交→推送→创建 PR）、git_commit_push（提交推送）、git_create_pr（创建 PR）。WorkspaceManager 提供成员隔离的本地 Git 工作空间（shallow clone + asyncio.subprocess）。CLIRunner 统一调度 CLI 编码工具（Claude Code / Aider 等），通过 CodingEnvironment（core/coding_env.py）在本地或 Docker 中执行。数据模型：git_providers, git_repos, git_repo_members, git_workspaces, git_code_tasks。前端页面：Repos.vue（仓库卡片+详情含提交/分支 Tab）、Providers.vue（平台管理）。与 VortFlow 集成：仓库通过 project_id 关联项目，git_code_task 可注入 Bug/Task/Story 上下文构建编码 prompt。
 
 ### Schedule 定时任务插件 (plugins/schedule/)
 AI 驱动的定时任务管理。2 个 AI Tool：schedule_manage（创建/更新/删除/启停/立即执行定时任务）、schedule_query（查询任务列表和详情）。支持三种调度方式：cron 定时（5段式表达式）、interval 固定间隔（秒数）、once 一次性（ISO时间）。执行方式为 agent_chat，到期后 AI 自动执行指定 prompt。底层复用 core/scheduler.py（APScheduler）+ core/schedule_service.py（CRUD 业务层）。数据模型：schedule_jobs。前端页面：schedules/Index.vue（任务列表+新建/编辑/执行）。
+
+### System 系统管理插件 (plugins/system/)
+OpenVort 系统配置与诊断。2 个 AI Tool：system_channel_config（列出/查看/更新通道配置，含引导说明和字段描述）、system_diagnose（诊断通道连通性和系统健康状态）。通过对话引导管理员完成通道配置：先查看可用通道 → 逐步收集配置字段 → 写入配置 → 测试连通性。核心插件（core=True），不可禁用。前端通道管理页提供 AiAssistButton 入口跳转聊天页预填引导 prompt。
 
 ## 通道系统
 
@@ -250,6 +257,9 @@ Webhook 回调模式。通过 OpenAPI 发送消息（oToMessages/batchSend），
 
 ### 飞书 (channels/feishu/)
 Event Subscription 回调模式。通过 OpenAPI 发送消息（im/v1/messages），自动管理 tenant_access_token。支持 URL 验证和消息去重。
+
+### OpenClaw (channels/openclaw/)
+OpenClaw 多平台网关桥接通道。通过 OpenClaw Gateway Webhook API 双向通信，支持 WhatsApp/Telegram/Slack/Discord 等平台。入站：OpenClaw → OpenVort Webhook 回调；出站：OpenVort → OpenClaw Gateway /hooks/agent。
 
 ## 权限系统 (auth/)
 RBAC 四角色：admin > manager > member > guest。支持插件扩展角色和权限，按职位自动映射角色。

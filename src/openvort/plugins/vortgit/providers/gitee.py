@@ -72,14 +72,35 @@ class GiteeProvider(GitProviderBase):
     async def list_repos(
         self, *, page: int = 1, per_page: int = 20, search: str = ""
     ) -> list[dict]:
-        params: dict = {"page": page, "per_page": per_page, "sort": "updated"}
         if search:
-            params["q"] = search
-            data = await self._get("/search/repositories", **params)
-            items = data if isinstance(data, list) else data.get("items", [])
+            keyword = search.lower()
+            all_repos: list[dict] = []
+            fetch_page = 1
+            while True:
+                items = await self._get(
+                    "/user/repos", page=fetch_page, per_page=100, sort="updated"
+                )
+                if not isinstance(items, list) or not items:
+                    break
+                all_repos.extend(items)
+                if len(items) < 100:
+                    break
+                fetch_page += 1
+                if fetch_page > 10:
+                    break
+            matched = [
+                r for r in all_repos
+                if keyword in (r.get("full_name") or "").lower()
+                or keyword in (r.get("name") or "").lower()
+                or keyword in (r.get("description") or "").lower()
+            ]
+            start = (page - 1) * per_page
+            return [self._normalise_repo(r) for r in matched[start : start + per_page]]
         else:
-            items = await self._get("/user/repos", **params)
-        return [self._normalise_repo(r) for r in (items if isinstance(items, list) else [])]
+            items = await self._get(
+                "/user/repos", page=page, per_page=per_page, sort="updated"
+            )
+            return [self._normalise_repo(r) for r in (items if isinstance(items, list) else [])]
 
     async def get_repo(self, full_name: str) -> dict:
         raw = await self._get(f"/repos/{full_name}")

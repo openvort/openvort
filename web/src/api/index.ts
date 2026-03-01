@@ -478,6 +478,11 @@ export function deleteModel(modelId: string) {
     return request.delete(`/admin/models/${modelId}`);
 }
 
+/** 测试模型连通性 */
+export function testModel(modelId: string) {
+    return request.post(`/admin/models/${modelId}/test`);
+}
+
 /** 获取系统设置 */
 export function getSettings() {
     return request.get("/admin/settings");
@@ -975,6 +980,28 @@ export function addVortgitRepoMember(repoId: string, data: { member_id: string; 
 /** VortGit 移除仓库成员 */
 export function removeVortgitRepoMember(repoId: string, memberId: string) {
     return request.delete(`/vortgit/repos/${repoId}/members/${memberId}`);
+}
+
+// -- AI 编码任务 --
+
+/** VortGit 编码任务列表 */
+export function getVortgitCodeTasks(params: { status?: string; repo_id?: string; member_id?: string; page?: number; page_size?: number }) {
+    return request.get("/vortgit/code-tasks", { params });
+}
+
+/** VortGit 编码任务详情 */
+export function getVortgitCodeTask(id: string) {
+    return request.get(`/vortgit/code-tasks/${id}`);
+}
+
+/** VortGit 编码任务统计 */
+export function getVortgitCodeTaskStats() {
+    return request.get("/vortgit/code-tasks/stats");
+}
+
+/** VortGit 编码环境状态 */
+export function getVortgitCodingEnvStatus() {
+    return request.get("/vortgit/coding-env/status");
 }
 
 // ====== 汇报管理 ======

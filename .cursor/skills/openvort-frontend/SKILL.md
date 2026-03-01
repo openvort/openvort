@@ -286,6 +286,12 @@ loadData();
 </vort-table-column>
 ```
 
+重要约束（避免“编辑删除挤在一起”）：
+
+- `TableActions` 只在子节点是直接 `TableActionsItem` 时分隔最稳定。
+- 若删除操作需要 `vort-popconfirm` / `DeleteRecord` 包裹，优先改用“手写链接 + vort-divider”写法，不要把 `TableActionsItem` 套在外层组件里。
+- 任何列表页操作列都必须包含 `whitespace-nowrap`，防止窄列换行挤压。
+
 带更多下拉菜单：
 
 ```vue

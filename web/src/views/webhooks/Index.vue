@@ -280,16 +280,13 @@ onMounted(loadData);
                 </VortTableColumn>
                 <VortTableColumn label="操作" :width="160" fixed="right">
                     <template #default="{ row }">
-                        <TableActions>
-                            <TableActionsItem @click="handleEdit(row)">编辑</TableActionsItem>
-                            <DeleteRecord
-                                :request-api="() => deleteWebhook(row.name)"
-                                :params="{}"
-                                @after-delete="loadData"
-                            >
-                                <TableActionsItem danger>删除</TableActionsItem>
-                            </DeleteRecord>
-                        </TableActions>
+                        <div class="flex items-center gap-2 whitespace-nowrap">
+                            <a class="text-sm text-blue-600 cursor-pointer" @click="handleEdit(row)">编辑</a>
+                            <VortDivider type="vertical" />
+                            <VortPopconfirm title="确认删除？" @confirm="async () => { await deleteWebhook(row.name); await loadData(); }">
+                                <a class="text-sm text-red-500 cursor-pointer">删除</a>
+                            </VortPopconfirm>
+                        </div>
                     </template>
                 </VortTableColumn>
             </VortTable>

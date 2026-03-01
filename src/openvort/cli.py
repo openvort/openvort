@@ -994,6 +994,139 @@ def pairing_allowlist():
         click.echo(f"  {item['channel']}:{item['user_id']}  (by {item.get('approved_by', '?')})")
 
 
+# ============ coding ============
+
+
+@main.group()
+def coding():
+    """AI 编码环境管理"""
+    pass
+
+
+@coding.command("setup")
+def coding_setup():
+    """配置 AI 编码环境（拉取 Docker 镜像 + 配置 API Key + 验证）"""
+    _run_async(_coding_setup())
+
+
+async def _coding_setup():
+    from openvort.core.coding_env import CodingEnvironment, EnvMode
+    from openvort.plugins.vortgit.config import VortGitSettings
+
+    click.echo("🔧 AI 编码环境配置\n")
+
+    env = CodingEnvironment()
+
+    # 1. Docker check
+    click.echo("── Docker 检测 ──")
+    if env._is_docker_available():
+        click.echo("  ✅ Docker 已安装")
+    else:
+        click.echo("  ❌ Docker 未安装")
+        click.echo("     安装文档: https://docs.docker.com/get-docker/")
+        click.echo("\n     安装 Docker 后重新运行: openvort coding setup")
+        click.echo("     或手动安装 CLI 工具后使用本地模式。")
+        return
+
+    # 2. Pull image
+    settings = VortGitSettings()
+    image = settings.cli_docker_image
+    click.echo(f"\n── 拉取编码沙箱镜像 ──")
+    click.echo(f"  📦 镜像: {image}")
+
+    pulled = await env._is_image_pulled(image)
+    if pulled:
+        click.echo("  ✅ 镜像已存在")
+    else:
+        click.echo("  ⏳ 正在拉取（可能需要几分钟）...")
+        result = await env.pull_image()
+        if result.success:
+            click.echo("  ✅ 镜像拉取完成")
+        else:
+            click.echo(f"  ❌ 镜像拉取失败: {result.stderr[:200]}")
+            click.echo(f"\n     手动拉取: docker pull {image}")
+            return
+
+    # 3. API Key
+    click.echo("\n── API Key 配置 ──")
+    if settings.claude_code_api_key:
+        click.echo("  ✅ Claude Code API Key: 已配置")
+    else:
+        click.echo("  ⚠️  Claude Code API Key: 未配置")
+        click.echo("     设置环境变量: OPENVORT_VORTGIT_CLAUDE_CODE_API_KEY=sk-ant-xxx")
+
+    # 4. Verify
+    click.echo("\n── 环境验证 ──")
+    status = await env.get_status()
+    mode = status.mode
+    if mode != EnvMode.UNAVAILABLE:
+        click.echo(f"  ✅ 执行模式: {mode.value}")
+    else:
+        click.echo("  ❌ 环境不可用，请检查上述问题")
+        return
+
+    # 5. Test execution
+    click.echo("  🧪 测试执行...", nl=False)
+    test_result = await env.execute(["echo", "openvort-coding-ok"])
+    if test_result.success and "openvort-coding-ok" in test_result.stdout:
+        click.echo(" ✅")
+    else:
+        click.echo(f" ❌ {test_result.stderr[:100]}")
+        return
+
+    click.echo("\n" + "=" * 40)
+    click.echo("✅ AI 编码环境准备就绪！")
+    click.echo("   团队成员现在可以通过对话触发代码修改了。")
+
+
+@coding.command("status")
+def coding_status():
+    """查看 AI 编码环境状态"""
+    _run_async(_coding_status())
+
+
+async def _coding_status():
+    from openvort.core.coding_env import CodingEnvironment, EnvMode
+    from openvort.plugins.vortgit.cli_runner import CLIRunner
+
+    click.echo("🔍 AI 编码环境状态\n")
+
+    env = CodingEnvironment()
+    status = await env.get_status()
+
+    click.echo("── 运行环境 ──")
+    click.echo(f"  模式: {status.mode.value}")
+    click.echo(f"  在 Docker 中运行: {'是' if status.running_in_docker else '否'}")
+    click.echo(f"  Docker 可用: {'是' if status.docker_available else '否'}")
+    click.echo(f"  Docker Socket: {'是' if status.docker_socket else '否'}")
+
+    click.echo(f"\n── 编码沙箱镜像 ──")
+    click.echo(f"  镜像: {status.coding_image_name}")
+    click.echo(f"  已拉取: {'是' if status.coding_image_pulled else '否'}")
+
+    click.echo(f"\n── CLI 编码工具 ──")
+    runner = CLIRunner(env)
+    for spec in runner.list_tools():
+        ts = status.cli_tools.get(spec.name)
+        if ts and ts.installed:
+            click.echo(f"  ✅ {spec.display_name}: {ts.version or '已安装'}")
+        else:
+            click.echo(f"  ❌ {spec.display_name}: 未安装")
+            click.echo(f"     安装: {spec.install_cmd}")
+
+    click.echo(f"\n── API Key ──")
+    for name, configured in status.api_keys.items():
+        icon = "✅" if configured else "⚠️"
+        label = "已配置" if configured else "未配置"
+        click.echo(f"  {icon} {name}: {label}")
+
+    if status.mode == EnvMode.UNAVAILABLE:
+        click.echo(f"\n⚠️  编码环境不可用。运行: openvort coding setup")
+
+
+main.add_command(coding)
+
+
 # ============ doctor ============
 
 
@@ -1099,6 +1232,26 @@ async def _doctor():
     plugins = registry.list_plugins()
     tools = registry.list_tools()
     click.echo(f"  ✅ {len(plugins)} 个 Plugin, {len(tools)} 个 Tool")
+
+    # 7. AI 编码环境
+    click.echo("\n── AI 编码环境 ──")
+    try:
+        from openvort.core.coding_env import CodingEnvironment, EnvMode
+        env = CodingEnvironment()
+        status = await env.get_status()
+        if status.mode != EnvMode.UNAVAILABLE:
+            click.echo(f"  ✅ 模式: {status.mode.value}")
+            for name, ts in status.cli_tools.items():
+                if ts.installed:
+                    click.echo(f"     {name}: {ts.version or '已安装'}")
+            for name, configured in status.api_keys.items():
+                if configured:
+                    click.echo(f"     {name} API Key: 已配置")
+        else:
+            click.echo("  ⚠️ 未配置（可选功能）")
+            click.echo("     配置后运行: openvort coding setup")
+    except Exception as e:
+        click.echo(f"  ⚠️ 检测跳过: {e}")
 
     # 总结
     click.echo("\n" + "=" * 40)

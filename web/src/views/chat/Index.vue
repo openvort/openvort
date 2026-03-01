@@ -24,7 +24,7 @@ interface ChatMessage {
     role: "user" | "assistant";
     content: string;
     images?: string[];
-    toolCalls?: { name: string; status: string }[];
+    toolCalls?: { name: string; status: string; elapsed?: number; output?: string }[];
     timestamp: number;
     streaming?: boolean;
 }
@@ -140,6 +140,11 @@ function scrollToBottom() {
             chatContainer.value.scrollTop = chatContainer.value.scrollHeight;
         }
     });
+}
+
+function formatToolElapsed(seconds: number): string {
+    if (seconds < 60) return `${seconds}s`;
+    return `${Math.floor(seconds / 60)}m${seconds % 60}s`;
 }
 
 // --- 流式 Markdown 渲染 ---
@@ -510,6 +515,25 @@ async function handleSend() {
             } catch { /* ignore */ }
         });
 
+        eventSource.addEventListener("tool_output", (e: MessageEvent) => {
+            try {
+                const data = JSON.parse(e.data);
+                const call = streamState.assistantMsg.toolCalls?.find(t => t.name === data.name && t.status === "running");
+                if (call) {
+                    call.output = (call.output || "") + data.output;
+                    if (currentSessionId.value === sendSessionId) scrollToBottom();
+                }
+            } catch { /* ignore */ }
+        });
+
+        eventSource.addEventListener("tool_progress", (e: MessageEvent) => {
+            try {
+                const data = JSON.parse(e.data);
+                const call = streamState.assistantMsg.toolCalls?.find(t => t.name === data.name && t.status === "running");
+                if (call) call.elapsed = data.elapsed;
+            } catch { /* ignore */ }
+        });
+
         eventSource.addEventListener("tool_result", (e: MessageEvent) => {
             try {
                 const data = JSON.parse(e.data);
@@ -545,8 +569,8 @@ async function handleSend() {
             flushAndFinish();
         });
 
-        eventSource.addEventListener("error", (e: MessageEvent) => {
-            const data = (e as any).data;
+        eventSource.addEventListener("server_error", (e: MessageEvent) => {
+            const data = e.data;
             if (data) streamState.targetText += `\n\n错误: ${data}`;
             eventSource.close();
             flushAndFinish();
@@ -559,6 +583,24 @@ async function handleSend() {
                 flushAndFinish();
             }
         };
+
+        // SSE timeout: if no events received within 30s, abort
+        let lastEventTime = Date.now();
+        const sseTimeoutCheck = setInterval(() => {
+            if (streamState.done) { clearInterval(sseTimeoutCheck); return; }
+            if (Date.now() - lastEventTime > 30000) {
+                clearInterval(sseTimeoutCheck);
+                eventSource.close();
+                if (!streamState.targetText) streamState.targetText = "AI 响应超时，请重试。";
+                flushAndFinish();
+            }
+        }, 5000);
+        const origOnText = eventSource.listeners?.text;
+        // Track last event time on every SSE event
+        const trackEvent = () => { lastEventTime = Date.now(); };
+        for (const evtName of ["text", "tool_use", "tool_output", "tool_progress", "tool_result", "usage", "thinking", "done", "server_error"]) {
+            eventSource.addEventListener(evtName, trackEvent);
+        }
     } catch {
         assistantMsg.content = "请求失败，请检查服务是否运行。";
         loading.value = false;
@@ -993,6 +1035,11 @@ onMounted(async () => {
 onUnmounted(() => {
     document.removeEventListener("paste", handlePaste);
     document.removeEventListener("click", handleClickOutsidePanel);
+    for (const stream of activeStreams.values()) {
+        try { stream.eventSource?.close(); } catch { /* noop */ }
+        if (stream.twTimer) clearInterval(stream.twTimer);
+    }
+    activeStreams.clear();
 });
 </script>
 
@@ -1161,9 +1208,6 @@ onUnmounted(() => {
                         <span class="text-xs text-gray-400 flex items-center gap-1 cursor-default">
                             <Zap :size="14" />
                             {{ formatTokens(sessionTokens.input + sessionTokens.output) }}
-                            <span v-if="sessionTokens.cacheRead > 0" class="text-green-500 flex items-center">
-                                💾{{ formatTokens(sessionTokens.cacheRead) }}
-                            </span>
                         </span>
                     </VortTooltip>
                     <VortPopover v-model:open="thinkingOpen" trigger="click" placement="bottomRight" :arrow="false">
@@ -1230,12 +1274,19 @@ onUnmounted(() => {
                                     class="w-20 h-20 object-cover rounded-lg border border-white/30" />
                             </div>
                             <div v-if="msg.toolCalls?.length" class="mb-2 space-y-1">
-                                <div v-for="(tool, i) in msg.toolCalls" :key="i"
-                                    class="inline-flex items-center px-2 py-1 rounded text-xs mr-2"
-                                    :class="tool.status === 'running' ? 'bg-yellow-50 text-yellow-700' : 'bg-green-50 text-green-700'">
-                                    <Wrench :size="12" class="mr-1" />
-                                    {{ tool.name }}
-                                    <Loader2 v-if="tool.status === 'running'" :size="12" class="ml-1 animate-spin" />
+                                <div v-for="(tool, i) in msg.toolCalls" :key="i" class="block">
+                                    <div class="inline-flex items-center px-2 py-1 rounded text-xs mr-2"
+                                        :class="tool.status === 'running' ? 'bg-yellow-50 text-yellow-700' : 'bg-green-50 text-green-700'">
+                                        <Wrench :size="12" class="mr-1" />
+                                        {{ tool.name }}
+                                        <template v-if="tool.status === 'running'">
+                                            <Loader2 :size="12" class="ml-1 animate-spin" />
+                                            <span v-if="tool.elapsed" class="ml-1 text-yellow-500">{{ formatToolElapsed(tool.elapsed) }}</span>
+                                        </template>
+                                    </div>
+                                    <div v-if="tool.output"
+                                        :ref="(el: any) => { if (el) el.scrollTop = el.scrollHeight }"
+                                        class="mt-1 ml-1 max-h-60 overflow-y-auto rounded bg-gray-900 text-green-400 text-xs font-mono px-3 py-2 whitespace-pre-wrap break-all leading-relaxed">{{ tool.output }}</div>
                                 </div>
                             </div>
                             <div

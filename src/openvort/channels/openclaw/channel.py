@@ -24,6 +24,7 @@ class OpenClawChannel(BaseChannel):
 
     name = "openclaw"
     display_name = "OpenClaw"
+    description = "OpenClaw 多平台网关，桥接 WhatsApp/Telegram/Slack/Discord 等即时通讯平台"
 
     def __init__(self):
         self._handler: MessageHandler | None = None
@@ -144,6 +145,16 @@ class OpenClawChannel(BaseChannel):
         return None
 
     # ---- Config management ----
+
+    def get_setup_guide(self) -> str:
+        return (
+            "### OpenClaw 配置指南\n\n"
+            "1. 安装并启动 [OpenClaw](https://github.com/nicekate/openclaw) Gateway\n"
+            "2. 查看 `~/.openclaw/openclaw.json`，获取 **hooks.token**\n"
+            "3. 填写 Gateway 地址（默认 `http://127.0.0.1:18789`）和 Hook Token\n"
+            "4. 在 OpenVort Webhook 管理中创建名为 `openclaw` 的 Webhook 接收 OpenClaw 回调\n"
+            "5. 可选配置投递通道（last/whatsapp/telegram 等）和投递目标\n"
+        )
 
     def get_config_schema(self) -> list[dict]:
         return [

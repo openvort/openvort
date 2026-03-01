@@ -21,6 +21,7 @@ class VortGitPlugin(BasePlugin):
         self._settings = VortGitSettings()
 
     def get_tools(self) -> list[BaseTool]:
+        from openvort.plugins.vortgit.tools.coding import CodeTaskTool, CommitPushTool, CreatePRTool
         from openvort.plugins.vortgit.tools.commits import QueryCommitsTool, WorkSummaryTool
         from openvort.plugins.vortgit.tools.providers import ManageProviderTool
         from openvort.plugins.vortgit.tools.repos import ListReposTool, RepoInfoTool
@@ -31,6 +32,9 @@ class VortGitPlugin(BasePlugin):
             QueryCommitsTool(),
             WorkSummaryTool(),
             ManageProviderTool(),
+            CodeTaskTool(),
+            CommitPushTool(),
+            CreatePRTool(),
         ]
 
     def get_prompts(self) -> list[str]:
@@ -47,6 +51,7 @@ class VortGitPlugin(BasePlugin):
         return [
             {"code": "vortgit.read", "display_name": "VortGit 查看仓库与提交"},
             {"code": "vortgit.write", "display_name": "VortGit 编码与提交"},
+            {"code": "vortgit.code", "display_name": "VortGit AI 编码（触发 CLI 编码任务）"},
             {"code": "vortgit.admin", "display_name": "VortGit 管理"},
         ]
 
@@ -74,14 +79,49 @@ class VortGitPlugin(BasePlugin):
                 "secret": True,
                 "placeholder": "留空自动生成",
             },
+            {
+                "key": "cli_default_tool",
+                "label": "默认 CLI 编码工具",
+                "type": "select",
+                "options": ["claude-code", "aider"],
+                "required": False,
+                "placeholder": "claude-code",
+            },
+            {
+                "key": "claude_code_api_key",
+                "label": "Claude Code API Key",
+                "type": "string",
+                "required": False,
+                "secret": True,
+                "placeholder": "sk-ant-...",
+            },
+            {
+                "key": "aider_api_key",
+                "label": "Aider API Key",
+                "type": "string",
+                "required": False,
+                "secret": True,
+                "placeholder": "API Key for Aider",
+            },
         ]
 
     def get_current_config(self) -> dict:
-        return {"encryption_key": "***" if self._settings.encryption_key else ""}
+        return {
+            "encryption_key": "***" if self._settings.encryption_key else "",
+            "cli_default_tool": self._settings.cli_default_tool,
+            "claude_code_api_key": "***" if self._settings.claude_code_api_key else "",
+            "aider_api_key": "***" if self._settings.aider_api_key else "",
+        }
 
     def apply_config(self, config: dict) -> None:
         if "encryption_key" in config and config["encryption_key"] != "***":
             self._settings.encryption_key = config["encryption_key"]
+        if "cli_default_tool" in config:
+            self._settings.cli_default_tool = config["cli_default_tool"]
+        if "claude_code_api_key" in config and config["claude_code_api_key"] != "***":
+            self._settings.claude_code_api_key = config["claude_code_api_key"]
+        if "aider_api_key" in config and config["aider_api_key"] != "***":
+            self._settings.aider_api_key = config["aider_api_key"]
 
     # ---- UI ----
 
@@ -95,6 +135,7 @@ class VortGitPlugin(BasePlugin):
                     "position": "sidebar",
                     "children": [
                         {"label": "代码仓库", "path": "/vortgit/repos", "icon": "folder-git-2"},
+                        {"label": "编码任务", "path": "/vortgit/code-tasks", "icon": "terminal-square"},
                         {"label": "平台管理", "path": "/vortgit/providers", "icon": "server"},
                     ],
                 }

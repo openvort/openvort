@@ -46,6 +46,7 @@ class BaseChannel(ABC):
 
     name: str = ""  # 通道标识，如 "wecom", "dingtalk", "feishu"
     display_name: str = ""  # 显示名称，如 "企业微信"
+    description: str = ""  # 功能简述，一句话概括通道能力
 
     @abstractmethod
     async def start(self) -> None:
@@ -101,10 +102,22 @@ class BaseChannel(ABC):
     def get_config_schema(self) -> list[dict]:
         """返回配置字段定义，用于前端动态渲染表单
 
+        每个字段支持:
+          key, label, type, required, secret, placeholder, description, help_url
+
         返回: [{"key": "corp_id", "label": "企业ID", "type": "string",
-                "required": True, "secret": False, "placeholder": ""}, ...]
+                "required": True, "secret": False, "placeholder": "",
+                "description": "在企微管理后台 > 我的企业 中获取"}, ...]
         """
         return []
+
+    def get_setup_guide(self) -> str:
+        """返回 markdown 格式的配置指南
+
+        用于前端配置抽屉顶部展示，引导用户完成通道配置。
+        子类应覆盖此方法，提供从平台获取凭证的步骤说明。
+        """
+        return ""
 
     def get_current_config(self) -> dict:
         """返回当前配置值（secret 字段脱敏显示）"""

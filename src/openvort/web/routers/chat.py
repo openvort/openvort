@@ -118,7 +118,7 @@ async def stream_response(message_id: str, request: Request):
     msg = _pending_messages.pop(message_id, None)
     if not msg:
         async def error_stream():
-            yield {"event": "error", "data": "消息不存在或已过期"}
+            yield {"event": "server_error", "data": "消息不存在或已过期"}
         return EventSourceResponse(error_stream())
 
     agent = get_agent()
@@ -144,6 +144,10 @@ async def stream_response(message_id: str, request: Request):
                     yield {"event": "text", "data": event["text"]}
                 elif event_type == "tool_use":
                     yield {"event": "tool_use", "data": json.dumps(event, ensure_ascii=False)}
+                elif event_type == "tool_output":
+                    yield {"event": "tool_output", "data": json.dumps(event, ensure_ascii=False)}
+                elif event_type == "tool_progress":
+                    yield {"event": "tool_progress", "data": json.dumps(event, ensure_ascii=False)}
                 elif event_type == "tool_result":
                     yield {"event": "tool_result", "data": json.dumps(event, ensure_ascii=False)}
                 elif event_type == "usage":
@@ -162,9 +166,9 @@ async def stream_response(message_id: str, request: Request):
 
             yield {"event": "done", "data": "ok"}
         except Exception as e:
-            yield {"event": "error", "data": str(e)}
+            yield {"event": "server_error", "data": str(e)}
 
-    return EventSourceResponse(event_stream())
+    return EventSourceResponse(event_stream(), ping=15)
 
 
 @router.get("/history")

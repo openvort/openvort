@@ -26,6 +26,7 @@ export const menuConfig: MenuConfig[] = [
         title: "VortGit", icon: "git-branch",
         children: [
             { title: "代码仓库", icon: "folder-git-2", path: "/vortgit/repos" },
+            { title: "编码任务", icon: "terminal-square", path: "/vortgit/code-tasks" },
             { title: "平台管理", icon: "server", path: "/vortgit/providers" },
         ],
     },

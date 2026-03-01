@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { ArrowLeft, ListChecks, CheckSquare, Bug, Users, Plus, Trash2, FolderGit2 } from "lucide-vue-next";
+import { ArrowLeft, ListChecks, CheckSquare, Bug, Users, Plus, Trash2, FolderGit2, TerminalSquare, ExternalLink } from "lucide-vue-next";
 import {
     getVortflowProject, getVortflowStats, getVortflowStories,
     getVortflowTasks, getVortflowBugs, getVortflowProjectMembers,
     addVortflowProjectMember, removeVortflowProjectMember,
-    getVortgitRepos,
+    getVortgitRepos, getVortgitCodeTasks,
 } from "@/api";
 
 const route = useRoute();
@@ -21,6 +21,7 @@ const tasks = ref<any[]>([]);
 const bugs = ref<any[]>([]);
 const members = ref<any[]>([]);
 const repos = ref<any[]>([]);
+const codeTasks = ref<any[]>([]);
 
 const repoTypeColorMap: Record<string, string> = {
     frontend: "blue", backend: "green", mobile: "purple", docs: "cyan", infra: "orange", other: "default"
@@ -75,6 +76,20 @@ const loadData = async () => {
         bugs.value = (bugsRes as any)?.items || [];
         members.value = (membersRes as any)?.items || [];
         repos.value = (reposRes as any)?.items || [];
+
+        // Load code tasks for all repos in this project
+        const repoIds = repos.value.map((r: any) => r.id);
+        if (repoIds.length > 0) {
+            try {
+                const allTasks: any[] = [];
+                for (const rid of repoIds.slice(0, 5)) {
+                    const ct: any = await getVortgitCodeTasks({ repo_id: rid, page: 1, page_size: 10 });
+                    allTasks.push(...(ct.items || []));
+                }
+                allTasks.sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+                codeTasks.value = allTasks.slice(0, 10);
+            } catch { codeTasks.value = []; }
+        }
     } catch { /* silent */ }
     finally { loading.value = false; }
 };
@@ -97,6 +112,29 @@ const handleRemoveMember = async (memberId: string) => {
     await removeVortflowProjectMember(projectId.value, memberId);
     const res = await getVortflowProjectMembers(projectId.value);
     members.value = (res as any)?.items || [];
+};
+
+const codeTaskStatusColor = (s: string) => {
+    if (s === "success") return "success";
+    if (s === "review") return "warning";
+    if (s === "failed") return "error";
+    if (s === "running") return "processing";
+    return "default";
+};
+
+const codeTaskStatusLabel = (s: string) => {
+    const m: Record<string, string> = { pending: "等待中", running: "执行中", success: "成功", failed: "失败", review: "待审核" };
+    return m[s] || s;
+};
+
+const repoNameById = (id: string) => {
+    const r = repos.value.find((r: any) => r.id === id);
+    return r ? r.full_name || r.name : id;
+};
+
+const formatTime = (iso: string | null) => {
+    if (!iso) return "-";
+    try { return new Date(iso).toLocaleString("zh-CN"); } catch { return iso; }
 };
 
 const goBack = () => router.push("/vortflow/board");
@@ -222,6 +260,40 @@ onMounted(loadData);
                         </div>
                     </div>
                 </div>
+            </div>
+
+            <!-- AI Coding Activity -->
+            <div v-if="codeTasks.length > 0" class="bg-white rounded-xl p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-base font-medium text-gray-800">
+                        <TerminalSquare :size="16" class="inline mr-1" /> AI 编码活动
+                    </h3>
+                    <router-link :to="{ name: 'vortgit-code-tasks' }" class="text-sm text-blue-600 hover:underline">
+                        查看全部
+                    </router-link>
+                </div>
+                <VortTimeline>
+                    <VortTimelineItem v-for="ct in codeTasks" :key="ct.id" :color="codeTaskStatusColor(ct.status) === 'error' ? 'red' : codeTaskStatusColor(ct.status) === 'success' ? 'green' : 'blue'">
+                        <div class="flex items-start justify-between">
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <span class="text-sm text-gray-800">{{ ct.member_id }}</span>
+                                    <span class="text-xs text-gray-400">触发了编码任务</span>
+                                    <vort-tag :color="codeTaskStatusColor(ct.status)" size="small">{{ codeTaskStatusLabel(ct.status) }}</vort-tag>
+                                </div>
+                                <div class="text-sm text-gray-600 mt-1 truncate">{{ ct.task_description }}</div>
+                                <div class="flex items-center gap-3 mt-1 text-xs text-gray-400">
+                                    <span>{{ repoNameById(ct.repo_id) }}</span>
+                                    <span v-if="ct.files_changed?.length">{{ ct.files_changed.length }} 个文件</span>
+                                    <span>{{ formatTime(ct.created_at) }}</span>
+                                </div>
+                            </div>
+                            <a v-if="ct.pr_url" :href="ct.pr_url" target="_blank" class="text-blue-500 hover:text-blue-700 ml-2 shrink-0">
+                                <ExternalLink :size="14" />
+                            </a>
+                        </div>
+                    </VortTimelineItem>
+                </VortTimeline>
             </div>
 
             <!-- Recent Stories -->

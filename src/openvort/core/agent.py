@@ -6,6 +6,8 @@ Agent Runtime
 不依赖 LangChain 等框架，保持轻量可控。
 """
 
+import asyncio
+
 from openvort.config.settings import LLMSettings
 from openvort.core.context import RequestContext
 from openvort.core.llm import LLMClient, LLMResponse, TextBlock, ToolUseBlock, Usage
@@ -138,7 +140,8 @@ class AgentRuntime:
                 total_usage.cache_read_input_tokens += response.usage.cache_read_input_tokens
             except Exception as e:
                 log.error(f"LLM API 调用失败: {e}")
-                error_text = "抱歉，AI 服务暂时不可用，请稍后再试。"
+                reason = self._extract_error_reason(e)
+                error_text = f"抱歉，AI 服务暂时不可用：{reason}\n请稍后再试。"
                 messages.append({"role": "assistant", "content": [{"type": "text", "text": error_text}]})
                 await self._sessions.save_messages(ctx.channel, ctx.user_id, messages)
                 return error_text
@@ -322,100 +325,147 @@ class AgentRuntime:
             tools = [t for t in tools if t["name"] not in blocked_tools]
 
         max_rounds = 10
-        current_text = ""  # 累积完整文本，跨轮次保持
+        current_text = ""
         total_usage = Usage()
-        for _ in range(max_rounds):
-            try:
-                collected_content = []
-                async with self._llm.stream(
-                    system=system, messages=messages,
-                    tools=tools if tools else None,
-                ) as stream:
-                    async for event in stream:
-                        if event.type == "content_block_start":
-                            block = event.content_block
-                            if getattr(block, "type", None) == "text":
-                                pass  # 文本块开始
-                            elif getattr(block, "type", None) == "tool_use":
-                                yield {"type": "tool_use", "name": block.name, "id": block.id}
-                        elif event.type == "content_block_delta":
-                            delta = event.delta
-                            if getattr(delta, "type", None) == "text_delta":
-                                current_text += delta.text
-                                yield {"type": "text", "text": current_text}
-                            elif getattr(delta, "type", None) == "input_json_delta":
-                                pass  # 工具参数增量，不需要推送
+        completed = False
+        try:
+            for _ in range(max_rounds):
+                try:
+                    collected_content = []
+                    async with self._llm.stream(
+                        system=system, messages=messages,
+                        tools=tools if tools else None,
+                    ) as stream:
+                        async for event in stream:
+                            if event.type == "content_block_start":
+                                block = event.content_block
+                                if getattr(block, "type", None) == "text":
+                                    pass
+                                elif getattr(block, "type", None) == "tool_use":
+                                    yield {"type": "tool_use", "name": block.name, "id": block.id}
+                            elif event.type == "content_block_delta":
+                                delta = event.delta
+                                if getattr(delta, "type", None) == "text_delta":
+                                    current_text += delta.text
+                                    yield {"type": "text", "text": current_text}
+                                elif getattr(delta, "type", None) == "input_json_delta":
+                                    pass
 
-                    # 获取最终完整响应
-                    response = await stream.get_final_message()
-                    total_usage.input_tokens += response.usage.input_tokens
-                    total_usage.output_tokens += response.usage.output_tokens
-                    total_usage.cache_creation_input_tokens += response.usage.cache_creation_input_tokens
-                    total_usage.cache_read_input_tokens += response.usage.cache_read_input_tokens
-            except Exception as e:
-                log.error(f"LLM API 流式调用失败: {e}")
-                error_text = "抱歉，AI 服务暂时不可用，请稍后再试。"
-                yield {"type": "text", "text": error_text}
-                messages.append({"role": "assistant", "content": [{"type": "text", "text": error_text}]})
-                await self._sessions.save_messages(ctx.channel, ctx.user_id, messages, session_id)
-                return
+                        response = await stream.get_final_message()
+                        total_usage.input_tokens += response.usage.input_tokens
+                        total_usage.output_tokens += response.usage.output_tokens
+                        total_usage.cache_creation_input_tokens += response.usage.cache_creation_input_tokens
+                        total_usage.cache_read_input_tokens += response.usage.cache_read_input_tokens
+                except Exception as e:
+                    log.error(f"LLM API 流式调用失败: {e}")
+                    reason = self._extract_error_reason(e)
+                    error_text = f"抱歉，AI 服务暂时不可用：{reason}\n请稍后再试。"
+                    yield {"type": "text", "text": error_text}
+                    messages.append({"role": "assistant", "content": [{"type": "text", "text": error_text}]})
+                    await self._sessions.save_messages(ctx.channel, ctx.user_id, messages, session_id)
+                    completed = True
+                    return
 
-            # 追加 assistant 回复
-            messages.append({"role": "assistant", "content": self._serialize_content(response.content)})
+                messages.append({"role": "assistant", "content": self._serialize_content(response.content)})
 
-            # 不是 tool_use，说明完成了
-            if response.stop_reason != "tool_use":
-                break
+                if response.stop_reason != "tool_use":
+                    break
 
-            # 执行工具调用
-            tool_results = []
-            for block in response.content:
-                if getattr(block, "type", None) == "tool_use":
-                    log.info(f"[web] 调用工具: {block.name}({block.input})")
-                    tool_input = dict(block.input)
-                    tool_input["_caller_id"] = ctx.user_id
-                    if ctx.member:
-                        tool_input["_member_id"] = ctx.member.id
-                    if ctx.platform_accounts.get("zentao"):
-                        tool_input["_zentao_account"] = ctx.platform_accounts["zentao"]
-                    if ctx.images:
-                        tool_input["_image_urls"] = [
-                            img["pic_url"] for img in ctx.images if img.get("pic_url")
-                        ]
+                tool_results = []
+                for block in response.content:
+                    if getattr(block, "type", None) == "tool_use":
+                        log.info(f"[web] 调用工具: {block.name}({block.input})")
+                        tool_input = dict(block.input)
+                        tool_input["_caller_id"] = ctx.user_id
+                        if ctx.member:
+                            tool_input["_member_id"] = ctx.member.id
+                        if ctx.platform_accounts.get("zentao"):
+                            tool_input["_zentao_account"] = ctx.platform_accounts["zentao"]
+                        if ctx.images:
+                            tool_input["_image_urls"] = [
+                                img["pic_url"] for img in ctx.images if img.get("pic_url")
+                            ]
 
-                    result = await self._registry.execute_tool(block.name, tool_input)
-                    log.info(f"[web] 工具结果: {result[:200]}")
-                    yield {"type": "tool_result", "name": block.name, "result": result[:200]}
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": result,
-                    })
+                        output_queue: asyncio.Queue[str] = asyncio.Queue()
+                        tool_input["_output_queue"] = output_queue
 
-            messages.append({"role": "user", "content": tool_results})
+                        tool_task = asyncio.create_task(
+                            self._registry.execute_tool(block.name, tool_input)
+                        )
+                        elapsed = 0
+                        while not tool_task.done():
+                            try:
+                                await asyncio.wait_for(asyncio.shield(tool_task), timeout=2)
+                            except asyncio.TimeoutError:
+                                elapsed += 2
+                                # Drain queued CLI output lines
+                                output_chunk = ""
+                                while not output_queue.empty():
+                                    try:
+                                        output_chunk += output_queue.get_nowait()
+                                    except asyncio.QueueEmpty:
+                                        break
+                                if output_chunk:
+                                    yield {
+                                        "type": "tool_output",
+                                        "name": block.name,
+                                        "output": output_chunk,
+                                    }
+                                elif elapsed % 10 == 0:
+                                    log.info(f"[web] 工具 {block.name} 执行中... ({elapsed}s)")
+                                    yield {
+                                        "type": "tool_progress",
+                                        "name": block.name,
+                                        "elapsed": elapsed,
+                                    }
+                        result = tool_task.result()
 
-        # 保存对话历史 + 累计用量
-        await self._sessions.save_messages(ctx.channel, ctx.user_id, messages, session_id)
-        self._sessions.add_usage(
-            ctx.channel, ctx.user_id, total_usage.input_tokens, total_usage.output_tokens,
-            session_id,
-            cache_creation_tokens=total_usage.cache_creation_input_tokens,
-            cache_read_tokens=total_usage.cache_read_input_tokens,
-        )
+                        log.info(f"[web] 工具结果: {result[:200]}")
+                        yield {"type": "tool_result", "name": block.name, "result": result[:200]}
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": result,
+                        })
 
-        # yield 用量信息
-        session_info = self._sessions.get_session_info(ctx.channel, ctx.user_id, session_id)
-        yield {
-            "type": "usage",
-            "input_tokens": total_usage.input_tokens,
-            "output_tokens": total_usage.output_tokens,
-            "cache_creation_tokens": total_usage.cache_creation_input_tokens,
-            "cache_read_tokens": total_usage.cache_read_input_tokens,
-            "total_input_tokens": session_info.get("total_input_tokens", 0),
-            "total_output_tokens": session_info.get("total_output_tokens", 0),
-            "total_cache_creation_tokens": session_info.get("total_cache_creation_tokens", 0),
-            "total_cache_read_tokens": session_info.get("total_cache_read_tokens", 0),
-        }
+                messages.append({"role": "user", "content": tool_results})
+
+            # Save and yield usage on normal completion
+            await self._sessions.save_messages(ctx.channel, ctx.user_id, messages, session_id)
+            self._sessions.add_usage(
+                ctx.channel, ctx.user_id, total_usage.input_tokens, total_usage.output_tokens,
+                session_id,
+                cache_creation_tokens=total_usage.cache_creation_input_tokens,
+                cache_read_tokens=total_usage.cache_read_input_tokens,
+            )
+            completed = True
+
+            session_info = self._sessions.get_session_info(ctx.channel, ctx.user_id, session_id)
+            yield {
+                "type": "usage",
+                "input_tokens": total_usage.input_tokens,
+                "output_tokens": total_usage.output_tokens,
+                "cache_creation_tokens": total_usage.cache_creation_input_tokens,
+                "cache_read_tokens": total_usage.cache_read_input_tokens,
+                "total_input_tokens": session_info.get("total_input_tokens", 0),
+                "total_output_tokens": session_info.get("total_output_tokens", 0),
+                "total_cache_creation_tokens": session_info.get("total_cache_creation_tokens", 0),
+                "total_cache_read_tokens": session_info.get("total_cache_read_tokens", 0),
+            }
+        finally:
+            if not completed and len(messages) > 1:
+                log.warning("[web] SSE 断连或异常中断，强制保存对话历史")
+                try:
+                    await self._sessions.save_messages(ctx.channel, ctx.user_id, messages, session_id)
+                    if total_usage.input_tokens or total_usage.output_tokens:
+                        self._sessions.add_usage(
+                            ctx.channel, ctx.user_id, total_usage.input_tokens, total_usage.output_tokens,
+                            session_id,
+                            cache_creation_tokens=total_usage.cache_creation_input_tokens,
+                            cache_read_tokens=total_usage.cache_read_input_tokens,
+                        )
+                except Exception as e:
+                    log.error(f"[web] 强制保存对话历史失败: {e}")
 
     @staticmethod
     def _extract_text(response: LLMResponse) -> str:
@@ -446,6 +496,27 @@ class AgentRuntime:
                         "input": block.input,
                     })
         return serialized
+
+    @staticmethod
+    def _extract_error_reason(e: Exception) -> str:
+        """Extract a user-friendly error reason from an LLM API exception."""
+        msg = str(e)
+        # Anthropic-style structured error
+        if "service_unavailable" in msg or "No verified API" in msg:
+            return "AI 服务商暂时不可用"
+        if "overloaded" in msg:
+            return "AI 服务过载，请稍后重试"
+        if "rate_limit" in msg or "429" in msg:
+            return "请求频率超限，请稍等"
+        if "authentication" in msg.lower() or "401" in msg:
+            return "API 认证失败，请联系管理员检查配置"
+        if "timeout" in msg.lower() or "timed out" in msg.lower():
+            return "请求超时，AI 服务响应过慢"
+        if "connection" in msg.lower():
+            return "无法连接 AI 服务"
+        # Generic: truncate to something readable
+        short = msg[:120].strip()
+        return short if short else "未知错误"
 
     @staticmethod
     def _build_thinking_param(level: str) -> dict | None:

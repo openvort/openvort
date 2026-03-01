@@ -272,6 +272,13 @@ loadData();
                         </vort-button>
                     </div>
                 </div>
+                <div class="border-t pt-4 mt-2">
+                    <span class="text-sm text-gray-500 mb-2 block">AI 辅助</span>
+                    <AiAssistButton
+                        :prompt="`请帮我修复 Bug「${currentRow.title}」，描述：${currentRow.description || '无'}。Bug ID: ${currentRow.id}`"
+                        label="AI 修复"
+                    />
+                </div>
             </div>
             <!-- Edit / Add -->
             <template v-else>

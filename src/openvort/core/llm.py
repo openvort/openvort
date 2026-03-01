@@ -109,7 +109,10 @@ class AnthropicProvider(LLMProvider):
 
     def __init__(self, api_key: str, api_base: str = "", timeout: int = 120):
         import anthropic
-        kwargs: dict[str, Any] = {"api_key": api_key, "timeout": timeout}
+        import httpx
+        # connect=15s (fast fail on unreachable), read=timeout (streaming needs long read)
+        http_timeout = httpx.Timeout(timeout, connect=15.0)
+        kwargs: dict[str, Any] = {"api_key": api_key, "timeout": http_timeout, "max_retries": 1}
         is_official = not api_base or api_base.rstrip("/") == "https://api.anthropic.com"
         if not is_official:
             base = api_base.rstrip("/")
@@ -557,6 +560,48 @@ def _default_api_base(provider: str) -> str:
     return defaults.get(provider, "https://api.openai.com/v1")
 
 
+class _FailoverStreamWrapper:
+    """Wraps multiple model configs and tries each in order for streaming.
+
+    On __aenter__, attempts to open a stream from each model config until
+    one succeeds. If all fail, raises the last error.
+    """
+
+    def __init__(self, models, get_provider, **kwargs):
+        self._models = models
+        self._get_provider = get_provider
+        self._kwargs = kwargs
+        self._active_stream = None
+
+    async def __aenter__(self):
+        last_error = None
+        for cfg in self._models:
+            provider = self._get_provider(cfg)
+            stream_ctx = provider.stream(
+                model=cfg["model"],
+                max_tokens=cfg.get("max_tokens", 4096),
+                **self._kwargs,
+            )
+            try:
+                self._active_stream = stream_ctx
+                result = await stream_ctx.__aenter__()
+                log.info(f"流式调用已连接: {cfg['model']}")
+                return result
+            except Exception as e:
+                last_error = e
+                log.warning(f"流式调用 {cfg['model']} 失败: {e}，尝试 fallback...")
+                try:
+                    await stream_ctx.__aexit__(type(e), e, e.__traceback__)
+                except Exception:
+                    pass
+                self._active_stream = None
+        raise last_error or RuntimeError("所有模型均不可用")
+
+    async def __aexit__(self, *args):
+        if self._active_stream:
+            await self._active_stream.__aexit__(*args)
+
+
 class LLMClient:
     """带 Failover 的 LLM 客户端
 
@@ -606,12 +651,10 @@ class LLMClient:
     def stream(self, *, system: str, messages: list[dict],
                tools: list[dict] | None = None,
                thinking: dict | None = None):
-        """流式调用（使用主模型，不做 failover）"""
-        cfg = self._models[0]
-        provider = self._get_provider(cfg)
-        return provider.stream(
-            model=cfg["model"],
-            max_tokens=cfg.get("max_tokens", 4096),
+        """流式调用（带 failover：主模型失败时自动尝试备选模型）"""
+        return _FailoverStreamWrapper(
+            models=self._models,
+            get_provider=self._get_provider,
             system=system, messages=messages,
             tools=tools, thinking=thinking,
         )

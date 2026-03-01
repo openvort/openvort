@@ -71,16 +71,20 @@ src/openvort/
 │   │   ├── adapters/   # PMAdapter 抽象（local/zentao 双模式）
 │   │   ├── tools/      # 5 个 Tool（project/intake/assign/progress/query）
 │   │   └── prompts/    # 领域知识（onboarding + workflow_guide）
-│   └── vortgit/        # VortGit 代码仓库管理插件
-│       ├── plugin.py   # VortGitPlugin 主类
-│       ├── config.py   # VortGitSettings（Fernet 加密密钥等）
-│       ├── models.py   # ORM: git_providers/repos/repo_members/workspaces/code_tasks
-│       ├── crypto.py   # Fernet 令牌加解密
-│       ├── router.py   # FastAPI 路由（平台/仓库/提交/分支/成员）
-│       ├── workspace.py # WorkspaceManager（成员隔离 Git 工作空间）
-│       ├── providers/  # Git 平台抽象（base + gitee，可扩展 github/gitlab）
-│       ├── tools/      # 4 个 Tool（list_repos/repo_info/query_commits/work_summary）
-│       └── prompts/    # 领域知识（git_guide）
+│   ├── vortgit/        # VortGit 代码仓库管理插件
+│   │   ├── plugin.py   # VortGitPlugin 主类
+│   │   ├── config.py   # VortGitSettings（Fernet 加密密钥等）
+│   │   ├── models.py   # ORM: git_providers/repos/repo_members/workspaces/code_tasks
+│   │   ├── crypto.py   # Fernet 令牌加解密
+│   │   ├── router.py   # FastAPI 路由（平台/仓库/提交/分支/成员）
+│   │   ├── workspace.py # WorkspaceManager（成员隔离 Git 工作空间）
+│   │   ├── providers/  # Git 平台抽象（base + gitee，可扩展 github/gitlab）
+│   │   ├── tools/      # 4 个 Tool（list_repos/repo_info/query_commits/work_summary）
+│   │   └── prompts/    # 领域知识（git_guide）
+│   └── system/         # 系统管理插件（通道配置 + 诊断）
+│       ├── plugin.py   # SystemPlugin 主类
+│       ├── tools/      # 2 个 Tool（channel_config/diagnose）
+│       └── prompts/    # 系统管理知识（system_admin）
 ├── channels/           # IM 通道适配器
 │   ├── wecom/          # 企业微信 Channel
 │   │   ├── channel.py  # WeComChannel(BaseChannel)
@@ -89,8 +93,10 @@ src/openvort/
 │   │   └── callback.py # Webhook 回调处理
 │   ├── dingtalk/       # 钉钉 Channel
 │   │   └── channel.py  # DingTalkChannel(BaseChannel)
-│   └── feishu/         # 飞书 Channel
-│       └── channel.py  # FeishuChannel(BaseChannel)
+│   ├── feishu/         # 飞书 Channel
+│   │   └── channel.py  # FeishuChannel(BaseChannel)
+│   └── openclaw/       # OpenClaw 多平台网关 Channel
+│       └── channel.py  # OpenClawChannel(BaseChannel)
 ├── relay/              # 公网中继服务（无 AI，资源极低）
 │   ├── server.py       # FastAPI 应用（接收企微回调 + REST API）
 │   └── store.py        # SQLite 消息存储
@@ -213,6 +219,8 @@ await event_bus.emit("message.received", msg=msg)
 | Channel | 企业微信（Webhook / Relay / DB轮询） | ✅ |
 | Channel | 钉钉（Webhook + OpenAPI） | ✅ |
 | Channel | 飞书（Event Subscription + OpenAPI） | ✅ |
+| Channel | OpenClaw 多平台网关（WhatsApp/Telegram/Slack/Discord 桥接） | ✅ |
+| Plugin | 系统管理（2 Tool + 1 Prompt，通道配置 + 诊断） | ✅ |
 | Plugin | 禅道（11 Tool + 2 Prompt，直连 MySQL） | ✅ |
 | Plugin | 浏览器控制（Playwright，5 Tool） | ✅ |
 | Plugin | 通讯录（5 Tool，多平台身份映射） | ✅ |

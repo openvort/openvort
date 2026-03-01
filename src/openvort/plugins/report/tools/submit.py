@@ -23,7 +23,6 @@ class ReportSubmitTool(BaseTool):
     def __init__(self, session_factory_getter):
         self._sf_getter = session_factory_getter
 
-    @property
     def input_schema(self) -> dict:
         return {
             "type": "object",
@@ -48,21 +47,24 @@ class ReportSubmitTool(BaseTool):
             "required": ["action"],
         }
 
-    async def execute(self, **kwargs) -> dict:
+    async def execute(self, params: dict) -> str:
+        import json
         from openvort.plugins.report.service import ReportService
 
-        action = kwargs.get("action", "")
+        action = params.get("action", "")
         service = ReportService(self._sf_getter())
 
         if action == "generate":
-            return await self._generate(service, kwargs)
+            result = await self._generate(service, params)
         elif action == "submit":
-            return await self._submit(service, kwargs)
+            result = await self._submit(service, params)
         elif action == "edit":
-            return await self._edit(service, kwargs)
+            result = await self._edit(service, params)
         elif action == "withdraw":
-            return await self._withdraw(service, kwargs)
-        return {"ok": False, "error": f"未知操作: {action}"}
+            result = await self._withdraw(service, params)
+        else:
+            result = {"ok": False, "error": f"未知操作: {action}"}
+        return json.dumps(result, ensure_ascii=False, default=str)
 
     async def _generate(self, service, kwargs: dict) -> dict:
         """AI 自动生成汇报草稿"""

@@ -279,7 +279,7 @@ const fetchRemoteRepos = async () => {
         const res = await getVortgitRemoteRepos(importProviderId.value, { page: 1, per_page: 50, search: importSearch.value });
         remoteRepos.value = (res as any).items || [];
     } catch (e: any) {
-        message.error("获取远程仓库失败");
+        message.error(e?.response?.data?.detail || "获取远程仓库失败");
     } finally {
         importLoading.value = false;
     }

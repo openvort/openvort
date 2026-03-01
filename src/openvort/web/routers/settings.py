@@ -32,6 +32,7 @@ async def get_current_settings():
     settings = get_settings()
     models = await config_service.get_llm_models()
     primary_model_id, fallback_model_ids = await config_service.get_llm_model_selection()
+    cli_config = await config_service.get_cli_config()
     model_summary = [
         {
             "id": item.get("id", ""),
@@ -43,18 +44,42 @@ async def get_current_settings():
         for item in models
     ]
 
+    # CLI tool compatibility info
+    cli_tools_info = _get_cli_tools_info()
+
     return {
         "llm_primary_model_id": primary_model_id,
         "llm_fallback_model_ids": fallback_model_ids,
         "llm_models": model_summary,
+        # CLI coding config
+        "cli_default_tool": cli_config["cli_default_tool"],
+        "cli_primary_model_id": cli_config["cli_primary_model_id"],
+        "cli_fallback_model_ids": cli_config["cli_fallback_model_ids"],
+        "cli_tools": cli_tools_info,
         # 兼容旧前端字段
         "llm_provider": settings.llm.provider,
         "llm_api_key": _mask_key(settings.llm.api_key),
         "llm_model": settings.llm.model,
         "llm_api_base": settings.llm.api_base,
         "llm_max_tokens": settings.llm.max_tokens,
-        "llm_timeout": settings.llm.timeout
+        "llm_timeout": settings.llm.timeout,
     }
+
+
+def _get_cli_tools_info() -> list[dict]:
+    """Return CLI tool specs for frontend display/filtering."""
+    try:
+        from openvort.plugins.vortgit.cli_runner import BUILTIN_CLI_TOOLS
+        return [
+            {
+                "name": spec.name,
+                "display_name": spec.display_name,
+                "supported_providers": spec.supported_providers,
+            }
+            for spec in BUILTIN_CLI_TOOLS.values()
+        ]
+    except Exception:
+        return []
 
 
 class FallbackModelItem(BaseModel):
@@ -69,6 +94,11 @@ class FallbackModelItem(BaseModel):
 class UpdateSettingsRequest(BaseModel):
     llm_primary_model_id: str | None = None
     llm_fallback_model_ids: list[str] | None = None
+
+    # CLI coding config
+    cli_default_tool: str | None = None
+    cli_primary_model_id: str | None = None
+    cli_fallback_model_ids: list[str] | None = None
 
     # 兼容旧请求字段
     llm_provider: str | None = None
@@ -114,6 +144,14 @@ async def update_settings(req: UpdateSettingsRequest):
         primary_id = req.llm_primary_model_id if req.llm_primary_model_id is not None else current_primary
         fallback_ids = req.llm_fallback_model_ids if req.llm_fallback_model_ids is not None else current_fallback
         await config_service.save_llm_model_selection(primary_id, fallback_ids)
+
+    # CLI coding config
+    if any(v is not None for v in [req.cli_default_tool, req.cli_primary_model_id, req.cli_fallback_model_ids]):
+        await config_service.save_cli_config(
+            default_tool=req.cli_default_tool,
+            primary_model_id=req.cli_primary_model_id,
+            fallback_model_ids=req.cli_fallback_model_ids,
+        )
 
     data: dict = {}
     if req.llm_provider is not None:

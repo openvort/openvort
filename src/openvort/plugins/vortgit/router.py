@@ -8,7 +8,7 @@ from sqlalchemy import select, func, delete as sa_delete
 
 from openvort.db.engine import get_session_factory
 from openvort.plugins.vortgit.crypto import decrypt_token, encrypt_token
-from openvort.plugins.vortgit.models import GitProvider, GitRepo, GitRepoMember
+from openvort.plugins.vortgit.models import GitCodeTask, GitProvider, GitRepo, GitRepoMember
 from openvort.utils.logging import get_logger
 
 log = get_logger("plugins.vortgit.router")
@@ -215,6 +215,9 @@ async def list_remote_repos(
     try:
         repos = await client.list_repos(page=page, per_page=per_page, search=search)
         return {"items": repos}
+    except Exception as e:
+        log.error(f"Failed to fetch remote repos from provider {provider_id}: {e}")
+        raise HTTPException(502, f"获取远程仓库失败: {e}")
     finally:
         await client.close()
 
@@ -227,7 +230,7 @@ async def list_repos(
     project_id: str = Query(""),
     keyword: str = Query(""),
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=200),
 ):
     sf = get_session_factory()
     async with sf() as session:
@@ -531,3 +534,138 @@ async def sync_repo(repo_id: str):
             return _repo_to_dict(repo)
 
     raise HTTPException(404, "Repo not found after sync")
+
+
+# ============ Code Tasks (AI coding task history) ============
+
+def _code_task_to_dict(t: GitCodeTask) -> dict:
+    import json as _json
+    files = []
+    try:
+        files = _json.loads(t.files_changed) if t.files_changed else []
+    except Exception:
+        pass
+    return {
+        "id": t.id,
+        "repo_id": t.repo_id,
+        "member_id": t.member_id,
+        "story_id": t.story_id,
+        "task_id": t.task_id,
+        "bug_id": t.bug_id,
+        "cli_tool": t.cli_tool,
+        "task_description": t.task_description,
+        "branch_name": t.branch_name,
+        "status": t.status,
+        "pr_url": t.pr_url,
+        "files_changed": files,
+        "diff_summary": t.diff_summary,
+        "duration_seconds": t.duration_seconds,
+        "created_at": t.created_at.isoformat() if t.created_at else None,
+    }
+
+
+def _code_task_detail_to_dict(t: GitCodeTask) -> dict:
+    d = _code_task_to_dict(t)
+    d["cli_stdout"] = t.cli_stdout
+    d["cli_stderr"] = t.cli_stderr
+    return d
+
+
+@router.get("/code-tasks")
+async def list_code_tasks(
+    status: str = Query(""),
+    repo_id: str = Query(""),
+    member_id: str = Query(""),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+):
+    sf = get_session_factory()
+    async with sf() as session:
+        q = select(GitCodeTask)
+        if status:
+            q = q.where(GitCodeTask.status == status)
+        if repo_id:
+            q = q.where(GitCodeTask.repo_id == repo_id)
+        if member_id:
+            q = q.where(GitCodeTask.member_id == member_id)
+
+        total = await session.scalar(select(func.count()).select_from(q.subquery()))
+        q = q.order_by(GitCodeTask.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
+        result = await session.execute(q)
+        items = [_code_task_to_dict(t) for t in result.scalars().all()]
+        return {"items": items, "total": total or 0}
+
+
+@router.get("/code-tasks/stats")
+async def code_task_stats():
+    sf = get_session_factory()
+    async with sf() as session:
+        total = await session.scalar(select(func.count()).select_from(GitCodeTask)) or 0
+        success = await session.scalar(
+            select(func.count()).where(GitCodeTask.status.in_(["success", "review"]))
+        ) or 0
+        failed = await session.scalar(
+            select(func.count()).where(GitCodeTask.status == "failed")
+        ) or 0
+        running = await session.scalar(
+            select(func.count()).where(GitCodeTask.status == "running")
+        ) or 0
+        active_repos = await session.scalar(
+            select(func.count(func.distinct(GitCodeTask.repo_id)))
+        ) or 0
+
+        from datetime import datetime, timedelta
+        week_ago = datetime.utcnow() - timedelta(days=7)
+        this_week = await session.scalar(
+            select(func.count()).where(GitCodeTask.created_at >= week_ago)
+        ) or 0
+
+    return {
+        "total": total,
+        "success": success,
+        "failed": failed,
+        "running": running,
+        "success_rate": round(success / total * 100, 1) if total else 0,
+        "active_repos": active_repos,
+        "this_week": this_week,
+    }
+
+
+@router.get("/code-tasks/{task_id}")
+async def get_code_task(task_id: str):
+    sf = get_session_factory()
+    async with sf() as session:
+        task = await session.get(GitCodeTask, task_id)
+        if not task:
+            raise HTTPException(404, "Code task not found")
+        return _code_task_detail_to_dict(task)
+
+
+# ============ Coding Environment Status ============
+
+@router.get("/coding-env/status")
+async def coding_env_status():
+    try:
+        from openvort.core.coding_env import CodingEnvironment
+        from openvort.plugins.vortgit.config import VortGitSettings
+
+        settings = VortGitSettings()
+        env = CodingEnvironment(
+            image=settings.cli_docker_image,
+            timeout=settings.cli_timeout,
+        )
+        status = await env.get_status()
+        raw = status.to_dict()
+        # Reshape cli_tools dict into array for frontend
+        cli_tools_list = [
+            {"name": k, "installed": v.get("installed", False), "version": v.get("version", "")}
+            for k, v in raw.get("cli_tools", {}).items()
+        ]
+        raw["cli_tools"] = cli_tools_list
+        raw["docker_image_ready"] = raw.pop("coding_image_pulled", False)
+        raw["cli_default_tool"] = settings.cli_default_tool
+        raw["has_claude_key"] = bool(settings.claude_code_api_key)
+        raw["has_aider_key"] = bool(settings.aider_api_key)
+        return raw
+    except Exception as e:
+        return {"error": str(e), "mode": "unavailable", "cli_tools": []}

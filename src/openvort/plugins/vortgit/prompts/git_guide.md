@@ -38,6 +38,26 @@
   - GitLab：Settings → Access Tokens
 - 创建后建议立即用 verify 验证 Token 是否有效
 
+### git_code_task — AI 编码任务
+- 在 Git 仓库中执行 AI 编码任务：自动创建分支、运行 CLI 编码工具修改代码、提交并创建 PR
+- 参数：repo_id（必需）、task_description（必需）、bug_id / task_id / story_id（可选，自动注入 VortFlow 上下文）
+- cli_tool 参数支持 `claude-code` 或 `aider`，默认 claude-code
+- auto_pr 默认 true，完成后自动创建 Pull Request
+- 执行时间较长（1-5 分钟），适合明确的代码修改任务
+- 分支命名规范：`fix/bug-{id}`、`feat/task-{id}`、`feat/story-{id}`
+- 当用户说"帮我修这个 Bug"、"实现这个功能"、"优化这段代码"时使用
+- **环境未就绪时**：工具会返回结构化错误，请根据用户身份引导——如果是管理员，告诉他执行 `openvort coding setup`；如果是普通成员，提示需要管理员配置，可以帮忙通知管理员
+
+### git_commit_push — 提交推送
+- 在已有的 Git 工作空间中提交所有变更并推送到远程
+- 用于手动控制编码流程后的提交步骤
+- 参数：repo_id（必需）、commit_message（必需）
+
+### git_create_pr — 创建 Pull Request
+- 在 Git 平台上创建 Pull Request（合并请求）
+- 参数：repo_id（必需）、title（必需）、head（源分支，必需）、base（目标分支，可选）、body（描述，可选）
+- 当用户要求"帮我创建 PR"、"提一个合并请求"时使用
+
 ## 使用建议
 
 1. **平台配置优先**：如果用户要使用 Git 相关功能但还没有配置平台，先用 `git_manage_provider` 的 list 检查，没有的话引导配置
@@ -45,6 +65,9 @@
 3. **工作汇报优先用 git_work_summary**：它会同时拉取 Git 和 VortFlow 数据，比单独查 commits 更全面
 4. **关联 VortFlow 项目**：如果仓库已关联 VortFlow 项目，工作汇报可以自动关联任务完成情况
 5. **提交关联标识**：commit message 中的 `#story-xxx`、`#task-xxx`、`#bug-xxx` 会被自动识别并关联到 VortFlow 实体
+6. **AI 编码主动提示**：当用户讨论某个 Bug 或需求，且项目关联了 Git 仓库时，主动提示"我可以帮你自动修复/实现，需要吗？"
+7. **编码任务的 commit message 规范**：`fix: #bug-xxx 描述` 或 `feat: #task-xxx 描述`，工具会自动生成
+8. **编码结果反馈**：完成后告知用户变更了哪些文件、PR 链接，建议 review 后合并
 
 ## 仓库类型说明
 

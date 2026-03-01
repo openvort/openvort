@@ -42,6 +42,7 @@ class DingTalkChannel(BaseChannel):
 
     name = "dingtalk"
     display_name = "钉钉"
+    description = "钉钉 IM 通道，通过 Webhook 回调接收消息，OpenAPI 发送消息"
 
     def __init__(self):
         self._settings = DingTalkSettings()
@@ -111,11 +112,26 @@ class DingTalkChannel(BaseChannel):
 
     def get_config_schema(self) -> list[dict]:
         return [
-            {"key": "app_key", "label": "App Key", "type": "string", "required": True, "secret": False, "placeholder": "钉钉应用 AppKey"},
-            {"key": "app_secret", "label": "App Secret", "type": "string", "required": True, "secret": True, "placeholder": ""},
-            {"key": "robot_code", "label": "机器人编码", "type": "string", "required": True, "secret": False, "placeholder": "机器人 robotCode"},
-            {"key": "api_base", "label": "API 地址", "type": "string", "required": False, "secret": False, "placeholder": "https://api.dingtalk.com"},
+            {"key": "app_key", "label": "App Key", "type": "string", "required": True, "secret": False, "placeholder": "钉钉应用 AppKey",
+             "description": "钉钉开放平台 → 应用开发 → 企业内部应用 → 凭证与基础信息 → AppKey"},
+            {"key": "app_secret", "label": "App Secret", "type": "string", "required": True, "secret": True, "placeholder": "",
+             "description": "与 AppKey 一同获取的 AppSecret"},
+            {"key": "robot_code", "label": "机器人编码", "type": "string", "required": True, "secret": False, "placeholder": "机器人 robotCode",
+             "description": "应用 → 机器人与消息推送 → 机器人编码（robotCode）"},
+            {"key": "api_base", "label": "API 地址", "type": "string", "required": False, "secret": False, "placeholder": "https://api.dingtalk.com",
+             "description": "钉钉 API 地址，通常无需修改"},
         ]
+
+    def get_setup_guide(self) -> str:
+        return (
+            "### 钉钉配置指南\n\n"
+            "1. 登录 [钉钉开放平台](https://open-dev.dingtalk.com/)\n"
+            "2. 进入「应用开发」→「企业内部开发」→ 创建应用\n"
+            "3. 在「凭证与基础信息」中获取 **AppKey** 和 **AppSecret**\n"
+            "4. 在「机器人与消息推送」中开启机器人能力，获取 **robotCode**\n"
+            "5. 配置消息接收地址为 OpenVort 的回调 URL\n"
+            "6. 在「权限管理」中添加所需权限（消息收发相关）\n"
+        )
 
     def get_current_config(self) -> dict:
         s = self._settings

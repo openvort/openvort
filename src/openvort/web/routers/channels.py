@@ -47,6 +47,7 @@ async def list_channels():
         result.append({
             "name": ch.name,
             "display_name": ch.display_name,
+            "description": ch.description,
             "type": ch.name,
             "status": "connected" if ch.is_configured() else "disconnected",
             "enabled": enabled,
@@ -69,12 +70,14 @@ async def get_channel_detail(name: str):
     return {
         "name": ch.name,
         "display_name": ch.display_name,
+        "description": ch.description,
         "type": ch.name,
         "status": "connected" if ch.is_configured() else "disconnected",
         "enabled": enabled,
         "config_schema": ch.get_config_schema(),
         "config": ch.get_current_config(),
         "connection": ch.get_connection_info(),
+        "setup_guide": ch.get_setup_guide(),
     }
 
 

@@ -25,6 +25,11 @@ _LLM_MODELS_KEY = "llm.models"
 _LLM_PRIMARY_MODEL_ID_KEY = "llm.primary_model_id"
 _LLM_FALLBACK_MODEL_IDS_KEY = "llm.fallback_model_ids"
 
+# CLI 编码配置 DB keys
+_CLI_DEFAULT_TOOL_KEY = "cli.default_tool"
+_CLI_PRIMARY_MODEL_ID_KEY = "cli.primary_model_id"
+_CLI_FALLBACK_MODEL_IDS_KEY = "cli.fallback_model_ids"
+
 # LLM 字段 → DB key 映射
 _LLM_FIELDS = {
     "provider": "llm.provider",
@@ -286,6 +291,78 @@ class ConfigService:
         if applied:
             log.info("已从数据库加载 LLM 配置覆盖")
         return applied
+
+    # ---- CLI coding model config ----
+
+    async def get_cli_config(self) -> dict[str, Any]:
+        """Get CLI coding tool + model configuration."""
+        await self._ensure_llm_model_library()
+        default_tool = await self.get(_CLI_DEFAULT_TOOL_KEY, "claude-code")
+        primary_id = await self.get(_CLI_PRIMARY_MODEL_ID_KEY, "")
+        fallback_raw = await self.get(_CLI_FALLBACK_MODEL_IDS_KEY, "")
+        fallback_ids: list[str] = []
+        if fallback_raw:
+            try:
+                parsed = json.loads(fallback_raw)
+                if isinstance(parsed, list):
+                    fallback_ids = [str(v) for v in parsed if str(v)]
+            except (json.JSONDecodeError, Exception):
+                pass
+
+        models = await self.get_llm_models()
+        model_ids = {m["id"] for m in models if m.get("enabled", True)}
+        if primary_id and primary_id not in model_ids:
+            primary_id = ""
+        fallback_ids = [mid for mid in fallback_ids if mid in model_ids and mid != primary_id]
+
+        return {
+            "cli_default_tool": default_tool,
+            "cli_primary_model_id": primary_id,
+            "cli_fallback_model_ids": fallback_ids,
+        }
+
+    async def save_cli_config(
+        self, default_tool: str | None = None,
+        primary_model_id: str | None = None,
+        fallback_model_ids: list[str] | None = None,
+    ) -> None:
+        """Save CLI coding tool + model configuration."""
+        items: dict[str, str] = {}
+        if default_tool is not None:
+            items[_CLI_DEFAULT_TOOL_KEY] = default_tool
+        if primary_model_id is not None:
+            items[_CLI_PRIMARY_MODEL_ID_KEY] = primary_model_id
+        if fallback_model_ids is not None:
+            models = await self.get_llm_models()
+            model_ids = {m["id"] for m in models}
+            cleaned = []
+            seen = set()
+            for mid in fallback_model_ids:
+                if mid in seen or mid not in model_ids:
+                    continue
+                if primary_model_id and mid == primary_model_id:
+                    continue
+                seen.add(mid)
+                cleaned.append(mid)
+            items[_CLI_FALLBACK_MODEL_IDS_KEY] = json.dumps(cleaned, ensure_ascii=False)
+        if items:
+            await self.set_many(items)
+
+    async def get_cli_model_chain(self) -> list[dict[str, Any]]:
+        """Get CLI model chain (primary + fallbacks) with full model details."""
+        cfg = await self.get_cli_config()
+        models = await self.get_llm_models()
+        model_map = {m["id"]: m for m in models if m.get("enabled", True)}
+
+        chain: list[dict[str, Any]] = []
+        primary = model_map.get(cfg["cli_primary_model_id"])
+        if primary:
+            chain.append(primary)
+        for fid in cfg["cli_fallback_model_ids"]:
+            m = model_map.get(fid)
+            if m:
+                chain.append(m)
+        return chain
 
     async def save_llm_settings(self, data: dict[str, Any]) -> None:
         """将 LLM 配置保存到 DB 并更新 settings 单例"""

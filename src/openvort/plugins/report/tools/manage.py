@@ -21,7 +21,6 @@ class ReportManageTool(BaseTool):
     def __init__(self, session_factory_getter):
         self._sf_getter = session_factory_getter
 
-    @property
     def input_schema(self) -> dict:
         return {
             "type": "object",
@@ -63,86 +62,87 @@ class ReportManageTool(BaseTool):
             "required": ["action"],
         }
 
-    async def execute(self, **kwargs) -> dict:
+    async def execute(self, params: dict) -> str:
+        import json
         from openvort.plugins.report.service import ReportService
 
-        action = kwargs.get("action", "")
+        action = params.get("action", "")
         service = ReportService(self._sf_getter())
 
         if action == "create_template":
-            name = kwargs.get("name", "")
-            report_type = kwargs.get("report_type", "daily")
+            name = params.get("name", "")
+            report_type = params.get("report_type", "daily")
             if not name:
-                return {"ok": False, "error": "模板名称不能为空"}
+                return json.dumps({"ok": False, "error": "模板名称不能为空"}, ensure_ascii=False)
             result = await service.create_template(
                 name=name,
                 report_type=report_type,
-                content_schema=kwargs.get("content_schema"),
-                auto_collect=kwargs.get("auto_collect"),
+                content_schema=params.get("content_schema"),
+                auto_collect=params.get("auto_collect"),
             )
-            return {"ok": True, "template": result}
+            return json.dumps({"ok": True, "template": result}, ensure_ascii=False)
 
         elif action == "update_template":
-            template_id = kwargs.get("template_id", "")
+            template_id = params.get("template_id", "")
             if not template_id:
-                return {"ok": False, "error": "需要 template_id"}
+                return json.dumps({"ok": False, "error": "需要 template_id"}, ensure_ascii=False)
             fields = {}
             for key in ("name", "report_type", "content_schema", "auto_collect"):
-                if key in kwargs:
-                    fields[key] = kwargs[key]
+                if key in params:
+                    fields[key] = params[key]
             result = await service.update_template(template_id, **fields)
             if not result:
-                return {"ok": False, "error": "模板不存在"}
-            return {"ok": True, "template": result}
+                return json.dumps({"ok": False, "error": "模板不存在"}, ensure_ascii=False)
+            return json.dumps({"ok": True, "template": result}, ensure_ascii=False)
 
         elif action == "delete_template":
-            template_id = kwargs.get("template_id", "")
+            template_id = params.get("template_id", "")
             ok = await service.delete_template(template_id)
-            return {"ok": ok, "error": "" if ok else "模板不存在或删除失败"}
+            return json.dumps({"ok": ok, "error": "" if ok else "模板不存在或删除失败"}, ensure_ascii=False)
 
         elif action == "list_templates":
             templates = await service.list_templates()
-            return {"ok": True, "templates": templates, "count": len(templates)}
+            return json.dumps({"ok": True, "templates": templates, "count": len(templates)}, ensure_ascii=False)
 
         elif action == "create_rule":
-            template_id = kwargs.get("template_id", "")
-            scope = kwargs.get("scope", "member")
-            target_id = kwargs.get("target_id", "")
+            template_id = params.get("template_id", "")
+            scope = params.get("scope", "member")
+            target_id = params.get("target_id", "")
             if not template_id or not target_id:
-                return {"ok": False, "error": "需要 template_id 和 target_id"}
+                return json.dumps({"ok": False, "error": "需要 template_id 和 target_id"}, ensure_ascii=False)
             result = await service.create_rule(
                 template_id=template_id,
                 scope=scope,
                 target_id=target_id,
-                reviewer_id=kwargs.get("reviewer_id"),
-                deadline_cron=kwargs.get("deadline_cron", "0 18 * * 1-5"),
-                reminder_minutes=kwargs.get("reminder_minutes", 30),
-                escalation_minutes=kwargs.get("escalation_minutes", 120),
-                enabled=kwargs.get("enabled", True),
+                reviewer_id=params.get("reviewer_id"),
+                deadline_cron=params.get("deadline_cron", "0 18 * * 1-5"),
+                reminder_minutes=params.get("reminder_minutes", 30),
+                escalation_minutes=params.get("escalation_minutes", 120),
+                enabled=params.get("enabled", True),
             )
-            return {"ok": True, "rule": result}
+            return json.dumps({"ok": True, "rule": result}, ensure_ascii=False)
 
         elif action == "update_rule":
-            rule_id = kwargs.get("rule_id", "")
+            rule_id = params.get("rule_id", "")
             if not rule_id:
-                return {"ok": False, "error": "需要 rule_id"}
+                return json.dumps({"ok": False, "error": "需要 rule_id"}, ensure_ascii=False)
             fields = {}
             for key in ("scope", "target_id", "reviewer_id", "deadline_cron",
                         "reminder_minutes", "escalation_minutes", "enabled"):
-                if key in kwargs:
-                    fields[key] = kwargs[key]
+                if key in params:
+                    fields[key] = params[key]
             result = await service.update_rule(rule_id, **fields)
             if not result:
-                return {"ok": False, "error": "规则不存在"}
-            return {"ok": True, "rule": result}
+                return json.dumps({"ok": False, "error": "规则不存在"}, ensure_ascii=False)
+            return json.dumps({"ok": True, "rule": result}, ensure_ascii=False)
 
         elif action == "delete_rule":
-            rule_id = kwargs.get("rule_id", "")
+            rule_id = params.get("rule_id", "")
             ok = await service.delete_rule(rule_id)
-            return {"ok": ok, "error": "" if ok else "规则不存在或删除失败"}
+            return json.dumps({"ok": ok, "error": "" if ok else "规则不存在或删除失败"}, ensure_ascii=False)
 
         elif action == "list_rules":
-            rules = await service.list_rules(template_id=kwargs.get("template_id"))
-            return {"ok": True, "rules": rules, "count": len(rules)}
+            rules = await service.list_rules(template_id=params.get("template_id"))
+            return json.dumps({"ok": True, "rules": rules, "count": len(rules)}, ensure_ascii=False)
 
-        return {"ok": False, "error": f"未知操作: {action}"}
+        return json.dumps({"ok": False, "error": f"未知操作: {action}"}, ensure_ascii=False)

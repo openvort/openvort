@@ -36,6 +36,7 @@ class FeishuChannel(BaseChannel):
 
     name = "feishu"
     display_name = "飞书"
+    description = "飞书 IM 通道，通过事件订阅接收消息，OpenAPI 发送消息"
 
     def __init__(self):
         self._settings = FeishuSettings()
@@ -105,12 +106,28 @@ class FeishuChannel(BaseChannel):
 
     def get_config_schema(self) -> list[dict]:
         return [
-            {"key": "app_id", "label": "App ID", "type": "string", "required": True, "secret": False, "placeholder": "飞书应用 App ID"},
-            {"key": "app_secret", "label": "App Secret", "type": "string", "required": True, "secret": True, "placeholder": ""},
-            {"key": "verification_token", "label": "Verification Token", "type": "string", "required": False, "secret": True, "placeholder": "事件订阅验证 Token"},
-            {"key": "encrypt_key", "label": "Encrypt Key", "type": "string", "required": False, "secret": True, "placeholder": "事件订阅加密 Key"},
-            {"key": "api_base", "label": "API 地址", "type": "string", "required": False, "secret": False, "placeholder": "https://open.feishu.cn/open-apis"},
+            {"key": "app_id", "label": "App ID", "type": "string", "required": True, "secret": False, "placeholder": "飞书应用 App ID",
+             "description": "飞书开放平台 → 应用详情 → 凭证与基础信息 → App ID"},
+            {"key": "app_secret", "label": "App Secret", "type": "string", "required": True, "secret": True, "placeholder": "",
+             "description": "与 App ID 一同获取的 App Secret"},
+            {"key": "verification_token", "label": "Verification Token", "type": "string", "required": False, "secret": True, "placeholder": "事件订阅验证 Token",
+             "description": "应用 → 事件订阅 → 配置请求地址时生成的 Verification Token"},
+            {"key": "encrypt_key", "label": "Encrypt Key", "type": "string", "required": False, "secret": True, "placeholder": "事件订阅加密 Key",
+             "description": "事件订阅中的 Encrypt Key，用于消息解密"},
+            {"key": "api_base", "label": "API 地址", "type": "string", "required": False, "secret": False, "placeholder": "https://open.feishu.cn/open-apis",
+             "description": "飞书 API 地址，通常无需修改"},
         ]
+
+    def get_setup_guide(self) -> str:
+        return (
+            "### 飞书配置指南\n\n"
+            "1. 登录 [飞书开放平台](https://open.feishu.cn/app)\n"
+            "2. 创建「企业自建应用」\n"
+            "3. 在「凭证与基础信息」中获取 **App ID** 和 **App Secret**\n"
+            "4. 在「事件订阅」中配置请求地址，获取 **Verification Token** 和 **Encrypt Key**\n"
+            "5. 订阅「接收消息」事件（im.message.receive_v1）\n"
+            "6. 在「权限管理」中开通消息相关权限并发布应用版本\n"
+        )
 
     def get_current_config(self) -> dict:
         s = self._settings

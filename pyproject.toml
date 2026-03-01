@@ -61,6 +61,7 @@ vortflow = "openvort.plugins.vortflow:VortFlowPlugin"
 vortgit = "openvort.plugins.vortgit:VortGitPlugin"
 schedule = "openvort.plugins.schedule:SchedulePlugin"
 report = "openvort.plugins.report:ReportPlugin"
+system = "openvort.plugins.system:SystemPlugin"
 
 [project.urls]
 Homepage = "https://github.com/nicekate/openvort"

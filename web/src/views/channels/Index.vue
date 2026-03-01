@@ -4,6 +4,7 @@ import { getChannels, getChannelDetail, updateChannel, toggleChannel, testChanne
 import { message } from "@/components/vort/message";
 import { Radio, CheckCircle, XCircle, Settings, Zap, Download } from "lucide-vue-next";
 import { useUserStore } from "@/stores";
+import AiAssistButton from "@/components/vort-biz/ai-assist-button/AiAssistButton.vue";
 
 interface ConfigField {
     key: string;
@@ -12,6 +13,8 @@ interface ConfigField {
     required: boolean;
     secret: boolean;
     placeholder: string;
+    description?: string;
+    help_url?: string;
 }
 
 interface ConnectionInfo {
@@ -23,6 +26,7 @@ interface ConnectionInfo {
 interface ChannelInfo {
     name: string;
     display_name: string;
+    description: string;
     type: string;
     status: string;
     enabled: boolean;
@@ -32,6 +36,7 @@ interface ChannelDetail extends ChannelInfo {
     config_schema: ConfigField[];
     config: Record<string, any>;
     connection?: ConnectionInfo;
+    setup_guide?: string;
 }
 
 const channels = ref<ChannelInfo[]>([]);
@@ -127,6 +132,16 @@ function handleDownloadDeploy() {
     );
 }
 
+function renderGuide(md: string): string {
+    return md
+        .replace(/### (.+)/g, '<h4 class="text-sm font-semibold text-gray-800 mb-2">$1</h4>')
+        .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+        .replace(/`([^`]+)`/g, '<code class="px-1 py-0.5 bg-blue-100 rounded text-xs">$1</code>')
+        .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" target="_blank" class="text-blue-600 underline">$1</a>')
+        .replace(/^\d+\. (.+)$/gm, '<li class="ml-4 list-decimal">$1</li>')
+        .replace(/(<li.*<\/li>\n?)+/g, '<ol class="space-y-1 mb-2">$&</ol>');
+}
+
 const modeLabels: Record<string, string> = {
     relay: "Relay 中继",
     webhook: "Webhook 回调",
@@ -141,26 +156,29 @@ onMounted(loadChannels);
 <template>
     <div class="space-y-4">
         <div class="bg-white rounded-xl p-6">
-            <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center justify-between mb-2">
                 <h3 class="text-base font-medium text-gray-800">通道管理</h3>
+                <AiAssistButton
+                    label="AI 助手配置"
+                    prompt="我需要配置 IM 通道，请帮我了解可用的通道并引导我完成配置。请先列出所有可用通道和它们的状态，然后根据我的选择逐步引导配置。"
+                />
             </div>
+            <p class="text-sm text-gray-400 mb-4">管理 IM 通道的连接配置，每个通道对应一个消息平台。配置完成后 AI 可通过该通道收发消息。</p>
 
             <VortTable :data-source="channels" :loading="loading" row-key="name" :pagination="false">
                 <VortTableColumn label="通道名称" prop="display_name">
                     <template #default="{ row }">
                         <div class="flex items-center">
                             <Radio :size="16" class="text-blue-600 mr-2" />
-                            <span>{{ row.display_name }}</span>
+                            <div>
+                                <span class="font-medium">{{ row.display_name }}</span>
+                                <p v-if="row.description" class="text-xs text-gray-400 mt-0.5">{{ row.description }}</p>
+                            </div>
                         </div>
                     </template>
                 </VortTableColumn>
-                <VortTableColumn label="标识" prop="name" />
-                <VortTableColumn label="类型" prop="type">
-                    <template #default="{ row }">
-                        <VortTag>{{ row.type }}</VortTag>
-                    </template>
-                </VortTableColumn>
-                <VortTableColumn label="状态" prop="status">
+                <VortTableColumn label="标识" prop="name" :width="120" />
+                <VortTableColumn label="状态" prop="status" :width="100">
                     <template #default="{ row }">
                         <span class="flex items-center text-sm" :class="row.status === 'connected' ? 'text-green-600' : 'text-gray-400'">
                             <CheckCircle v-if="row.status === 'connected'" :size="14" class="mr-1" />
@@ -197,6 +215,9 @@ onMounted(loadChannels);
         >
             <VortSpin :spinning="drawerLoading">
                 <template v-if="currentChannel">
+                    <!-- 配置引导说明 -->
+                    <div v-if="currentChannel.setup_guide" class="mb-5 p-4 bg-blue-50 rounded-lg text-sm text-gray-700 leading-relaxed setup-guide" v-html="renderGuide(currentChannel.setup_guide)" />
+
                     <VortForm label-width="140px">
                         <VortFormItem
                             v-for="field in currentChannel.config_schema"
@@ -204,11 +225,14 @@ onMounted(loadChannels);
                             :label="field.label"
                             :required="field.required"
                         >
-                            <VortInput
-                                v-model="configForm[field.key]"
-                                :type="field.secret ? 'password' : 'text'"
-                                :placeholder="field.placeholder"
-                            />
+                            <div class="w-full">
+                                <VortInput
+                                    v-model="configForm[field.key]"
+                                    :type="field.secret ? 'password' : 'text'"
+                                    :placeholder="field.placeholder"
+                                />
+                                <p v-if="field.description" class="text-xs text-gray-400 mt-1">{{ field.description }}</p>
+                            </div>
                         </VortFormItem>
                     </VortForm>
 
