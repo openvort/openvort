@@ -176,7 +176,14 @@ def create_app() -> FastAPI:
     app.mount("/uploads/chat", StaticFiles(directory=str(_chat_uploads)), name="chat-uploads")
 
     # 尝试挂载前端静态文件（构建产物）+ SPA fallback
-    static_dir = Path(__file__).parent.parent.parent.parent / "web" / "dist"
+    import os as _os
+    _static_override = _os.environ.get("OPENVORT_STATIC_DIR")
+    if _static_override:
+        static_dir = Path(_static_override)
+    elif Path("/app/web/dist").exists():
+        static_dir = Path("/app/web/dist")
+    else:
+        static_dir = Path(__file__).parent.parent.parent.parent / "web" / "dist"
     if static_dir.exists():
         from fastapi.responses import FileResponse
 

@@ -108,8 +108,8 @@ def init():
         f"OPENVORT_LLM_API_BASE={api_base}",
         f"OPENVORT_LLM_MODEL={model}",
         "",
-        "# 数据库",
-        "OPENVORT_DATABASE_URL=sqlite+aiosqlite:///openvort.db",
+        "# 数据库 (本地开发连接 Docker Compose 中的 PostgreSQL)",
+        "OPENVORT_DATABASE_URL=postgresql+asyncpg://openvort:openvort@localhost:5432/openvort",
         "",
     ]
 
@@ -1180,14 +1180,21 @@ async def _doctor():
             click.echo(f"  ❌ API 连接失败: {e}")
 
     # 2. 数据库检查
-    click.echo("\n── 数据库 ──")
+    click.echo("\n── 数据库 (PostgreSQL) ──")
+    db_url = settings.database_url
+    click.echo(f"  URL: {db_url.split('@')[-1] if '@' in db_url else db_url.split('://')[0]}")
     try:
-        from openvort.db import init_db
-        await init_db(settings.database_url)
-        click.echo(f"  ✅ 数据库连接正常: {settings.database_url.split('://')[0]}")
+        from openvort.db import init_db, get_session
+        await init_db(db_url)
+        async with get_session() as session:
+            from sqlalchemy import text
+            row = await session.execute(text("SELECT version()"))
+            pg_version = row.scalar()
+            click.echo(f"  ✅ 连接正常: {pg_version}")
     except Exception as e:
         issues.append(f"数据库连接失败: {e}")
-        click.echo(f"  ❌ 数据库连接失败: {e}")
+        click.echo(f"  ❌ 连接失败: {e}")
+        click.echo("     提示: docker compose -f docker-compose.dev.yml up -d 可启动本地 PostgreSQL")
 
     # 3. 通道配置检查
     click.echo("\n── 通道配置 ──")
