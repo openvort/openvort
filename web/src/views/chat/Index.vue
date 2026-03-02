@@ -12,7 +12,7 @@ import {
     sendChatMessage, getChatStreamUrl, getChatHistory, getChatSessionInfo,
     setChatThinking, compactChatSession, resetChatSession,
     getChatSessions, createChatSession, renameChatSession, deleteChatSession,
-    batchDeleteChatSessions, getChatMembers
+    batchDeleteChatSessions, getChatMembers, abortChatMessage
 } from "@/api";
 import { message } from "@/components/vort/message";
 import { dialog } from "@/components/vort/dialog";
@@ -48,6 +48,7 @@ const userStore = useUserStore();
 const messages = ref<ChatMessage[]>([]);
 const inputText = ref("");
 const loading = ref(false);
+const aborting = ref(false);
 const chatContainer = ref<HTMLElement>();
 const inputArea = ref<HTMLElement>();
 const pendingImages = ref<PendingImage[]>([]);
@@ -104,6 +105,7 @@ const unreadSessionIds = ref<Set<string>>(new Set());
 
 interface ActiveStream {
     sessionId: string;
+    messageId: string;
     eventSource: EventSource;
     assistantMsg: ChatMessage;
     targetText: string;
@@ -431,8 +433,9 @@ async function handleSend() {
         streaming: true,
     };
     messages.value.push(rawAssistantMsg);
-    const assistantMsg = messages.value[messages.value.length - 1];
+    const assistantMsg = messages.value[messages.value.length - 1]!;
     loading.value = true;
+    aborting.value = false;
 
     try {
         const res: any = await sendChatMessage(
@@ -450,6 +453,7 @@ async function handleSend() {
         // 创建流式状态
         const streamState: ActiveStream = {
             sessionId: sendSessionId,
+            messageId,
             eventSource: null as any,
             assistantMsg,
             targetText: "",
@@ -478,10 +482,16 @@ async function handleSend() {
             if (streamState.twTimer) { clearInterval(streamState.twTimer); streamState.twTimer = null; }
         }
 
-        function flushAndFinish() {
+        function flushAndFinish(options?: { interrupted?: boolean }) {
+            if (streamState.done) return;
             streamState.done = true;
+            aborting.value = false;
             stopTypewriter();
-            streamState.assistantMsg.content = streamState.targetText;
+            let finalText = streamState.targetText;
+            if (options?.interrupted) {
+                finalText = finalText ? `${finalText}\n\n[已中断]` : "已中断生成。";
+            }
+            streamState.assistantMsg.content = finalText;
             streamState.assistantMsg.streaming = false;
             activeStreams.delete(sendSessionId);
 
@@ -569,6 +579,11 @@ async function handleSend() {
             flushAndFinish();
         });
 
+        eventSource.addEventListener("interrupted", (_e: MessageEvent) => {
+            eventSource.close();
+            flushAndFinish({ interrupted: true });
+        });
+
         eventSource.addEventListener("server_error", (e: MessageEvent) => {
             const data = e.data;
             if (data) streamState.targetText += `\n\n错误: ${data}`;
@@ -579,6 +594,10 @@ async function handleSend() {
         eventSource.onerror = () => {
             eventSource.close();
             if (!streamState.done) {
+                if (aborting.value) {
+                    flushAndFinish({ interrupted: true });
+                    return;
+                }
                 if (!streamState.targetText) streamState.targetText = "连接中断，请重试。";
                 flushAndFinish();
             }
@@ -595,15 +614,50 @@ async function handleSend() {
                 flushAndFinish();
             }
         }, 5000);
-        const origOnText = eventSource.listeners?.text;
         // Track last event time on every SSE event
         const trackEvent = () => { lastEventTime = Date.now(); };
-        for (const evtName of ["text", "tool_use", "tool_output", "tool_progress", "tool_result", "usage", "thinking", "done", "server_error"]) {
+        for (const evtName of ["text", "tool_use", "tool_output", "tool_progress", "tool_result", "usage", "thinking", "done", "server_error", "interrupted"]) {
             eventSource.addEventListener(evtName, trackEvent);
         }
     } catch {
         assistantMsg.content = "请求失败，请检查服务是否运行。";
         loading.value = false;
+        aborting.value = false;
+    }
+}
+
+async function handleAbortCurrentStream() {
+    if (!loading.value || aborting.value) return;
+    const sessionId = currentSessionId.value;
+    const streamState = activeStreams.get(sessionId);
+    if (!streamState) {
+        loading.value = false;
+        return;
+    }
+
+    aborting.value = true;
+    try {
+        await abortChatMessage(streamState.messageId);
+    } catch {
+        // Fall back to local close/finalize even if abort API fails.
+    } finally {
+        try { streamState.eventSource?.close(); } catch { /* noop */ }
+        if (!streamState.done) {
+            streamState.done = true;
+            if (streamState.twTimer) {
+                clearInterval(streamState.twTimer);
+                streamState.twTimer = null;
+            }
+            streamState.assistantMsg.content = streamState.targetText
+                ? `${streamState.targetText}\n\n[已中断]`
+                : "已中断生成。";
+            streamState.assistantMsg.streaming = false;
+            activeStreams.delete(sessionId);
+            loading.value = false;
+            scrollToBottom();
+            loadSessionInfo();
+        }
+        aborting.value = false;
     }
 }
 
@@ -1471,10 +1525,20 @@ onUnmounted(() => {
                                 </template>
                             </VortPopover>
                             <button
-                                :disabled="(!inputText.trim() && !pendingImages.length) || loading"
+                                v-if="loading"
+                                :disabled="aborting"
+                                @click="handleAbortCurrentStream"
+                                class="w-20 h-9 rounded-lg flex items-center justify-center transition-colors send-btn"
+                                :class="aborting ? 'send-btn-disabled' : 'send-btn-stop'"
+                            >
+                                <X :size="16" class="text-white" />
+                            </button>
+                            <button
+                                v-else
+                                :disabled="!inputText.trim() && !pendingImages.length"
                                 @click="handleSend"
                                 class="w-20 h-9 rounded-lg flex items-center justify-center transition-colors send-btn"
-                                :class="(!inputText.trim() && !pendingImages.length) || loading ? 'send-btn-disabled' : 'send-btn-active'"
+                                :class="!inputText.trim() && !pendingImages.length ? 'send-btn-disabled' : 'send-btn-active'"
                             >
                                 <Send :size="16" class="text-white" />
                             </button>
@@ -1518,6 +1582,13 @@ onUnmounted(() => {
 }
 .send-btn-active:hover {
     background-color: var(--vort-primary-hover, #3372f7);
+}
+.send-btn-stop {
+    background-color: #ef4444;
+    cursor: pointer;
+}
+.send-btn-stop:hover {
+    background-color: #dc2626;
 }
 .send-btn-disabled {
     background-color: var(--vort-primary, #1456f0);

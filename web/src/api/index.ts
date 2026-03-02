@@ -64,6 +64,11 @@ export function getChatStreamUrl(messageId: string, token: string) {
     return `/api/chat/stream/${messageId}?token=${encodeURIComponent(token)}`;
 }
 
+/** 中断指定消息的流式生成 */
+export function abortChatMessage(messageId: string) {
+    return request.post("/chat/abort", { message_id: messageId });
+}
+
 /** 获取会话信息（token 用量、thinking 级别） */
 export function getChatSessionInfo(sessionId = "default") {
     return request.get("/chat/session-info", { params: { session_id: sessionId } });

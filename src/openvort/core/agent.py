@@ -255,7 +255,14 @@ class AgentRuntime:
         ctx = RequestContext(channel="cli", user_id="debug")
         return await self.process(ctx, content)
 
-    async def process_stream_web(self, content: str, member_id: str = "admin", images: list[dict] | None = None, session_id: str = "default"):
+    async def process_stream_web(
+        self,
+        content: str,
+        member_id: str = "admin",
+        images: list[dict] | None = None,
+        session_id: str = "default",
+        cancel_event: asyncio.Event | None = None,
+    ):
         """Web 面板流式对话接口
 
         使用 Anthropic streaming API，逐块 yield 事件。
@@ -328,8 +335,12 @@ class AgentRuntime:
         current_text = ""
         total_usage = Usage()
         completed = False
+        interrupted = False
         try:
             for _ in range(max_rounds):
+                if cancel_event and cancel_event.is_set():
+                    interrupted = True
+                    break
                 try:
                     collected_content = []
                     async with self._llm.stream(
@@ -337,6 +348,9 @@ class AgentRuntime:
                         tools=tools if tools else None,
                     ) as stream:
                         async for event in stream:
+                            if cancel_event and cancel_event.is_set():
+                                interrupted = True
+                                break
                             if event.type == "content_block_start":
                                 block = event.content_block
                                 if getattr(block, "type", None) == "text":
@@ -351,11 +365,16 @@ class AgentRuntime:
                                 elif getattr(delta, "type", None) == "input_json_delta":
                                     pass
 
+                        if interrupted:
+                            break
                         response = await stream.get_final_message()
                         total_usage.input_tokens += response.usage.input_tokens
                         total_usage.output_tokens += response.usage.output_tokens
                         total_usage.cache_creation_input_tokens += response.usage.cache_creation_input_tokens
                         total_usage.cache_read_input_tokens += response.usage.cache_read_input_tokens
+                except asyncio.CancelledError:
+                    interrupted = True
+                    break
                 except Exception as e:
                     log.error(f"LLM API 流式调用失败: {e}")
                     reason = self._extract_error_reason(e)
@@ -365,6 +384,8 @@ class AgentRuntime:
                     await self._sessions.save_messages(ctx.channel, ctx.user_id, messages, session_id)
                     completed = True
                     return
+                if interrupted:
+                    break
 
                 messages.append({"role": "assistant", "content": self._serialize_content(response.content)})
 
@@ -394,6 +415,14 @@ class AgentRuntime:
                         )
                         elapsed = 0
                         while not tool_task.done():
+                            if cancel_event and cancel_event.is_set():
+                                interrupted = True
+                                tool_task.cancel()
+                                try:
+                                    await tool_task
+                                except asyncio.CancelledError:
+                                    pass
+                                break
                             try:
                                 await asyncio.wait_for(asyncio.shield(tool_task), timeout=2)
                             except asyncio.TimeoutError:
@@ -418,6 +447,11 @@ class AgentRuntime:
                                         "name": block.name,
                                         "elapsed": elapsed,
                                     }
+                        if interrupted:
+                            break
+                        if tool_task.cancelled():
+                            interrupted = True
+                            break
                         result = tool_task.result()
 
                         log.info(f"[web] 工具结果: {result[:200]}")
@@ -428,7 +462,15 @@ class AgentRuntime:
                             "content": result,
                         })
 
+                if interrupted:
+                    break
                 messages.append({"role": "user", "content": tool_results})
+
+            if interrupted:
+                # 中断发生在首轮流式文本阶段时，补齐已生成文本以便 finally 落库。
+                if current_text and (not messages or messages[-1].get("role") != "assistant"):
+                    messages.append({"role": "assistant", "content": [{"type": "text", "text": current_text}]})
+                return
 
             # Save and yield usage on normal completion
             await self._sessions.save_messages(ctx.channel, ctx.user_id, messages, session_id)

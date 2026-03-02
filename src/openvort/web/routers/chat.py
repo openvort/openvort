@@ -1,7 +1,10 @@
 """聊天路由 — SSE 流式，使用真实成员身份，支持多会话"""
 
+import asyncio
 import json
 import uuid
+from dataclasses import dataclass
+from typing import Any
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
@@ -13,6 +16,19 @@ router = APIRouter()
 
 # 内存中暂存待处理的消息
 _pending_messages: dict[str, dict] = {}
+
+
+@dataclass
+class RunningMessage:
+    message_id: str
+    member_id: str
+    session_id: str
+    cancel_event: asyncio.Event
+    stream_task: asyncio.Task[Any] | None = None
+
+
+# 内存中追踪正在流式中的消息（用于取消）
+_running_messages: dict[str, RunningMessage] = {}
 
 
 class ImageItem(BaseModel):
@@ -27,6 +43,10 @@ class SendRequest(BaseModel):
 
 
 class SendResponse(BaseModel):
+    message_id: str
+
+
+class AbortRequest(BaseModel):
     message_id: str
 
 
@@ -112,6 +132,31 @@ async def send_message(req: SendRequest, request: Request):
     return SendResponse(message_id=message_id)
 
 
+@router.post("/abort")
+async def abort_message(req: AbortRequest, request: Request):
+    """中断当前消息生成（支持 pending/running 两种状态）"""
+    payload = require_auth(request)
+    member_id = payload.get("sub", "")
+
+    pending = _pending_messages.get(req.message_id)
+    if pending:
+        if pending.get("member_id") != member_id:
+            return {"success": False, "error": "无权限中断该消息"}
+        _pending_messages.pop(req.message_id, None)
+        return {"success": True, "status": "aborted_pending"}
+
+    running = _running_messages.get(req.message_id)
+    if running:
+        if running.member_id != member_id:
+            return {"success": False, "error": "无权限中断该消息"}
+        running.cancel_event.set()
+        if running.stream_task and not running.stream_task.done():
+            running.stream_task.cancel()
+        return {"success": True, "status": "aborting"}
+
+    return {"success": False, "error": "消息不存在或已结束"}
+
+
 @router.get("/stream/{message_id}")
 async def stream_response(message_id: str, request: Request):
     """SSE 流式返回 AI 回复"""
@@ -124,19 +169,34 @@ async def stream_response(message_id: str, request: Request):
     agent = get_agent()
     member_id = msg["member_id"]
     session_id = msg.get("session_id", "default")
+    running = RunningMessage(
+        message_id=message_id,
+        member_id=member_id,
+        session_id=session_id,
+        cancel_event=asyncio.Event(),
+        stream_task=None,
+    )
+    _running_messages[message_id] = running
 
     # 首条消息自动设置标题
     session_store = get_session_store()
 
     async def event_stream():
+        disconnected = False
+        running.stream_task = asyncio.current_task()
         try:
             yield {"event": "thinking", "data": "start"}
 
             async for event in agent.process_stream_web(
                 msg["content"], member_id=member_id, images=msg.get("images", []),
                 session_id=session_id,
+                cancel_event=running.cancel_event,
             ):
+                if running.cancel_event.is_set():
+                    break
                 if await request.is_disconnected():
+                    disconnected = True
+                    running.cancel_event.set()
                     break
 
                 event_type = event.get("type", "")
@@ -153,6 +213,11 @@ async def stream_response(message_id: str, request: Request):
                 elif event_type == "usage":
                     yield {"event": "usage", "data": json.dumps(event, ensure_ascii=False)}
 
+            if running.cancel_event.is_set():
+                if not disconnected:
+                    yield {"event": "interrupted", "data": "aborted"}
+                return
+
             # 自动标题：前几轮对话动态更新标题
             if msg["content"].strip() and session_id != "default":
                 info = session_store.get_session_info("web", member_id, session_id)
@@ -165,8 +230,15 @@ async def stream_response(message_id: str, request: Request):
                         yield {"event": "title_updated", "data": json.dumps({"session_id": session_id, "title": title_text}, ensure_ascii=False)}
 
             yield {"event": "done", "data": "ok"}
+        except asyncio.CancelledError:
+            if running.cancel_event.is_set() and not disconnected:
+                yield {"event": "interrupted", "data": "aborted"}
+                return
+            raise
         except Exception as e:
             yield {"event": "server_error", "data": str(e)}
+        finally:
+            _running_messages.pop(message_id, None)
 
     return EventSourceResponse(event_stream(), ping=15)
 
