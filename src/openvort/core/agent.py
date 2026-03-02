@@ -546,30 +546,33 @@ class AgentRuntime:
 
         无图片时返回纯字符串（节省 token），有图片时返回 content blocks。
         同时把 pic_url 写入文本，确保后续轮次 AI 也能引用图片 URL。
+        file_url is persisted in image blocks for history recovery.
         """
         if not images:
             return text
 
         blocks: list[dict] = []
-        # 先放图片
         pic_urls = []
         for img in images:
             data = img.get("data")
             media_type = img.get("media_type", "image/jpeg")
             if data:
-                blocks.append({
+                block: dict = {
                     "type": "image",
                     "source": {
                         "type": "base64",
                         "media_type": media_type,
                         "data": data,
                     },
-                })
+                }
+                file_url = img.get("file_url", "")
+                if file_url:
+                    block["file_url"] = file_url
+                blocks.append(block)
             pic_url = img.get("pic_url", "")
             if pic_url:
                 pic_urls.append(pic_url)
 
-        # 文本中附上 pic_url，确保跨轮次可引用
         url_hint = ""
         if pic_urls:
             url_list = "\n".join(pic_urls)

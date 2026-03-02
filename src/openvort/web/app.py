@@ -169,6 +169,12 @@ def create_app() -> FastAPI:
             "llm_error": _llm_health_cache["error"],
         }
 
+    # 聊天图片（data_dir 下，不依赖前端构建产物）
+    from openvort.config.settings import get_settings as _get_settings
+    _chat_uploads = _get_settings().data_dir / "uploads" / "chat"
+    _chat_uploads.mkdir(parents=True, exist_ok=True)
+    app.mount("/uploads/chat", StaticFiles(directory=str(_chat_uploads)), name="chat-uploads")
+
     # 尝试挂载前端静态文件（构建产物）+ SPA fallback
     static_dir = Path(__file__).parent.parent.parent.parent / "web" / "dist"
     if static_dir.exists():
