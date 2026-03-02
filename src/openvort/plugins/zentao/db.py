@@ -139,6 +139,63 @@ class ZentaoDB:
              actor, action, comment, extra),
         )
 
+    # ---- 文件上传 ----
+
+    def upload_file(
+        self,
+        file_bytes: bytes,
+        extension: str,
+        object_type: str,
+        object_id: int,
+        *,
+        title: str = "screenshot",
+        actor: str = AI_ACCOUNT,
+    ) -> Optional[int]:
+        """Write file to Zentao's upload dir and insert zt_file record.
+
+        Returns the file ID, or None if upload_dir is not configured.
+        """
+        upload_dir = self._settings.upload_dir
+        if not upload_dir:
+            log.warning("禅道 upload_dir 未配置，跳过文件上传")
+            return None
+
+        import uuid
+        from pathlib import Path
+        from datetime import datetime
+
+        now = datetime.now()
+        sub_dir = Path(upload_dir) / now.strftime("%Y") / now.strftime("%m")
+        sub_dir.mkdir(parents=True, exist_ok=True)
+
+        filename = f"{uuid.uuid4().hex}.{extension}"
+        filepath = sub_dir / filename
+        filepath.write_bytes(file_bytes)
+
+        pathname = f"{now.strftime('%Y/%m')}/{filename}"
+        size = len(file_bytes)
+
+        conn = self.get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO zt_file
+                       (pathname, title, extension, size,
+                        objectType, objectID, addedBy, addedDate, extra)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), 'editor')""",
+                    (pathname, title, extension, size,
+                     object_type, object_id, actor),
+                )
+                file_id = cur.lastrowid
+            conn.commit()
+            return file_id
+        except Exception as e:
+            log.error(f"写入 zt_file 失败: {e}")
+            conn.rollback()
+            return None
+        finally:
+            conn.close()
+
     # ---- 常用查询辅助 ----
 
     def find_product_id(self, name: str) -> Optional[int]:

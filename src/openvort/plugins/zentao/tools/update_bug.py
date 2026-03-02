@@ -48,12 +48,19 @@ class UpdateBugTool(BaseTool):
         if not bug:
             return json.dumps({"ok": False, "message": f"Bug #{bug_id} 不存在"}, ensure_ascii=False)
 
-        # 合并图片 URL
+        image_files = params.get("_image_files", []) or []
         image_urls = params.get("image_urls", []) or []
         injected_urls = params.get("_image_urls", []) or []
         for url in injected_urls:
             if url and url not in image_urls:
                 image_urls.append(url)
+
+        img_srcs: list[str] = []
+        for img in image_files:
+            mt = img.get("media_type", "image/png")
+            img_srcs.append(f"data:{mt};base64,{img['data']}")
+        if not img_srcs:
+            img_srcs = list(image_urls)
 
         def _do_update():
             actor = get_actor(params)
@@ -63,13 +70,11 @@ class UpdateBugTool(BaseTool):
                 with conn.cursor() as cur:
                     sets, vals, changes = [], [], []
 
-                    # 标题
                     if "title" in params and params["title"]:
                         sets.append("title=%s")
                         vals.append(params["title"])
                         changes.append(f"标题→{params['title']}")
 
-                    # 步骤：完整替换 or 追加
                     new_steps = None
                     if "steps" in params and params["steps"]:
                         new_steps = params["steps"]
@@ -79,15 +84,14 @@ class UpdateBugTool(BaseTool):
                         new_steps = f"{old_steps}\n{params['append_steps']}"
                         changes.append("步骤已追加")
 
-                    # 追加图片到 steps
-                    if image_urls:
+                    if img_srcs:
                         img_html = "\n".join(
-                            f'<img src="{url}" alt="截图" style="max-width:100%;" />'
-                            for url in image_urls
+                            f'<img src="{src}" alt="截图" style="max-width:100%;" />'
+                            for src in img_srcs
                         )
-                        base = new_steps if new_steps else (bug.get("steps", "") or "")
-                        new_steps = f"{base}\n<p>截图：</p>\n{img_html}"
-                        changes.append(f"追加 {len(image_urls)} 张截图")
+                        base_steps = new_steps if new_steps else (bug.get("steps", "") or "")
+                        new_steps = f"{base_steps}\n<p>截图：</p>\n{img_html}"
+                        changes.append(f"追加 {len(img_srcs)} 张截图")
 
                     if new_steps is not None:
                         sets.append("steps=%s")

@@ -166,10 +166,15 @@ class AgentRuntime:
                     # 注入禅道账号（优先用操作人自己的账号）
                     if ctx.platform_accounts.get("zentao"):
                         tool_input["_zentao_account"] = ctx.platform_accounts["zentao"]
-                    # 注入图片 URL（pic_url 列表）
                     if ctx.images:
                         tool_input["_image_urls"] = [
-                            img["pic_url"] for img in ctx.images if img.get("pic_url")
+                            img.get("pic_url") or img.get("file_url", "")
+                            for img in ctx.images
+                            if img.get("pic_url") or img.get("file_url")
+                        ]
+                        tool_input["_image_files"] = [
+                            {"data": img["data"], "media_type": img.get("media_type", "image/png")}
+                            for img in ctx.images if img.get("data")
                         ]
                     result = await self._registry.execute_tool(block.name, tool_input)
                     log.info(f"工具结果: {result[:200]}")
@@ -284,6 +289,8 @@ class AgentRuntime:
         else:
             ctx = RequestContext(channel="web", user_id=member_id, permissions={"*"})
 
+        ctx.images = images or []
+
         if (not content or not content.strip()) and not images:
             return
 
@@ -383,7 +390,13 @@ class AgentRuntime:
                             tool_input["_zentao_account"] = ctx.platform_accounts["zentao"]
                         if ctx.images:
                             tool_input["_image_urls"] = [
-                                img["pic_url"] for img in ctx.images if img.get("pic_url")
+                                img.get("pic_url") or img.get("file_url", "")
+                                for img in ctx.images
+                                if img.get("pic_url") or img.get("file_url")
+                            ]
+                            tool_input["_image_files"] = [
+                                {"data": img["data"], "media_type": img.get("media_type", "image/png")}
+                                for img in ctx.images if img.get("data")
                             ]
 
                         output_queue: asyncio.Queue[str] = asyncio.Queue()

@@ -24,6 +24,7 @@ class ZentaoSettings(BaseSettings):
     database: str = "zentao"
     charset: str = "utf8mb4"
     connect_timeout: int = 10
+    upload_dir: str = ""  # Zentao data/upload directory for file uploads
 
     def to_pymysql_kwargs(self) -> dict:
         """转换为 pymysql.connect() 参数"""
