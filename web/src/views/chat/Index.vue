@@ -520,7 +520,7 @@ async function handleSend() {
                 const data = JSON.parse(e.data);
                 const call = streamState.assistantMsg.toolCalls?.find(t => t.name === data.name && t.status === "running");
                 if (call) {
-                    call.output = (call.output || "") + data.output;
+                    call.output = call.output ? call.output + "\n" + data.output : data.output;
                     if (currentSessionId.value === sendSessionId) scrollToBottom();
                 }
             } catch { /* ignore */ }
@@ -1286,7 +1286,7 @@ onUnmounted(() => {
                                     </div>
                                     <div v-if="tool.output"
                                         :ref="(el: any) => { if (el) el.scrollTop = el.scrollHeight }"
-                                        class="mt-1 ml-1 max-h-60 overflow-y-auto rounded bg-gray-900 text-green-400 text-xs font-mono px-3 py-2 whitespace-pre-wrap break-all leading-relaxed">{{ tool.output }}</div>
+                                        class="mt-1 ml-1 max-h-60 overflow-y-auto rounded-lg bg-gray-900 text-green-400 text-xs font-mono px-3 py-2 whitespace-pre-wrap break-words leading-5 border border-gray-700/50 shadow-inner">{{ tool.output }}</div>
                                 </div>
                             </div>
                             <div

@@ -40,6 +40,21 @@ export function updateNotificationPrefs(preferences: Record<string, Record<strin
     return request.put("/me/notifications", { preferences });
 }
 
+/** 获取个人 Git Token 列表 */
+export function getGitTokens() {
+    return request.get("/me/git-tokens");
+}
+
+/** 保存/更新个人 Git Token */
+export function saveGitToken(platform: string, token: string, username: string = "") {
+    return request.put("/me/git-tokens", { platform, token, username });
+}
+
+/** 删除个人 Git Token */
+export function deleteGitToken(platform: string) {
+    return request.delete(`/me/git-tokens/${platform}`);
+}
+
 /** 获取通道列表（用于通知设置等） */
 export function getEnabledChannels() {
     return request.get("/admin/channels");

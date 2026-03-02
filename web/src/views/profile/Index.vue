@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed } from "vue";
 import { useUserStore } from "@/stores";
-import { getProfile, uploadAvatar, updateProfile, changePassword, getNotificationPrefs, updateNotificationPrefs, getEnabledChannels } from "@/api";
+import { getProfile, uploadAvatar, updateProfile, changePassword, getNotificationPrefs, updateNotificationPrefs, getEnabledChannels, getGitTokens, saveGitToken, deleteGitToken } from "@/api";
 import { message } from "@/components/vort/message";
-import { Shield, Bell, User, Lock, Mail, Smartphone, KeyRound } from "lucide-vue-next";
+import { Shield, Bell, User, Lock, Mail, Smartphone, KeyRound, GitBranch } from "lucide-vue-next";
 
 const userStore = useUserStore();
 const activeMenu = ref("basic");
@@ -65,6 +65,7 @@ const platformLabels: Record<string, string> = {
 const menuItems = [
     { key: "basic", label: "基本设置", icon: User },
     { key: "security", label: "安全设置", icon: Shield },
+    { key: "git", label: "Git 配置", icon: GitBranch },
     { key: "notification", label: "通知设置", icon: Bell },
 ];
 
@@ -258,6 +259,74 @@ async function handleSaveEmail() {
     }
 }
 
+// ---- Git Token 管理 ----
+
+interface GitTokenItem {
+    platform: string;
+    username: string;
+    email: string;
+    has_token: boolean;
+}
+
+const gitTokens = ref<GitTokenItem[]>([]);
+const gitLoading = ref(false);
+const gitDialogOpen = ref(false);
+const gitForm = reactive({ platform: "gitee", token: "", username: "" });
+const savingGitToken = ref(false);
+
+const gitPlatforms = [
+    { value: "gitee", label: "Gitee", tokenUrl: "https://gitee.com/personal_access_tokens" },
+    { value: "github", label: "GitHub", tokenUrl: "https://github.com/settings/tokens" },
+    { value: "gitlab", label: "GitLab", tokenUrl: "" },
+];
+
+async function loadGitTokens() {
+    gitLoading.value = true;
+    try {
+        const res: any = await getGitTokens();
+        gitTokens.value = res?.tokens || [];
+    } catch {
+        gitTokens.value = [];
+    } finally {
+        gitLoading.value = false;
+    }
+}
+
+function openGitTokenDialog(platform?: string) {
+    gitForm.platform = platform || "gitee";
+    gitForm.token = "";
+    gitForm.username = gitTokens.value.find((t) => t.platform === gitForm.platform)?.username || "";
+    gitDialogOpen.value = true;
+}
+
+async function handleSaveGitToken() {
+    if (!gitForm.token.trim()) {
+        message.error("Token 不能为空");
+        return;
+    }
+    savingGitToken.value = true;
+    try {
+        await saveGitToken(gitForm.platform, gitForm.token, gitForm.username);
+        message.success("Git Token 已保存");
+        gitDialogOpen.value = false;
+        await loadGitTokens();
+    } catch (err: any) {
+        message.error(err?.response?.data?.detail || "保存失败");
+    } finally {
+        savingGitToken.value = false;
+    }
+}
+
+async function handleDeleteGitToken(platform: string) {
+    try {
+        await deleteGitToken(platform);
+        message.success("已删除");
+        await loadGitTokens();
+    } catch {
+        message.error("删除失败");
+    }
+}
+
 // ---- 通知设置 ----
 
 async function loadNotifySettings() {
@@ -318,6 +387,9 @@ function handleMenuClick(key: string) {
     activeMenu.value = key;
     if (key === "notification" && channels.value.length === 0) {
         loadNotifySettings();
+    }
+    if (key === "git" && gitTokens.value.length === 0 && !gitLoading.value) {
+        loadGitTokens();
     }
 }
 </script>
@@ -404,6 +476,62 @@ function handleMenuClick(key: string) {
                                     <VortButton variant="link" @click="item.actionFn">{{ item.action }}</VortButton>
                                 </div>
                             </div>
+                        </div>
+
+                        <!-- ========== Git 配置 ========== -->
+                        <div v-else-if="activeMenu === 'git'">
+                            <h3 class="text-base font-medium text-gray-800 mb-2">Git Token 配置</h3>
+                            <p class="text-sm text-gray-400 mb-6">配置个人 Git 平台 Token，用于 AI 编码任务的代码提交。每位成员需使用自己的 Token，确保提交归属正确。</p>
+
+                            <VortSpin :spinning="gitLoading">
+                                <div class="space-y-3 mb-6">
+                                    <div
+                                        v-for="gp in gitPlatforms"
+                                        :key="gp.value"
+                                        class="flex items-center justify-between p-4 border border-gray-100 rounded-lg"
+                                    >
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center">
+                                                <GitBranch :size="16" class="text-gray-500" />
+                                            </div>
+                                            <div>
+                                                <div class="text-sm font-medium text-gray-700">{{ gp.label }}</div>
+                                                <div v-if="gitTokens.find(t => t.platform === gp.value)?.has_token" class="text-xs text-green-500 mt-0.5">
+                                                    已配置 · {{ gitTokens.find(t => t.platform === gp.value)?.username || '' }}
+                                                </div>
+                                                <div v-else class="text-xs text-gray-400 mt-0.5">未配置</div>
+                                            </div>
+                                        </div>
+                                        <div class="flex items-center gap-2">
+                                            <VortButton
+                                                v-if="gitTokens.find(t => t.platform === gp.value)?.has_token"
+                                                variant="link"
+                                                size="small"
+                                                class="text-red-500"
+                                                @click="handleDeleteGitToken(gp.value)"
+                                            >
+                                                删除
+                                            </VortButton>
+                                            <VortButton
+                                                variant="link"
+                                                size="small"
+                                                @click="openGitTokenDialog(gp.value)"
+                                            >
+                                                {{ gitTokens.find(t => t.platform === gp.value)?.has_token ? '更新' : '配置' }}
+                                            </VortButton>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="p-4 bg-blue-50 rounded-lg">
+                                    <div class="text-sm font-medium text-blue-700 mb-1">如何获取 Token？</div>
+                                    <ul class="text-xs text-blue-600 space-y-1">
+                                        <li>Gitee：<a href="https://gitee.com/personal_access_tokens" target="_blank" class="underline">个人设置 → 私人令牌</a></li>
+                                        <li>GitHub：<a href="https://github.com/settings/tokens" target="_blank" class="underline">Settings → Developer settings → Personal access tokens</a></li>
+                                        <li>GitLab：Settings → Access Tokens</li>
+                                    </ul>
+                                </div>
+                            </VortSpin>
                         </div>
 
                         <!-- ========== 通知设置 ========== -->
@@ -497,6 +625,35 @@ function handleMenuClick(key: string) {
                 <div class="flex gap-3">
                     <VortButton variant="primary" :loading="savingEmail" @click="handleSaveEmail">确认</VortButton>
                     <VortButton @click="emailDialogOpen = false">取消</VortButton>
+                </div>
+            </VortFormItem>
+        </VortForm>
+    </VortDialog>
+
+    <!-- Git Token 配置弹窗 -->
+    <VortDialog :open="gitDialogOpen" title="配置 Git Token" :footer="false" @update:open="gitDialogOpen = $event">
+        <VortForm label-width="100px" class="mt-4">
+            <VortFormItem label="平台">
+                <VortSelect v-model="gitForm.platform" :disabled="true">
+                    <option v-for="gp in gitPlatforms" :key="gp.value" :value="gp.value">{{ gp.label }}</option>
+                </VortSelect>
+            </VortFormItem>
+            <VortFormItem label="用户名">
+                <VortInput v-model="gitForm.username" placeholder="平台用户名（用于提交归属）" />
+            </VortFormItem>
+            <VortFormItem label="Access Token" required>
+                <VortInputPassword v-model="gitForm.token" placeholder="粘贴你的 Personal Access Token" />
+            </VortFormItem>
+            <VortFormItem>
+                <div class="flex items-center gap-3">
+                    <VortButton variant="primary" :loading="savingGitToken" @click="handleSaveGitToken">保存</VortButton>
+                    <VortButton @click="gitDialogOpen = false">取消</VortButton>
+                    <a
+                        v-if="gitPlatforms.find(p => p.value === gitForm.platform)?.tokenUrl"
+                        :href="gitPlatforms.find(p => p.value === gitForm.platform)?.tokenUrl"
+                        target="_blank"
+                        class="text-xs text-blue-500 hover:underline ml-auto"
+                    >去生成 Token →</a>
                 </div>
             </VortFormItem>
         </VortForm>

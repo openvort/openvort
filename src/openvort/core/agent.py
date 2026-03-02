@@ -399,12 +399,13 @@ class AgentRuntime:
                             except asyncio.TimeoutError:
                                 elapsed += 2
                                 # Drain queued CLI output lines
-                                output_chunk = ""
+                                lines: list[str] = []
                                 while not output_queue.empty():
                                     try:
-                                        output_chunk += output_queue.get_nowait()
+                                        lines.append(output_queue.get_nowait())
                                     except asyncio.QueueEmpty:
                                         break
+                                output_chunk = "\n".join(lines)
                                 if output_chunk:
                                     yield {
                                         "type": "tool_output",
