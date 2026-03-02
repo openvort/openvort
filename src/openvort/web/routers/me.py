@@ -279,6 +279,111 @@ async def upload_avatar(request: Request, file: UploadFile = File(...)):
     return {"success": True, "avatar_url": avatar_url}
 
 
+# ---- Git Token 管理 ----
+
+class GitTokenRequest(BaseModel):
+    platform: str  # gitee / github / gitlab
+    token: str
+    username: str = ""
+
+
+@router.get("/git-tokens")
+async def list_git_tokens(request: Request):
+    """列出当前用户已配置的 Git Token（仅返回平台和用户名，不返回明文 token）"""
+    member_id = _get_member_id(request)
+
+    from sqlalchemy import select
+    from openvort.contacts.models import PlatformIdentity
+
+    session_factory = get_db_session_factory()
+    async with session_factory() as session:
+        stmt = select(PlatformIdentity).where(
+            PlatformIdentity.member_id == member_id,
+            PlatformIdentity.platform.in_(["gitee", "github", "gitlab"]),
+        )
+        result = await session.execute(stmt)
+        identities = result.scalars().all()
+
+    tokens = []
+    for ident in identities:
+        tokens.append({
+            "platform": ident.platform,
+            "username": ident.platform_username or ident.platform_user_id,
+            "email": ident.platform_email,
+            "has_token": bool(ident.access_token),
+        })
+    return {"tokens": tokens}
+
+
+@router.put("/git-tokens")
+async def save_git_token(request: Request, req: GitTokenRequest):
+    """保存或更新个人 Git Token（加密存储）"""
+    member_id = _get_member_id(request)
+
+    if req.platform not in ("gitee", "github", "gitlab"):
+        raise HTTPException(status_code=400, detail="平台仅支持 gitee / github / gitlab")
+    if not req.token.strip():
+        raise HTTPException(status_code=400, detail="Token 不能为空")
+
+    from sqlalchemy import select
+    from openvort.contacts.models import PlatformIdentity
+    from openvort.plugins.vortgit.crypto import encrypt_token
+
+    encrypted = encrypt_token(req.token.strip())
+
+    session_factory = get_db_session_factory()
+    async with session_factory() as session:
+        stmt = select(PlatformIdentity).where(
+            PlatformIdentity.member_id == member_id,
+            PlatformIdentity.platform == req.platform,
+        )
+        result = await session.execute(stmt)
+        ident = result.scalar_one_or_none()
+
+        if ident:
+            ident.access_token = encrypted
+            if req.username.strip():
+                ident.platform_username = req.username.strip()
+        else:
+            username = req.username.strip() or member_id[:8]
+            ident = PlatformIdentity(
+                member_id=member_id,
+                platform=req.platform,
+                platform_user_id=username,
+                platform_username=username,
+                access_token=encrypted,
+            )
+            session.add(ident)
+
+        await session.commit()
+
+    return {"success": True}
+
+
+@router.delete("/git-tokens/{platform}")
+async def delete_git_token(request: Request, platform: str):
+    """删除个人 Git Token（仅清空 token，保留平台身份）"""
+    member_id = _get_member_id(request)
+
+    from sqlalchemy import select
+    from openvort.contacts.models import PlatformIdentity
+
+    session_factory = get_db_session_factory()
+    async with session_factory() as session:
+        stmt = select(PlatformIdentity).where(
+            PlatformIdentity.member_id == member_id,
+            PlatformIdentity.platform == platform,
+        )
+        result = await session.execute(stmt)
+        ident = result.scalar_one_or_none()
+
+        if ident:
+            ident.access_token = ""
+            await session.commit()
+
+    return {"success": True}
+
+
 @router.get("/workspace")
 async def get_workspace(request: Request):
     """个人工作台数据"""

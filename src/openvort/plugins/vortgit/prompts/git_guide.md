@@ -38,14 +38,19 @@
   - GitLab：Settings → Access Tokens
 - 创建后建议立即用 verify 验证 Token 是否有效
 
-### git_code_task — AI 编码任务
-- 在 Git 仓库中执行 AI 编码任务：自动创建分支、运行 CLI 编码工具修改代码、提交并创建 PR
+### git_code_task — AI 自动编码
+- **核心能力**：让 AI 直接读代码、理解上下文、修改/新建文件。支持修 Bug、实现新功能、重构优化、补测试、改配置等任何代码修改任务
+- **工作流程**：自动创建分支 → AI 读取仓库代码 → 理解上下文 → 修改/新建文件 → 提交 → 推送 → 创建 PR，全程自动化
+- **实时反馈**：执行过程中会实时输出 AI 的操作（读了哪些文件、思考过程、改了什么），用户可在聊天界面实时看到
 - 参数：repo_id（必需）、task_description（必需）、bug_id / task_id / story_id（可选，自动注入 VortFlow 上下文）
 - cli_tool 参数支持 `claude-code` 或 `aider`，默认 claude-code
 - auto_pr 默认 true，完成后自动创建 Pull Request
-- 执行时间较长（1-5 分钟），适合明确的代码修改任务
+- 执行时间通常 10 秒 ~ 5 分钟，视任务复杂度而定
 - 分支命名规范：`fix/bug-{id}`、`feat/task-{id}`、`feat/story-{id}`
-- 当用户说"帮我修这个 Bug"、"实现这个功能"、"优化这段代码"时使用
+- **同一会话中复用分支**：如果用户在同一对话中对同一仓库发起多次编码任务，应将上次返回的 branch_name 传入 branch_name 参数，使改动累积在同一个分支上
+- **延续上下文**：复用分支时，将上次返回的 diff_summary 和 files_changed 拼接后传入 previous_context 参数，帮助 AI 理解已有改动并在此基础上继续
+- 当用户说"帮我修这个 Bug"、"实现这个功能"、"优化这段代码"、"帮我写个 xxx"时使用
+- **Git Token 必需**：用户必须在个人设置中配置对应 Git 平台的 Token 才能使用。若工具返回"请先配置 Git Token"，引导用户到个人设置页面配置
 - **环境未就绪时**：工具会返回结构化错误，请根据用户身份引导——如果是管理员，告诉他执行 `openvort coding setup`；如果是普通成员，提示需要管理员配置，可以帮忙通知管理员
 
 ### git_commit_push — 提交推送

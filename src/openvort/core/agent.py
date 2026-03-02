@@ -166,10 +166,15 @@ class AgentRuntime:
                     # 注入禅道账号（优先用操作人自己的账号）
                     if ctx.platform_accounts.get("zentao"):
                         tool_input["_zentao_account"] = ctx.platform_accounts["zentao"]
-                    # 注入图片 URL（pic_url 列表）
                     if ctx.images:
                         tool_input["_image_urls"] = [
-                            img["pic_url"] for img in ctx.images if img.get("pic_url")
+                            img.get("pic_url") or img.get("file_url", "")
+                            for img in ctx.images
+                            if img.get("pic_url") or img.get("file_url")
+                        ]
+                        tool_input["_image_files"] = [
+                            {"data": img["data"], "media_type": img.get("media_type", "image/png")}
+                            for img in ctx.images if img.get("data")
                         ]
                     result = await self._registry.execute_tool(block.name, tool_input)
                     log.info(f"工具结果: {result[:200]}")
@@ -291,6 +296,8 @@ class AgentRuntime:
         else:
             ctx = RequestContext(channel="web", user_id=member_id, permissions={"*"})
 
+        ctx.images = images or []
+
         if (not content or not content.strip()) and not images:
             return
 
@@ -404,7 +411,13 @@ class AgentRuntime:
                             tool_input["_zentao_account"] = ctx.platform_accounts["zentao"]
                         if ctx.images:
                             tool_input["_image_urls"] = [
-                                img["pic_url"] for img in ctx.images if img.get("pic_url")
+                                img.get("pic_url") or img.get("file_url", "")
+                                for img in ctx.images
+                                if img.get("pic_url") or img.get("file_url")
+                            ]
+                            tool_input["_image_files"] = [
+                                {"data": img["data"], "media_type": img.get("media_type", "image/png")}
+                                for img in ctx.images if img.get("data")
                             ]
 
                         output_queue: asyncio.Queue[str] = asyncio.Queue()
@@ -428,12 +441,13 @@ class AgentRuntime:
                             except asyncio.TimeoutError:
                                 elapsed += 2
                                 # Drain queued CLI output lines
-                                output_chunk = ""
+                                lines: list[str] = []
                                 while not output_queue.empty():
                                     try:
-                                        output_chunk += output_queue.get_nowait()
+                                        lines.append(output_queue.get_nowait())
                                     except asyncio.QueueEmpty:
                                         break
+                                output_chunk = "\n".join(lines)
                                 if output_chunk:
                                     yield {
                                         "type": "tool_output",
@@ -587,30 +601,33 @@ class AgentRuntime:
 
         无图片时返回纯字符串（节省 token），有图片时返回 content blocks。
         同时把 pic_url 写入文本，确保后续轮次 AI 也能引用图片 URL。
+        file_url is persisted in image blocks for history recovery.
         """
         if not images:
             return text
 
         blocks: list[dict] = []
-        # 先放图片
         pic_urls = []
         for img in images:
             data = img.get("data")
             media_type = img.get("media_type", "image/jpeg")
             if data:
-                blocks.append({
+                block: dict = {
                     "type": "image",
                     "source": {
                         "type": "base64",
                         "media_type": media_type,
                         "data": data,
                     },
-                })
+                }
+                file_url = img.get("file_url", "")
+                if file_url:
+                    block["file_url"] = file_url
+                blocks.append(block)
             pic_url = img.get("pic_url", "")
             if pic_url:
                 pic_urls.append(pic_url)
 
-        # 文本中附上 pic_url，确保跨轮次可引用
         url_hint = ""
         if pic_urls:
             url_list = "\n".join(pic_urls)

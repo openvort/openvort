@@ -44,6 +44,8 @@ class IntakeStoryTool(BaseTool):
                 },
                 "deadline": {"type": "string", "description": "截止时间 (YYYY-MM-DD)，可选", "default": ""},
                 "submitter_name": {"type": "string", "description": "提需求的人的名字（用于记录）", "default": ""},
+                "image_urls": {"type": "array", "items": {"type": "string"},
+                               "description": "截图 URL 列表（用户发送的图片地址，从 _image_urls 获取）"},
             },
             "required": ["title", "project_id"],
         }
@@ -58,6 +60,15 @@ class IntakeStoryTool(BaseTool):
         description = params.get("description", "")
         priority = params.get("priority", 3)
         deadline_str = params.get("deadline", "")
+
+        image_urls = params.get("image_urls", []) or []
+        injected_urls = params.get("_image_urls", []) or []
+        for url in injected_urls:
+            if url and url not in image_urls:
+                image_urls.append(url)
+        if image_urls:
+            img_md = "\n".join(f"![截图]({url})" for url in image_urls)
+            description = f"{description}\n\n{img_md}" if description else img_md
 
         # Extract caller identity injected by AgentRuntime
         member_id = params.get("_member_id", "")

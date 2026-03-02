@@ -108,8 +108,8 @@ def init():
         f"OPENVORT_LLM_API_BASE={api_base}",
         f"OPENVORT_LLM_MODEL={model}",
         "",
-        "# 数据库",
-        "OPENVORT_DATABASE_URL=sqlite+aiosqlite:///openvort.db",
+        "# 数据库 (本地开发连接 Docker Compose 中的 PostgreSQL)",
+        "OPENVORT_DATABASE_URL=postgresql+asyncpg://openvort:openvort@localhost:5432/openvort",
         "",
     ]
 
@@ -1016,44 +1016,56 @@ async def _coding_setup():
     click.echo("🔧 AI 编码环境配置\n")
 
     env = CodingEnvironment()
+    settings = VortGitSettings()
 
-    # 1. Docker check
-    click.echo("── Docker 检测 ──")
+    # 1. Local CLI tools check
+    click.echo("── 本地 CLI 工具检测 ──")
+    from openvort.plugins.vortgit.cli_runner import BUILTIN_CLI_TOOLS
+    import shutil
+    local_found = False
+    for name, spec in BUILTIN_CLI_TOOLS.items():
+        path = shutil.which(spec.binary)
+        if path:
+            click.echo(f"  ✅ {spec.display_name}: {path}")
+            local_found = True
+        else:
+            click.echo(f"  ⚠️  {spec.display_name}: 未安装 ({spec.install_cmd})")
+
+    # 2. Docker check (optional if local tools found)
+    click.echo("\n── Docker 检测 ──")
+    docker_ready = False
     if env._is_docker_available():
         click.echo("  ✅ Docker 已安装")
+        image = settings.cli_docker_image
+        click.echo(f"  📦 镜像: {image}")
+        pulled = await env._is_image_pulled(image)
+        if pulled:
+            click.echo("  ✅ 镜像已存在")
+            docker_ready = True
+        else:
+            click.echo("  ⏳ 正在拉取（可能需要几分钟）...")
+            result = await env.pull_image()
+            if result.success:
+                click.echo("  ✅ 镜像拉取完成")
+                docker_ready = True
+            else:
+                click.echo(f"  ❌ 镜像拉取失败: {result.stderr[:200]}")
     else:
-        click.echo("  ❌ Docker 未安装")
-        click.echo("     安装文档: https://docs.docker.com/get-docker/")
-        click.echo("\n     安装 Docker 后重新运行: openvort coding setup")
-        click.echo("     或手动安装 CLI 工具后使用本地模式。")
+        click.echo("  ⚠️  Docker 未安装（可选，已安装本地 CLI 工具即可）")
+
+    if not local_found and not docker_ready:
+        click.echo("\n❌ 无可用的编码环境。请安装 CLI 工具或 Docker：")
+        click.echo("   pip install aider-chat")
+        click.echo("   npm install -g @anthropic-ai/claude-code")
         return
 
-    # 2. Pull image
-    settings = VortGitSettings()
-    image = settings.cli_docker_image
-    click.echo(f"\n── 拉取编码沙箱镜像 ──")
-    click.echo(f"  📦 镜像: {image}")
-
-    pulled = await env._is_image_pulled(image)
-    if pulled:
-        click.echo("  ✅ 镜像已存在")
-    else:
-        click.echo("  ⏳ 正在拉取（可能需要几分钟）...")
-        result = await env.pull_image()
-        if result.success:
-            click.echo("  ✅ 镜像拉取完成")
-        else:
-            click.echo(f"  ❌ 镜像拉取失败: {result.stderr[:200]}")
-            click.echo(f"\n     手动拉取: docker pull {image}")
-            return
-
-    # 3. API Key
+    # 3. API Key check
     click.echo("\n── API Key 配置 ──")
+    click.echo("  ℹ️  API Key 通过 Web 管理界面的「模型库」配置")
     if settings.claude_code_api_key:
-        click.echo("  ✅ Claude Code API Key: 已配置")
-    else:
-        click.echo("  ⚠️  Claude Code API Key: 未配置")
-        click.echo("     设置环境变量: OPENVORT_VORTGIT_CLAUDE_CODE_API_KEY=sk-ant-xxx")
+        click.echo("  ✅ Claude Code API Key: 已配置（环境变量）")
+    if settings.aider_api_key:
+        click.echo("  ✅ Aider API Key: 已配置（环境变量）")
 
     # 4. Verify
     click.echo("\n── 环境验证 ──")
@@ -1168,14 +1180,21 @@ async def _doctor():
             click.echo(f"  ❌ API 连接失败: {e}")
 
     # 2. 数据库检查
-    click.echo("\n── 数据库 ──")
+    click.echo("\n── 数据库 (PostgreSQL) ──")
+    db_url = settings.database_url
+    click.echo(f"  URL: {db_url.split('@')[-1] if '@' in db_url else db_url.split('://')[0]}")
     try:
-        from openvort.db import init_db
-        await init_db(settings.database_url)
-        click.echo(f"  ✅ 数据库连接正常: {settings.database_url.split('://')[0]}")
+        from openvort.db import init_db, get_session
+        await init_db(db_url)
+        async with get_session() as session:
+            from sqlalchemy import text
+            row = await session.execute(text("SELECT version()"))
+            pg_version = row.scalar()
+            click.echo(f"  ✅ 连接正常: {pg_version}")
     except Exception as e:
         issues.append(f"数据库连接失败: {e}")
-        click.echo(f"  ❌ 数据库连接失败: {e}")
+        click.echo(f"  ❌ 连接失败: {e}")
+        click.echo("     提示: docker compose -f docker-compose.dev.yml up -d 可启动本地 PostgreSQL")
 
     # 3. 通道配置检查
     click.echo("\n── 通道配置 ──")

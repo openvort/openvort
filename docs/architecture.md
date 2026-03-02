@@ -17,7 +17,8 @@ OpenVort 是一个开源 AI 研发工作流引擎，通过 IM（企业微信/钉
 | Web 框架 | FastAPI（Web 面板 / Relay / Webhook） |
 | CLI | Click |
 | HTTP 客户端 | httpx（异步） |
-| ORM | SQLAlchemy 2.0 + aiosqlite |
+| ORM | SQLAlchemy 2.0 + asyncpg（PostgreSQL）/ aiosqlite（开发） |
+| 数据库迁移 | Alembic |
 | 配置 | Pydantic Settings（.env + 环境变量 + DB 配置三级优先） |
 | 定时任务 | APScheduler |
 | 前端 | Vue 3.5 + TypeScript 5.9 + Vite 7 + Tailwind CSS 4 + Pinia 3 |
@@ -91,8 +92,8 @@ src/openvort/
 │   ├── ws.py               # WebSocket（presence/typing/通知）
 │   ├── webhooks.py         # Webhook 触发器
 │   └── routers/            # API 路由
-├── db/                     # SQLAlchemy 2.0 async（SQLite/PostgreSQL）
-│   ├── engine.py           # async engine + session factory
+├── db/                     # SQLAlchemy 2.0 async（SQLite/PostgreSQL + Alembic）
+│   ├── engine.py           # async engine + session factory + auto-migrate
 │   └── models.py           # 基础 ORM 模型
 └── utils/
     └── logging.py          # 统一日志

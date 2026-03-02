@@ -46,18 +46,24 @@ class CreateBugTool(BaseTool):
         project_param = params.get("project")
         execution_param = params.get("execution")
 
-        # 合并图片 URL（AI 传入的 + 注入的）
+        image_files = params.get("_image_files", []) or []
         image_urls = params.get("image_urls", []) or []
         injected_urls = params.get("_image_urls", []) or []
         for url in injected_urls:
             if url and url not in image_urls:
                 image_urls.append(url)
 
-        # 图片嵌入 steps（HTML img 标签）
-        if image_urls:
+        img_srcs = []
+        for img in image_files:
+            mt = img.get("media_type", "image/png")
+            img_srcs.append(f"data:{mt};base64,{img['data']}")
+        if not img_srcs:
+            img_srcs = list(image_urls)
+
+        if img_srcs:
             img_html = "\n".join(
-                f'<img src="{url}" alt="截图" style="max-width:100%;" />'
-                for url in image_urls
+                f'<img src="{src}" alt="截图" style="max-width:100%;" />'
+                for src in img_srcs
             )
             steps = f"{steps}\n<p>截图：</p>\n{img_html}"
 

@@ -171,7 +171,7 @@ class Settings(BaseSettings):
     data_dir: Path = Field(default_factory=lambda: Path.home() / ".openvort")
 
     # 数据库
-    database_url: str = "sqlite+aiosqlite:///openvort.db"
+    database_url: str = "postgresql+asyncpg://openvort:openvort@localhost:5432/openvort"
 
     # LLM
     llm: LLMSettings = Field(default_factory=LLMSettings)

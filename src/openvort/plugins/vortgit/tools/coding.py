@@ -31,7 +31,7 @@ def _create_provider(provider):
 
 
 async def _get_repo_and_provider(repo_id: str):
-    """Load repo + provider from DB. Returns (repo, provider, token) or raises."""
+    """Load repo + provider from DB. Returns (repo, provider, team_token) or raises."""
     from openvort.db.engine import get_session_factory
     from openvort.plugins.vortgit.crypto import decrypt_token
     from openvort.plugins.vortgit.models import GitProvider, GitRepo
@@ -46,6 +46,33 @@ async def _get_repo_and_provider(repo_id: str):
             raise ValueError(f"Provider not found for repo: {repo.full_name}")
         token = decrypt_token(provider.access_token) if provider.access_token else ""
     return repo, provider, token
+
+
+async def _get_member_git_identity(member_id: str, platform: str):
+    """Load member's personal git token and identity for a platform.
+
+    Returns (personal_token, username, email) or (None, "", "") if not configured.
+    """
+    from openvort.db.engine import get_session_factory
+    from openvort.plugins.vortgit.crypto import decrypt_token
+    from openvort.contacts.models import PlatformIdentity
+
+    sf = get_session_factory()
+    async with sf() as session:
+        stmt = select(PlatformIdentity).where(
+            PlatformIdentity.member_id == member_id,
+            PlatformIdentity.platform == platform,
+        )
+        result = await session.execute(stmt)
+        ident = result.scalar_one_or_none()
+
+        if not ident or not ident.access_token:
+            return None, "", ""
+
+        token = decrypt_token(ident.access_token)
+        username = ident.platform_username or ident.platform_user_id or ""
+        email = ident.platform_email or ""
+        return token, username, email
 
 
 def _extract_stream_text(line: str) -> str:
@@ -125,9 +152,13 @@ class CodeTaskTool(BaseTool):
 
     name = "git_code_task"
     description = (
-        "在 Git 仓库中执行 AI 编码任务（修 Bug、实现需求、代码优化），"
-        "自动创建分支、运行 CLI 编码工具修改代码、提交并创建 PR。"
-        "执行时间较长（1-5 分钟），适合明确的代码修改任务。"
+        "AI 自动编码：让 AI 直接读代码、改代码、写代码。"
+        "支持修 Bug、实现新功能、重构优化、补测试、改配置等任何代码修改任务。"
+        "底层调用 Claude Code / Aider 等专业 CLI 编码工具，具备完整代码理解能力。\n"
+        "【工作流程】自动创建分支 → AI 读取仓库代码 → 理解上下文 → 修改/新建文件 → 提交 → 推送 → 创建 PR，全程自动化。\n"
+        "【实时反馈】执行过程中会实时输出 AI 的思考过程和操作（读了哪些文件、改了什么），可在聊天界面看到。\n"
+        "【关联能力】可关联 VortFlow 的 Bug/任务/需求 ID，自动获取详情作为编码上下文，commit message 自动关联。\n"
+        "执行时间通常 10 秒 ~ 5 分钟，视任务复杂度而定。"
     )
     required_permission = "vortgit.write"
 
@@ -179,6 +210,15 @@ class CodeTaskTool(BaseTool):
                     "description": "完成后是否自动创建 PR",
                     "default": True,
                 },
+                "previous_context": {
+                    "type": "string",
+                    "description": (
+                        "上次编码任务的上下文摘要（可选）。"
+                        "当同一会话中对同一仓库发起后续修改时，传入上次的 diff_summary 和修改文件列表，"
+                        "帮助 CLI 工具理解已有改动并在此基础上继续"
+                    ),
+                    "default": "",
+                },
             },
             "required": ["repo_id", "task_description"],
         }
@@ -194,6 +234,7 @@ class CodeTaskTool(BaseTool):
         branch_name = params.get("branch_name", "")
         base_branch = params.get("base_branch", "")
         auto_pr = params.get("auto_pr", True)
+        previous_context = params.get("previous_context", "")
         member_id = params.get("_member_id", "system")
         output_queue = params.pop("_output_queue", None)
 
@@ -218,9 +259,25 @@ class CodeTaskTool(BaseTool):
 
         # 3. Load repo info
         try:
-            repo, provider, token = await _get_repo_and_provider(repo_id)
+            repo, provider, team_token = await _get_repo_and_provider(repo_id)
         except ValueError as e:
             return json.dumps({"ok": False, "message": str(e)}, ensure_ascii=False)
+
+        # 4. Resolve personal token (required) and identity for commit authorship
+        personal_token, git_username, git_email = await _get_member_git_identity(
+            member_id, provider.platform,
+        )
+        if not personal_token:
+            return json.dumps({
+                "ok": False,
+                "error": "git_token_missing",
+                "message": (
+                    f"请先在「个人设置 → Git Token」中配置你的 {provider.platform} 平台 Token，"
+                    "才能使用 AI 编码功能。每位成员需要使用自己的 Token 以确保代码提交归属正确。"
+                ),
+            }, ensure_ascii=False)
+
+        token = personal_token
 
         effective_base = base_branch or repo.default_branch
 
@@ -229,7 +286,9 @@ class CodeTaskTool(BaseTool):
             branch_name = self._generate_branch_name(bug_id, task_id, story_id)
 
         # 5. Build enriched prompt
-        prompt = await self._build_coding_prompt(task_desc, bug_id, task_id, story_id, repo)
+        prompt = await self._build_coding_prompt(
+            task_desc, bug_id, task_id, story_id, repo, previous_context,
+        )
 
         # 6. Create task record
         task_record_id = await self._create_task_record(
@@ -243,6 +302,8 @@ class CodeTaskTool(BaseTool):
                 task_desc, bug_id, task_id, auto_pr,
                 model_chain=model_chain,
                 output_queue=output_queue,
+                author_name=git_username,
+                author_email=git_email,
             )
         except Exception as e:
             log.error(f"Coding task unexpected error: {e}", exc_info=True)
@@ -257,13 +318,18 @@ class CodeTaskTool(BaseTool):
         task_desc, bug_id, task_id, auto_pr,
         model_chain: list[dict] | None = None,
         output_queue=None,
+        author_name: str = "",
+        author_email: str = "",
     ) -> str:
         """Core workflow, wrapped so execute() can catch any unhandled exception."""
 
         def _on_output(line: str):
             if not output_queue:
                 return
-            text = _extract_stream_text(line)
+            if cli_tool == "claude-code":
+                text = _extract_stream_text(line)
+            else:
+                text = line.rstrip("\n\r")
             if text:
                 try:
                     output_queue.put_nowait(text)
@@ -311,7 +377,10 @@ class CodeTaskTool(BaseTool):
             elif task_id:
                 commit_msg = f"feat: #{task_id} {task_desc[:60]}"
 
-            sha = await ws_mgr.commit(member_id, repo_id, commit_msg)
+            sha = await ws_mgr.commit(
+                member_id, repo_id, commit_msg,
+                author_name=author_name, author_email=author_email,
+            )
             if not sha:
                 await self._update_task_status(task_record_id, "failed", stderr="No changes to commit")
                 return json.dumps({
@@ -472,9 +541,16 @@ class CodeTaskTool(BaseTool):
 
     @staticmethod
     async def _build_coding_prompt(
-        task_desc: str, bug_id: str, task_id: str, story_id: str, repo
+        task_desc: str, bug_id: str, task_id: str, story_id: str, repo,
+        previous_context: str = "",
     ) -> str:
         parts = []
+
+        if previous_context:
+            parts.append(
+                f"## Previous Changes (same branch)\n{previous_context}\n"
+                "Build upon the existing changes above. Do NOT revert them."
+            )
 
         # Fetch VortFlow context if available
         if bug_id or task_id or story_id:

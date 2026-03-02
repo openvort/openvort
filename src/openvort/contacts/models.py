@@ -62,6 +62,7 @@ class PlatformIdentity(Base):
     platform_phone: Mapped[str] = mapped_column(String(32), default="")
     platform_position: Mapped[str] = mapped_column(String(64), default="")  # 职位
     platform_department: Mapped[str] = mapped_column(String(128), default="")  # 部门
+    access_token: Mapped[str] = mapped_column(Text, default="")  # Fernet encrypted personal token (git platforms)
     raw_data: Mapped[str] = mapped_column(Text, default="{}")  # JSON，完整原始数据
     synced_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 

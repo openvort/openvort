@@ -23,9 +23,15 @@ log = get_logger("plugins.vortgit.cli_runner")
 
 # Provider → env var mapping.
 # CLI tools need the API key injected as specific env vars.
+# For anthropic: set both API_KEY (x-api-key header) and AUTH_TOKEN (Bearer header)
+# so Claude Code works with both direct Anthropic API and third-party proxies.
 PROVIDER_ENV_MAP: dict[str, dict[str, str]] = {
-    "anthropic": {"ANTHROPIC_API_KEY": "{api_key}"},
-    "openai": {"OPENAI_API_KEY": "{api_key}"},
+    "anthropic": {
+        "ANTHROPIC_API_KEY": "{api_key}",
+        "ANTHROPIC_AUTH_TOKEN": "{api_key}",
+        "ANTHROPIC_BASE_URL": "{api_base}",
+    },
+    "openai": {"OPENAI_API_KEY": "{api_key}", "OPENAI_API_BASE": "{api_base}"},
     "deepseek": {"OPENAI_API_KEY": "{api_key}", "OPENAI_API_BASE": "{api_base}"},
     "moonshot": {"OPENAI_API_KEY": "{api_key}", "OPENAI_API_BASE": "{api_base}"},
     "qwen": {"OPENAI_API_KEY": "{api_key}", "OPENAI_API_BASE": "{api_base}"},
@@ -65,8 +71,8 @@ BUILTIN_CLI_TOOLS: dict[str, CLIToolSpec] = {
         binary="claude",
         install_cmd="npm install -g @anthropic-ai/claude-code",
         detect_cmd="claude --version",
-        env_keys=["ANTHROPIC_API_KEY"],
-        run_args=["-p", "{prompt}", "--output-format", "stream-json", "--verbose"],
+        env_keys=["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"],
+        run_args=["-p", "{prompt}", "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions"],
         model_arg="--model",
         supported_providers=["anthropic"],
         docker_available=True,
@@ -77,10 +83,18 @@ BUILTIN_CLI_TOOLS: dict[str, CLIToolSpec] = {
         binary="aider",
         install_cmd="pip install aider-chat",
         detect_cmd="aider --version",
-        env_keys=["ANTHROPIC_API_KEY"],
-        run_args=["--yes", "--message", "{prompt}"],
+        env_keys=["OPENAI_API_KEY", "ANTHROPIC_API_KEY"],
+        run_args=[
+            "--yes-always",
+            "--no-auto-commits",
+            "--no-pretty",
+            "--no-stream",
+            "--no-check-update",
+            "--no-analytics",
+            "--message", "{prompt}",
+        ],
         model_arg="--model",
-        supported_providers=["anthropic", "openai", "deepseek"],
+        supported_providers=["anthropic", "openai", "deepseek", "moonshot", "qwen", "zhipu"],
         docker_available=True,
     ),
 }
@@ -158,6 +172,10 @@ class CLIRunner:
         else:
             self._inject_api_keys_legacy(spec, merged_env)
 
+        if spec.name == "claude-code":
+            merged_env.setdefault("API_TIMEOUT_MS", "3000000")
+            merged_env.setdefault("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1")
+
         command = self._build_command(spec, prompt, model_config)
 
         effective_timeout = timeout or self._env._timeout
@@ -202,10 +220,29 @@ class CLIRunner:
         """Build the shell command from tool spec, injecting --model if configured."""
         cmd = [spec.binary]
         if model_config and model_config.get("model") and spec.model_arg:
-            cmd.extend([spec.model_arg, model_config["model"]])
+            model_name = self._resolve_model_name(spec, model_config)
+            cmd.extend([spec.model_arg, model_name])
         for arg in spec.run_args:
             cmd.append(arg.replace("{prompt}", prompt))
         return cmd
+
+    @staticmethod
+    def _resolve_model_name(spec: CLIToolSpec, model_config: dict[str, Any]) -> str:
+        """Resolve the model name for the CLI tool.
+
+        Aider requires 'openai/<model>' prefix when using OpenAI-compatible
+        providers so that litellm routes the request correctly.
+        """
+        model = model_config.get("model", "")
+        provider = model_config.get("provider", "")
+
+        if spec.name != "aider":
+            return model
+
+        # Aider uses litellm; non-anthropic providers need openai/ prefix
+        if provider == "anthropic" or model.startswith(("openai/", "anthropic/")):
+            return model
+        return f"openai/{model}"
 
     @staticmethod
     def _inject_model_env(model_config: dict[str, Any], env: dict[str, str]) -> None:
@@ -236,8 +273,10 @@ class CLIRunner:
         except Exception:
             return
 
+        api_key = settings.claude_code_api_key or settings.aider_api_key
         key_map = {
-            "ANTHROPIC_API_KEY": settings.claude_code_api_key or settings.aider_api_key,
+            "ANTHROPIC_API_KEY": api_key,
+            "ANTHROPIC_AUTH_TOKEN": api_key,
         }
 
         for key_name in spec.env_keys:

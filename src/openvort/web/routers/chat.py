@@ -1,9 +1,11 @@
 """聊天路由 — SSE 流式，使用真实成员身份，支持多会话"""
 
 import asyncio
+import base64
 import json
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
@@ -11,6 +13,27 @@ from sse_starlette.sse import EventSourceResponse
 
 from openvort.web.app import require_auth
 from openvort.web.deps import get_agent, get_session_store, get_build_context_fn
+
+MEDIA_EXT_MAP = {
+    "image/jpeg": "jpg", "image/jpg": "jpg", "image/png": "png",
+    "image/gif": "gif", "image/webp": "webp",
+}
+
+
+def _get_chat_upload_dir() -> Path:
+    from openvort.config.settings import get_settings
+    d = get_settings().data_dir / "uploads" / "chat"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _save_chat_image(data_b64: str, media_type: str) -> str:
+    """Save base64 image to disk and return the URL path."""
+    upload_dir = _get_chat_upload_dir()
+    ext = MEDIA_EXT_MAP.get(media_type, "png")
+    filename = f"{uuid.uuid4().hex}.{ext}"
+    (upload_dir / filename).write_bytes(base64.b64decode(data_b64))
+    return f"/uploads/chat/{filename}"
 
 router = APIRouter()
 
@@ -121,9 +144,17 @@ async def batch_delete_sessions(req: BatchDeleteRequest, request: Request):
 async def send_message(req: SendRequest, request: Request):
     payload = require_auth(request)
     message_id = str(uuid.uuid4())
+    images = []
+    for img in req.images:
+        d = img.model_dump()
+        try:
+            d["file_url"] = _save_chat_image(img.data, img.media_type)
+        except Exception:
+            pass
+        images.append(d)
     _pending_messages[message_id] = {
         "content": req.content,
-        "images": [img.model_dump() for img in req.images],
+        "images": images,
         "member_id": payload.get("sub", ""),
         "name": payload.get("name", ""),
         "roles": payload.get("roles", []),
@@ -256,6 +287,7 @@ async def chat_history(request: Request, limit: int = 50, session_id: str = "def
     for i, msg in enumerate(messages[-limit:]):
         role = msg.get("role", "user")
         content = ""
+        images: list[str] = []
         if isinstance(msg.get("content"), str):
             content = msg["content"]
         elif isinstance(msg.get("content"), list):
@@ -263,15 +295,22 @@ async def chat_history(request: Request, limit: int = 50, session_id: str = "def
                 if isinstance(block, dict):
                     if block.get("type") == "text":
                         content += block.get("text", "")
+                    elif block.get("type") == "image":
+                        file_url = block.get("file_url", "")
+                        if file_url:
+                            images.append(file_url)
                     elif block.get("type") == "tool_result":
                         continue
-        if role in ("user", "assistant") and content:
-            result.append({
+        if role in ("user", "assistant") and (content or images):
+            entry: dict = {
                 "id": str(i),
                 "role": role,
                 "content": content,
                 "timestamp": 0,
-            })
+            }
+            if images:
+                entry["images"] = images
+            result.append(entry)
 
     return {"messages": result}
 
@@ -388,4 +427,6 @@ async def reset_session(req: ResetRequest, request: Request):
     await session_store.clear("web", member_id, req.session_id)
 
     return {"success": True}
+
+
 

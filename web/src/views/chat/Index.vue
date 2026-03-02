@@ -8,6 +8,7 @@ import {
     Pencil, Trash2, MessageSquare, PanelLeftClose, PanelLeftOpen, MessageSquarePlus, ListChecks
 } from "lucide-vue-next";
 import { Popover as VortPopover } from "@/components/vort/popover";
+import { Image as VortImage, ImagePreviewGroup as VortImagePreviewGroup } from "@/components/vort/image";
 import {
     sendChatMessage, getChatStreamUrl, getChatHistory, getChatSessionInfo,
     setChatThinking, compactChatSession, resetChatSession,
@@ -372,12 +373,25 @@ async function loadHistory() {
     try {
         const res: any = await getChatHistory(50, currentSessionId.value);
         if (res?.messages) {
-            messages.value = res.messages.map((m: any) => ({
-                id: m.id || String(++messageCounter),
-                role: m.role,
-                content: m.content,
-                timestamp: m.timestamp || Date.now()
-            }));
+            messages.value = res.messages.map((m: any) => {
+                const images = m.images?.map((img: string) => {
+                    if (img && !img.startsWith('data:') && !img.startsWith('http') && !img.startsWith('/')) {
+                        return `/api/${img}`;
+                    }
+                    return img;
+                });
+                let content = m.content || "";
+                if (images?.length && /^(请看图片)+$/.test(content.trim())) {
+                    content = "";
+                }
+                return {
+                    id: m.id || String(++messageCounter),
+                    role: m.role,
+                    content,
+                    images,
+                    timestamp: m.timestamp || Date.now()
+                };
+            });
             scrollToBottom();
         }
     } catch { /* 首次无历史 */ }
@@ -530,7 +544,7 @@ async function handleSend() {
                 const data = JSON.parse(e.data);
                 const call = streamState.assistantMsg.toolCalls?.find(t => t.name === data.name && t.status === "running");
                 if (call) {
-                    call.output = (call.output || "") + data.output;
+                    call.output = call.output ? call.output + "\n" + data.output : data.output;
                     if (currentSessionId.value === sendSessionId) scrollToBottom();
                 }
             } catch { /* ignore */ }
@@ -1299,34 +1313,36 @@ onUnmounted(() => {
 
             <!-- 消息列表 -->
             <div ref="chatContainer" class="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-                <!-- 无会话状态 -->
-                <div v-if="!currentSessionId" class="flex flex-col items-center justify-center h-full text-gray-400">
-                    <Bot :size="48" class="mb-4 text-gray-300" />
-                    <p class="text-sm">你好，我是 OpenVort AI 助手</p>
-                    <p class="text-xs mt-1">点击左侧「新建对话」开始聊天</p>
-                </div>
-                <!-- 空消息状态 -->
-                <div v-else-if="messages.length === 0 && !loading" class="flex flex-col items-center justify-center h-full text-gray-400">
-                    <Bot :size="48" class="mb-4 text-gray-300" />
-                    <p class="text-sm">你好，我是 OpenVort AI 助手</p>
-                    <p class="text-xs mt-1">可以帮你管理任务、查询 Bug、了解项目进展</p>
-                </div>
+                <VortImagePreviewGroup>
+                    <!-- 无会话状态 -->
+                    <div v-if="!currentSessionId" class="flex flex-col items-center justify-center h-full text-gray-400">
+                        <Bot :size="48" class="mb-4 text-gray-300" />
+                        <p class="text-sm">你好，我是 OpenVort AI 助手</p>
+                        <p class="text-xs mt-1">点击左侧「新建对话」开始聊天</p>
+                    </div>
+                    <!-- 空消息状态 -->
+                    <div v-else-if="messages.length === 0 && !loading" class="flex flex-col items-center justify-center h-full text-gray-400">
+                        <Bot :size="48" class="mb-4 text-gray-300" />
+                        <p class="text-sm">你好，我是 OpenVort AI 助手</p>
+                        <p class="text-xs mt-1">可以帮你管理任务、查询 Bug、了解项目进展</p>
+                    </div>
 
-                <!-- 消息气泡 -->
-                <div v-for="msg in messages" :key="msg.id" class="flex" :class="msg.role === 'user' ? 'justify-end' : 'justify-start'">
-                    <div class="flex max-w-[80%]" :class="msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'">
-                        <div class="flex-shrink-0" :class="msg.role === 'user' ? 'ml-3' : 'mr-3'">
-                            <div class="w-8 h-8 rounded-full flex items-center justify-center"
-                                :class="msg.role === 'user' ? 'bg-blue-600' : 'bg-gray-100'">
-                                <span v-if="msg.role === 'user'" class="text-white text-xs font-medium">{{ (userStore.userInfo.name || 'U')[0] }}</span>
-                                <Bot v-else :size="16" class="text-blue-600" />
+                    <!-- 消息气泡 -->
+                    <div v-for="msg in messages" :key="msg.id" class="flex" :class="msg.role === 'user' ? 'justify-end' : 'justify-start'">
+                        <div class="flex max-w-[80%]" :class="msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'">
+                            <div class="flex-shrink-0" :class="msg.role === 'user' ? 'ml-3' : 'mr-3'">
+                                <div class="w-8 h-8 rounded-full flex items-center justify-center"
+                                    :class="msg.role === 'user' ? 'bg-blue-600' : 'bg-gray-100'">
+                                    <span v-if="msg.role === 'user'" class="text-white text-xs font-medium">{{ (userStore.userInfo.name || 'U')[0] }}</span>
+                                    <Bot v-else :size="16" class="text-blue-600" />
+                                </div>
                             </div>
-                        </div>
-                        <div>
-                            <div v-if="msg.role === 'user' && msg.images?.length" class="flex flex-wrap gap-2 mb-2 justify-end">
-                                <img v-for="(src, i) in msg.images" :key="i" :src="src"
-                                    class="w-20 h-20 object-cover rounded-lg border border-white/30" />
-                            </div>
+                            <div>
+                                <div v-if="msg.role === 'user' && msg.images?.length" class="flex flex-wrap gap-2 mb-2 justify-end">
+                                    <VortImage v-for="(src, i) in msg.images" :key="i" :src="src"
+                                        width="80" height="80" fit="cover"
+                                        class="rounded-lg border border-white/30" />
+                                </div>
                             <div v-if="msg.toolCalls?.length" class="mb-2 space-y-1">
                                 <div v-for="(tool, i) in msg.toolCalls" :key="i" class="block">
                                     <div class="inline-flex items-center px-2 py-1 rounded text-xs mr-2"
@@ -1340,7 +1356,7 @@ onUnmounted(() => {
                                     </div>
                                     <div v-if="tool.output"
                                         :ref="(el: any) => { if (el) el.scrollTop = el.scrollHeight }"
-                                        class="mt-1 ml-1 max-h-60 overflow-y-auto rounded bg-gray-900 text-green-400 text-xs font-mono px-3 py-2 whitespace-pre-wrap break-all leading-relaxed">{{ tool.output }}</div>
+                                        class="mt-1 ml-1 max-h-60 overflow-y-auto rounded-lg bg-gray-900 text-green-400 text-xs font-mono px-3 py-2 whitespace-pre-wrap break-words leading-5 border border-gray-700/50 shadow-inner">{{ tool.output }}</div>
                                 </div>
                             </div>
                             <div
@@ -1364,6 +1380,7 @@ onUnmounted(() => {
                         </div>
                     </div>
                 </div>
+                </VortImagePreviewGroup>
             </div>
 
             <!-- 输入区域 -->
@@ -1450,7 +1467,8 @@ onUnmounted(() => {
                 <div class="chat-input-box bg-white rounded-xl border border-gray-200 overflow-hidden relative">
                     <div v-if="pendingImages.length" class="flex flex-wrap gap-2 px-4 pt-3">
                         <div v-for="(img, i) in pendingImages" :key="i" class="relative group">
-                            <img :src="img.preview" class="w-[72px] h-[72px] object-cover rounded-lg border border-gray-200 shadow-sm" />
+                            <VortImage :src="img.preview" width="72" height="72" fit="cover"
+                                class="rounded-lg border border-gray-200 shadow-sm" />
                             <button @click="removeImage(i)"
                                 class="absolute -top-1.5 -right-1.5 w-5 h-5 bg-black/60 hover:bg-black/80 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                                 <X :size="12" />
