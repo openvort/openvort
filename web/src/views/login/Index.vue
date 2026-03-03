@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, reactive } from "vue";
 import { useRouter } from "vue-router";
 import { useUserStore } from "@/stores";
 import { User, Lock } from "lucide-vue-next";
@@ -12,16 +12,25 @@ const userStore = useUserStore();
 const loading = ref(false);
 const userId = ref("");
 const password = ref("");
+const errors = reactive<Record<string, string>>({});
 
-const handleLogin = async () => {
-    if (!userId.value) {
-        message.warning("请输入用户 ID");
-        return;
+const validate = (): boolean => {
+    errors.userId = "";
+    errors.password = "";
+    let valid = true;
+    if (!userId.value.trim()) {
+        errors.userId = "用户 ID 不能为空";
+        valid = false;
     }
     if (!password.value) {
-        message.warning("请输入密码");
-        return;
+        errors.password = "密码不能为空";
+        valid = false;
     }
+    return valid;
+};
+
+const handleLogin = async () => {
+    if (!validate()) return;
     loading.value = true;
     try {
         const res: any = await login(userId.value, password.value);
@@ -58,32 +67,50 @@ const handleLogin = async () => {
 
         <!-- 登录卡片 -->
         <div class="w-full max-w-[420px] mx-4 md:mx-0 bg-white rounded-2xl shadow-xl p-8 md:p-10">
-            <h2 class="text-lg font-medium text-gray-700 mb-6 text-center">登录</h2>
-            <div class="space-y-5">
-                <VortInput
-                    v-model="userId"
-                    placeholder="用户 ID / 姓名"
-                    size="large"
-                >
-                    <template #prefix>
-                        <User :size="16" class="text-gray-400" />
-                    </template>
-                </VortInput>
-                <VortInputPassword
-                    v-model="password"
-                    placeholder="密码"
-                    size="large"
-                    @press-enter="handleLogin"
-                >
-                    <template #prefix>
-                        <Lock :size="16" class="text-gray-400" />
-                    </template>
-                </VortInputPassword>
+            <div class="mb-8 text-center">
+                <h2 class="text-2xl font-semibold text-gray-800 mb-2">欢迎回来</h2>
+                <p class="text-sm text-gray-400">请输入您的账号密码进行登录</p>
             </div>
-
-            <VortButton type="primary" block size="large" :loading="loading" class="mt-8" @click="handleLogin">
-                登 录
-            </VortButton>
+            <VortForm layout="vertical" @keyup.enter="handleLogin" class="login-form">
+                <VortFormItem
+                    :required="true"
+                    :validateStatus="errors.userId ? 'error' : ''"
+                    :help="errors.userId"
+                    class="login-form-item"
+                >
+                    <VortInput
+                        v-model="userId"
+                        placeholder="用户 ID / 姓名"
+                        size="large"
+                    >
+                        <template #prefix>
+                            <User :size="16" class="text-gray-400" />
+                        </template>
+                    </VortInput>
+                </VortFormItem>
+                <VortFormItem
+                    :required="true"
+                    :validateStatus="errors.password ? 'error' : ''"
+                    :help="errors.password"
+                    class="login-form-item"
+                >
+                    <VortInputPassword
+                        v-model="password"
+                        placeholder="密码"
+                        size="large"
+                        @press-enter="handleLogin"
+                    >
+                        <template #prefix>
+                            <Lock :size="16" class="text-gray-400" />
+                        </template>
+                    </VortInputPassword>
+                </VortFormItem>
+                <VortFormItem class="login-form-item !mb-0 !mt-4">
+                    <VortButton type="primary" block size="large" :loading="loading" class="!text-base font-medium" @click="handleLogin">
+                        登录
+                    </VortButton>
+                </VortFormItem>
+            </VortForm>
         </div>
 
         <div class="mt-8 text-center text-xs text-gray-400">
@@ -91,3 +118,14 @@ const handleLogin = async () => {
         </div>
     </div>
 </template>
+
+<style scoped>
+.login-form .login-form-item {
+    margin-bottom: 36px;
+}
+
+.login-form :deep(.vort-form-item-explain-row) {
+    margin-top: 4px;
+    margin-bottom: -28px;
+}
+</style>

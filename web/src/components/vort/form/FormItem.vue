@@ -754,6 +754,7 @@ const feedbackIconClass = computed(() => {
 /* 校验状态样式 */
 .vort-form-item-has-error :deep(input),
 .vort-form-item-has-error :deep(.vort-input),
+.vort-form-item-has-error :deep(.vort-input-wrapper),
 .vort-form-item-has-error :deep(.vort-input-number),
 .vort-form-item-has-error :deep(.vort-select-trigger) {
     border-color: var(--vort-error) !important;
@@ -761,6 +762,7 @@ const feedbackIconClass = computed(() => {
 
 .vort-form-item-has-error :deep(input:focus),
 .vort-form-item-has-error :deep(.vort-input:focus-within),
+.vort-form-item-has-error :deep(.vort-input-wrapper:focus-within),
 .vort-form-item-has-error :deep(.vort-input-number:focus-within),
 .vort-form-item-has-error :deep(.vort-select-trigger:focus) {
     border-color: var(--vort-error) !important;
@@ -769,6 +771,7 @@ const feedbackIconClass = computed(() => {
 
 .vort-form-item-has-warning :deep(input),
 .vort-form-item-has-warning :deep(.vort-input),
+.vort-form-item-has-warning :deep(.vort-input-wrapper),
 .vort-form-item-has-warning :deep(.vort-input-number),
 .vort-form-item-has-warning :deep(.vort-select-trigger) {
     border-color: var(--vort-warning) !important;
@@ -776,6 +779,7 @@ const feedbackIconClass = computed(() => {
 
 .vort-form-item-has-warning :deep(input:focus),
 .vort-form-item-has-warning :deep(.vort-input:focus-within),
+.vort-form-item-has-warning :deep(.vort-input-wrapper:focus-within),
 .vort-form-item-has-warning :deep(.vort-input-number:focus-within),
 .vort-form-item-has-warning :deep(.vort-select-trigger:focus) {
     border-color: var(--vort-warning) !important;
@@ -784,6 +788,7 @@ const feedbackIconClass = computed(() => {
 
 .vort-form-item-has-success :deep(input),
 .vort-form-item-has-success :deep(.vort-input),
+.vort-form-item-has-success :deep(.vort-input-wrapper),
 .vort-form-item-has-success :deep(.vort-input-number),
 .vort-form-item-has-success :deep(.vort-select-trigger) {
     border-color: var(--vort-success) !important;

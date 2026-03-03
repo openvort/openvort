@@ -28,11 +28,14 @@ request.interceptors.response.use(
     },
     (error) => {
         if (error.response?.status === 401) {
-            const userStore = useUserStore();
-            userStore.logout();
-            window.location.href = "/login";
+            const isLoginRequest = error.config?.url?.includes("/auth/login");
+            if (!isLoginRequest) {
+                const userStore = useUserStore();
+                userStore.logout();
+                window.location.href = "/login";
+            }
         } else if (!error.config?.skipErrorMessage) {
-            message.error(error.response?.data?.message || "请求失败");
+            message.error(error.response?.data?.detail || error.response?.data?.message || "请求失败");
         }
         return Promise.reject(error);
     }
