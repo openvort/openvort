@@ -1,13 +1,11 @@
 """
 数据库引擎
 
-SQLAlchemy 2.0 异步引擎 + create_all 自动建表（PostgreSQL）。
+SQLAlchemy 2.0 异步引擎 + Alembic 自动迁移（PostgreSQL）。
 """
 
-import uuid
-from datetime import datetime, timezone
+from pathlib import Path
 
-from sqlalchemy import create_engine, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -25,80 +23,25 @@ _engine = None
 _session_factory = None
 
 
-def _make_sync_url(database_url: str) -> str:
-    """Convert async URL to sync psycopg2 URL."""
-    return database_url.replace("+asyncpg", "")
+def _run_alembic_upgrade(database_url: str) -> None:
+    """Run Alembic migrations to latest revision (synchronous)."""
+    from alembic import command
+    from alembic.config import Config
 
+    alembic_dir = Path(__file__).parent.parent.parent.parent / "alembic"
+    if not alembic_dir.exists():
+        alembic_dir = Path("/app/alembic")
+    ini_path = alembic_dir.parent / "alembic.ini"
 
-def _sync_create_all(database_url: str) -> None:
-    """Create all tables and seed initial data using a synchronous engine."""
-    sync_url = _make_sync_url(database_url)
-    sync_engine = create_engine(sync_url, echo=False)
+    cfg = Config(str(ini_path))
+    cfg.set_main_option("script_location", str(alembic_dir))
+    cfg.set_main_option("sqlalchemy.url", database_url.replace("+asyncpg", ""))
 
-    Base.metadata.create_all(bind=sync_engine)
-
-    with sync_engine.connect() as conn:
-        _seed_initial_data(conn)
-        conn.commit()
-
-    sync_engine.dispose()
-
-
-def _seed_initial_data(conn) -> None:
-    """Create default admin, builtin roles/permissions, and mark initialized.
-
-    All statements use ON CONFLICT DO NOTHING so this is safe to run repeatedly.
-    """
-    now = datetime.now(timezone.utc)
-    admin_id = uuid.uuid4().hex
-
-    conn.execute(text(
-        "INSERT INTO members (id, name, email, phone, status, is_account, bio, avatar_url, "
-        "password_hash, notification_prefs, created_at, updated_at) "
-        "VALUES (:id, :name, '', '', 'active', true, '', '', '', '{}', :now, :now) "
-        "ON CONFLICT DO NOTHING"
-    ), {"id": admin_id, "name": "admin", "now": now})
-
-    roles = [
-        ("admin", "管理员"),
-        ("manager", "部门管理者"),
-        ("member", "普通成员"),
-        ("guest", "访客"),
-    ]
-    for role_name, display in roles:
-        conn.execute(text(
-            "INSERT INTO roles (name, display_name, source, is_builtin, created_at) "
-            "VALUES (:name, :display, 'core', true, :now) "
-            "ON CONFLICT DO NOTHING"
-        ), {"name": role_name, "display": display, "now": now})
-
-    admin_role_id = conn.execute(
-        text("SELECT id FROM roles WHERE name = 'admin'")
-    ).scalar()
-    existing_admin = conn.execute(
-        text("SELECT id FROM members WHERE name = 'admin' LIMIT 1")
-    ).scalar()
-    if admin_role_id and existing_admin:
-        conn.execute(text(
-            "INSERT INTO member_roles (member_id, role_id, created_at) "
-            "VALUES (:mid, :rid, :now) "
-            "ON CONFLICT DO NOTHING"
-        ), {"mid": existing_admin, "rid": admin_role_id, "now": now})
-
-    conn.execute(text(
-        "INSERT INTO setup_state (key, value, updated_at) "
-        "VALUES ('initialized', 'true', :now) "
-        "ON CONFLICT (key) DO UPDATE SET value = 'true'"
-    ), {"now": now})
-    conn.execute(text(
-        "INSERT INTO setup_state (key, value, updated_at) "
-        "VALUES ('admin_member_id', :mid, :now) "
-        "ON CONFLICT (key) DO UPDATE SET value = :mid"
-    ), {"mid": existing_admin or admin_id, "now": now})
+    command.upgrade(cfg, "head")
 
 
 async def init_db(database_url: str) -> None:
-    """Initialize database connection and create tables."""
+    """Initialize database connection and run migrations."""
     global _engine, _session_factory
 
     import openvort.auth.models  # noqa: F401
@@ -121,10 +64,10 @@ async def init_db(database_url: str) -> None:
     except ImportError:
         pass
 
-    _sync_create_all(database_url)
-
     _engine = create_async_engine(database_url, echo=False)
     _session_factory = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
+
+    _run_alembic_upgrade(database_url)
 
     log.info(f"数据库已初始化: {database_url.split('://')[0]}")
 

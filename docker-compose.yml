@@ -16,9 +16,10 @@ services:
   openvort:
     build: .
     ports:
-      - "8090:8090"
+      - "10899:8090"
     env_file: .env
     environment:
+      PYTHONUNBUFFERED: "1"
       OPENVORT_DATABASE_URL: postgresql+asyncpg://openvort:openvort@postgres:5432/openvort
     depends_on:
       postgres:

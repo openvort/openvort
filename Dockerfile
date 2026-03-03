@@ -14,8 +14,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY pyproject.toml README.md LICENSE ./
 COPY src/ src/
-RUN pip install --no-cache-dir .
+COPY alembic.ini ./
+COPY alembic/ alembic/
+RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir .
 COPY --from=frontend /app/web/dist web/dist
+ENV PYTHONUNBUFFERED=1
 EXPOSE 8090
-ENTRYPOINT ["openvort"]
+ENTRYPOINT ["python", "-u", "-m", "openvort"]
 CMD ["start", "--web"]

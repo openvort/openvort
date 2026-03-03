@@ -36,6 +36,11 @@ dependencies = [
     "pymysql>=1.1",
     "fastapi>=0.115",
     "uvicorn>=0.32",
+    "sse-starlette>=2.0",
+    "websockets>=13.0",
+    "python-jose[cryptography]>=3.3",
+    "passlib[bcrypt]>=1.7",
+    "python-multipart>=0.0.9",
 ]
 
 [project.optional-dependencies]
