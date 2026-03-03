@@ -69,9 +69,11 @@ export function getChatHistory(limit = 50, sessionId = "default") {
 export function sendChatMessage(
     content: string,
     images: { data: string; media_type: string }[] = [],
-    sessionId = "default"
+    sessionId = "default",
+    targetType = "ai",
+    targetId = ""
 ) {
-    return request.post("/chat/send", { content, images, session_id: sessionId });
+    return request.post("/chat/send", { content, images, session_id: sessionId, target_type: targetType, target_id: targetId });
 }
 
 /** 获取 SSE 流式地址 */
@@ -112,13 +114,13 @@ export function getChatMembers(keyword = "", limit = 20) {
 // ---- 对话管理 ----
 
 /** 对话列表 */
-export function getChatSessions() {
-    return request.get("/chat/sessions");
+export function getChatSessions(targetType = "") {
+    return request.get("/chat/sessions", { params: targetType ? { target_type: targetType } : {} });
 }
 
 /** 新建对话 */
-export function createChatSession(title = "新对话") {
-    return request.post("/chat/sessions", { title });
+export function createChatSession(title = "新对话", targetType = "ai", targetId = "") {
+    return request.post("/chat/sessions", { title, target_type: targetType, target_id: targetId });
 }
 
 /** 重命名对话 */
@@ -134,6 +136,28 @@ export function deleteChatSession(sessionId: string) {
 /** 批量删除对话 */
 export function batchDeleteChatSessions(sessionIds: string[]) {
     return request.post("/chat/sessions/batch-delete", { session_ids: sessionIds });
+}
+
+// ---- 联系人列表 ----
+
+/** 获取聊天联系人列表 */
+export function getChatContacts() {
+    return request.get("/chat/contacts");
+}
+
+/** 发起与成员的对话 */
+export function startMemberChat(memberId: string) {
+    return request.post("/chat/contacts/start", { member_id: memberId });
+}
+
+/** 置顶/取消置顶联系人 */
+export function togglePinContact(sessionId: string, pinned: boolean) {
+    return request.put(`/chat/contacts/${sessionId}/pin`, { pinned });
+}
+
+/** 隐藏联系人（不删除记录） */
+export function hideChatContact(sessionId: string) {
+    return request.delete(`/chat/contacts/${sessionId}`);
 }
 
 /** 健康检查（版本号 + LLM 状态） */

@@ -4,44 +4,22 @@ import { useRoute, useRouter } from "vue-router";
 import { useUserStore } from "@/stores";
 import {
     Send, Bot, Loader2, Wrench, X, ImagePlus, FileText, MonitorPlay, Smile,
-    Settings, Check, Brain, PackageMinus, RotateCcw, Zap, MoreHorizontal,
-    Pencil, Trash2, MessageSquare, PanelLeftClose, PanelLeftOpen, MessageSquarePlus, ListChecks
+    Settings, Check, Brain, PackageMinus, RotateCcw, Zap, StopCircle
 } from "lucide-vue-next";
 import { Popover as VortPopover } from "@/components/vort/popover";
 import { Image as VortImage, ImagePreviewGroup as VortImagePreviewGroup } from "@/components/vort/image";
 import {
     sendChatMessage, getChatStreamUrl, getChatHistory, getChatSessionInfo,
     setChatThinking, compactChatSession, resetChatSession,
-    getChatSessions, createChatSession, renameChatSession, deleteChatSession,
-    batchDeleteChatSessions, getChatMembers, abortChatMessage
+    getChatSessions, createChatSession, getChatMembers, abortChatMessage, startMemberChat
 } from "@/api";
 import { message } from "@/components/vort/message";
 import { dialog } from "@/components/vort/dialog";
 import { marked } from "marked";
 import { pinyin } from "pinyin-pro";
-
-interface ChatMessage {
-    id: string;
-    role: "user" | "assistant";
-    content: string;
-    images?: string[];
-    toolCalls?: { name: string; status: string; elapsed?: number; output?: string }[];
-    timestamp: number;
-    streaming?: boolean;
-}
-
-interface ChatSession {
-    session_id: string;
-    title: string;
-    created_at: number;
-    updated_at: number;
-}
-
-interface PendingImage {
-    data: string;
-    media_type: string;
-    preview: string;
-}
+import ContactList from "./ContactList.vue";
+import SessionSwitcher from "./SessionSwitcher.vue";
+import type { ChatMessage, ChatSession, PendingImage, Contact, MentionMember, SlashCommand, Draft } from "./types";
 
 const route = useRoute();
 const router = useRouter();
@@ -63,19 +41,21 @@ const sessionTokens = ref({ input: 0, output: 0, messages: 0, cacheCreation: 0, 
 const compacting = ref(false);
 let messageCounter = 0;
 
-// ---- 多会话状态 ----
+// ---- Contact & Session state ----
+const activeContact = ref<Contact | null>(null);
 const sessions = ref<ChatSession[]>([]);
 const currentSessionId = ref<string>("");
-const sessionsLoading = ref(false);
-const batchMode = ref(false);
-const selectedSessionIds = ref<string[]>([]);
-const renamingSessionId = ref<string>("");
-const renameText = ref("");
-const renameInputRef = ref<HTMLInputElement>();
-const sidebarCollapsed = ref(localStorage.getItem('chat-sidebar-collapsed') !== 'false');
+const contactListRef = ref<InstanceType<typeof ContactList>>();
+const sessionSwitcherRef = ref<InstanceType<typeof SessionSwitcher>>();
+
+const isAiMode = computed(() => !activeContact.value || activeContact.value.type === "ai");
+const currentSessionTitle = computed(() => {
+    if (!currentSessionId.value) return "新对话";
+    const s = sessions.value.find(s => s.session_id === currentSessionId.value);
+    return s?.title || "新对话";
+});
 
 // ---- 草稿暂存（切换会话时保留未发送内容）----
-interface Draft { text: string; images: PendingImage[]; }
 const drafts = new Map<string, Draft>();
 
 function saveDraft() {
@@ -92,10 +72,6 @@ function restoreDraft(sessionId: string) {
     inputText.value = draft?.text ?? "";
     pendingImages.value = draft?.images ? [...draft.images] : [];
 }
-
-watch(sidebarCollapsed, (val) => {
-    localStorage.setItem('chat-sidebar-collapsed', String(val));
-});
 
 watch(currentSessionId, (val) => {
     localStorage.setItem('chat-last-session-id', val);
@@ -128,10 +104,6 @@ const emojis = [
     '😩','😫','🥱','😤','😡','😠','🤬','👍','👎','👏',
     '🙌','🤝','🙏','❤️','🔥','💯','✨','🎉','😺','😸',
 ];
-
-const allSelected = computed(() =>
-    sessions.value.length > 0 && selectedSessionIds.value.length === sessions.value.length
-);
 
 // --- 节流 scrollToBottom ---
 let scrollRAF: number | null = null;
@@ -209,18 +181,42 @@ function handleDrop(e: DragEvent) {
     if (files?.length) addFiles(files);
 }
 
-// --- 多会话管理 ---
-async function loadSessions() {
-    sessionsLoading.value = true;
-    try {
-        const res: any = await getChatSessions();
-        sessions.value = res?.sessions || [];
-    } catch { sessions.value = []; }
-    finally { sessionsLoading.value = false; }
+// --- Contact selection ---
+async function handleContactSelect(contact: Contact) {
+    activeContact.value = contact;
+    if (contact.type === "ai") {
+        // Load AI sessions, select the last one
+        await sessionSwitcherRef.value?.loadSessions();
+        const lastSessionId = localStorage.getItem('chat-last-session-id');
+        if (lastSessionId && sessions.value.some(s => s.session_id === lastSessionId)) {
+            await switchSession(lastSessionId);
+        } else if (sessions.value.length > 0) {
+            await switchSession(sessions.value[0].session_id);
+        } else {
+            handleNewSession();
+        }
+    } else {
+        // Member mode: single session
+        if (contact.session_id) {
+            await switchSession(contact.session_id);
+        } else {
+            try {
+                const res: any = await startMemberChat(contact.id);
+                if (res?.session_id) {
+                    await switchSession(res.session_id);
+                }
+            } catch {
+                message.error("进入对话失败");
+            }
+        }
+    }
+}
+
+function handleSessionsLoaded(loadedSessions: ChatSession[]) {
+    sessions.value = loadedSessions;
 }
 
 function handleNewSession() {
-    // 隐性新对话：只重置右侧，不立即创建会话，发第一条消息时再创建
     if (!currentSessionId.value && messages.value.length === 0) {
         message.info("已经是最新对话");
         return;
@@ -280,91 +276,6 @@ async function switchSession(sessionId: string) {
     await loadHistory();
     restoreDraft(sessionId);
     await loadSessionInfo();
-}
-
-async function handleDeleteSession(sessionId: string) {
-    dialog.confirm({
-        title: "确认删除该对话？",
-        content: "删除后不可恢复",
-        onOk: async () => {
-            try {
-                await deleteChatSession(sessionId);
-                sessions.value = sessions.value.filter(s => s.session_id !== sessionId);
-                if (currentSessionId.value === sessionId) {
-                    if (sessions.value.length > 0) {
-                        await switchSession(sessions.value[0].session_id);
-                    } else {
-                        currentSessionId.value = "";
-                        messages.value = [];
-                    }
-                }
-                message.success("已删除");
-            } catch { message.error("删除失败"); }
-        },
-    });
-}
-
-function startRename(session: ChatSession) {
-    renamingSessionId.value = session.session_id;
-    renameText.value = session.title;
-    nextTick(() => renameInputRef.value?.focus());
-}
-
-async function confirmRename() {
-    const sid = renamingSessionId.value;
-    const title = renameText.value.trim();
-    if (!sid || !title) { renamingSessionId.value = ""; return; }
-    try {
-        await renameChatSession(sid, title);
-        const s = sessions.value.find(s => s.session_id === sid);
-        if (s) s.title = title;
-    } catch { message.error("重命名失败"); }
-    renamingSessionId.value = "";
-}
-
-function cancelRename() { renamingSessionId.value = ""; }
-
-// 批量删除
-function toggleBatchMode() {
-    batchMode.value = !batchMode.value;
-    selectedSessionIds.value = [];
-}
-
-function toggleSelectAll() {
-    if (allSelected.value) { selectedSessionIds.value = []; }
-    else { selectedSessionIds.value = sessions.value.map(s => s.session_id); }
-}
-
-function toggleSelectSession(sessionId: string) {
-    const idx = selectedSessionIds.value.indexOf(sessionId);
-    if (idx >= 0) selectedSessionIds.value.splice(idx, 1);
-    else selectedSessionIds.value.push(sessionId);
-}
-
-async function handleBatchDelete() {
-    if (!selectedSessionIds.value.length) return;
-    dialog.confirm({
-        title: `确认删除 ${selectedSessionIds.value.length} 个对话？`,
-        content: "删除后不可恢复",
-        onOk: async () => {
-            try {
-                await batchDeleteChatSessions(selectedSessionIds.value);
-                const deleted = new Set(selectedSessionIds.value);
-                sessions.value = sessions.value.filter(s => !deleted.has(s.session_id));
-                if (deleted.has(currentSessionId.value)) {
-                    if (sessions.value.length > 0) {
-                        await switchSession(sessions.value[0].session_id);
-                    } else {
-                        currentSessionId.value = "";
-                        messages.value = [];
-                    }
-                }
-                selectedSessionIds.value = [];
-                batchMode.value = false;
-                message.success("批量删除成功");
-            } catch { message.error("批量删除失败"); }
-        },
-    });
 }
 
 // --- 历史 & 发送 ---
@@ -455,7 +366,9 @@ async function handleSend() {
         const res: any = await sendChatMessage(
             text,
             images.map((i) => ({ data: i.data, media_type: i.media_type })),
-            sendSessionId
+            sendSessionId,
+            activeContact.value?.type || "ai",
+            activeContact.value?.type === "member" ? activeContact.value.id : "",
         );
         const messageId = res?.message_id;
         if (!messageId) {
@@ -822,19 +735,6 @@ function formatTime(ts: number): string {
 }
 
 // ---- @mention 和 /command 提示 ----
-interface MentionMember {
-    id: string;
-    name: string;
-    avatar_url: string;
-    email: string;
-}
-
-interface SlashCommand {
-    name: string;
-    label: string;
-    description: string;
-}
-
 const slashCommands: SlashCommand[] = [
     { name: "/new", label: "/new", description: "重置会话" },
     { name: "/status", label: "/status", description: "查看会话状态" },
@@ -1116,10 +1016,14 @@ onMounted(async () => {
         }
     });
 
-    await loadSessions();
+    // Default to AI assistant
+    activeContact.value = {
+        type: "ai", id: "ai", name: "AI 助手",
+        avatar_url: "", last_message: "", last_message_time: 0, unread: 0, pinned: true,
+    };
+    await sessionSwitcherRef.value?.loadSessions();
 
     const lastSessionId = localStorage.getItem('chat-last-session-id');
-
     if (lastSessionId && sessions.value.some(s => s.session_id === lastSessionId)) {
         await switchSession(lastSessionId);
     } else if (sessions.value.length > 0) {
@@ -1152,129 +1056,13 @@ onUnmounted(() => {
 
 <template>
     <div class="flex h-full">
-        <!-- 左侧对话列表 -->
-        <div
-            class="flex-shrink-0 flex flex-col bg-white overflow-hidden transition-[width,opacity,transform,border-color] duration-300 ease-in-out"
-            :class="sidebarCollapsed
-                ? 'w-0 opacity-0 -translate-x-2 pointer-events-none border-r-0'
-                : 'w-[260px] opacity-100 translate-x-0 border-r border-gray-100'"
-        >
-            <!-- 顶部操作栏 -->
-            <div class="flex items-center justify-between px-4 h-14 border-b border-gray-100">
-                <VortTooltip title="收起侧边栏">
-                    <button
-                        class="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer"
-                        @click="sidebarCollapsed = true"
-                    >
-                        <PanelLeftClose :size="18" />
-                    </button>
-                </VortTooltip>
-                <VortTooltip title="新建对话">
-                    <button
-                        class="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer"
-                        @click="handleNewSession"
-                    >
-                        <MessageSquarePlus :size="18" />
-                    </button>
-                </VortTooltip>
-            </div>
-
-            <!-- 批量操作栏 -->
-            <div v-if="batchMode" class="flex items-center justify-between px-4 py-2 bg-gray-50 border-b border-gray-100">
-                <VortCheckbox
-                    :checked="allSelected"
-                    :indeterminate="selectedSessionIds.length > 0 && !allSelected"
-                    @update:checked="toggleSelectAll"
-                >
-                    <span class="text-xs text-gray-500">全选</span>
-                </VortCheckbox>
-                <div class="flex items-center gap-2">
-                    <span class="text-xs text-gray-400">已选 {{ selectedSessionIds.length }} 项</span>
-                    <button class="text-xs text-gray-400 hover:text-gray-600 cursor-pointer" @click="toggleBatchMode">取消</button>
-                </div>
-            </div>
-
-            <!-- 对话列表 -->
-            <div class="flex-1 overflow-y-auto">
-                <div v-if="sessionsLoading" class="flex items-center justify-center py-8">
-                    <Loader2 :size="20" class="animate-spin text-gray-300" />
-                </div>
-                <div v-else-if="sessions.length === 0" class="flex flex-col items-center justify-center py-12 text-gray-400">
-                    <MessageSquare :size="32" class="mb-2 text-gray-300" />
-                    <p class="text-xs">暂无对话</p>
-                </div>
-                <div v-else class="py-1">
-                    <div
-                        v-for="s in sessions" :key="s.session_id"
-                        class="group flex items-center gap-2 mx-2 px-3 py-2.5 rounded-lg cursor-pointer transition-colors mb-0.5"
-                        :class="currentSessionId === s.session_id && !batchMode ? 'bg-gray-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50/50'"
-                        @click="batchMode ? toggleSelectSession(s.session_id) : switchSession(s.session_id)"
-                    >
-                        <!-- 批量选择 checkbox -->
-                        <div v-if="batchMode" class="flex-shrink-0" @click.stop="toggleSelectSession(s.session_id)">
-                            <VortCheckbox
-                                :checked="selectedSessionIds.includes(s.session_id)"
-                                @update:checked="toggleSelectSession(s.session_id)"
-                            />
-                        </div>
-
-                        <!-- 标题 -->
-                        <div v-if="renamingSessionId === s.session_id" class="flex-1 min-w-0" @click.stop>
-                            <input
-                                ref="renameInputRef"
-                                v-model="renameText"
-                                class="w-full text-sm bg-white border border-blue-300 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-blue-400"
-                                @keydown.enter="confirmRename"
-                                @keydown.escape="cancelRename"
-                                @blur="confirmRename"
-                            />
-                        </div>
-                        <div v-else class="flex-1 min-w-0">
-                            <div class="text-sm truncate">{{ s.title }}</div>
-                            <div class="text-[11px] text-gray-400 mt-0.5">{{ formatTime(s.updated_at) }}</div>
-                        </div>
-
-                        <!-- 未读红点 -->
-                        <div v-if="!batchMode && unreadSessionIds.has(s.session_id)" class="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-red-500" />
-
-                        <!-- 更多操作（三个点） -->
-                        <div v-if="!batchMode && renamingSessionId !== s.session_id"
-                            class="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <VortDropdown trigger="click" @click.stop>
-                                <button class="p-1 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 cursor-pointer">
-                                    <MoreHorizontal :size="16" />
-                                </button>
-                                <template #overlay>
-                                    <VortDropdownMenuItem @click="toggleBatchMode">
-                                        <ListChecks :size="14" class="mr-2" /> 批量操作
-                                    </VortDropdownMenuItem>
-                                    <VortDropdownMenuItem @click="startRename(s)">
-                                        <Pencil :size="14" class="mr-2" /> 编辑名称
-                                    </VortDropdownMenuItem>
-                                    <VortDropdownMenuSeparator />
-                                    <VortDropdownMenuItem danger @click="handleDeleteSession(s.session_id)">
-                                        <Trash2 :size="14" class="mr-2" /> 删除
-                                    </VortDropdownMenuItem>
-                                </template>
-                            </VortDropdown>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- 批量删除底栏 -->
-            <div v-if="batchMode" class="px-4 py-3 border-t border-gray-100">
-                <VortButton
-                    danger
-                    size="small"
-                    :disabled="selectedSessionIds.length === 0"
-                    class="w-full"
-                    @click="handleBatchDelete"
-                >
-                    <Trash2 :size="14" class="mr-1" />
-                    删除所选 ({{ selectedSessionIds.length }})
-                </VortButton>
-            </div>
+        <!-- 左侧联系人列表 -->
+        <div class="flex-shrink-0 w-[260px]">
+            <ContactList
+                ref="contactListRef"
+                :active-contact-id="activeContact?.id || 'ai'"
+                @select="handleContactSelect"
+            />
         </div>
 
         <!-- 右侧聊天区域 -->
@@ -1282,24 +1070,27 @@ onUnmounted(() => {
             <!-- 头部 -->
             <div class="flex items-center justify-between px-6 h-14 border-b border-gray-100 bg-white">
                 <div class="flex items-center">
-                    <VortTooltip v-if="sidebarCollapsed" title="展开侧边栏">
-                        <button
-                            class="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer mr-2"
-                            @click="sidebarCollapsed = false"
-                        >
-                            <PanelLeftOpen :size="18" />
-                        </button>
-                    </VortTooltip>
-                    <VortTooltip v-if="sidebarCollapsed" title="新建对话">
-                        <button
-                            class="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer mr-3"
-                            @click="handleNewSession"
-                        >
-                            <MessageSquarePlus :size="18" />
-                        </button>
-                    </VortTooltip>
-                    <Bot :size="20" class="text-blue-600 mr-2" />
-                    <h2 class="text-base font-medium text-gray-800">OpenVort AI 助手</h2>
+                    <!-- AI mode: session switcher -->
+                    <template v-if="isAiMode">
+                        <Bot :size="20" class="text-blue-600 mr-2" />
+                        <SessionSwitcher
+                            ref="sessionSwitcherRef"
+                            :current-session-id="currentSessionId"
+                            :current-title="currentSessionTitle"
+                            @switch="switchSession"
+                            @new-session="handleNewSession"
+                            @sessions-loaded="handleSessionsLoaded"
+                        />
+                    </template>
+                    <!-- Member mode: show member info -->
+                    <template v-else>
+                        <div class="w-8 h-8 rounded-full flex items-center justify-center mr-2 overflow-hidden"
+                            :class="activeContact?.avatar_url ? '' : 'bg-gray-100'">
+                            <img v-if="activeContact?.avatar_url" :src="activeContact.avatar_url" class="w-full h-full object-cover" />
+                            <span v-else class="text-sm font-medium text-gray-500">{{ (activeContact?.name || '?')[0] }}</span>
+                        </div>
+                        <h2 class="text-base font-medium text-gray-800">{{ activeContact?.name }}</h2>
+                    </template>
                     <span v-if="loading" class="ml-3 flex items-center text-xs text-gray-400">
                         <Loader2 :size="14" class="animate-spin mr-1" /> 思考中...
                     </span>
@@ -1354,16 +1145,19 @@ onUnmounted(() => {
             <div ref="chatContainer" class="flex-1 overflow-y-auto px-6 py-4 space-y-4">
                 <VortImagePreviewGroup>
                     <!-- 无会话状态 -->
-                    <div v-if="!currentSessionId" class="flex flex-col items-center justify-center h-full text-gray-400">
+                    <div v-if="!currentSessionId && isAiMode" class="flex flex-col items-center justify-center h-full text-gray-400">
                         <Bot :size="48" class="mb-4 text-gray-300" />
                         <p class="text-sm">你好，我是 OpenVort AI 助手</p>
-                        <p class="text-xs mt-1">点击左侧「新建对话」开始聊天</p>
+                        <p class="text-xs mt-1">开始新的对话吧</p>
                     </div>
                     <!-- 空消息状态 -->
                     <div v-else-if="messages.length === 0 && !loading" class="flex flex-col items-center justify-center h-full text-gray-400">
-                        <Bot :size="48" class="mb-4 text-gray-300" />
-                        <p class="text-sm">你好，我是 OpenVort AI 助手</p>
-                        <p class="text-xs mt-1">可以帮你管理任务、查询 Bug、了解项目进展</p>
+                        <Bot v-if="isAiMode" :size="48" class="mb-4 text-gray-300" />
+                        <div v-else class="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mb-4">
+                            <span class="text-lg font-medium text-gray-400">{{ (activeContact?.name || '?')[0] }}</span>
+                        </div>
+                        <p class="text-sm">{{ isAiMode ? '你好，我是 OpenVort AI 助手' : `与 ${activeContact?.name} 的对话` }}</p>
+                        <p class="text-xs mt-1">{{ isAiMode ? '可以帮你管理任务、查询 Bug、了解项目进展' : 'AI 将以该成员的身份背景为你提供上下文相关的对话' }}</p>
                     </div>
 
                     <!-- 消息气泡 -->

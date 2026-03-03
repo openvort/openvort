@@ -66,6 +66,8 @@ class SendRequest(BaseModel):
     content: str
     images: list[ImageItem] = []
     session_id: str = "default"
+    target_type: str = "ai"
+    target_id: str = ""
 
 
 class SendResponse(BaseModel):
@@ -80,16 +82,19 @@ class AbortRequest(BaseModel):
 
 
 @router.get("/sessions")
-async def list_sessions(request: Request):
-    """获取用户的对话列表"""
+async def list_sessions(request: Request, target_type: str = ""):
+    """获取用户的对话列表（可选按 target_type 过滤）"""
     payload = require_auth(request)
     member_id = payload.get("sub", "")
     session_store = get_session_store()
-    sessions = await session_store.list_sessions("web", member_id)
+    sessions = await session_store.list_sessions("web", member_id, target_type=target_type)
     return {"sessions": sessions}
+
 
 class CreateSessionRequest(BaseModel):
     title: str = "新对话"
+    target_type: str = "ai"
+    target_id: str = ""
 
 
 @router.post("/sessions")
@@ -98,7 +103,10 @@ async def create_session(req: CreateSessionRequest, request: Request):
     payload = require_auth(request)
     member_id = payload.get("sub", "")
     session_store = get_session_store()
-    session_id = await session_store.create_session("web", member_id, req.title)
+    session_id = await session_store.create_session(
+        "web", member_id, req.title,
+        target_type=req.target_type, target_id=req.target_id,
+    )
     return {"session_id": session_id, "title": req.title}
 
 
@@ -162,6 +170,8 @@ async def send_message(req: SendRequest, request: Request):
         "name": payload.get("name", ""),
         "roles": payload.get("roles", []),
         "session_id": req.session_id,
+        "target_type": req.target_type,
+        "target_id": req.target_id,
     }
     return SendResponse(message_id=message_id)
 
@@ -227,6 +237,8 @@ async def stream_response(message_id: str, request: Request):
                 msg["content"], member_id=member_id, images=msg.get("images", []),
                 session_id=session_id,
                 cancel_event=running.cancel_event,
+                target_type=msg.get("target_type", "ai"),
+                target_id=msg.get("target_id", ""),
             ):
                 if running.cancel_event.is_set():
                     break
@@ -434,6 +446,192 @@ async def reset_session(req: ResetRequest, request: Request):
     session_store = get_session_store()
     await session_store.clear("web", member_id, req.session_id)
 
+    return {"success": True}
+
+
+# ---- 联系人列表接口 ----
+
+
+def _extract_last_message(messages_json: str) -> str:
+    """Extract last assistant/user text from messages JSON for preview."""
+    try:
+        messages = json.loads(messages_json) if messages_json else []
+    except (json.JSONDecodeError, TypeError):
+        return ""
+    for msg in reversed(messages):
+        role = msg.get("role", "")
+        if role not in ("user", "assistant"):
+            continue
+        content = msg.get("content", "")
+        if isinstance(content, str):
+            text = content.strip()
+        elif isinstance(content, list):
+            parts = []
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    parts.append(block.get("text", ""))
+            text = " ".join(parts).strip()
+        else:
+            text = str(content).strip()
+        if text:
+            return text[:50]
+    return ""
+
+
+@router.get("/contacts")
+async def list_contacts(request: Request):
+    """获取聊天联系人列表：AI助手置顶 + 有对话的成员按时间排序"""
+    payload = require_auth(request)
+    member_id = payload.get("sub", "")
+
+    from sqlalchemy import select, func as sa_func, case
+    from openvort.db.models import ChatSession
+    from openvort.contacts.models import Member
+    from openvort.web.deps import get_db_session_factory
+
+    session_factory = get_db_session_factory()
+    contacts = []
+
+    async with session_factory() as db:
+        # AI assistant entry: aggregate from all ai sessions
+        ai_stmt = (
+            select(ChatSession)
+            .where(
+                ChatSession.channel == "web",
+                ChatSession.user_id == member_id,
+                ChatSession.target_type == "ai",
+            )
+            .order_by(ChatSession.updated_at.desc())
+        )
+        ai_result = await db.execute(ai_stmt)
+        ai_rows = ai_result.scalars().all()
+
+        ai_last_message = ""
+        ai_last_time = 0.0
+        ai_session_count = len(ai_rows)
+        for row in ai_rows:
+            preview = _extract_last_message(row.messages)
+            if preview:
+                ai_last_message = preview
+                ai_last_time = row.updated_at.timestamp() if row.updated_at else 0
+                break
+        if not ai_last_time and ai_rows:
+            ai_last_time = ai_rows[0].updated_at.timestamp() if ai_rows[0].updated_at else 0
+
+        contacts.append({
+            "type": "ai",
+            "id": "ai",
+            "name": "AI 助手",
+            "avatar_url": "",
+            "last_message": ai_last_message,
+            "last_message_time": ai_last_time,
+            "unread": 0,
+            "session_count": ai_session_count,
+            "pinned": True,
+        })
+
+        # Member entries: one per target_id
+        member_stmt = (
+            select(ChatSession)
+            .where(
+                ChatSession.channel == "web",
+                ChatSession.user_id == member_id,
+                ChatSession.target_type == "member",
+                ChatSession.hidden == False,  # noqa: E712
+            )
+            .order_by(ChatSession.updated_at.desc())
+        )
+        member_result = await db.execute(member_stmt)
+        member_rows = member_result.scalars().all()
+
+        target_ids = list({r.target_id for r in member_rows if r.target_id})
+        members_map: dict[str, dict] = {}
+        if target_ids:
+            m_stmt = select(Member).where(Member.id.in_(target_ids))
+            m_result = await db.execute(m_stmt)
+            for m in m_result.scalars().all():
+                members_map[m.id] = {
+                    "name": m.name,
+                    "avatar_url": m.avatar_url or "",
+                    "email": m.email or "",
+                }
+
+        seen_targets: set[str] = set()
+        for row in member_rows:
+            tid = row.target_id
+            if not tid or tid in seen_targets:
+                continue
+            seen_targets.add(tid)
+            m_info = members_map.get(tid, {})
+            contacts.append({
+                "type": "member",
+                "id": tid,
+                "name": m_info.get("name", tid),
+                "avatar_url": m_info.get("avatar_url", ""),
+                "last_message": _extract_last_message(row.messages),
+                "last_message_time": row.updated_at.timestamp() if row.updated_at else 0,
+                "unread": 0,
+                "session_id": row.session_id,
+                "pinned": row.pinned,
+            })
+
+    # Sort: AI first (always), then pinned members, then by time
+    ai_entry = contacts[0]
+    member_entries = contacts[1:]
+    member_entries.sort(key=lambda c: (not c.get("pinned", False), -(c.get("last_message_time", 0))))
+
+    return {"contacts": [ai_entry] + member_entries}
+
+
+class StartMemberChatRequest(BaseModel):
+    member_id: str
+
+
+@router.post("/contacts/start")
+async def start_member_chat(req: StartMemberChatRequest, request: Request):
+    """发起与成员的对话（获取或创建 session）"""
+    payload = require_auth(request)
+    user_id = payload.get("sub", "")
+
+    from sqlalchemy import select
+    from openvort.contacts.models import Member
+    from openvort.web.deps import get_db_session_factory
+
+    session_factory = get_db_session_factory()
+    member_name = ""
+    async with session_factory() as db:
+        m = await db.get(Member, req.member_id)
+        if m:
+            member_name = m.name
+
+    session_store = get_session_store()
+    session_id = await session_store.get_or_create_member_session(
+        "web", user_id, req.member_id, title=member_name or "成员对话",
+    )
+    return {"session_id": session_id, "member_name": member_name}
+
+
+class PinContactRequest(BaseModel):
+    pinned: bool
+
+
+@router.put("/contacts/{session_id}/pin")
+async def toggle_pin_contact(session_id: str, req: PinContactRequest, request: Request):
+    """置顶/取消置顶联系人"""
+    payload = require_auth(request)
+    member_id = payload.get("sub", "")
+    session_store = get_session_store()
+    await session_store.set_pinned("web", member_id, session_id, req.pinned)
+    return {"success": True}
+
+
+@router.delete("/contacts/{session_id}")
+async def hide_contact(session_id: str, request: Request):
+    """从联系人列表隐藏（不删除聊天记录）"""
+    payload = require_auth(request)
+    member_id = payload.get("sub", "")
+    session_store = get_session_store()
+    await session_store.set_hidden("web", member_id, session_id, True)
     return {"success": True}
 
 

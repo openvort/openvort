@@ -34,6 +34,11 @@ class Session:
     total_output_tokens: int = 0
     total_cache_creation_tokens: int = 0
     total_cache_read_tokens: int = 0
+    # contact targeting
+    target_type: str = "ai"  # "ai" | "member"
+    target_id: str = ""  # target member id when target_type="member"
+    pinned: bool = False
+    hidden: bool = False
 
     @property
     def key(self) -> str:
@@ -218,19 +223,23 @@ class SessionStore:
 
     # ---- 多会话管理 ----
 
-    async def list_sessions(self, channel: str, user_id: str) -> list[dict]:
-        """列出用户所有对话（从 DB 查询）"""
+    async def list_sessions(self, channel: str, user_id: str, target_type: str = "") -> list[dict]:
+        """列出用户对话（可选按 target_type 过滤）"""
         if not self._session_factory:
-            # 纯内存模式：从内存中筛选
             prefix = f"{channel}:{user_id}:"
             result = []
             for key, s in self._sessions.items():
                 if key.startswith(prefix):
+                    if target_type and s.target_type != target_type:
+                        continue
                     result.append({
                         "session_id": s.session_id,
                         "title": s.title,
                         "created_at": s.created_at,
                         "updated_at": s.updated_at,
+                        "target_type": s.target_type,
+                        "target_id": s.target_id,
+                        "pinned": s.pinned,
                     })
             result.sort(key=lambda x: x["updated_at"], reverse=True)
             return result
@@ -243,8 +252,10 @@ class SessionStore:
                 stmt = (
                     select(ChatSession)
                     .where(ChatSession.channel == channel, ChatSession.user_id == user_id)
-                    .order_by(ChatSession.updated_at.desc())
                 )
+                if target_type:
+                    stmt = stmt.where(ChatSession.target_type == target_type)
+                stmt = stmt.order_by(ChatSession.updated_at.desc())
                 result = await db.execute(stmt)
                 rows = result.scalars().all()
 
@@ -254,6 +265,9 @@ class SessionStore:
                     "title": row.title,
                     "created_at": row.created_at.timestamp() if row.created_at else 0,
                     "updated_at": row.updated_at.timestamp() if row.updated_at else 0,
+                    "target_type": row.target_type or "ai",
+                    "target_id": row.target_id or "",
+                    "pinned": row.pinned if hasattr(row, "pinned") else False,
                 }
                 for row in rows
             ]
@@ -261,11 +275,15 @@ class SessionStore:
             log.warning(f"列出会话失败 ({channel}:{user_id}): {e}")
             return []
 
-    async def create_session(self, channel: str, user_id: str, title: str = "新对话") -> str:
+    async def create_session(self, channel: str, user_id: str, title: str = "新对话",
+                             target_type: str = "ai", target_id: str = "") -> str:
         """创建新会话，返回 session_id"""
         session_id = str(uuid.uuid4())[:8]
         key = f"{channel}:{user_id}:{session_id}"
-        session = Session(channel=channel, user_id=user_id, session_id=session_id, title=title)
+        session = Session(
+            channel=channel, user_id=user_id, session_id=session_id,
+            title=title, target_type=target_type, target_id=target_id,
+        )
         self._sessions[key] = session
 
         if self._session_factory:
@@ -278,12 +296,96 @@ class SessionStore:
                         session_id=session_id,
                         title=title,
                         messages="[]",
+                        target_type=target_type,
+                        target_id=target_id,
                     ))
                     await db.commit()
             except Exception as e:
                 log.warning(f"创建会话到 DB 失败: {e}")
 
         return session_id
+
+    async def get_or_create_member_session(self, channel: str, user_id: str,
+                                           target_id: str, title: str = "") -> str:
+        """Get existing member session or create a new one. Returns session_id."""
+        if self._session_factory:
+            try:
+                from sqlalchemy import select
+                from openvort.db.models import ChatSession
+
+                async with self._session_factory() as db:
+                    stmt = select(ChatSession).where(
+                        ChatSession.channel == channel,
+                        ChatSession.user_id == user_id,
+                        ChatSession.target_type == "member",
+                        ChatSession.target_id == target_id,
+                        ChatSession.hidden == False,  # noqa: E712
+                    )
+                    result = await db.execute(stmt)
+                    row = result.scalar_one_or_none()
+                    if row:
+                        return row.session_id
+            except Exception as e:
+                log.warning(f"查找成员会话失败: {e}")
+
+        # Fallback: check memory
+        prefix = f"{channel}:{user_id}:"
+        for key, s in self._sessions.items():
+            if key.startswith(prefix) and s.target_type == "member" and s.target_id == target_id and not s.hidden:
+                return s.session_id
+
+        return await self.create_session(channel, user_id, title=title or "新对话",
+                                         target_type="member", target_id=target_id)
+
+    async def set_pinned(self, channel: str, user_id: str, session_id: str, pinned: bool) -> None:
+        """Set pinned state for a session."""
+        key = f"{channel}:{user_id}:{session_id}"
+        session = self._sessions.get(key)
+        if session:
+            session.pinned = pinned
+
+        if self._session_factory:
+            try:
+                from sqlalchemy import select
+                from openvort.db.models import ChatSession
+                async with self._session_factory() as db:
+                    stmt = select(ChatSession).where(
+                        ChatSession.channel == channel,
+                        ChatSession.user_id == user_id,
+                        ChatSession.session_id == session_id,
+                    )
+                    result = await db.execute(stmt)
+                    row = result.scalar_one_or_none()
+                    if row:
+                        row.pinned = pinned
+                        await db.commit()
+            except Exception as e:
+                log.warning(f"设置置顶状态失败: {e}")
+
+    async def set_hidden(self, channel: str, user_id: str, session_id: str, hidden: bool) -> None:
+        """Set hidden state for a session (hide from contact list without deleting)."""
+        key = f"{channel}:{user_id}:{session_id}"
+        session = self._sessions.get(key)
+        if session:
+            session.hidden = hidden
+
+        if self._session_factory:
+            try:
+                from sqlalchemy import select
+                from openvort.db.models import ChatSession
+                async with self._session_factory() as db:
+                    stmt = select(ChatSession).where(
+                        ChatSession.channel == channel,
+                        ChatSession.user_id == user_id,
+                        ChatSession.session_id == session_id,
+                    )
+                    result = await db.execute(stmt)
+                    row = result.scalar_one_or_none()
+                    if row:
+                        row.hidden = hidden
+                        await db.commit()
+            except Exception as e:
+                log.warning(f"设置隐藏状态失败: {e}")
 
     async def delete_session(self, channel: str, user_id: str, session_id: str) -> None:
         """删除单个会话"""
@@ -398,6 +500,10 @@ class SessionStore:
                 messages=messages,
                 created_at=created_at,
                 updated_at=updated_at,
+                target_type=getattr(row, "target_type", None) or "ai",
+                target_id=getattr(row, "target_id", None) or "",
+                pinned=getattr(row, "pinned", False) or False,
+                hidden=getattr(row, "hidden", False) or False,
             )
             self._sessions[session.key] = session
             log.debug(f"从 DB 恢复 Session {session.key}，{len(messages)} 条消息")

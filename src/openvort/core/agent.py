@@ -267,6 +267,8 @@ class AgentRuntime:
         images: list[dict] | None = None,
         session_id: str = "default",
         cancel_event: asyncio.Event | None = None,
+        target_type: str = "ai",
+        target_id: str = "",
     ):
         """Web 面板流式对话接口
 
@@ -277,6 +279,8 @@ class AgentRuntime:
             content: 用户消息
             member_id: 成员 ID，用于独立会话和身份识别
             session_id: 会话 ID，支持多会话
+            target_type: "ai" for normal AI chat, "member" for member proxy chat
+            target_id: target member id when target_type="member"
 
         Yields:
             dict: {"type": "text_delta", "text": "..."} |
@@ -330,6 +334,13 @@ class AgentRuntime:
                 log.warning(f"[web] 检查插件 {plugin.name} 就绪状态失败: {e}")
 
         system = self._system_prompt + sender_context
+
+        # Inject member context for member proxy chats
+        if target_type == "member" and target_id:
+            member_context = await self._build_member_chat_context(target_id)
+            if member_context:
+                system += member_context
+
         plugin_prompts = self._registry.get_system_prompt_extension()
         if plugin_prompts:
             system += "\n\n# 插件能力\n\n" + plugin_prompts
@@ -597,6 +608,42 @@ class AgentRuntime:
         }
         budget = budget_map.get(level, 5120)
         return {"type": "enabled", "budget_tokens": budget}
+
+    async def _build_member_chat_context(self, target_id: str) -> str:
+        """Build system prompt context for member proxy chat.
+
+        Fetches target member info and injects it into the prompt so the AI
+        can provide contextually relevant responses about this member.
+        """
+        try:
+            from openvort.web.deps import get_db_session_factory
+            from sqlalchemy import select
+            from openvort.contacts.models import Member
+
+            session_factory = get_db_session_factory()
+            if not session_factory:
+                return ""
+
+            async with session_factory() as db:
+                m = await db.get(Member, target_id)
+                if not m:
+                    return ""
+
+                parts = [f"\n\n# 当前对话主题：关于成员「{m.name}」"]
+                parts.append("你正在一个关于该成员的对话中。用户希望了解或讨论与该成员相关的内容。")
+                parts.append(f"成员姓名: {m.name}")
+                if m.email:
+                    parts.append(f"邮箱: {m.email}")
+                if m.phone:
+                    parts.append(f"手机: {m.phone}")
+                if m.bio:
+                    parts.append(f"简介: {m.bio}")
+
+                parts.append("\n请基于该成员的背景信息回答用户问题。如果用户询问任务、代码提交等信息，使用相应的工具去查询。")
+                return "\n".join(parts)
+        except Exception as e:
+            log.warning(f"[web] 构建成员对话上下文失败: {e}")
+            return ""
 
     @staticmethod
     def _build_user_content(text: str, images: list[dict]) -> str | list[dict]:
