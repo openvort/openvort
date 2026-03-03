@@ -115,54 +115,61 @@ def create_app() -> FastAPI:
     _llm_health_cache: dict[str, object] = {"healthy": None, "checked_at": 0.0, "error": ""}
 
     @app.get("/api/health")
-    async def health_check():
+    async def health_check(force: bool = False):
         from openvort import __version__
-        from openvort.config.settings import get_settings
+        from openvort.web.deps import get_config_service as _get_cs
 
-        settings = get_settings()
-        llm_model = settings.llm.model
-        has_config = bool(settings.llm.api_key and settings.llm.model)
-
-        # Use cached result if fresh (within 60s)
         now = _time.monotonic()
         cache_ttl = 60
-        if _llm_health_cache["healthy"] is not None and (now - _llm_health_cache["checked_at"]) < cache_ttl:
+
+        # Use cached result if fresh (within 60s) and not forced
+        if not force and _llm_health_cache["healthy"] is not None and (now - _llm_health_cache["checked_at"]) < cache_ttl:
             return {
                 "version": __version__,
                 "llm_healthy": _llm_health_cache["healthy"],
-                "llm_model": llm_model,
+                "llm_model": _llm_health_cache.get("model", ""),
                 "llm_error": _llm_health_cache["error"],
             }
 
-        # No config → definitely unhealthy
-        if not has_config:
-            _llm_health_cache.update(healthy=False, checked_at=now, error="API key or model not configured")
+        # Get primary model from model library
+        try:
+            config_service = _get_cs()
+            chain = await config_service.get_effective_llm_chain()
+        except Exception:
+            chain = []
+
+        if not chain:
+            _llm_health_cache.update(healthy=False, checked_at=now, error="未配置主模型，请在模型管理中添加并在系统设置中选择", model="")
             return {
                 "version": __version__,
                 "llm_healthy": False,
-                "llm_model": llm_model,
+                "llm_model": "",
                 "llm_error": _llm_health_cache["error"],
             }
+
+        primary = chain[0]
+        llm_model = primary.get("model", "")
 
         # Actually ping the LLM API with a minimal request
         try:
             from openvort.core.llm import create_provider
             provider = create_provider(
-                provider=settings.llm.provider,
-                api_key=settings.llm.api_key,
-                api_base=settings.llm.api_base,
+                provider=primary.get("provider", "anthropic"),
+                api_key=primary.get("api_key", ""),
+                api_base=primary.get("api_base", ""),
                 timeout=10,
+                api_format=primary.get("api_format", "auto"),
             )
             resp = await provider.create(
-                model=settings.llm.model,
+                model=llm_model,
                 max_tokens=1,
                 system="Reply with OK.",
                 messages=[{"role": "user", "content": "hi"}],
             )
             await provider.close()
-            _llm_health_cache.update(healthy=True, checked_at=now, error="")
+            _llm_health_cache.update(healthy=True, checked_at=now, error="", model=llm_model)
         except Exception as e:
-            _llm_health_cache.update(healthy=False, checked_at=now, error=str(e)[:200])
+            _llm_health_cache.update(healthy=False, checked_at=now, error=str(e)[:200], model=llm_model)
 
         return {
             "version": __version__,

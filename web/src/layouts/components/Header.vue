@@ -2,7 +2,7 @@
 import { ref, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
 import { useUserStore, useAppStore } from "@/stores";
-import { Bell, LogOut, User, Settings, Menu } from "lucide-vue-next";
+import { Bell, LogOut, User, Settings, Menu, RefreshCw } from "lucide-vue-next";
 import { getHealthStatus } from "@/api";
 
 defineProps<{ isScrolled: boolean; isMobile?: boolean }>();
@@ -32,9 +32,12 @@ const checkVersionUpdate = (serverVersion: string) => {
     }
 };
 
-const fetchHealth = async () => {
+const healthChecking = ref(false);
+
+const fetchHealth = async (force = false) => {
+    if (force) healthChecking.value = true;
     try {
-        const res: any = await getHealthStatus();
+        const res: any = await getHealthStatus(force);
         version.value = res.version || "";
         llmHealthy.value = res.llm_healthy ?? null;
         llmError.value = res.llm_error || "";
@@ -42,7 +45,15 @@ const fetchHealth = async () => {
     } catch {
         llmHealthy.value = false;
         llmError.value = "无法连接服务器";
+    } finally {
+        healthChecking.value = false;
     }
+};
+
+const handleRefreshHealth = () => {
+    if (healthChecking.value) return;
+    llmHealthy.value = null;
+    fetchHealth(true);
 };
 
 onMounted(() => {
@@ -94,6 +105,12 @@ const goProfile = () => {
                 :title="llmError || ''">
                 <span class="w-1.5 h-1.5 rounded-full inline-block" :class="llmHealthy === true ? 'bg-green-500' : llmHealthy === false ? 'bg-red-400' : 'bg-gray-300'"></span>
                 AI {{ llmHealthy === true ? '在线' : llmHealthy === false ? '离线' : '...' }}
+                <RefreshCw
+                    :size="10"
+                    class="cursor-pointer hover:opacity-70 transition-opacity ml-0.5"
+                    :class="{ 'animate-spin': healthChecking }"
+                    @click.stop="handleRefreshHealth"
+                />
             </div>
             <!-- 用户信息 -->
             <div class="relative">

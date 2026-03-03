@@ -161,8 +161,8 @@ export function hideChatContact(sessionId: string) {
 }
 
 /** 健康检查（版本号 + LLM 状态） */
-export function getHealthStatus() {
-    return request.get("/health");
+export function getHealthStatus(force?: boolean) {
+    return request.get("/health", { params: force ? { force: true } : undefined });
 }
 
 /** 仪表盘数据 */
@@ -537,6 +537,16 @@ export function deleteModel(modelId: string) {
 /** 测试模型连通性 */
 export function testModel(modelId: string) {
     return request.post(`/admin/models/${modelId}/test`);
+}
+
+/** 获取可用模型列表（通过 API Key 和 URL 自动识别） */
+export function fetchAvailableModels(data: { provider: string; api_key: string; api_base: string }) {
+    return request.post("/admin/models/fetch-available", data);
+}
+
+/** 批量测试所有模型 */
+export function batchTestModels() {
+    return request.post("/admin/models/batch-test");
 }
 
 /** 获取系统设置 */

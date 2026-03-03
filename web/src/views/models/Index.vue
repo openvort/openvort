@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
-import { Plus } from "lucide-vue-next";
-import { createModel, deleteModel, getModels, testModel, updateModel } from "@/api";
+import { Plus, RefreshCw, Search } from "lucide-vue-next";
+import { createModel, deleteModel, getModels, testModel, updateModel, fetchAvailableModels, batchTestModels } from "@/api";
 import { message } from "@/components/vort/message";
 
 interface ModelItem {
@@ -213,6 +213,78 @@ const testResults = ref<Record<string, {
     detected_format?: string;
 }>>({});
 
+// ---- 模型自动识别 ----
+const availableModels = ref<{ value: string; label: string }[]>([]);
+const fetchingModels = ref(false);
+
+async function handleFetchModels() {
+    if (!form.value.api_key && !apiKeyBackup.value) {
+        message.error("请先填写 API Key");
+        return;
+    }
+    fetchingModels.value = true;
+    try {
+        const apiKey = editingApiKey.value ? form.value.api_key : apiKeyBackup.value;
+        const ret: any = await fetchAvailableModels({
+            provider: form.value.provider,
+            api_key: apiKey,
+            api_base: form.value.api_base,
+        });
+        if (ret.success && Array.isArray(ret.models)) {
+            availableModels.value = ret.models.map((m: string) => ({ value: m, label: m }));
+            message.success(`已获取 ${ret.models.length} 个可用模型`);
+        } else {
+            availableModels.value = [];
+            message.error(ret.error || "获取模型列表失败");
+        }
+    } catch {
+        message.error("获取模型列表请求失败");
+    } finally {
+        fetchingModels.value = false;
+    }
+}
+
+// ---- 批量测试 ----
+const batchTesting = ref(false);
+
+async function handleBatchTest() {
+    if (batchTesting.value) return;
+    batchTesting.value = true;
+    // Clear previous results
+    testResults.value = {};
+    // Mark all as testing
+    for (const row of list.value) {
+        testingMap.value[row.id] = true;
+    }
+    try {
+        const results: any = await batchTestModels();
+        if (Array.isArray(results)) {
+            let successCount = 0;
+            let failCount = 0;
+            for (const r of results) {
+                if (r.id) {
+                    testResults.value[r.id] = r;
+                    delete testingMap.value[r.id];
+                    if (r.success) successCount++;
+                    else failCount++;
+                }
+            }
+            if (failCount === 0) {
+                message.success(`全部 ${successCount} 个模型测试通过`);
+            } else {
+                message.warning(`${successCount} 个通过，${failCount} 个失败`);
+            }
+        }
+    } catch {
+        message.error("批量测试请求失败");
+    } finally {
+        batchTesting.value = false;
+        for (const row of list.value) {
+            delete testingMap.value[row.id];
+        }
+    }
+}
+
 async function handleTest(row: ModelItem) {
     if (testingMap.value[row.id]) {
         return;
@@ -248,9 +320,14 @@ onMounted(loadData);
         <div class="bg-white rounded-xl p-6">
             <div class="flex items-center justify-between mb-4">
                 <h3 class="text-base font-medium text-gray-800">模型管理</h3>
-                <VortButton variant="primary" @click="handleAdd">
-                    <Plus :size="14" class="mr-1" /> 新增模型
-                </VortButton>
+                <div class="flex items-center gap-2">
+                    <VortButton :loading="batchTesting" @click="handleBatchTest">
+                        <RefreshCw :size="14" class="mr-1" /> 批量测试
+                    </VortButton>
+                    <VortButton variant="primary" @click="handleAdd">
+                        <Plus :size="14" class="mr-1" /> 新增模型
+                    </VortButton>
+                </div>
             </div>
             <p class="text-sm text-gray-500 mb-4">
                 统一维护模型参数与凭证，系统设置中可直接选择主模型和备选模型。
@@ -329,7 +406,25 @@ onMounted(loadData);
                     </VortSelect>
                 </VortFormItem>
                 <VortFormItem label="模型" required>
-                    <VortInput v-model="form.model" placeholder="如 claude-sonnet-4-20250514" />
+                    <div class="flex items-center gap-2 w-full">
+                        <VortAutoComplete
+                            v-model="form.model"
+                            :options="availableModels"
+                            :filter-option="true"
+                            placeholder="如 claude-sonnet-4-20250514"
+                            class="flex-1 min-w-0"
+                            :not-found-content="fetchingModels ? '加载中...' : '请点击右侧按钮获取模型列表'"
+                        />
+                        <VortButton
+                            size="small"
+                            :loading="fetchingModels"
+                            @click="handleFetchModels"
+                            title="自动获取可用模型列表"
+                            class="shrink-0"
+                        >
+                            <Search :size="14" />
+                        </VortButton>
+                    </div>
                 </VortFormItem>
                 <VortFormItem label="API Key">
                     <div class="flex items-center gap-3 w-full">

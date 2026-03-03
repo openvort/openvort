@@ -1,5 +1,6 @@
 """模型管理路由（CRUD + 连通性测试 + API 格式自动检测）"""
 
+import asyncio
 import time
 from typing import Any
 
@@ -104,6 +105,127 @@ async def delete_model(model_id: str):
         return {"success": False, "error": "模型不存在"}
     await config_service.save_llm_models(new_models)
     return {"success": True}
+
+
+class FetchModelsRequest(BaseModel):
+    provider: str
+    api_key: str = ""
+    api_base: str = ""
+
+
+@router.post("/fetch-available")
+async def fetch_available_models(req: FetchModelsRequest):
+    """Fetch available models from the provider API using the given credentials."""
+    import httpx
+
+    provider_name = req.provider
+    api_key = req.api_key
+    api_base = req.api_base
+
+    if not api_key:
+        return {"success": False, "error": "API Key 未填写"}
+
+    try:
+        if provider_name == "anthropic":
+            base = api_base.rstrip("/") if api_base else "https://api.anthropic.com"
+            if base.endswith("/v1"):
+                base = base[:-3]
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.get(
+                    f"{base}/v1/models",
+                    headers={
+                        "x-api-key": api_key,
+                        "anthropic-version": "2023-06-01",
+                    },
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    models = []
+                    for m in data.get("data", []):
+                        model_id = m.get("id", "")
+                        if model_id:
+                            models.append(model_id)
+                    models.sort()
+                    return {"success": True, "models": models}
+                else:
+                    return {"success": False, "error": f"HTTP {resp.status_code}: {resp.text[:200]}"}
+        else:
+            # OpenAI-compatible providers
+            from openvort.core.llm import _default_api_base
+            base = (api_base or _default_api_base(provider_name)).rstrip("/")
+            if not base.endswith("/v1"):
+                base = base + "/v1"
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.get(
+                    f"{base}/models",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    models = []
+                    for m in data.get("data", []):
+                        model_id = m.get("id", "")
+                        if model_id:
+                            models.append(model_id)
+                    models.sort()
+                    return {"success": True, "models": models}
+                else:
+                    return {"success": False, "error": f"HTTP {resp.status_code}: {resp.text[:200]}"}
+    except httpx.TimeoutException:
+        return {"success": False, "error": "请求超时，请检查 API Base 地址"}
+    except Exception as e:
+        return {"success": False, "error": str(e)[:300]}
+
+
+@router.post("/batch-test")
+async def batch_test_models():
+    """Test all models in parallel and return results."""
+    config_service = get_config_service()
+    models = await config_service.get_llm_models()
+
+    async def _test_one(item: dict) -> dict:
+        model_id = item.get("id", "")
+        provider_name = item.get("provider", "anthropic")
+        api_key = item.get("api_key", "")
+        api_base_val = item.get("api_base", "")
+        model_name = item.get("model", "")
+        timeout_val = item.get("timeout", 30)
+        api_format = item.get("api_format", "auto")
+
+        if not api_key:
+            return {"id": model_id, "success": False, "error": "API Key 未配置"}
+        if not model_name:
+            return {"id": model_id, "success": False, "error": "模型名称未配置"}
+
+        if provider_name == "anthropic":
+            result = await _try_provider(
+                provider_name, api_key, api_base_val, model_name, timeout_val, "chat_completions",
+            )
+        elif api_format != "auto":
+            result = await _try_provider(
+                provider_name, api_key, api_base_val, model_name, timeout_val, api_format,
+            )
+        else:
+            result = await _try_provider(
+                provider_name, api_key, api_base_val, model_name, min(timeout_val, 15), "chat_completions",
+            )
+            if not result["success"]:
+                result = await _try_provider(
+                    provider_name, api_key, api_base_val, model_name, min(timeout_val, 15), "responses",
+                )
+        result["id"] = model_id
+        return result
+
+    tasks = [_test_one(item) for item in models]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    output = []
+    for i, r in enumerate(results):
+        if isinstance(r, Exception):
+            output.append({"id": models[i].get("id", ""), "success": False, "error": str(r)[:200]})
+        else:
+            output.append(r)
+    return output
 
 
 async def _try_provider(provider_name: str, api_key: str, api_base: str,
