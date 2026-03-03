@@ -76,6 +76,7 @@ src/openvort/
 │   ├── vortflow/           # VortFlow 项目管理（5 Tool + 2 Prompt，状态机驱动）
 │   ├── vortgit/            # VortGit 代码仓库（8 Tool + 1 Prompt，AI 编码）
 │   ├── browser/            # 浏览器控制（5 Tool，Playwright）
+│   ├── jenkins/            # Jenkins CI/CD（6 Tool + 1 Prompt）
 │   ├── schedule/           # 定时任务（2 Tool）
 │   └── system/             # 系统管理（2 Tool + 1 Prompt，核心插件）
 ├── channels/               # IM 通道适配器
@@ -139,6 +140,7 @@ class BasePlugin(ABC):
 zentao = "openvort.plugins.zentao:ZentaoPlugin"
 vortflow = "openvort.plugins.vortflow:VortFlowPlugin"
 vortgit = "openvort.plugins.vortgit:VortGitPlugin"
+jenkins = "openvort.plugins.jenkins:JenkinsPlugin"
 schedule = "openvort.plugins.schedule:SchedulePlugin"
 system = "openvort.plugins.system:SystemPlugin"
 ```
@@ -226,7 +228,7 @@ class OpenAICompatibleProvider(LLMProvider): ...
 | 引擎核心 | AgentRouter + IM 命令 + Agent 间通信 + MessageDispatcher | ✅ |
 | 插件框架 | BasePlugin / BaseTool / BaseChannel + Registry + Loader + Prompt + Skill | ✅ |
 | Channel | 企微 + 钉钉 + 飞书 + OpenClaw 网关 | ✅ |
-| Plugin | 系统管理(2) + 禅道(11) + 浏览器(5) + 通讯录(5) + VortFlow(5) + VortGit(8) + Schedule(2) | ✅ |
+| Plugin | 系统管理(2) + 禅道(11) + 浏览器(5) + 通讯录(5) + VortFlow(5) + VortGit(8) + Jenkins(6) + Schedule(2) | ✅ |
 | Web | 管理面板（Vue 3 + FastAPI + JWT + SSE + WebSocket + Webhook） | ✅ |
 | 安全 | RBAC + DM 配对 + Docker 沙箱 + Token 加密 | ✅ |
 | 基础设施 | CLI + Relay + Pydantic Settings + 异步全栈 | ✅ |
