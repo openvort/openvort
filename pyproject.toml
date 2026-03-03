@@ -29,6 +29,7 @@ dependencies = [
     "pydantic-settings>=2.0",
     "sqlalchemy[asyncio]>=2.0",
     "asyncpg>=0.30",
+    "alembic>=1.13",
     "psycopg2-binary>=2.9",
     "apscheduler>=3.10",
     "cryptography>=42.0",

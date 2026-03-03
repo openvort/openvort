@@ -33,7 +33,7 @@ def _run_alembic_upgrade(database_url: str) -> None:
         alembic_dir = Path("/app/alembic")
     ini_path = alembic_dir.parent / "alembic.ini"
 
-    cfg = Config(str(ini_path))
+    cfg = Config(str(ini_path) if ini_path.exists() else None)
     cfg.set_main_option("script_location", str(alembic_dir))
     cfg.set_main_option("sqlalchemy.url", database_url.replace("+asyncpg", ""))
 

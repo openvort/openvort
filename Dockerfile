@@ -14,7 +14,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY pyproject.toml README.md LICENSE ./
 COPY src/ src/
-COPY alembic.ini ./
 COPY alembic/ alembic/
 RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir .
 COPY --from=frontend /app/web/dist web/dist
