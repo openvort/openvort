@@ -4,12 +4,17 @@
 v0.1 基础模型：消息记录、调度任务。
 """
 
+import uuid
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from openvort.db.engine import Base
+
+
+def _uuid() -> str:
+    return uuid.uuid4().hex
 
 
 class MessageLog(Base):
@@ -122,3 +127,36 @@ class ScheduleJob(Base):
 
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class Skill(Base):
+    """技能知识条目 — 内置/公共/个人三级体系"""
+
+    __tablename__ = "skills"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(100), index=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    content: Mapped[str] = mapped_column(Text, default="")  # markdown
+    scope: Mapped[str] = mapped_column(String(16), index=True)  # builtin / public / personal
+    owner_id: Mapped[str] = mapped_column(String(32), default="", index=True)  # personal → member.id
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_by: Mapped[str] = mapped_column(String(32), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class MemberSkill(Base):
+    """成员订阅的公共 Skill"""
+
+    __tablename__ = "member_skills"
+    __table_args__ = (
+        UniqueConstraint("member_id", "skill_id", name="uq_member_skill"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    member_id: Mapped[str] = mapped_column(String(32), ForeignKey("members.id"), index=True)
+    skill_id: Mapped[str] = mapped_column(String(32), ForeignKey("skills.id"), index=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

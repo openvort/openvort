@@ -27,7 +27,7 @@ env/
 
 # 日志
 *.log
-logs/
+/logs/
 
 # OS
 .DS_Store
