@@ -14,6 +14,7 @@ interface ModelItem {
     max_tokens: number;
     timeout: number;
     enabled: boolean;
+    api_format: string;
 }
 
 const providerOptions = [
@@ -23,7 +24,18 @@ const providerOptions = [
     { label: "Moonshot (Kimi)", value: "moonshot" },
     { label: "通义千问 (Qwen)", value: "qwen" },
     { label: "智谱 (GLM)", value: "zhipu" },
+    { label: "自定义 (OpenAI 兼容)", value: "custom" },
 ];
+
+const apiFormatOptions = [
+    { label: "自动检测", value: "auto" },
+    { label: "Chat Completions (标准)", value: "chat_completions" },
+    { label: "Responses API (GPT-5/Codex)", value: "responses" },
+];
+
+function apiFormatLabel(val: string): string {
+    return apiFormatOptions.find((o) => o.value === val)?.label || val;
+}
 
 const loading = ref(false);
 const saving = ref(false);
@@ -34,7 +46,7 @@ const editingApiKey = ref(false);
 const apiKeyBackup = ref("");
 const list = ref<ModelItem[]>([]);
 
-const form = ref<ModelItem>({
+const defaultForm = (): ModelItem => ({
     id: "",
     name: "",
     provider: "anthropic",
@@ -44,7 +56,10 @@ const form = ref<ModelItem>({
     max_tokens: 4096,
     timeout: 120,
     enabled: true,
+    api_format: "auto",
 });
+
+const form = ref<ModelItem>(defaultForm());
 
 function maskApiKey(apiKey: string): string {
     if (!apiKey) return "未设置";
@@ -70,17 +85,7 @@ function handleAdd() {
     editingId.value = "";
     editingApiKey.value = true;
     apiKeyBackup.value = "";
-    form.value = {
-        id: "",
-        name: "",
-        provider: "anthropic",
-        model: "",
-        api_key: "",
-        api_base: "",
-        max_tokens: 4096,
-        timeout: 120,
-        enabled: true,
-    };
+    form.value = defaultForm();
     dialogOpen.value = true;
 }
 
@@ -89,7 +94,7 @@ function handleEdit(row: ModelItem) {
     editingId.value = row.id;
     editingApiKey.value = false;
     apiKeyBackup.value = row.api_key || "";
-    form.value = { ...row };
+    form.value = { ...defaultForm(), ...row };
     dialogOpen.value = true;
 }
 
@@ -99,6 +104,7 @@ function handleCopy(row: ModelItem) {
     editingApiKey.value = true;
     apiKeyBackup.value = "";
     form.value = {
+        ...defaultForm(),
         ...row,
         id: "",
         name: `${row.name} (副本)`,
@@ -138,6 +144,7 @@ async function handleSave() {
                 max_tokens: form.value.max_tokens,
                 timeout: form.value.timeout,
                 enabled: form.value.enabled,
+                api_format: form.value.api_format,
             };
             if (editingApiKey.value) {
                 payload.api_key = form.value.api_key;
@@ -158,6 +165,7 @@ async function handleSave() {
                 max_tokens: form.value.max_tokens,
                 timeout: form.value.timeout,
                 enabled: form.value.enabled,
+                api_format: form.value.api_format,
             });
             if (ret && ret.success === false) {
                 message.error(ret.error || "创建失败");
@@ -196,7 +204,14 @@ async function deleteModelChecked(modelId: string) {
 }
 
 const testingMap = ref<Record<string, boolean>>({});
-const testResults = ref<Record<string, { success: boolean; latency_ms?: number; reply?: string; error?: string }>>({});
+const testResults = ref<Record<string, {
+    success: boolean;
+    latency_ms?: number;
+    reply?: string;
+    error?: string;
+    api_format?: string;
+    detected_format?: string;
+}>>({});
 
 async function handleTest(row: ModelItem) {
     if (testingMap.value[row.id]) {
@@ -208,7 +223,12 @@ async function handleTest(row: ModelItem) {
         const ret: any = await testModel(row.id);
         testResults.value[row.id] = ret;
         if (ret.success) {
-            message.success(`连接成功，延迟 ${ret.latency_ms}ms`);
+            let msg = `连接成功，延迟 ${ret.latency_ms}ms`;
+            if (ret.detected_format) {
+                msg += `（已自动切换为 ${apiFormatLabel(ret.detected_format)}）`;
+                await loadData();
+            }
+            message.success(msg);
         } else {
             message.error(ret.error || "测试失败");
         }
@@ -250,8 +270,8 @@ onMounted(loadData);
                         <span class="text-xs text-gray-500">{{ row.api_base || "默认" }}</span>
                     </template>
                 </VortTableColumn>
-                <VortTableColumn label="Max Tokens" prop="max_tokens" :width="120" />
-                <VortTableColumn label="超时(秒)" prop="timeout" :width="100" />
+                <VortTableColumn label="Max Tokens" prop="max_tokens" :width="100" />
+                <VortTableColumn label="超时(秒)" prop="timeout" :width="80" />
                 <VortTableColumn label="启用" :width="80">
                     <template #default="{ row }">
                         <VortSwitch :checked="row.enabled" @change="handleToggle(row)" />
@@ -283,6 +303,9 @@ onMounted(loadData);
                         <div v-if="testResults[row.id]" class="mt-1 text-xs">
                             <span v-if="testResults[row.id].success" class="text-green-600">
                                 ✓ 连接正常 · {{ testResults[row.id].latency_ms }}ms
+                                <span v-if="testResults[row.id].api_format" class="text-gray-400 ml-1">
+                                    · {{ apiFormatLabel(testResults[row.id].api_format!) }}
+                                </span>
                             </span>
                             <span v-else class="text-red-500" :title="testResults[row.id].error">
                                 ✗ {{ testResults[row.id].error?.slice(0, 60) }}
@@ -326,6 +349,18 @@ onMounted(loadData);
                 </VortFormItem>
                 <VortFormItem label="API Base">
                     <VortInput v-model="form.api_base" placeholder="留空使用默认地址" />
+                </VortFormItem>
+                <VortFormItem v-if="form.provider !== 'anthropic'" label="API 格式">
+                    <VortSelect v-model="form.api_format" class="w-full">
+                        <VortSelectOption v-for="opt in apiFormatOptions" :key="opt.value" :value="opt.value">
+                            {{ opt.label }}
+                        </VortSelectOption>
+                    </VortSelect>
+                    <p class="text-xs text-gray-400 mt-1">
+                        <template v-if="form.api_format === 'auto'">点击测试按钮时自动检测，检测后自动保存</template>
+                        <template v-else-if="form.api_format === 'responses'">适用于 GPT-5/Codex 等使用 /v1/responses 端点的模型</template>
+                        <template v-else>适用于大多数 OpenAI 兼容 API（/v1/chat/completions）</template>
+                    </p>
                 </VortFormItem>
                 <VortFormItem label="Max Tokens">
                     <VortInputNumber v-model="form.max_tokens" :min="256" :max="200000" class="w-full" />

@@ -6,3 +6,4 @@ export * from "./pop-form";
 export * from "./table-actions";
 export * from "./delete-record";
 export * from "./batch-actions";
+export * from "./dept-tree";

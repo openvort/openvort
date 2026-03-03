@@ -157,6 +157,25 @@ def start(relay_url, poll_db, web):
     _run_async(_start_service(relay_url, poll_db, web))
 
 
+async def _cleanup_duplicate_admins(session_factory):
+    """Remove duplicate 'admin' members created by a historical seed bug."""
+    from sqlalchemy import select, text
+    from openvort.contacts.models import Member
+
+    async with session_factory() as session:
+        stmt = select(Member.id).where(Member.name == "admin").order_by(Member.created_at)
+        rows = (await session.execute(stmt)).all()
+        if len(rows) <= 1:
+            return
+        keep_id = rows[0][0]
+        delete_ids = [r[0] for r in rows[1:]]
+        await session.execute(text("DELETE FROM member_roles WHERE member_id = ANY(:ids)"), {"ids": delete_ids})
+        await session.execute(text("DELETE FROM members WHERE id = ANY(:ids)"), {"ids": delete_ids})
+        await session.commit()
+        from openvort.utils.logging import get_logger
+        get_logger("cli").info(f"已清理 {len(delete_ids)} 条重复 admin 记录")
+
+
 async def _start_service(relay_url: str | None, poll_db_json: str | None, web_flag: bool | None):
     """启动服务的异步实现"""
     from openvort.auth.service import AuthService
@@ -187,6 +206,9 @@ async def _start_service(relay_url: str | None, poll_db_json: str | None, web_fl
     await init_db(settings.database_url)
 
     session_factory = get_session_factory()
+
+    # 清理可能由历史 bug 产生的重复 admin 记录
+    await _cleanup_duplicate_admins(session_factory)
 
     # 初始化权限服务
     auth_service = AuthService(session_factory)
@@ -235,6 +257,7 @@ async def _start_service(relay_url: str | None, poll_db_json: str | None, web_fl
     config_service = ConfigService(session_factory)
     await config_service.load_all()
     await config_service.apply_llm_to_settings()
+    await config_service.apply_org_to_settings()
 
     # 初始化 Agent
     session_store = SessionStore(session_factory=session_factory)

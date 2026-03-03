@@ -53,6 +53,7 @@ def _default_model_item() -> dict[str, Any]:
         "max_tokens": 4096,
         "timeout": 120,
         "enabled": True,
+        "api_format": "auto",
     }
 
 
@@ -68,6 +69,8 @@ def _normalize_model_item(data: dict[str, Any]) -> dict[str, Any]:
     item["max_tokens"] = int(item.get("max_tokens") or 4096)
     item["timeout"] = int(item.get("timeout") or 120)
     item["enabled"] = bool(item.get("enabled", True))
+    fmt = str(item.get("api_format") or "auto")
+    item["api_format"] = fmt if fmt in ("auto", "chat_completions", "responses") else "auto"
     return item
 
 
@@ -253,6 +256,7 @@ class ConfigService:
                 "model": item["model"],
                 "max_tokens": item["max_tokens"],
                 "timeout": item["timeout"],
+                "api_format": item.get("api_format", "auto"),
             }
             for item in chain
         ]
@@ -413,3 +417,22 @@ class ConfigService:
                 item["timeout"] = int(data["timeout"])
             break
         await self.save_llm_models(models)
+
+    # ---- Org work settings ----
+
+    _ORG_PREFIX = "org."
+    _ORG_FIELDS = ("timezone", "work_start", "work_end", "work_days", "lunch_start", "lunch_end")
+
+    async def apply_org_to_settings(self) -> bool:
+        """Apply DB org settings overrides to the settings singleton."""
+        from openvort.config.settings import get_settings
+        settings = get_settings()
+        applied = False
+        for field in self._ORG_FIELDS:
+            value = self._cache.get(f"{self._ORG_PREFIX}{field}")
+            if value is not None:
+                setattr(settings.org, field, value)
+                applied = True
+        if applied:
+            log.info("已从数据库加载组织工时配置覆盖")
+        return applied

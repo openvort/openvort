@@ -534,18 +534,266 @@ class OpenAIStreamWrapper:
         return LLMResponse(content=self._final_content, stop_reason=stop, usage=self._final_usage)
 
 
+# ============ OpenAI Responses API Provider ============
+
+
+class OpenAIResponsesProvider(LLMProvider):
+    """OpenAI Responses API Provider (/v1/responses) for GPT-5/Codex models.
+
+    Converts between Anthropic message format and Responses API format.
+    Uses streaming internally for broader gateway compatibility.
+    """
+
+    def __init__(self, api_key: str, api_base: str = "https://api.openai.com/v1",
+                 timeout: int = 120):
+        import httpx
+        base = api_base.rstrip("/")
+        if not base.endswith("/v1"):
+            base = base + "/v1"
+        self._api_base = base
+        self._headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        self._http = httpx.AsyncClient(timeout=timeout, headers=self._headers)
+
+    async def create(self, *, model: str, max_tokens: int, system: str,
+                     messages: list[dict], tools: list[dict] | None = None,
+                     thinking: dict | None = None) -> LLMResponse:
+        wrapper = self.stream(
+            model=model, max_tokens=max_tokens, system=system,
+            messages=messages, tools=tools, thinking=thinking,
+        )
+        async with wrapper as s:
+            async for _ in s:
+                pass
+            return await s.get_final_message()
+
+    def stream(self, *, model: str, max_tokens: int, system: str,
+               messages: list[dict], tools: list[dict] | None = None,
+               thinking: dict | None = None):
+        input_items = self._convert_messages(messages)
+        body: dict[str, Any] = {
+            "model": model,
+            "input": input_items,
+            "stream": True,
+        }
+        if system:
+            body["instructions"] = system
+        if max_tokens:
+            body["max_output_tokens"] = max_tokens
+        if tools:
+            body["tools"] = self._convert_tools(tools)
+        return OpenAIResponsesStreamWrapper(
+            self._http, f"{self._api_base}/responses", body,
+        )
+
+    async def close(self) -> None:
+        await self._http.aclose()
+
+    @staticmethod
+    def _convert_messages(messages: list[dict]) -> list[dict]:
+        """Convert Anthropic-style messages to Responses API input items."""
+        items: list[dict] = []
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+
+            if role == "user":
+                if isinstance(content, str):
+                    items.append({"role": "user", "content": content})
+                elif isinstance(content, list):
+                    if content and isinstance(content[0], dict) and content[0].get("type") == "tool_result":
+                        for tr in content:
+                            output = tr.get("content", "")
+                            if isinstance(output, list):
+                                texts = [b.get("text", "") for b in output
+                                         if isinstance(b, dict) and b.get("type") == "text"]
+                                output = "\n".join(texts)
+                            items.append({
+                                "type": "function_call_output",
+                                "call_id": tr.get("tool_use_id", ""),
+                                "output": str(output),
+                            })
+                    else:
+                        text_parts = [b.get("text", "") for b in content
+                                      if isinstance(b, dict) and b.get("type") == "text"]
+                        combined = "\n".join(text_parts).strip()
+                        if combined:
+                            items.append({"role": "user", "content": combined})
+
+            elif role == "assistant":
+                if isinstance(content, str):
+                    if content:
+                        items.append({"role": "assistant", "content": content})
+                elif isinstance(content, list):
+                    text_parts: list[str] = []
+                    for block in content:
+                        if not isinstance(block, dict):
+                            continue
+                        if block.get("type") == "text":
+                            text_parts.append(block.get("text", ""))
+                        elif block.get("type") == "tool_use":
+                            if text_parts:
+                                items.append({"role": "assistant", "content": "\n".join(text_parts)})
+                                text_parts = []
+                            args = block.get("input", {})
+                            call_id = block.get("id", "")
+                            items.append({
+                                "type": "function_call",
+                                "id": call_id,
+                                "call_id": call_id,
+                                "name": block.get("name", ""),
+                                "arguments": json.dumps(args) if isinstance(args, dict) else str(args),
+                            })
+                    if text_parts:
+                        items.append({"role": "assistant", "content": "\n".join(text_parts)})
+
+        return items
+
+    @staticmethod
+    def _convert_tools(tools: list[dict]) -> list[dict]:
+        """Convert Claude tool definitions to Responses API format."""
+        return [
+            {
+                "type": "function",
+                "name": t["name"],
+                "description": t.get("description", ""),
+                "parameters": t.get("input_schema", {}),
+            }
+            for t in tools
+        ]
+
+
+class OpenAIResponsesStreamWrapper:
+    """Streaming wrapper for OpenAI Responses API SSE events.
+
+    Maps Responses API events to the unified streaming event model
+    (ContentBlockStart / ContentBlockDelta / TextDelta / InputJsonDelta).
+    """
+
+    def __init__(self, http, url: str, body: dict):
+        self._http = http
+        self._url = url
+        self._body = body
+        self._response = None
+        self._final_content: list = []
+        self._final_usage = Usage()
+
+    async def __aenter__(self):
+        self._response = self._http.stream("POST", self._url, json=self._body)
+        self._stream = await self._response.__aenter__()
+        if self._stream.status_code >= 400:
+            error_text = ""
+            async for chunk in self._stream.aiter_text():
+                error_text += chunk
+                if len(error_text) > 1000:
+                    break
+            raise RuntimeError(
+                f"Responses API HTTP {self._stream.status_code}: {error_text[:500]}"
+            )
+        return self
+
+    async def __aexit__(self, *args):
+        if self._response:
+            await self._response.__aexit__(*args)
+
+    async def __aiter__(self):
+        current_text = ""
+        # Keyed by item id (from SSE events); stores call_id for ToolUseBlock
+        tool_calls: dict[str, dict] = {}
+
+        async for line in self._stream.aiter_lines():
+            if not line.startswith("data: "):
+                continue
+            payload = line[6:]
+            if payload.strip() == "[DONE]":
+                break
+            try:
+                ev = json.loads(payload)
+            except json.JSONDecodeError:
+                continue
+
+            ev_type = ev.get("type", "")
+
+            if ev_type == "response.output_text.delta":
+                delta_text = ev.get("delta", "")
+                if delta_text:
+                    current_text += delta_text
+                    yield ContentBlockDelta(delta=TextDelta(text=delta_text))
+
+            elif ev_type == "response.output_item.added":
+                item = ev.get("item", {})
+                if item.get("type") == "function_call":
+                    item_id = item.get("id", "")
+                    call_id = item.get("call_id") or item_id
+                    name = item.get("name", "")
+                    tool_calls[item_id] = {
+                        "call_id": call_id, "name": name, "arguments": "",
+                    }
+                    yield ContentBlockStart(
+                        content_block=ToolUseBlock(id=call_id, name=name)
+                    )
+
+            elif ev_type == "response.function_call_arguments.delta":
+                delta_args = ev.get("delta", "")
+                item_id = ev.get("item_id", "")
+                if delta_args:
+                    tc = tool_calls.get(item_id)
+                    if tc:
+                        tc["arguments"] += delta_args
+                    yield ContentBlockDelta(
+                        delta=InputJsonDelta(partial_json=delta_args)
+                    )
+
+            elif ev_type == "response.completed":
+                resp_data = ev.get("response", {})
+                usage_data = resp_data.get("usage", {})
+                cached = (
+                    (usage_data.get("input_tokens_details") or {})
+                    .get("cached_tokens", 0)
+                )
+                self._final_usage = Usage(
+                    input_tokens=usage_data.get("input_tokens", 0),
+                    output_tokens=usage_data.get("output_tokens", 0),
+                    cache_read_input_tokens=cached,
+                )
+
+        if current_text:
+            self._final_content.append(TextBlock(text=current_text))
+        for tc_data in tool_calls.values():
+            try:
+                args = json.loads(tc_data["arguments"] or "{}")
+            except json.JSONDecodeError:
+                args = {}
+            self._final_content.append(
+                ToolUseBlock(
+                    id=tc_data["call_id"], name=tc_data["name"], input=args,
+                )
+            )
+
+    async def get_final_message(self) -> LLMResponse:
+        has_tool_use = any(isinstance(b, ToolUseBlock) for b in self._final_content)
+        stop = "tool_use" if has_tool_use else "end_turn"
+        return LLMResponse(
+            content=self._final_content, stop_reason=stop, usage=self._final_usage,
+        )
+
+
 # ============ Provider 工厂 + Failover 客户端 ============
 
 
 def create_provider(provider: str, api_key: str, api_base: str = "",
-                    timeout: int = 120) -> LLMProvider:
-    """根据 provider 名称创建对应的 LLM Provider"""
+                    timeout: int = 120, api_format: str = "auto") -> LLMProvider:
+    """根据 provider 名称和 api_format 创建对应的 LLM Provider"""
     if provider == "anthropic":
         return AnthropicProvider(api_key=api_key, api_base=api_base, timeout=timeout)
-    else:
-        # openai / deepseek / moonshot / qwen 等均走 OpenAI 兼容协议
-        base = api_base or _default_api_base(provider)
-        return OpenAICompatibleProvider(api_key=api_key, api_base=base, timeout=timeout)
+
+    base = api_base or _default_api_base(provider)
+    if api_format == "responses":
+        return OpenAIResponsesProvider(api_key=api_key, api_base=base, timeout=timeout)
+    # auto / chat_completions -> standard Chat Completions
+    return OpenAICompatibleProvider(api_key=api_key, api_base=base, timeout=timeout)
 
 
 def _default_api_base(provider: str) -> str:
@@ -619,13 +867,15 @@ class LLMClient:
         self._providers: dict[str, LLMProvider] = {}
 
     def _get_provider(self, cfg: dict) -> LLMProvider:
-        key = f"{cfg['provider']}:{cfg.get('api_base', '')}"
+        fmt = cfg.get("api_format", "auto")
+        key = f"{cfg['provider']}:{cfg.get('api_base', '')}:{fmt}"
         if key not in self._providers:
             self._providers[key] = create_provider(
                 provider=cfg["provider"],
                 api_key=cfg["api_key"],
                 api_base=cfg.get("api_base", ""),
                 timeout=cfg.get("timeout", 120),
+                api_format=fmt,
             )
         return self._providers[key]
 

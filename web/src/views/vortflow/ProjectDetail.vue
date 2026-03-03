@@ -143,8 +143,9 @@ onMounted(loadData);
 </script>
 
 <template>
-    <div class="space-y-4">
+    <div>
         <vort-spin :spinning="loading">
+            <div class="space-y-4">
             <!-- Header -->
             <div class="bg-white rounded-xl p-6">
                 <div class="flex items-center gap-3 mb-4">
@@ -306,6 +307,7 @@ onMounted(loadData);
                         <vort-tag :color="stateColorMap[s.state] || 'default'" size="small">{{ stateLabel(s.state) }}</vort-tag>
                     </div>
                 </div>
+            </div>
             </div>
         </vort-spin>
 

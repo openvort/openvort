@@ -47,9 +47,20 @@ cd /Users/yangqiang/Work/Projects/openvort && .venv/bin/openvort stop
    cd /Users/yangqiang/Work/Projects/openvort && PYTHONUNBUFFERED=1 .venv/bin/openvort start --web 2>&1
    ```
 
+## 数据库操作
+
+需要直连数据库排查数据时，**必须从 `.env` 读取 `OPENVORT_DATABASE_URL`** 提取实际连接信息（host/port/user/password），不要假设是 localhost 或使用默认密码。
+
+```bash
+# 正确做法：从 .env 提取数据库连接信息
+grep OPENVORT_DATABASE_URL /Users/yangqiang/Work/Projects/openvort/.env
+# 然后用提取到的实际 host/port/password 连接
+```
+
 ## 注意事项
 
 - 前端 dev server（`npm run dev`，端口 9090）不需要重启，Vite 有 HMR。
 - 后端监听端口 8090，前端通过 Vite proxy 转发 `/api` 请求到后端。
 - 每次修改后端代码后都应该执行重启，否则改动不会生效。
 - **永远不要用 `kill -9`**，使用 `openvort stop` 或 SIGTERM。
+- **数据库是远程共享的**，不是本地 Docker，连接信息见 `.env`。

@@ -545,6 +545,41 @@ const handleSave = () => { drawerVisible.value = false; loadData(); };
 
 ## 常见易错点
 
+### 组件包裹容器导致布局间距失效（高频坑）
+
+部分 vort 组件在渲染时会生成**额外的包裹 DOM 容器**，导致父级的 `space-y-*`、`gap-*` 等间距类无法穿透到实际内容子元素。
+
+**已知会生成包裹容器的组件：**
+
+| 组件 | 生成的容器 | 说明 |
+|------|-----------|------|
+| `vort-spin`（嵌套模式） | `.vort-spin` > `.vort-spin-container` | 内容被包在 `vort-spin-container` 内 |
+| `vort-tabs` | `.vort-tabs` > `.vort-tabs-content` | 每个 tab-pane 内容被包裹 |
+
+**典型错误：** `space-y-4` 放在 `vort-spin` 外层，spin 内部的多个卡片之间没有间距。
+
+```vue
+<!-- 错误 — space-y-4 只作用于 vort-spin 这一个子元素，内部卡片无间距 -->
+<div class="space-y-4">
+    <vort-spin :spinning="loading">
+        <div class="bg-white rounded-xl p-6">卡片1</div>
+        <div class="bg-white rounded-xl p-6">卡片2</div>
+    </vort-spin>
+</div>
+
+<!-- 正确 — space-y-4 放在 vort-spin 内部，直接包裹卡片 -->
+<div>
+    <vort-spin :spinning="loading">
+        <div class="space-y-4">
+            <div class="bg-white rounded-xl p-6">卡片1</div>
+            <div class="bg-white rounded-xl p-6">卡片2</div>
+        </div>
+    </vort-spin>
+</div>
+```
+
+**原则：** 间距/布局类（`space-y-*`、`gap-*`、`grid`、`flex`）必须施加在**实际内容元素的直接父级**上，不能隔着会生成包裹容器的组件。使用组件时，留意它是否会在模板和内容之间插入额外 DOM 层级。
+
 ### vort-date-picker 日期选择（不要用 vort-input type="date"）
 
 日期选择**必须**使用 `vort-date-picker`，**禁止**使用 `<vort-input type="date">`：

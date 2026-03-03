@@ -174,8 +174,13 @@ export function getDashboard() {
 
 // -- 成员管理 --
 
+/** 新增成员 */
+export function createMember(data: { name: string; email?: string; phone?: string; position?: string; is_account?: boolean }) {
+    return request.post("/admin/members", data);
+}
+
 /** 成员列表 */
-export function getMembers(params?: { search?: string; role?: string; page?: number; size?: number }) {
+export function getMembers(params?: { search?: string; role?: string; department_id?: number; page?: number; size?: number }) {
     return request.get("/admin/members", { params });
 }
 
@@ -417,6 +422,11 @@ export function getWorkSettings() {
     return request.get("/admin/org-calendar/work-settings");
 }
 
+/** 更新工时设置 */
+export function updateWorkSettings(data: Record<string, string>) {
+    return request.put("/admin/org-calendar/work-settings", data);
+}
+
 /** 插件列表 */
 export function getPlugins() {
     return request.get("/admin/plugins");
@@ -499,6 +509,7 @@ export function createModel(data: {
     max_tokens?: number;
     timeout?: number;
     enabled?: boolean;
+    api_format?: string;
 }) {
     return request.post("/admin/models", data);
 }
@@ -513,6 +524,7 @@ export function updateModel(modelId: string, data: {
     max_tokens?: number;
     timeout?: number;
     enabled?: boolean;
+    api_format?: string;
 }) {
     return request.put(`/admin/models/${modelId}`, data);
 }

@@ -132,7 +132,7 @@ const personalLoading = ref(false);
 async function loadMembers() {
     try {
         const res: any = await getMembers({ size: 500 });
-        members.value = (res?.items || []).map((m: any) => ({ id: m.id, name: m.name }));
+        members.value = (res?.members || []).map((m: any) => ({ id: m.id, name: m.name }));
     } catch { /* ignore */ }
 }
 
@@ -268,17 +268,14 @@ onMounted(() => { loadSkills(); loadMembers(); });
             </VortSpin>
         </div>
 
-        <!-- 个人技能 -->
+        <!-- 成员技能总览（管理员代管） -->
         <div class="bg-white rounded-xl p-6">
             <div class="flex items-center justify-between mb-4">
                 <div class="flex items-center gap-2">
                     <User :size="18" class="text-purple-600" />
-                    <h3 class="text-base font-medium text-gray-800">个人技能</h3>
-                    <span class="text-xs text-gray-400">绑定成员，代理对话时注入</span>
+                    <h3 class="text-base font-medium text-gray-800">成员技能总览</h3>
+                    <span class="text-xs text-gray-400">查看和代管成员的个人技能，成员也可在个人中心自行管理</span>
                 </div>
-                <VortButton variant="primary" size="small" @click="openPersonalAdd">
-                    <Plus :size="14" class="mr-1" /> 新增
-                </VortButton>
             </div>
 
             <div class="flex items-center gap-4 mb-4">
@@ -286,10 +283,13 @@ onMounted(() => { loadSkills(); loadMembers(); });
                 <VortSelect v-model="selectedMemberId" placeholder="请选择成员" allow-clear class="w-[200px]">
                     <VortSelectOption v-for="m in members" :key="m.id" :value="m.id">{{ m.name }}</VortSelectOption>
                 </VortSelect>
+                <VortButton v-if="selectedMemberId" size="small" @click="openPersonalAdd">
+                    <Plus :size="14" class="mr-1" /> 为该成员添加
+                </VortButton>
             </div>
 
             <VortSpin :spinning="personalLoading">
-                <div v-if="!selectedMemberId" class="text-center py-6 text-gray-400 text-sm">请选择成员查看个人技能</div>
+                <div v-if="!selectedMemberId" class="text-center py-6 text-gray-400 text-sm">请选择成员查看其技能配置</div>
                 <div v-else-if="personalSkills.length === 0 && !personalLoading" class="text-center py-6 text-gray-400 text-sm">该成员暂无个人技能</div>
                 <div v-else class="grid grid-cols-1 lg:grid-cols-2 gap-3">
                     <div v-for="skill in personalSkills" :key="skill.id"

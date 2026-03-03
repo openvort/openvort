@@ -11,6 +11,14 @@ router = APIRouter()
 
 # ---- 请求模型 ----
 
+class CreateMemberRequest(BaseModel):
+    name: str
+    email: str = ""
+    phone: str = ""
+    position: str = ""
+    is_account: bool = False
+
+
 class UpdateMemberRequest(BaseModel):
     name: str | None = None
     email: str | None = None
@@ -103,10 +111,31 @@ async def delete_role(role_id: int):
 
 # ---- 成员管理 ----
 
+@router.post("")
+async def create_member(req: CreateMemberRequest):
+    """手动新增成员"""
+    from openvort.contacts.models import Member
+
+    session_factory = get_db_session_factory()
+
+    async with session_factory() as session:
+        member = Member(
+            name=req.name,
+            email=req.email,
+            phone=req.phone,
+            position=req.position,
+            is_account=req.is_account,
+        )
+        session.add(member)
+        await session.commit()
+        await session.refresh(member)
+        return {"success": True, "id": member.id}
+
+
 @router.get("")
-async def list_members(search: str = "", role: str = "", page: int = 1, size: int = 50):
-    """成员列表（支持搜索、角色筛选、分页）"""
-    from openvort.contacts.models import Member, PlatformIdentity
+async def list_members(search: str = "", role: str = "", department_id: int | None = None, page: int = 1, size: int = 50):
+    """成员列表（支持搜索、角色筛选、部门筛选、分页）"""
+    from openvort.contacts.models import Member, PlatformIdentity, MemberDepartment
     from openvort.auth.models import MemberRole, Role
 
     session_factory = get_db_session_factory()
@@ -130,6 +159,11 @@ async def list_members(search: str = "", role: str = "", page: int = 1, size: in
             stmt = stmt.join(MemberRole, MemberRole.member_id == Member.id)
             stmt = stmt.join(Role, Role.id == MemberRole.role_id)
             stmt = stmt.where(Role.name == role)
+
+        # 部门筛选
+        if department_id is not None:
+            stmt = stmt.join(MemberDepartment, MemberDepartment.member_id == Member.id)
+            stmt = stmt.where(MemberDepartment.department_id == department_id)
 
         # 总数
         count_stmt = select(sa_func.count()).select_from(stmt.subquery())

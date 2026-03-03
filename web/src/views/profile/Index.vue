@@ -1,9 +1,17 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed } from "vue";
+import { useRouter } from "vue-router";
 import { useUserStore } from "@/stores";
-import { getProfile, uploadAvatar, updateProfile, changePassword, getNotificationPrefs, updateNotificationPrefs, getEnabledChannels, getGitTokens, saveGitToken, deleteGitToken } from "@/api";
+import {
+    getProfile, uploadAvatar, updateProfile, changePassword,
+    getNotificationPrefs, updateNotificationPrefs, getEnabledChannels,
+    getGitTokens, saveGitToken, deleteGitToken,
+    getMemberSkills, createPersonalSkill, updatePersonalSkill, deletePersonalSkill,
+    getPublicSkills, subscribeMemberSkill, unsubscribeMemberSkill, generateMemberBioPrompt,
+} from "@/api";
 import { message } from "@/components/vort/message";
-import { Shield, Bell, User, Lock, Mail, Smartphone, KeyRound, GitBranch } from "lucide-vue-next";
+import { dialog } from "@/components/vort/dialog";
+import { Shield, Bell, User, GitBranch, Sparkles, Plus, Trash2, Globe, Bot } from "lucide-vue-next";
 
 const userStore = useUserStore();
 const activeMenu = ref("basic");
@@ -64,6 +72,7 @@ const platformLabels: Record<string, string> = {
 
 const menuItems = [
     { key: "basic", label: "基本设置", icon: User },
+    { key: "skills", label: "我的技能", icon: Sparkles },
     { key: "security", label: "安全设置", icon: Shield },
     { key: "git", label: "Git 配置", icon: GitBranch },
     { key: "notification", label: "通知设置", icon: Bell },
@@ -382,7 +391,119 @@ async function handleSaveNotify() {
     }
 }
 
-// 切换到通知 tab 时加载
+// ---- 我的技能 ----
+
+interface SkillItem { id: string; name: string; description: string; content?: string; enabled?: boolean; }
+
+const mySkills = ref<SkillItem[]>([]);
+const subscribedSkillIds = ref<Set<string>>(new Set());
+const publicSkillsList = ref<SkillItem[]>([]);
+const skillsLoading = ref(false);
+const skillsLoaded = ref(false);
+
+const mySkillDrawerOpen = ref(false);
+const mySkillMode = ref<"add" | "edit">("add");
+const mySkillForm = ref({ id: "", name: "", description: "", content: "" });
+const mySkillSaving = ref(false);
+
+async function loadMySkills() {
+    if (!profile.value.member_id) return;
+    skillsLoading.value = true;
+    try {
+        const [memberRes, publicRes]: any[] = await Promise.all([
+            getMemberSkills(profile.value.member_id),
+            getPublicSkills(),
+        ]);
+        mySkills.value = memberRes?.personal || [];
+        publicSkillsList.value = publicRes?.skills || [];
+
+        const subIds = new Set<string>();
+        for (const s of (memberRes?.subscribed || [])) subIds.add(s.id);
+        subscribedSkillIds.value = subIds;
+        skillsLoaded.value = true;
+    } catch { /* ignore */ }
+    finally { skillsLoading.value = false; }
+}
+
+function openMySkillAdd() {
+    mySkillMode.value = "add";
+    mySkillForm.value = { id: "", name: "", description: "", content: "" };
+    mySkillDrawerOpen.value = true;
+}
+
+function openMySkillEdit(skill: SkillItem) {
+    mySkillMode.value = "edit";
+    mySkillForm.value = { id: skill.id, name: skill.name, description: skill.description, content: skill.content || "" };
+    mySkillDrawerOpen.value = true;
+}
+
+async function handleSaveMySkill() {
+    if (!mySkillForm.value.name.trim()) { message.error("请输入名称"); return; }
+    mySkillSaving.value = true;
+    try {
+        if (mySkillMode.value === "add") {
+            await createPersonalSkill(profile.value.member_id, {
+                name: mySkillForm.value.name, description: mySkillForm.value.description, content: mySkillForm.value.content,
+            });
+        } else {
+            await updatePersonalSkill(mySkillForm.value.id, {
+                name: mySkillForm.value.name, description: mySkillForm.value.description, content: mySkillForm.value.content,
+            });
+        }
+        message.success("保存成功");
+        mySkillDrawerOpen.value = false;
+        loadMySkills();
+    } catch (e: any) {
+        message.error(e?.response?.data?.detail || "保存失败");
+    } finally { mySkillSaving.value = false; }
+}
+
+function handleDeleteMySkill(skill: SkillItem) {
+    dialog.confirm({
+        title: `确认删除「${skill.name}」？`,
+        onOk: async () => {
+            try {
+                await deletePersonalSkill(skill.id);
+                message.success("已删除");
+                loadMySkills();
+            } catch { message.error("删除失败"); }
+        },
+    });
+}
+
+async function toggleSubscribe(skill: SkillItem) {
+    const isSubscribed = subscribedSkillIds.value.has(skill.id);
+    try {
+        if (isSubscribed) {
+            await unsubscribeMemberSkill(profile.value.member_id, skill.id);
+            const next = new Set(subscribedSkillIds.value);
+            next.delete(skill.id);
+            subscribedSkillIds.value = next;
+            message.success("已取消订阅");
+        } else {
+            await subscribeMemberSkill(profile.value.member_id, skill.id);
+            const next = new Set(subscribedSkillIds.value);
+            next.add(skill.id);
+            subscribedSkillIds.value = next;
+            message.success("已订阅");
+        }
+    } catch (e: any) {
+        message.error(e?.response?.data?.detail || "操作失败");
+    }
+}
+
+const router = useRouter();
+
+async function handleAiGenerateBio() {
+    try {
+        const res: any = await generateMemberBioPrompt(profile.value.member_id);
+        if (res?.prompt) {
+            router.push({ name: "chat", query: { prompt: res.prompt } });
+        }
+    } catch { message.error("生成失败"); }
+}
+
+// 切换菜单
 function handleMenuClick(key: string) {
     activeMenu.value = key;
     if (key === "notification" && channels.value.length === 0) {
@@ -390,6 +511,9 @@ function handleMenuClick(key: string) {
     }
     if (key === "git" && gitTokens.value.length === 0 && !gitLoading.value) {
         loadGitTokens();
+    }
+    if (key === "skills" && !skillsLoaded.value) {
+        loadMySkills();
     }
 }
 </script>
@@ -462,6 +586,68 @@ function handleMenuClick(key: string) {
                                     <VortButton class="mt-4" :loading="uploadingAvatar" @click="triggerAvatarUpload">更换头像</VortButton>
                                 </div>
                             </div>
+                        </div>
+
+                        <!-- ========== 我的技能 ========== -->
+                        <div v-else-if="activeMenu === 'skills'">
+                            <div class="flex items-center justify-between mb-6">
+                                <div>
+                                    <h3 class="text-base font-medium text-gray-800">我的技能</h3>
+                                    <p class="text-sm text-gray-400 mt-1">管理你的专业技能，AI 代理对话时会以你的技能背景回复</p>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <VortButton size="small" @click="handleAiGenerateBio">
+                                        <Bot :size="14" class="mr-1" /> AI 生成简介
+                                    </VortButton>
+                                    <VortButton variant="primary" size="small" @click="openMySkillAdd">
+                                        <Plus :size="14" class="mr-1" /> 添加技能
+                                    </VortButton>
+                                </div>
+                            </div>
+
+                            <VortSpin :spinning="skillsLoading">
+                                <!-- 个人技能 -->
+                                <div class="mb-6">
+                                    <h4 class="text-sm font-medium text-gray-600 mb-3">个人技能</h4>
+                                    <div v-if="mySkills.length === 0" class="text-center py-6 text-gray-400 text-sm bg-gray-50 rounded-lg">
+                                        还没有添加个人技能，点击右上角添加
+                                    </div>
+                                    <div v-else class="space-y-2">
+                                        <div v-for="skill in mySkills" :key="skill.id"
+                                            class="flex items-center justify-between px-4 py-3 rounded-lg border border-gray-100 hover:border-purple-200 transition-colors cursor-pointer"
+                                            @click="openMySkillEdit(skill)">
+                                            <div class="min-w-0 flex-1">
+                                                <div class="text-sm font-medium text-gray-800 truncate">{{ skill.name }}</div>
+                                                <div v-if="skill.description" class="text-xs text-gray-400 truncate mt-0.5">{{ skill.description }}</div>
+                                            </div>
+                                            <div class="flex-shrink-0 ml-3" @click.stop>
+                                                <VortPopconfirm title="确认删除？" @confirm="handleDeleteMySkill(skill)">
+                                                    <a class="text-gray-400 hover:text-red-500 cursor-pointer"><Trash2 :size="14" /></a>
+                                                </VortPopconfirm>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 公共技能订阅 -->
+                                <div v-if="publicSkillsList.length > 0">
+                                    <h4 class="text-sm font-medium text-gray-600 mb-3">公共技能订阅</h4>
+                                    <p class="text-xs text-gray-400 mb-3">订阅后，AI 代理会额外具备这些技能知识</p>
+                                    <div class="space-y-2">
+                                        <div v-for="skill in publicSkillsList" :key="skill.id"
+                                            class="flex items-center justify-between px-4 py-3 rounded-lg border border-gray-100">
+                                            <div class="flex items-center gap-2 min-w-0">
+                                                <Globe :size="14" class="text-green-500 flex-shrink-0" />
+                                                <div class="min-w-0">
+                                                    <div class="text-sm text-gray-800 truncate">{{ skill.name }}</div>
+                                                    <div v-if="skill.description" class="text-xs text-gray-400 truncate mt-0.5">{{ skill.description }}</div>
+                                                </div>
+                                            </div>
+                                            <VortSwitch :checked="subscribedSkillIds.has(skill.id)" size="small" @change="toggleSubscribe(skill)" />
+                                        </div>
+                                    </div>
+                                </div>
+                            </VortSpin>
                         </div>
 
                         <!-- ========== 安全设置 ========== -->
@@ -654,6 +840,29 @@ function handleMenuClick(key: string) {
                         target="_blank"
                         class="text-xs text-blue-500 hover:underline ml-auto"
                     >去生成 Token →</a>
+                </div>
+            </VortFormItem>
+        </VortForm>
+    </VortDialog>
+
+    <!-- 个人技能编辑弹窗 -->
+    <VortDialog :open="mySkillDrawerOpen" :title="mySkillMode === 'add' ? '添加技能' : '编辑技能'" :width="520" @update:open="mySkillDrawerOpen = $event">
+        <VortForm label-width="80px" class="mt-2">
+            <VortFormItem label="名称" required>
+                <VortInput v-model="mySkillForm.name" placeholder="如：Python 开发、项目管理" />
+            </VortFormItem>
+            <VortFormItem label="描述">
+                <VortInput v-model="mySkillForm.description" placeholder="简短描述" />
+            </VortFormItem>
+            <VortFormItem label="详细内容">
+                <VortTextarea v-model="mySkillForm.content"
+                    placeholder="详细描述你在此技能方面的专业知识、经验和能力..." :rows="8"
+                    style="font-family: monospace; font-size: 13px;" />
+            </VortFormItem>
+            <VortFormItem>
+                <div class="flex gap-3">
+                    <VortButton variant="primary" :loading="mySkillSaving" @click="handleSaveMySkill">保存</VortButton>
+                    <VortButton @click="mySkillDrawerOpen = false">取消</VortButton>
                 </div>
             </VortFormItem>
         </VortForm>

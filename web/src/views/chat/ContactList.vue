@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, nextTick } from "vue";
-import { Bot, Plus, Search, Loader2 } from "lucide-vue-next";
+import { Bot, Plus, Search, Loader2, Pin } from "lucide-vue-next";
 import { getChatContacts, getChatMembers, startMemberChat, togglePinContact, hideChatContact, resetChatSession } from "@/api";
 import { message } from "@/components/vort/message";
 import { dialog } from "@/components/vort/dialog";
 import { Popover as VortPopover } from "@/components/vort/popover";
+import { pinyin } from "pinyin-pro";
 import type { Contact, MentionMember } from "./types";
 
 const props = defineProps<{
@@ -122,10 +123,48 @@ async function handleHideContact(contact: Contact) {
 // New chat: search members
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
+function getFirstLetter(name: string): string {
+    if (!name) return "#";
+    const first = name.charAt(0);
+    if (/[a-zA-Z]/.test(first)) return first.toUpperCase();
+    const py = pinyin(first, { pattern: "first", toneType: "none" });
+    if (py && /[a-zA-Z]/.test(py.charAt(0))) return py.charAt(0).toUpperCase();
+    return "#";
+}
+
+interface LetterGroup {
+    letter: string;
+    members: MentionMember[];
+}
+
+const groupedNewChatMembers = computed<LetterGroup[]>(() => {
+    const map = new Map<string, MentionMember[]>();
+    for (const m of newChatMembers.value) {
+        const letter = getFirstLetter(m.name);
+        if (!map.has(letter)) map.set(letter, []);
+        map.get(letter)!.push(m);
+    }
+    return Array.from(map.entries())
+        .sort((a, b) => a[0] === "#" ? 1 : b[0] === "#" ? -1 : a[0].localeCompare(b[0]))
+        .map(([letter, members]) => ({ letter, members }));
+});
+
+const flatNewChatMembers = computed(() =>
+    groupedNewChatMembers.value.flatMap(g => g.members)
+);
+
+function getFlatIndex(groupIndex: number, memberIndex: number): number {
+    let offset = 0;
+    for (let i = 0; i < groupIndex; i++) {
+        offset += groupedNewChatMembers.value[i].members.length;
+    }
+    return offset + memberIndex;
+}
+
 async function loadNewChatMembers(keyword = "") {
     newChatLoading.value = true;
     try {
-        const res: any = await getChatMembers(keyword, 20);
+        const res: any = await getChatMembers(keyword, 200);
         newChatMembers.value = res?.members || [];
     } catch {
         newChatMembers.value = [];
@@ -151,7 +190,8 @@ watch(newChatKeyword, (kw) => {
 });
 
 function handleNewChatKeydown(e: KeyboardEvent) {
-    const len = newChatMembers.value.length;
+    const flat = flatNewChatMembers.value;
+    const len = flat.length;
     if (!len) return;
 
     if (e.key === "ArrowDown") {
@@ -166,7 +206,7 @@ function handleNewChatKeydown(e: KeyboardEvent) {
         e.preventDefault();
         const idx = newChatActiveIndex.value;
         if (idx >= 0 && idx < len) {
-            handleStartChat(newChatMembers.value[idx]);
+            handleStartChat(flat[idx]);
         }
     }
 }
@@ -241,14 +281,15 @@ defineExpose({ refreshContacts, loadContacts });
                             <div v-else-if="newChatMembers.length === 0" class="px-3 py-4 text-xs text-gray-400 text-center">
                                 未找到匹配的成员
                             </div>
-                            <div v-else class="py-1">
+                            <template v-else v-for="(group, gi) in groupedNewChatMembers" :key="group.letter">
+                                <div class="px-3 pt-2.5 pb-1 text-[11px] font-medium text-gray-400 sticky top-0 bg-white z-[1]">{{ group.letter }}</div>
                                 <div
-                                    v-for="(m, idx) in newChatMembers" :key="m.id"
+                                    v-for="(m, mi) in group.members" :key="m.id"
                                     data-member-item
                                     class="flex items-center gap-2.5 px-3 py-2 cursor-pointer transition-colors"
-                                    :class="idx === newChatActiveIndex ? 'bg-blue-50' : 'hover:bg-gray-50'"
+                                    :class="getFlatIndex(gi, mi) === newChatActiveIndex ? 'bg-blue-50' : 'hover:bg-gray-50'"
                                     @click="handleStartChat(m)"
-                                    @mouseenter="newChatActiveIndex = idx"
+                                    @mouseenter="newChatActiveIndex = getFlatIndex(gi, mi)"
                                 >
                                     <div class="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0 text-xs font-medium text-blue-600">
                                         {{ m.name.charAt(0) }}
@@ -259,7 +300,7 @@ defineExpose({ refreshContacts, loadContacts });
                                         <div v-else-if="m.email" class="text-xs text-gray-400 truncate">{{ m.email }}</div>
                                     </div>
                                 </div>
-                            </div>
+                            </template>
                         </div>
                     </div>
                 </template>
@@ -301,15 +342,13 @@ defineExpose({ refreshContacts, loadContacts });
                             </div>
                             <div class="flex items-center justify-between mt-0.5 gap-2">
                                 <span class="text-xs text-gray-400 truncate min-w-0">{{ c.last_message || (c.type === 'ai' ? '点击开始对话' : '') }}</span>
-                                <div v-if="c.unread" class="flex-shrink-0 w-4 h-4 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center">
-                                    {{ c.unread > 99 ? '99+' : c.unread }}
+                                <div class="flex items-center gap-1 flex-shrink-0">
+                                    <Pin v-if="c.pinned && c.type !== 'ai'" :size="12" class="text-gray-300 rotate-45" />
+                                    <div v-if="c.unread" class="w-4 h-4 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center">
+                                        {{ c.unread > 99 ? '99+' : c.unread }}
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-
-                        <!-- Pin indicator -->
-                        <div v-if="c.pinned && c.type !== 'ai'" class="absolute top-1 right-1">
-                            <div class="w-0 h-0 border-t-[8px] border-t-gray-300 border-l-[8px] border-l-transparent" />
                         </div>
                     </div>
 

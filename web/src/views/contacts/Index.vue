@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from "vue";
 import {
-    getMembers, getMember, updateMember, resetMemberPassword,
+    getMembers, getMember, createMember, updateMember, resetMemberPassword,
     toggleMemberAccount, assignMemberRole, removeMemberRole,
     deleteMember, batchDeleteMembers, batchEnableAccount,
     batchDisableAccount, batchAssignRole, batchRemoveRole,
@@ -9,20 +9,22 @@ import {
     getRoles, getPermissions, createRole, updateRole, deleteRole,
     syncContacts, getSuggestions,
     acceptSuggestion, rejectSuggestion, dedupContacts,
-    getDepartmentTree, getDepartmentMembers, createDepartment,
+    getDepartmentTree, createDepartment,
     updateDepartment, deleteDepartment, addDepartmentMember,
     removeDepartmentMember, getChannels,
     getReportingRelations, createReportingRelation, deleteReportingRelation,
-    getOrgCalendar, createOrgCalendarEntry, deleteOrgCalendarEntry, syncHolidays, getWorkSettings,
+    getOrgCalendar, createOrgCalendarEntry, deleteOrgCalendarEntry, syncHolidays, getWorkSettings, updateWorkSettings,
 } from "@/api";
 import {
     RefreshCw, Search, Shield, UserCheck, UserX, Key,
     AlertTriangle, Check, X, Link, Unlink, Lock, Trash2,
-    ChevronRight, ChevronDown, FolderTree, Plus, Pencil, UserPlus, UserMinus,
+    ChevronDown, FolderTree, Plus, Pencil, UserPlus,
     Download, ArrowRight, Calendar, CloudDownload,
 } from "lucide-vue-next";
 import { message } from "@/components/vort/message";
 import { dialog } from "@/components/vort/dialog";
+import { DeptTree } from "@/components/vort-biz/dept-tree";
+import type { DeptNode } from "@/components/vort-biz/dept-tree";
 
 // ---- 类型 ----
 
@@ -31,17 +33,18 @@ interface MemberItem {
     name: string;
     email: string;
     phone: string;
+    position: string;
     status: string;
     is_account: boolean;
     has_password: boolean;
     roles: string[];
     platform_accounts: Record<string, string>;
+    departments: string[];
     created_at: string;
 }
 
-interface MemberDetail extends MemberItem {
+interface MemberDetail extends Omit<MemberItem, 'departments'> {
     avatar_url: string;
-    position: string;
     permissions: string[];
     departments: { id: number; name: string }[];
     identities: {
@@ -80,9 +83,9 @@ interface Suggestion {
 
 // ---- 状态 ----
 
-const activeTab = ref("members");
+const activeTab = ref("org");
 
-// 成员列表
+// 组织架构 — 成员列表
 const members = ref<MemberItem[]>([]);
 const membersTotal = ref(0);
 const membersPage = ref(1);
@@ -92,6 +95,9 @@ const filterRole = ref("");
 const loadingMembers = ref(false);
 const loadingSync = ref(false);
 const loadingDedup = ref(false);
+
+// 组织架构 — 当前选中的部门（null = 全部成员）
+const selectedDeptId = ref<number | null>(null);
 
 // 通道列表（用于同步选择）
 interface ChannelItem {
@@ -162,30 +168,10 @@ const rowSelection = computed(() => ({
     },
 }));
 
-// 部门管理
-interface DeptNode {
-    id: number;
-    name: string;
-    parent_id: number | null;
-    platform: string;
-    platform_dept_id: string;
-    order: number;
-    member_count: number;
-    children: DeptNode[];
-}
-
-interface DeptMember {
-    id: string;
-    name: string;
-    email: string;
-    phone: string;
-    is_primary: boolean;
-}
-
+// 组织架构 — 部门树
 const deptTree = ref<DeptNode[]>([]);
 const loadingDepts = ref(false);
 const expandedDeptIds = ref<Set<number>>(new Set());
-const selectedDeptId = ref<number | null>(null);
 const selectedDept = computed(() => {
     function find(nodes: DeptNode[], id: number): DeptNode | null {
         for (const n of nodes) {
@@ -197,8 +183,29 @@ const selectedDept = computed(() => {
     }
     return selectedDeptId.value ? find(deptTree.value, selectedDeptId.value) : null;
 });
-const deptMembers = ref<DeptMember[]>([]);
-const loadingDeptMembers = ref(false);
+const totalMemberCount = computed(() => {
+    function sum(nodes: DeptNode[]): number {
+        return nodes.reduce((acc, n) => acc + n.member_count + sum(n.children), 0);
+    }
+    return sum(deptTree.value);
+});
+
+// Breadcrumb path from root to selected dept
+const deptBreadcrumb = computed(() => {
+    if (!selectedDeptId.value) return [];
+    const path: DeptNode[] = [];
+    function find(nodes: DeptNode[], target: number): boolean {
+        for (const n of nodes) {
+            path.push(n);
+            if (n.id === target) return true;
+            if (find(n.children, target)) return true;
+            path.pop();
+        }
+        return false;
+    }
+    find(deptTree.value, selectedDeptId.value);
+    return path;
+});
 
 // 部门编辑
 const deptDialogOpen = ref(false);
@@ -214,17 +221,50 @@ const addMemberSearch = ref("");
 const addMemberResults = ref<MemberItem[]>([]);
 const addMemberLoading = ref(false);
 
+// 新增成员弹窗
+const createMemberDialogOpen = ref(false);
+const createMemberForm = ref({ name: "", email: "", phone: "", position: "", is_account: false });
+const savingCreateMember = ref(false);
+
+function openCreateMemberDialog() {
+    createMemberForm.value = { name: "", email: "", phone: "", position: "", is_account: false };
+    createMemberDialogOpen.value = true;
+}
+
+async function handleCreateMember() {
+    if (!createMemberForm.value.name.trim()) {
+        message.error("请输入姓名");
+        return;
+    }
+    savingCreateMember.value = true;
+    try {
+        const res: any = await createMember(createMemberForm.value);
+        if (res?.success) {
+            message.success("成员已创建");
+            createMemberDialogOpen.value = false;
+            await Promise.all([loadMembers(), loadDeptTree()]);
+        } else {
+            message.error(res?.error || "创建失败");
+        }
+    } catch { message.error("创建失败"); }
+    finally { savingCreateMember.value = false; }
+}
+
 // ---- 成员列表 ----
 
 async function loadMembers() {
     loadingMembers.value = true;
     try {
-        const res: any = await getMembers({
+        const params: any = {
             search: searchText.value,
             role: filterRole.value,
             page: membersPage.value,
             size: membersSize.value,
-        });
+        };
+        if (selectedDeptId.value !== null) {
+            params.department_id = selectedDeptId.value;
+        }
+        const res: any = await getMembers(params);
         members.value = res?.members || [];
         membersTotal.value = res?.total || 0;
     } catch { /* ignore */ }
@@ -671,7 +711,6 @@ async function loadDeptTree() {
     try {
         const res: any = await getDepartmentTree();
         deptTree.value = res?.departments || [];
-        // 默认展开所有节点
         const ids = new Set<number>();
         function collect(nodes: DeptNode[]) {
             for (const n of nodes) {
@@ -683,34 +722,21 @@ async function loadDeptTree() {
         }
         collect(deptTree.value);
         expandedDeptIds.value = ids;
-        // 默认选中第一个部门
-        if (deptTree.value.length && !selectedDeptId.value) {
-            selectDept(deptTree.value[0].id);
-        }
     } catch { /* ignore */ }
     finally { loadingDepts.value = false; }
 }
 
-async function loadDeptMembers(deptId: number) {
-    loadingDeptMembers.value = true;
-    try {
-        const res: any = await getDepartmentMembers(deptId);
-        deptMembers.value = res?.members || [];
-    } catch { deptMembers.value = []; }
-    finally { loadingDeptMembers.value = false; }
-}
-
-function selectDept(deptId: number) {
+function handleSelectDept(deptId: number | null) {
     selectedDeptId.value = deptId;
-    loadDeptMembers(deptId);
+    membersPage.value = 1;
+    loadMembers();
 }
 
-function toggleDeptExpand(deptId: number) {
-    if (expandedDeptIds.value.has(deptId)) {
-        expandedDeptIds.value.delete(deptId);
-    } else {
-        expandedDeptIds.value.add(deptId);
-    }
+function handleToggleDeptExpand(deptId: number) {
+    const next = new Set(expandedDeptIds.value);
+    if (next.has(deptId)) next.delete(deptId);
+    else next.add(deptId);
+    expandedDeptIds.value = next;
 }
 
 function openCreateDeptDialog(parentId: number | null = null) {
@@ -763,9 +789,8 @@ async function handleDeleteDept(deptId: number, deptName: string) {
                 message.success("部门已删除");
                 if (selectedDeptId.value === deptId) {
                     selectedDeptId.value = null;
-                    deptMembers.value = [];
                 }
-                await loadDeptTree();
+                await Promise.all([loadDeptTree(), loadMembers()]);
             } else {
                 message.error("删除失败");
                 throw new Error("删除失败");
@@ -790,7 +815,7 @@ async function handleAddMemberToDept(memberId: string) {
         const res: any = await addDepartmentMember(selectedDeptId.value, memberId);
         if (res?.success) {
             message.success("已添加");
-            await Promise.all([loadDeptMembers(selectedDeptId.value!), loadDeptTree()]);
+            await Promise.all([loadMembers(), loadDeptTree()]);
         } else { message.error("添加失败（可能已在该部门）"); }
     } catch { message.error("添加失败"); }
 }
@@ -800,8 +825,8 @@ async function handleRemoveMemberFromDept(memberId: string) {
     try {
         const res: any = await removeDepartmentMember(selectedDeptId.value, memberId);
         if (res?.success) {
-            message.success("已移除");
-            await Promise.all([loadDeptMembers(selectedDeptId.value!), loadDeptTree()]);
+            message.success("已从部门移除");
+            await Promise.all([loadMembers(), loadDeptTree()]);
         } else { message.error("移除失败"); }
     } catch { message.error("移除失败"); }
 }
@@ -914,6 +939,27 @@ const calendarDialogOpen = ref(false);
 const calendarForm = ref({ date: "", day_type: "holiday", name: "" });
 const savingCalendar = ref(false);
 
+const editingWorkSettings = ref(false);
+const savingWorkSettings = ref(false);
+const workSettingsForm = ref({
+    timezone: "",
+    work_start: "",
+    work_end: "",
+    lunch_start: "",
+    lunch_end: "",
+    work_days: [] as number[],
+});
+
+const weekDayOptions = [
+    { label: "周一", value: 1 },
+    { label: "周二", value: 2 },
+    { label: "周三", value: 3 },
+    { label: "周四", value: 4 },
+    { label: "周五", value: 5 },
+    { label: "周六", value: 6 },
+    { label: "周日", value: 7 },
+];
+
 const dayTypeOptions = [
     { label: "放假", value: "holiday" },
     { label: "调休上班", value: "workday" },
@@ -935,6 +981,43 @@ async function loadWorkSettings() {
         const res: any = await getWorkSettings();
         workSettings.value = res;
     } catch { /* ignore */ }
+}
+
+function startEditWorkSettings() {
+    if (!workSettings.value) return;
+    workSettingsForm.value = {
+        timezone: workSettings.value.timezone,
+        work_start: workSettings.value.work_start,
+        work_end: workSettings.value.work_end,
+        lunch_start: workSettings.value.lunch_start,
+        lunch_end: workSettings.value.lunch_end,
+        work_days: workSettings.value.work_days.split(",").map(Number),
+    };
+    editingWorkSettings.value = true;
+}
+
+function cancelEditWorkSettings() {
+    editingWorkSettings.value = false;
+}
+
+async function handleSaveWorkSettings() {
+    savingWorkSettings.value = true;
+    try {
+        const res: any = await updateWorkSettings({
+            timezone: workSettingsForm.value.timezone,
+            work_start: workSettingsForm.value.work_start,
+            work_end: workSettingsForm.value.work_end,
+            lunch_start: workSettingsForm.value.lunch_start,
+            lunch_end: workSettingsForm.value.lunch_end,
+            work_days: workSettingsForm.value.work_days.sort((a, b) => a - b).join(","),
+        });
+        if (res?.success) {
+            message.success("工时设置已保存");
+            editingWorkSettings.value = false;
+            await loadWorkSettings();
+        } else { message.error(res?.error || "保存失败"); }
+    } catch { message.error("保存失败"); }
+    finally { savingWorkSettings.value = false; }
 }
 
 async function handleSyncHolidays() {
@@ -1060,126 +1143,232 @@ onMounted(() => {
         <!-- 主内容区 Tabs -->
         <div class="bg-white rounded-xl p-6">
             <VortTabs v-model:activeKey="activeTab">
-                <VortTabPane tab-key="members" tab="成员列表">
-                    <!-- 工具栏 -->
-                    <div class="flex items-center justify-between mb-4">
-                        <div class="flex items-center gap-2">
-                            <VortInputSearch
-                                v-model="searchText"
-                                placeholder="搜索姓名、邮箱、手机"
-                                style="width: 224px"
-                                @search="handleSearch"
-                                @press-enter="handleSearch"
-                            />
-                            <VortSelect
-                                v-model="filterRole"
-                                placeholder="全部角色"
-                                allow-clear
-                                style="width: 160px"
-                                @change="handleSearch"
-                            >
-                                <VortSelectOption v-for="r in roles" :key="r.name" :value="r.name">{{ r.display_name }}</VortSelectOption>
-                            </VortSelect>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <VortButton :loading="loadingDedup" @click="handleDedup">
-                                <Search :size="14" class="mr-1" /> 去重扫描
-                            </VortButton>
-                            <VortDropdown trigger="click">
-                                <VortButton variant="primary" :loading="loadingSync">
-                                    <RefreshCw :size="14" class="mr-1" /> 同步联系人 <ChevronDown :size="14" class="ml-1" />
-                                </VortButton>
-                                <template #overlay>
-                                    <VortDropdownMenuItem @click="handleSync()">
-                                        <Download :size="14" class="mr-2" /> 同步全部通道
-                                    </VortDropdownMenuItem>
-                                    <VortDropdownMenuSeparator v-if="channels.length" />
-                                    <VortDropdownMenuItem v-for="ch in channels" :key="ch.name" @click="handleSync(ch.name)">
-                                        <Download :size="14" class="mr-2" /> {{ ch.display_name || ch.name }}
-                                    </VortDropdownMenuItem>
-                                </template>
-                            </VortDropdown>
-                        </div>
-                    </div>
-
-                    <!-- 批量操作栏 -->
-                    <div v-if="selectedIds.length" class="flex items-center gap-3 mb-4 px-4 py-2.5 bg-blue-50 rounded-lg border border-blue-200">
-                        <span class="text-sm text-blue-700">已选 {{ selectedIds.length }} 项</span>
-                        <VortButton size="small" @click="handleBatchEnableAccount">启用登录</VortButton>
-                        <VortButton size="small" @click="handleBatchDisableAccount">禁用登录</VortButton>
-                        <VortButton size="small" @click="openBatchRoleDialog('assign')">分配角色</VortButton>
-                        <VortButton size="small" @click="openBatchRoleDialog('remove')">移除角色</VortButton>
-                        <VortButton size="small" @click="openBatchDeptDialog('assign')">分配部门</VortButton>
-                        <VortButton size="small" @click="openBatchDeptDialog('remove')">移除部门</VortButton>
-                        <VortButton size="small" danger @click="handleBatchDelete">
-                            <Trash2 :size="12" class="mr-1" /> 批量删除
-                        </VortButton>
-                        <span class="text-xs text-blue-400 cursor-pointer ml-auto" @click="selectedIds = []">取消选择</span>
-                    </div>
-
-                    <!-- 成员表格 -->
-                    <VortTable :data-source="members" :loading="loadingMembers" row-key="id" :pagination="false" :row-selection="rowSelection">
-                        <VortTableColumn label="姓名" prop="name">
-                            <template #default="{ row }">
-                                <div class="flex items-center gap-2">
-                                    <span
-                                        class="inline-flex items-center justify-center w-7 h-7 rounded-full text-white text-xs font-medium flex-shrink-0"
-                                        :class="getAvatarColor(row.name)"
-                                    >{{ getInitial(row.name) }}</span>
-                                    <span class="text-blue-600 cursor-pointer hover:underline" @click="openMemberDrawer(row.id)">{{ row.name }}</span>
+                <VortTabPane tab-key="org" tab="组织架构">
+                    <div class="flex gap-6" style="min-height: 480px;">
+                        <!-- 左侧：部门树 -->
+                        <div class="w-60 flex-shrink-0 border-r border-gray-100 pr-4">
+                            <div class="flex items-center justify-between mb-3">
+                                <div class="text-sm font-medium text-gray-600">组织架构</div>
+                                <div class="flex items-center gap-1">
+                                    <VortDropdown trigger="click">
+                                        <VortButton size="small" :loading="loadingSync">
+                                            <RefreshCw :size="14" />
+                                        </VortButton>
+                                        <template #overlay>
+                                            <VortDropdownMenuItem @click="handleSync()">
+                                                <Download :size="14" class="mr-2" /> 同步全部通道
+                                            </VortDropdownMenuItem>
+                                            <VortDropdownMenuSeparator v-if="channels.length" />
+                                            <VortDropdownMenuItem v-for="ch in channels" :key="ch.name" @click="handleSync(ch.name)">
+                                                <Download :size="14" class="mr-2" /> {{ ch.display_name || ch.name }}
+                                            </VortDropdownMenuItem>
+                                        </template>
+                                    </VortDropdown>
+                                    <VortButton size="small" @click="openCreateDeptDialog(null)">
+                                        <Plus :size="14" />
+                                    </VortButton>
                                 </div>
-                            </template>
-                        </VortTableColumn>
-                        <VortTableColumn label="邮箱" prop="email" />
-                        <VortTableColumn label="角色" prop="roles">
-                            <template #default="{ row }">
-                                <VortTag v-for="role in (row.roles || [])" :key="role" class="mr-1"
-                                    :color="role === 'admin' ? 'red' : role === 'manager' ? 'orange' : 'default'">
-                                    {{ role }}
-                                </VortTag>
-                                <span v-if="!row.roles?.length" class="text-gray-400 text-sm">无角色</span>
-                            </template>
-                        </VortTableColumn>
-                        <VortTableColumn label="平台绑定" prop="platform_accounts">
-                            <template #default="{ row }">
-                                <template v-if="row.platform_accounts && Object.keys(row.platform_accounts).length">
-                                    <VortTag v-for="(_account, platform) in row.platform_accounts" :key="platform" color="blue" class="mr-1">
-                                        <Link :size="12" class="mr-1 inline" /> {{ platform }}
-                                    </VortTag>
-                                </template>
-                                <span v-else class="text-gray-400 text-sm flex items-center">
-                                    <Unlink :size="12" class="mr-1" /> 未绑定
-                                </span>
-                            </template>
-                        </VortTableColumn>
-                        <VortTableColumn label="账号状态" prop="is_account" :width="100">
-                            <template #default="{ row }">
-                                <VortTag v-if="row.is_account" color="green">可登录</VortTag>
-                                <VortTag v-else>纯联系人</VortTag>
-                            </template>
-                        </VortTableColumn>
-                        <VortTableColumn label="操作" :width="240">
-                            <template #default="{ row }">
-                                <TableActions>
-                                    <TableActionsItem @click="openMemberDrawer(row.id)">编辑</TableActionsItem>
-                                    <TableActionsItem @click="openRoleDialog(row)">角色</TableActionsItem>
-                                    <TableActionsItem @click="handleToggleAccount(row)">
-                                        {{ row.is_account ? '禁用' : '启用' }}
-                                    </TableActionsItem>
-                                    <TableActionsItem danger @click="handleDelete(row.id, row.name)">删除</TableActionsItem>
-                                </TableActions>
-                            </template>
-                        </VortTableColumn>
-                    </VortTable>
+                            </div>
+                            <VortSpin :spinning="loadingDepts">
+                                <div v-if="deptTree.length" class="space-y-0.5">
+                                    <DeptTree
+                                        :nodes="deptTree"
+                                        :expanded-ids="expandedDeptIds"
+                                        :selected-id="selectedDeptId"
+                                        :show-all-node="true"
+                                        all-node-label="全部成员"
+                                        :all-member-count="membersTotal"
+                                        @select="handleSelectDept"
+                                        @toggle-expand="handleToggleDeptExpand"
+                                    />
+                                </div>
+                                <div v-else class="text-gray-400 text-sm text-center py-8">
+                                    暂无部门，同步联系人后自动创建
+                                </div>
+                            </VortSpin>
+                        </div>
 
-                    <!-- 分页 -->
-                    <div v-if="membersTotal > membersSize" class="flex justify-end mt-4">
-                        <VortPagination
-                            :current="membersPage"
-                            :total="membersTotal"
-                            :page-size="membersSize"
-                            @update:current="(p: number) => { membersPage = p; loadMembers(); }"
-                        />
+                        <!-- 右侧：成员表格 -->
+                        <div class="flex-1 min-w-0">
+                            <!-- 顶栏：面包屑 + 操作 -->
+                            <div class="flex items-center justify-between mb-4">
+                                <div class="flex items-center gap-2">
+                                    <!-- Breadcrumb -->
+                                    <template v-if="selectedDept">
+                                        <template v-for="(crumb, idx) in deptBreadcrumb" :key="crumb.id">
+                                            <span v-if="idx > 0" class="text-gray-300 text-sm">/</span>
+                                            <span
+                                                class="text-sm cursor-pointer"
+                                                :class="idx === deptBreadcrumb.length - 1 ? 'text-gray-800 font-medium' : 'text-gray-400 hover:text-blue-500'"
+                                                @click="handleSelectDept(crumb.id)"
+                                            >{{ crumb.name }}</span>
+                                        </template>
+                                        <span class="text-xs text-gray-400 ml-2">{{ selectedDept.member_count }} 人</span>
+                                    </template>
+                                    <template v-else>
+                                        <h4 class="text-sm font-medium text-gray-800">全部成员</h4>
+                                        <span class="text-xs text-gray-400">{{ membersTotal }} 人</span>
+                                    </template>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <!-- Department actions -->
+                                    <template v-if="selectedDept">
+                                        <VortButton size="small" @click="openCreateDeptDialog(selectedDept!.id)">
+                                            <Plus :size="14" class="mr-1" /> 子部门
+                                        </VortButton>
+                                        <VortButton size="small" @click="openEditDeptDialog(selectedDept!)">
+                                            <Pencil :size="14" class="mr-1" /> 编辑
+                                        </VortButton>
+                                        <VortButton size="small" @click="handleDeleteDept(selectedDept!.id, selectedDept!.name)">
+                                            <Trash2 :size="14" class="mr-1" /> 删除
+                                        </VortButton>
+                                        <VortButton size="small" variant="primary" @click="addMemberDialogOpen = true; addMemberSearch = ''; addMemberResults = [];">
+                                            <UserPlus :size="14" class="mr-1" /> 添加成员
+                                        </VortButton>
+                                    </template>
+                                    <template v-else>
+                                        <VortButton size="small" :loading="loadingDedup" @click="handleDedup">
+                                            <Search :size="14" class="mr-1" /> 去重扫描
+                                        </VortButton>
+                                        <VortButton size="small" @click="openCreateMemberDialog">
+                                            <UserPlus :size="14" class="mr-1" /> 新增成员
+                                        </VortButton>
+                                        <VortDropdown trigger="click">
+                                            <VortButton size="small" variant="primary" :loading="loadingSync">
+                                                <RefreshCw :size="14" class="mr-1" /> 同步联系人 <ChevronDown :size="14" class="ml-1" />
+                                            </VortButton>
+                                            <template #overlay>
+                                                <VortDropdownMenuItem @click="handleSync()">
+                                                    <Download :size="14" class="mr-2" /> 同步全部通道
+                                                </VortDropdownMenuItem>
+                                                <VortDropdownMenuSeparator v-if="channels.length" />
+                                                <VortDropdownMenuItem v-for="ch in channels" :key="ch.name" @click="handleSync(ch.name)">
+                                                    <Download :size="14" class="mr-2" /> {{ ch.display_name || ch.name }}
+                                                </VortDropdownMenuItem>
+                                            </template>
+                                        </VortDropdown>
+                                    </template>
+                                </div>
+                            </div>
+
+                            <!-- 搜索 + 筛选 -->
+                            <div class="flex items-center gap-2 mb-4">
+                                <VortInputSearch
+                                    v-model="searchText"
+                                    placeholder="搜索姓名、邮箱、手机"
+                                    style="width: 224px"
+                                    allow-clear
+                                    @search="handleSearch"
+                                    @press-enter="handleSearch"
+                                />
+                                <VortSelect
+                                    v-model="filterRole"
+                                    placeholder="全部角色"
+                                    allow-clear
+                                    style="width: 140px"
+                                    @change="handleSearch"
+                                >
+                                    <VortSelectOption v-for="r in roles" :key="r.name" :value="r.name">{{ r.display_name }}</VortSelectOption>
+                                </VortSelect>
+                            </div>
+
+                            <!-- 批量操作栏 -->
+                            <div v-if="selectedIds.length" class="flex items-center gap-3 mb-4 px-4 py-2.5 bg-blue-50 rounded-lg border border-blue-200">
+                                <span class="text-sm text-blue-700">已选 {{ selectedIds.length }} 项</span>
+                                <VortButton size="small" @click="handleBatchEnableAccount">启用登录</VortButton>
+                                <VortButton size="small" @click="handleBatchDisableAccount">禁用登录</VortButton>
+                                <VortButton size="small" @click="openBatchRoleDialog('assign')">分配角色</VortButton>
+                                <VortButton size="small" @click="openBatchRoleDialog('remove')">移除角色</VortButton>
+                                <VortButton size="small" @click="openBatchDeptDialog('assign')">分配部门</VortButton>
+                                <VortButton size="small" @click="openBatchDeptDialog('remove')">移除部门</VortButton>
+                                <VortButton size="small" danger @click="handleBatchDelete">
+                                    <Trash2 :size="12" class="mr-1" /> 批量删除
+                                </VortButton>
+                                <span class="text-xs text-blue-400 cursor-pointer ml-auto" @click="selectedIds = []">取消选择</span>
+                            </div>
+
+                            <!-- 成员表格 -->
+                            <VortTable :data-source="members" :loading="loadingMembers" row-key="id" :pagination="false" :row-selection="rowSelection">
+                                <VortTableColumn label="姓名" prop="name">
+                                    <template #default="{ row }">
+                                        <div class="flex items-center gap-2">
+                                            <span
+                                                class="inline-flex items-center justify-center w-7 h-7 rounded-full text-white text-xs font-medium flex-shrink-0"
+                                                :class="getAvatarColor(row.name)"
+                                            >{{ getInitial(row.name) }}</span>
+                                            <span class="text-blue-600 cursor-pointer hover:underline" @click="openMemberDrawer(row.id)">{{ row.name }}</span>
+                                        </div>
+                                    </template>
+                                </VortTableColumn>
+                                <VortTableColumn label="职务" prop="position" :width="140">
+                                    <template #default="{ row }">
+                                        <span class="text-sm text-gray-600">{{ row.position || '-' }}</span>
+                                    </template>
+                                </VortTableColumn>
+                                <VortTableColumn label="部门" :width="180">
+                                    <template #default="{ row }">
+                                        <span v-if="row.departments?.length" class="text-sm text-gray-600">{{ row.departments.join('、') }}</span>
+                                        <span v-else class="text-sm text-gray-400">-</span>
+                                    </template>
+                                </VortTableColumn>
+                                <VortTableColumn label="角色" prop="roles" :width="160">
+                                    <template #default="{ row }">
+                                        <VortTag v-for="role in (row.roles || [])" :key="role" class="mr-1"
+                                            :color="role === 'admin' ? 'red' : role === 'manager' ? 'orange' : 'default'">
+                                            {{ role }}
+                                        </VortTag>
+                                        <span v-if="!row.roles?.length" class="text-gray-400 text-sm">-</span>
+                                    </template>
+                                </VortTableColumn>
+                                <VortTableColumn label="平台绑定" :width="160">
+                                    <template #default="{ row }">
+                                        <template v-if="row.platform_accounts && Object.keys(row.platform_accounts).length">
+                                            <VortTag v-for="(_account, platform) in row.platform_accounts" :key="platform" color="blue" class="mr-1">
+                                                <Link :size="12" class="mr-1 inline" /> {{ platform }}
+                                            </VortTag>
+                                        </template>
+                                        <span v-else class="text-gray-400 text-sm">-</span>
+                                    </template>
+                                </VortTableColumn>
+                                <VortTableColumn label="账号状态" :width="90">
+                                    <template #default="{ row }">
+                                        <VortTag v-if="row.is_account" color="green">可登录</VortTag>
+                                        <VortTag v-else>纯联系人</VortTag>
+                                    </template>
+                                </VortTableColumn>
+                                <VortTableColumn label="操作" :width="220" fixed="right">
+                                    <template #default="{ row }">
+                                        <div class="flex items-center gap-2 whitespace-nowrap">
+                                            <a class="text-sm text-blue-600 cursor-pointer" @click="openMemberDrawer(row.id)">编辑</a>
+                                            <vort-divider type="vertical" />
+                                            <a class="text-sm text-blue-600 cursor-pointer" @click="openRoleDialog(row)">角色</a>
+                                            <vort-divider type="vertical" />
+                                            <a class="text-sm text-blue-600 cursor-pointer" @click="handleToggleAccount(row)">{{ row.is_account ? '禁用' : '启用' }}</a>
+                                            <template v-if="selectedDeptId">
+                                                <vort-divider type="vertical" />
+                                                <vort-popconfirm title="确认从该部门移除？" @confirm="handleRemoveMemberFromDept(row.id)">
+                                                    <a class="text-sm text-red-500 cursor-pointer">移除</a>
+                                                </vort-popconfirm>
+                                            </template>
+                                            <vort-divider type="vertical" />
+                                            <vort-popconfirm title="确认删除该成员？" @confirm="handleDelete(row.id, row.name)">
+                                                <a class="text-sm text-red-500 cursor-pointer">删除</a>
+                                            </vort-popconfirm>
+                                        </div>
+                                    </template>
+                                </VortTableColumn>
+                            </VortTable>
+
+                            <!-- 分页 -->
+                            <div v-if="membersTotal > membersSize" class="flex justify-end mt-4">
+                                <VortPagination
+                                    :current="membersPage"
+                                    :total="membersTotal"
+                                    :page-size="membersSize"
+                                    @update:current="(p: number) => { membersPage = p; loadMembers(); }"
+                                />
+                            </div>
+                        </div>
                     </div>
                 </VortTabPane>
 
@@ -1299,157 +1488,6 @@ onMounted(() => {
                     </div>
                 </VortTabPane>
 
-                <VortTabPane tab-key="departments" tab="部门管理">
-                    <div class="flex gap-6" style="min-height: 400px;">
-                        <!-- 左侧：部门树 -->
-                        <div class="w-72 flex-shrink-0">
-                            <div class="flex items-center justify-between mb-3">
-                                <div class="text-sm font-medium text-gray-600">组织架构</div>
-                                <div class="flex items-center gap-2">
-                                    <VortDropdown trigger="click">
-                                        <VortButton size="small" :loading="loadingSync">
-                                            <RefreshCw :size="14" class="mr-1" /> 同步
-                                        </VortButton>
-                                        <template #overlay>
-                                            <VortDropdownMenuItem @click="handleSync()">
-                                                <Download :size="14" class="mr-2" /> 同步全部通道
-                                            </VortDropdownMenuItem>
-                                            <VortDropdownMenuSeparator v-if="channels.length" />
-                                            <VortDropdownMenuItem v-for="ch in channels" :key="ch.name" @click="handleSync(ch.name)">
-                                                <Download :size="14" class="mr-2" /> {{ ch.display_name || ch.name }}
-                                            </VortDropdownMenuItem>
-                                        </template>
-                                    </VortDropdown>
-                                    <VortButton size="small" @click="openCreateDeptDialog(null)">
-                                        <Plus :size="14" class="mr-1" /> 新建部门
-                                    </VortButton>
-                                </div>
-                            </div>
-                            <VortSpin :spinning="loadingDepts">
-                                <div v-if="deptTree.length" class="space-y-0.5">
-                                    <template v-for="node in deptTree" :key="node.id">
-                                        <div class="dept-tree-node" :data-dept-id="node.id">
-                                            <div
-                                                class="flex items-center px-3 py-2 rounded-lg cursor-pointer transition-colors text-sm"
-                                                :class="selectedDeptId === node.id ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50 text-gray-700'"
-                                                @click="selectDept(node.id)"
-                                            >
-                                                <span
-                                                    v-if="node.children.length"
-                                                    class="mr-1 cursor-pointer"
-                                                    @click.stop="toggleDeptExpand(node.id)"
-                                                >
-                                                    <ChevronDown v-if="expandedDeptIds.has(node.id)" :size="14" />
-                                                    <ChevronRight v-else :size="14" />
-                                                </span>
-                                                <span v-else class="mr-1 w-3.5" />
-                                                <FolderTree :size="14" class="mr-2 text-gray-400" />
-                                                <span class="flex-1 truncate">{{ node.name }}</span>
-                                                <span class="text-xs text-gray-400 ml-1">{{ node.member_count }}</span>
-                                            </div>
-                                            <!-- 子部门递归（最多3层，用缩进） -->
-                                            <div v-if="node.children.length && expandedDeptIds.has(node.id)" class="pl-4">
-                                                <template v-for="child in node.children" :key="child.id">
-                                                    <div
-                                                        class="flex items-center px-3 py-2 rounded-lg cursor-pointer transition-colors text-sm"
-                                                        :class="selectedDeptId === child.id ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50 text-gray-700'"
-                                                        @click="selectDept(child.id)"
-                                                    >
-                                                        <span
-                                                            v-if="child.children.length"
-                                                            class="mr-1 cursor-pointer"
-                                                            @click.stop="toggleDeptExpand(child.id)"
-                                                        >
-                                                            <ChevronDown v-if="expandedDeptIds.has(child.id)" :size="14" />
-                                                            <ChevronRight v-else :size="14" />
-                                                        </span>
-                                                        <span v-else class="mr-1 w-3.5" />
-                                                        <FolderTree :size="14" class="mr-2 text-gray-400" />
-                                                        <span class="flex-1 truncate">{{ child.name }}</span>
-                                                        <span class="text-xs text-gray-400 ml-1">{{ child.member_count }}</span>
-                                                    </div>
-                                                    <!-- 第三层 -->
-                                                    <div v-if="child.children.length && expandedDeptIds.has(child.id)" class="pl-4">
-                                                        <div
-                                                            v-for="leaf in child.children" :key="leaf.id"
-                                                            class="flex items-center px-3 py-2 rounded-lg cursor-pointer transition-colors text-sm"
-                                                            :class="selectedDeptId === leaf.id ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50 text-gray-700'"
-                                                            @click="selectDept(leaf.id)"
-                                                        >
-                                                            <span class="mr-1 w-3.5" />
-                                                            <FolderTree :size="14" class="mr-2 text-gray-400" />
-                                                            <span class="flex-1 truncate">{{ leaf.name }}</span>
-                                                            <span class="text-xs text-gray-400 ml-1">{{ leaf.member_count }}</span>
-                                                        </div>
-                                                    </div>
-                                                </template>
-                                            </div>
-                                        </div>
-                                    </template>
-                                </div>
-                                <div v-else class="text-gray-400 text-sm text-center py-8">
-                                    暂无部门，同步联系人后自动创建
-                                </div>
-                            </VortSpin>
-                        </div>
-
-                        <!-- 右侧：选中部门详情 + 成员 -->
-                        <div class="flex-1 min-w-0">
-                            <template v-if="selectedDept">
-                                <div class="flex items-center justify-between mb-4">
-                                    <div>
-                                        <h4 class="text-base font-medium text-gray-800">{{ selectedDept.name }}</h4>
-                                        <div class="text-xs text-gray-400 mt-1">
-                                            <VortTag v-if="selectedDept.platform !== 'manual'" color="blue" size="small">{{ selectedDept.platform }}</VortTag>
-                                            <VortTag v-else size="small">手动创建</VortTag>
-                                            <span class="ml-2">{{ selectedDept.member_count }} 人</span>
-                                        </div>
-                                    </div>
-                                    <div class="flex items-center gap-2">
-                                        <VortButton size="small" @click="openCreateDeptDialog(selectedDept!.id)">
-                                            <Plus :size="14" class="mr-1" /> 子部门
-                                        </VortButton>
-                                        <VortButton size="small" @click="openEditDeptDialog(selectedDept!)">
-                                            <Pencil :size="14" class="mr-1" /> 编辑
-                                        </VortButton>
-                                        <VortButton size="small" @click="handleDeleteDept(selectedDept!.id, selectedDept!.name)">
-                                            <Trash2 :size="14" class="mr-1" /> 删除
-                                        </VortButton>
-                                        <VortButton size="small" variant="primary" @click="addMemberDialogOpen = true; addMemberSearch = ''; addMemberResults = [];">
-                                            <UserPlus :size="14" class="mr-1" /> 添加成员
-                                        </VortButton>
-                                    </div>
-                                </div>
-
-                                <!-- 部门成员列表 -->
-                                <VortSpin :spinning="loadingDeptMembers">
-                                    <div v-if="deptMembers.length" class="space-y-2">
-                                        <div
-                                            v-for="m in deptMembers" :key="m.id"
-                                            class="flex items-center justify-between px-4 py-3 rounded-lg border border-gray-100 hover:bg-gray-50"
-                                        >
-                                            <div class="flex items-center gap-3">
-                                                <span
-                                                    class="inline-flex items-center justify-center w-7 h-7 rounded-full text-white text-xs font-medium flex-shrink-0"
-                                                    :class="getAvatarColor(m.name)"
-                                                >{{ getInitial(m.name) }}</span>
-                                                <span class="text-sm font-medium text-gray-800">{{ m.name }}</span>
-                                                <span v-if="m.email" class="text-xs text-gray-400">{{ m.email }}</span>
-                                                <VortTag v-if="m.is_primary" color="blue" size="small">主部门</VortTag>
-                                            </div>
-                                            <VortButton size="small" @click="handleRemoveMemberFromDept(m.id)">
-                                                <UserMinus :size="12" class="mr-1" /> 移除
-                                            </VortButton>
-                                        </div>
-                                    </div>
-                                    <div v-else class="text-gray-400 text-sm text-center py-8">该部门暂无成员</div>
-                                </VortSpin>
-                            </template>
-                            <div v-else class="text-gray-400 text-sm text-center py-16">请选择一个部门查看详情</div>
-                        </div>
-                    </div>
-                </VortTabPane>
-
                 <VortTabPane tab-key="reporting" tab="汇报关系">
                     <div class="flex items-center justify-between mb-4">
                         <h4 class="text-base font-medium text-gray-800">汇报关系</h4>
@@ -1493,12 +1531,62 @@ onMounted(() => {
                 </VortTabPane>
 
                 <VortTabPane tab-key="calendar" tab="企业日历">
-                    <!-- 工时设置 -->
-                    <div v-if="workSettings" class="flex flex-wrap gap-6 mb-6 p-4 bg-gray-50 rounded-lg">
+                    <!-- 工时设置 — 展示模式 -->
+                    <div v-if="workSettings && !editingWorkSettings" class="flex items-center gap-6 mb-6 p-4 bg-gray-50 rounded-lg">
                         <div><span class="text-xs text-gray-400">时区</span><div class="text-sm text-gray-800 mt-0.5">{{ workSettings.timezone }}</div></div>
                         <div><span class="text-xs text-gray-400">工作时间</span><div class="text-sm text-gray-800 mt-0.5">{{ workSettings.work_start }} - {{ workSettings.work_end }}</div></div>
                         <div><span class="text-xs text-gray-400">午休时间</span><div class="text-sm text-gray-800 mt-0.5">{{ workSettings.lunch_start }} - {{ workSettings.lunch_end }}</div></div>
                         <div><span class="text-xs text-gray-400">工作日</span><div class="text-sm text-gray-800 mt-0.5">{{ workSettings.work_days.split(',').map((d: string) => ['','周一','周二','周三','周四','周五','周六','周日'][+d] || d).join('、') }}</div></div>
+                        <div class="ml-auto flex-shrink-0">
+                            <VortButton size="small" @click="startEditWorkSettings">
+                                <Pencil :size="14" class="mr-1" /> 编辑
+                            </VortButton>
+                        </div>
+                    </div>
+
+                    <!-- 工时设置 — 编辑模式 -->
+                    <div v-if="editingWorkSettings" class="mb-6 p-5 bg-gray-50 rounded-lg">
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-4">
+                            <div>
+                                <label class="block text-xs text-gray-500 mb-1">时区</label>
+                                <VortInput v-model="workSettingsForm.timezone" placeholder="如 Asia/Shanghai" />
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-500 mb-1">上班时间</label>
+                                <VortInput v-model="workSettingsForm.work_start" placeholder="如 09:00" />
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-500 mb-1">下班时间</label>
+                                <VortInput v-model="workSettingsForm.work_end" placeholder="如 18:00" />
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-500 mb-1">午休开始</label>
+                                <VortInput v-model="workSettingsForm.lunch_start" placeholder="如 12:00" />
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-500 mb-1">午休结束</label>
+                                <VortInput v-model="workSettingsForm.lunch_end" placeholder="如 13:30" />
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-500 mb-1">工作日</label>
+                                <div class="flex flex-wrap gap-2 mt-1">
+                                    <span
+                                        v-for="opt in weekDayOptions" :key="opt.value"
+                                        class="inline-flex items-center justify-center w-10 h-8 rounded-md text-xs cursor-pointer transition-colors select-none"
+                                        :class="workSettingsForm.work_days.includes(opt.value)
+                                            ? 'bg-blue-500 text-white'
+                                            : 'bg-white text-gray-600 border border-gray-200 hover:border-blue-300'"
+                                        @click="workSettingsForm.work_days.includes(opt.value)
+                                            ? workSettingsForm.work_days = workSettingsForm.work_days.filter(d => d !== opt.value)
+                                            : workSettingsForm.work_days.push(opt.value)"
+                                    >{{ opt.label }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="flex justify-end gap-3 mt-5">
+                            <VortButton @click="cancelEditWorkSettings">取消</VortButton>
+                            <VortButton variant="primary" :loading="savingWorkSettings" @click="handleSaveWorkSettings">保存</VortButton>
+                        </div>
                     </div>
 
                     <div class="flex items-center justify-between mb-4">
@@ -1720,68 +1808,32 @@ onMounted(() => {
         </VortDialog>
 
         <!-- 批量部门弹窗 -->
-        <VortDialog :open="batchDeptDialogOpen" :title="batchDeptAction === 'assign' ? '批量分配部门' : '批量移除部门'" @update:open="batchDeptDialogOpen = $event">
+        <VortDialog :open="batchDeptDialogOpen" :title="batchDeptAction === 'assign' ? '批量分配部门' : '批量移除部门'" :footer="false" @update:open="batchDeptDialogOpen = $event">
             <div class="mb-3 text-sm text-gray-600">
                 选择要{{ batchDeptAction === 'assign' ? '分配' : '移除' }}的部门（影响 {{ selectedIds.length }} 人）
             </div>
-            <div class="space-y-2 max-h-80 overflow-y-auto">
-                <template v-for="node in deptTree" :key="node.id">
-                    <div
-                        class="flex items-center justify-between px-4 py-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer"
-                        @click="handleBatchDeptSelect(node.id)"
-                    >
-                        <div class="flex items-center gap-2">
-                            <FolderTree :size="14" class="text-gray-400" />
-                            <span class="text-sm font-medium text-gray-700">{{ node.name }}</span>
-                        </div>
-                        <span class="text-xs text-gray-400">{{ node.member_count }} 人</span>
-                    </div>
-                    <template v-if="node.children.length">
-                        <div
-                            v-for="child in node.children" :key="child.id"
-                            class="flex items-center justify-between px-4 py-3 pl-10 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer"
-                            @click="handleBatchDeptSelect(child.id)"
-                        >
-                            <div class="flex items-center gap-2">
-                                <FolderTree :size="14" class="text-gray-400" />
-                                <span class="text-sm font-medium text-gray-700">{{ child.name }}</span>
-                            </div>
-                            <span class="text-xs text-gray-400">{{ child.member_count }} 人</span>
-                        </div>
-                    </template>
-                </template>
+            <div class="max-h-80 overflow-y-auto">
+                <DeptTree
+                    :nodes="deptTree"
+                    :expanded-ids="expandedDeptIds"
+                    :selected-id="null"
+                    @select="(id: number | null) => { if (id !== null) handleBatchDeptSelect(id); }"
+                    @toggle-expand="handleToggleDeptExpand"
+                />
                 <div v-if="!deptTree.length" class="text-gray-400 text-sm text-center py-4">暂无部门</div>
             </div>
         </VortDialog>
 
         <!-- 详情抽屉：添加到部门弹窗 -->
         <VortDialog :open="drawerDeptDialogOpen" title="添加到部门" :footer="false" @update:open="drawerDeptDialogOpen = $event">
-            <div class="space-y-2 max-h-80 overflow-y-auto">
-                <template v-for="node in deptTree" :key="node.id">
-                    <div
-                        class="flex items-center justify-between px-4 py-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer"
-                        @click="handleAddDeptToMember(node.id); drawerDeptDialogOpen = false;"
-                    >
-                        <div class="flex items-center gap-2">
-                            <FolderTree :size="14" class="text-gray-400" />
-                            <span class="text-sm font-medium text-gray-700">{{ node.name }}</span>
-                        </div>
-                        <span class="text-xs text-gray-400">{{ node.member_count }} 人</span>
-                    </div>
-                    <template v-if="node.children.length">
-                        <div
-                            v-for="child in node.children" :key="child.id"
-                            class="flex items-center justify-between px-4 py-3 pl-10 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer"
-                            @click="handleAddDeptToMember(child.id); drawerDeptDialogOpen = false;"
-                        >
-                            <div class="flex items-center gap-2">
-                                <FolderTree :size="14" class="text-gray-400" />
-                                <span class="text-sm font-medium text-gray-700">{{ child.name }}</span>
-                            </div>
-                            <span class="text-xs text-gray-400">{{ child.member_count }} 人</span>
-                        </div>
-                    </template>
-                </template>
+            <div class="max-h-80 overflow-y-auto">
+                <DeptTree
+                    :nodes="deptTree"
+                    :expanded-ids="expandedDeptIds"
+                    :selected-id="null"
+                    @select="(id: number | null) => { if (id !== null) { handleAddDeptToMember(id); drawerDeptDialogOpen = false; } }"
+                    @toggle-expand="handleToggleDeptExpand"
+                />
                 <div v-if="!deptTree.length" class="text-gray-400 text-sm text-center py-4">暂无部门</div>
             </div>
         </VortDialog>
@@ -1966,6 +2018,39 @@ onMounted(() => {
                 <div>
                     <label class="block text-xs text-gray-500 mb-1">名称</label>
                     <VortInput v-model="calendarForm.name" placeholder="如：国庆节、中秋调休补班" />
+                </div>
+            </div>
+        </VortDialog>
+
+        <!-- 新增成员弹窗 -->
+        <VortDialog
+            :open="createMemberDialogOpen"
+            title="新增成员"
+            :ok-text="'创建'"
+            :confirm-loading="savingCreateMember"
+            @update:open="createMemberDialogOpen = $event"
+            @ok="handleCreateMember"
+        >
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">姓名 <span class="text-red-500">*</span></label>
+                    <VortInput v-model="createMemberForm.name" placeholder="请输入姓名" />
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">邮箱</label>
+                    <VortInput v-model="createMemberForm.email" placeholder="请输入邮箱" />
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">手机</label>
+                    <VortInput v-model="createMemberForm.phone" placeholder="请输入手机号" />
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">职务</label>
+                    <VortInput v-model="createMemberForm.position" placeholder="请输入职务" />
+                </div>
+                <div class="flex items-center gap-2">
+                    <VortSwitch v-model:checked="createMemberForm.is_account" />
+                    <span class="text-sm text-gray-600">允许登录系统</span>
                 </div>
             </div>
         </VortDialog>

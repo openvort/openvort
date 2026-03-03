@@ -174,9 +174,22 @@ async def sync_holidays(year: int | None = None):
         return {"success": False, "error": str(e)}
 
 
+class UpdateWorkSettingsRequest(BaseModel):
+    timezone: str | None = None
+    work_start: str | None = None
+    work_end: str | None = None
+    work_days: str | None = None
+    lunch_start: str | None = None
+    lunch_end: str | None = None
+
+
+_ORG_DB_PREFIX = "org."
+_ORG_FIELDS = ("timezone", "work_start", "work_end", "work_days", "lunch_start", "lunch_end")
+
+
 @router.get("/work-settings")
 async def get_work_settings():
-    """获取工时设置"""
+    """获取工时设置（DB 覆盖优先于 .env）"""
     from openvort.config.settings import get_settings
     org = get_settings().org
     return {
@@ -187,3 +200,25 @@ async def get_work_settings():
         "lunch_start": org.lunch_start,
         "lunch_end": org.lunch_end,
     }
+
+
+@router.put("/work-settings")
+async def update_work_settings(req: UpdateWorkSettingsRequest):
+    """更新工时设置（保存到 DB 并同步 settings 单例）"""
+    from openvort.config.settings import get_settings
+    from openvort.web.deps import get_config_service
+
+    config_service = get_config_service()
+    settings = get_settings()
+    items: dict[str, str] = {}
+
+    for field in _ORG_FIELDS:
+        value = getattr(req, field, None)
+        if value is not None:
+            items[f"{_ORG_DB_PREFIX}{field}"] = value
+            setattr(settings.org, field, value)
+
+    if items:
+        await config_service.set_many(items)
+
+    return {"success": True}

@@ -72,12 +72,13 @@ src/openvort/
 │   ├── registry.py         # PluginRegistry — Tool/Channel/Prompt 注册中心
 │   └── loader.py           # PluginLoader — entry_points 自动发现
 ├── plugins/                # 内置插件
-│   ├── zentao/             # 禅道插件（11 Tool + 2 Prompt，直连 MySQL）
+│   ├── zentao/             # 禅道插件（11 Tool + 4 Prompt，直连 MySQL）
 │   ├── vortflow/           # VortFlow 项目管理（5 Tool + 2 Prompt，状态机驱动）
 │   ├── vortgit/            # VortGit 代码仓库（8 Tool + 1 Prompt，AI 编码）
+│   ├── report/             # 汇报管理（3 Tool + 1 Prompt，日报/周报/月报）
 │   ├── browser/            # 浏览器控制（5 Tool，Playwright）
 │   ├── jenkins/            # Jenkins CI/CD（6 Tool + 1 Prompt）
-│   ├── schedule/           # 定时任务（2 Tool）
+│   ├── schedule/           # 定时任务（2 Tool + 1 Prompt）
 │   └── system/             # 系统管理（2 Tool + 1 Prompt，核心插件）
 ├── channels/               # IM 通道适配器
 │   ├── wecom/              # 企业微信（Webhook / Relay / DB轮询）
@@ -96,6 +97,9 @@ src/openvort/
 ├── db/                     # SQLAlchemy 2.0 async（SQLite/PostgreSQL + create_all）
 │   ├── engine.py           # async engine + session factory + auto-migrate
 │   └── models.py           # 基础 ORM 模型
+├── skills/                 # 内置 Skill 示例
+│   ├── code-review/        # 代码评审知识
+│   └── daily-report/       # 日报知识
 └── utils/
     └── logging.py          # 统一日志
 
@@ -105,7 +109,7 @@ web/                        # 前端（独立目录）
 │   ├── router/             # Vue Router + 菜单配置
 │   ├── stores/             # Pinia（user/tabs/app/config/menu/plugin）
 │   ├── layouts/            # BasicLayout + Header/Sidebar/Footer
-│   └── views/              # 页面（chat/overview/vortflow/vortgit/admin/...）
+│   └── views/              # 页面（chat/dashboard/vortflow/vortgit/reports/contacts/schedules/...）
 ├── package.json
 └── vite.config.ts
 ```
@@ -141,6 +145,7 @@ zentao = "openvort.plugins.zentao:ZentaoPlugin"
 vortflow = "openvort.plugins.vortflow:VortFlowPlugin"
 vortgit = "openvort.plugins.vortgit:VortGitPlugin"
 jenkins = "openvort.plugins.jenkins:JenkinsPlugin"
+report = "openvort.plugins.report:ReportPlugin"
 schedule = "openvort.plugins.schedule:SchedulePlugin"
 system = "openvort.plugins.system:SystemPlugin"
 ```
@@ -228,7 +233,7 @@ class OpenAICompatibleProvider(LLMProvider): ...
 | 引擎核心 | AgentRouter + IM 命令 + Agent 间通信 + MessageDispatcher | ✅ |
 | 插件框架 | BasePlugin / BaseTool / BaseChannel + Registry + Loader + Prompt + Skill | ✅ |
 | Channel | 企微 + 钉钉 + 飞书 + OpenClaw 网关 | ✅ |
-| Plugin | 系统管理(2) + 禅道(11) + 浏览器(5) + 通讯录(5) + VortFlow(5) + VortGit(8) + Jenkins(6) + Schedule(2) | ✅ |
+| Plugin | 系统管理(2) + 禅道(11) + 浏览器(5) + 通讯录(5) + VortFlow(5) + VortGit(8) + 汇报(3) + Jenkins(6) + Schedule(2) | ✅ |
 | Web | 管理面板（Vue 3 + FastAPI + JWT + SSE + WebSocket + Webhook） | ✅ |
 | 安全 | RBAC + DM 配对 + Docker 沙箱 + Token 加密 | ✅ |
 | 基础设施 | CLI + Relay + Pydantic Settings + 异步全栈 | ✅ |
