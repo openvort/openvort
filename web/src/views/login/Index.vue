@@ -44,6 +44,7 @@ const handleLogin = async () => {
             roles: res.user.roles || [],
             platform_accounts: res.user.platform_accounts || {}
         });
+        message.success("登录成功，您好，欢迎回来");
         router.push("/");
     } catch {
         message.error("用户不存在或密码错误");
@@ -98,7 +99,6 @@ const handleLogin = async () => {
                         v-model="password"
                         placeholder="密码"
                         size="large"
-                        @press-enter="handleLogin"
                     >
                         <template #prefix>
                             <Lock :size="16" class="text-gray-400" />
