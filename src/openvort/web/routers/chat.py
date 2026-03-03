@@ -13,6 +13,9 @@ from sse_starlette.sse import EventSourceResponse
 
 from openvort.web.app import require_auth
 from openvort.web.deps import get_agent, get_session_store, get_build_context_fn
+from openvort.utils.logging import get_logger
+
+log = get_logger("web.chat")
 
 MEDIA_EXT_MAP = {
     "image/jpeg": "jpg", "image/jpg": "jpg", "image/png": "png",
@@ -193,6 +196,7 @@ async def stream_response(message_id: str, request: Request):
     """SSE 流式返回 AI 回复"""
     msg = _pending_messages.pop(message_id, None)
     if not msg:
+        log.warning(f"消息不存在或已过期: message_id={message_id}")
         async def error_stream():
             yield {"event": "server_error", "data": "消息不存在或已过期"}
         return EventSourceResponse(error_stream())
@@ -200,6 +204,7 @@ async def stream_response(message_id: str, request: Request):
     agent = get_agent()
     member_id = msg["member_id"]
     session_id = msg.get("session_id", "default")
+    log.info(f"开始流式响应: message_id={message_id}, member_id={member_id}, session_id={session_id}")
     running = RunningMessage(
         message_id=message_id,
         member_id=member_id,
@@ -226,6 +231,7 @@ async def stream_response(message_id: str, request: Request):
                 if running.cancel_event.is_set():
                     break
                 if await request.is_disconnected():
+                    log.warning(f"客户端断开连接: message_id={message_id}, member_id={member_id}, session_id={session_id}")
                     disconnected = True
                     running.cancel_event.set()
                     break
@@ -260,6 +266,7 @@ async def stream_response(message_id: str, request: Request):
                         await session_store.rename_session("web", member_id, session_id, title_text)
                         yield {"event": "title_updated", "data": json.dumps({"session_id": session_id, "title": title_text}, ensure_ascii=False)}
 
+            log.info(f"流式响应完成: message_id={message_id}, member_id={member_id}, session_id={session_id}")
             yield {"event": "done", "data": "ok"}
         except asyncio.CancelledError:
             if running.cancel_event.is_set() and not disconnected:
@@ -267,6 +274,7 @@ async def stream_response(message_id: str, request: Request):
                 return
             raise
         except Exception as e:
+            log.error(f"流式响应异常: message_id={message_id}, member_id={member_id}, session_id={session_id}, error={e}")
             yield {"event": "server_error", "data": str(e)}
         finally:
             _running_messages.pop(message_id, None)

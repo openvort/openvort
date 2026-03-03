@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onActivated } from "vue";
+import { ref, onMounted, onActivated, computed, watch } from "vue";
 import { useCrudPage } from "@/hooks";
 import { getVortgitProviders, createVortgitProvider, updateVortgitProvider, deleteVortgitProvider, getVortgitCodingEnvStatus } from "@/api";
 import { Plus, Eye, EyeOff, RefreshCw, CheckCircle2, XCircle, AlertCircle, Terminal, Container } from "lucide-vue-next";
@@ -18,12 +18,34 @@ interface ProviderItem {
 type FilterParams = { page: number; size: number };
 
 const platformOptions = [
-    { label: "Gitee", value: "gitee" },
-    { label: "GitHub", value: "github" },
-    { label: "GitLab", value: "gitlab" },
+    {
+        label: "Gitee",
+        value: "gitee",
+        apiBase: "https://gitee.com/api/v5",
+        description: "国内领先的代码托管平台",
+        tokenGuide: "在 Gitee 个人设置 → 私人令牌 中创建，需要 projects、pull_requests 权限"
+    },
+    {
+        label: "GitHub",
+        value: "github",
+        apiBase: "https://api.github.com",
+        description: "全球最大的代码托管平台",
+        tokenGuide: "在 GitHub Settings → Developer settings → Personal access tokens 中创建，需要 repo 权限"
+    },
+    {
+        label: "GitLab",
+        value: "gitlab",
+        apiBase: "https://gitlab.com/api/v4",
+        description: "开源的 DevOps 平台，支持私有部署",
+        tokenGuide: "在 GitLab User Settings → Access Tokens 中创建，需要 api、read_repository、write_repository 权限"
+    },
 ];
 const platformLabel = (val: string) => platformOptions.find(o => o.value === val)?.label || val;
 const platformColorMap: Record<string, string> = { gitee: "red", github: "default", gitlab: "orange" };
+
+const currentPlatformInfo = computed(() => {
+    return platformOptions.find(o => o.value === currentRow.value.platform) || null;
+});
 
 const fetchList = async (params: FilterParams) => {
     const res = await getVortgitProviders();
@@ -47,7 +69,13 @@ const showToken = ref(false);
 const handleAdd = () => {
     drawerMode.value = "add";
     drawerTitle.value = "添加 Git 平台";
-    currentRow.value = { platform: "gitee", api_base: "", is_default: false, access_token: "" };
+    const defaultPlatform = platformOptions[0];
+    currentRow.value = {
+        platform: defaultPlatform.value,
+        api_base: defaultPlatform.apiBase,
+        is_default: false,
+        access_token: ""
+    };
     showToken.value = false;
     drawerVisible.value = true;
 };
@@ -145,6 +173,16 @@ onMounted(() => {
 
 onActivated(() => {
     loadData();
+});
+
+// 监听平台类型变化，自动填充默认 API 地址
+watch(() => currentRow.value.platform, (newPlatform) => {
+    if (drawerMode.value === "add" || drawerMode.value === "edit") {
+        const platformInfo = platformOptions.find(o => o.value === newPlatform);
+        if (platformInfo && !currentRow.value.api_base) {
+            currentRow.value.api_base = platformInfo.apiBase;
+        }
+    }
 });
 </script>
 
@@ -315,11 +353,19 @@ onActivated(() => {
                     </vort-form-item>
                     <vort-form-item label="平台类型" required>
                         <vort-select v-model="currentRow.platform" placeholder="选择平台">
-                            <vort-select-option v-for="opt in platformOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</vort-select-option>
+                            <vort-select-option v-for="opt in platformOptions" :key="opt.value" :value="opt.value">
+                                {{ opt.label }}
+                            </vort-select-option>
                         </vort-select>
+                        <div v-if="currentPlatformInfo" class="text-xs text-gray-400 mt-1">
+                            {{ currentPlatformInfo.description }}
+                        </div>
                     </vort-form-item>
                     <vort-form-item label="API 地址">
                         <vort-input v-model="currentRow.api_base" placeholder="留空使用默认地址" />
+                        <div v-if="currentPlatformInfo" class="text-xs text-gray-400 mt-1">
+                            默认：{{ currentPlatformInfo.apiBase }}
+                        </div>
                     </vort-form-item>
                     <vort-form-item label="Access Token">
                         <div class="flex items-center gap-2 w-full">
@@ -333,9 +379,13 @@ onActivated(() => {
                                 <component :is="showToken ? EyeOff : Eye" :size="14" />
                             </vort-button>
                         </div>
+                        <div v-if="currentPlatformInfo" class="text-xs text-blue-500 mt-1 leading-relaxed">
+                            💡 {{ currentPlatformInfo.tokenGuide }}
+                        </div>
                     </vort-form-item>
                     <vort-form-item label="默认平台">
                         <vort-switch v-model:checked="currentRow.is_default" />
+                        <span class="text-xs text-gray-400 ml-2">设为默认后，新建需求时将优先使用此平台</span>
                     </vort-form-item>
                 </vort-form>
                 <div class="flex justify-end gap-3 mt-6">

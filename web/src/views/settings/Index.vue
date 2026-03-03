@@ -47,10 +47,18 @@ function getFallbackOptions(currentId = ""): ModelSummary[] {
 const selectedCliTool = computed(() => cliTools.value.find((t) => t.name === cliForm.value.cli_default_tool));
 
 const cliCompatibleModels = computed(() => {
-    const providers = selectedCliTool.value?.supported_providers || [];
-    if (!providers.length) return models.value.filter((m) => m.enabled);
-    return models.value.filter((m) => m.enabled && providers.includes(m.provider));
+    // 返回所有启用的模型，不再过滤
+    return models.value.filter((m) => m.enabled);
 });
+
+// 检查模型是否与当前 CLI 工具兼容
+function isModelCompatible(modelId: string): boolean {
+    const model = models.value.find((m) => m.id === modelId);
+    if (!model) return false;
+    const providers = selectedCliTool.value?.supported_providers || [];
+    if (!providers.length) return true;
+    return providers.includes(model.provider);
+}
 
 function getCliFallbackOptions(currentId = ""): ModelSummary[] {
     return cliCompatibleModels.value.filter(
@@ -255,6 +263,11 @@ onMounted(loadData);
                                 <p class="text-xs text-gray-400 mt-1">
                                     未配置时将回退到环境变量中的 API Key。
                                 </p>
+                                <div v-if="cliForm.cli_primary_model_id && !isModelCompatible(cliForm.cli_primary_model_id)" class="mt-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
+                                    <p class="text-xs text-amber-700">
+                                        当前模型的 Provider 不在所选 CLI 工具的支持列表中，可能无法正常工作。建议选择兼容的模型或更换 CLI 工具。
+                                    </p>
+                                </div>
                             </VortFormItem>
 
                             <VortDivider />
@@ -267,24 +280,25 @@ onMounted(loadData);
                             </div>
                             <p class="text-xs text-gray-400 mb-4">编码模型失败时，按顺序尝试备选模型重新执行任务。</p>
 
-                            <div v-for="(_, i) in cliForm.cli_fallback_model_ids" :key="i" class="border border-gray-200 rounded-lg p-4 mb-3 relative">
+                            <div v-for="(fallbackId, i) in cliForm.cli_fallback_model_ids" :key="i" class="border border-gray-200 rounded-lg p-4 mb-3 relative">
                                 <button class="absolute top-3 right-3 text-gray-400 hover:text-red-500" type="button" @click="removeCliFallback(i)">
                                     <Trash2 :size="14" />
                                 </button>
                                 <div class="text-xs text-gray-500 mb-3">备选模型 #{{ i + 1 }}</div>
                                 <VortSelect v-model="cliForm.cli_fallback_model_ids[i]" class="w-full" placeholder="请选择备选模型">
-                                    <VortSelectOption v-for="item in getCliFallbackOptions(cliForm.cli_fallback_model_ids[i])" :key="item.id" :value="item.id">
+                                    <VortSelectOption v-for="item in getCliFallbackOptions(fallbackId)" :key="item.id" :value="item.id">
                                         {{ modelLabel(item) }}
                                     </VortSelectOption>
                                 </VortSelect>
+                                <div v-if="fallbackId && !isModelCompatible(fallbackId)" class="mt-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
+                                    <p class="text-xs text-amber-700">
+                                        此模型与当前 CLI 工具可能不兼容
+                                    </p>
+                                </div>
                             </div>
 
                             <div v-if="cliForm.cli_fallback_model_ids.length === 0" class="text-center py-4 text-gray-400 text-sm">
                                 暂无备选模型
-                            </div>
-
-                            <div v-if="cliCompatibleModels.length === 0" class="text-center py-4 text-amber-500 text-sm">
-                                当前 CLI 工具没有兼容的已启用模型，请先到"模型管理"页面添加对应 Provider 的模型
                             </div>
 
                             <VortDivider />

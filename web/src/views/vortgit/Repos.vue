@@ -296,6 +296,18 @@ const toggleImportSelect = (fullName: string, checked?: boolean) => {
     selectedImports.value = next;
 };
 
+const isAllSelected = computed(() => {
+    return remoteRepos.value.length > 0 && selectedImports.value.size === remoteRepos.value.length;
+});
+
+const toggleSelectAll = (checked: boolean) => {
+    if (checked) {
+        selectedImports.value = new Set(remoteRepos.value.map(r => r.full_name));
+    } else {
+        selectedImports.value = new Set();
+    }
+};
+
 const doImport = async () => {
     if (selectedImports.value.size === 0) {
         message.warning("请选择要导入的仓库");
@@ -538,8 +550,16 @@ onActivated(() => {
                     <vort-input-search v-model="importSearch" placeholder="搜索仓库..." class="flex-1" @search="fetchRemoteRepos" @keyup.enter="fetchRemoteRepos" />
                     <vort-button variant="primary" :loading="importLoading" @click="fetchRemoteRepos">获取</vort-button>
                 </div>
-                <div v-if="remoteRepos.length > 0" class="h-[460px] overflow-y-auto space-y-2">
-                    <div v-for="repo in remoteRepos" :key="repo.full_name" class="flex items-center gap-3 p-3 border border-gray-100 rounded-lg hover:bg-gray-50">
+                <div v-if="remoteRepos.length > 0" class="flex-1 flex flex-col min-h-0">
+                    <div class="flex items-center gap-2 px-3 py-2 border-b border-gray-100 bg-gray-50 rounded-t-lg">
+                        <vort-checkbox
+                            :checked="isAllSelected"
+                            @update:checked="toggleSelectAll"
+                        />
+                        <span class="text-sm text-gray-600">全选 ({{ selectedImports.size }}/{{ remoteRepos.length }})</span>
+                    </div>
+                    <div class="flex-1 overflow-y-auto space-y-2 p-2">
+                        <div v-for="repo in remoteRepos" :key="repo.full_name" class="flex items-center gap-3 p-3 border border-gray-100 rounded-lg hover:bg-gray-50">
                         <vort-checkbox
                             :checked="selectedImports.has(repo.full_name)"
                             @update:checked="(checked) => toggleImportSelect(repo.full_name, checked)"
@@ -554,6 +574,7 @@ onActivated(() => {
                         <vort-select v-if="selectedImports.has(repo.full_name)" v-model="importProjectIds[repo.full_name]" placeholder="关联项目" allow-clear class="w-[140px]" size="small">
                             <vort-select-option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name }}</vort-select-option>
                         </vort-select>
+                    </div>
                     </div>
                 </div>
                 <div v-else-if="!importLoading" class="h-[360px] flex items-center justify-center text-gray-400 text-sm">

@@ -284,6 +284,7 @@ class AgentRuntime:
                   {"type": "tool_result", "name": "...", "result": "..."} |
                   {"type": "thinking"}
         """
+        log.info(f"[web] 开始处理流式请求: member_id={member_id}, session_id={session_id}, content_len={len(content) if content else 0}")
         # 尝试用真实身份构建上下文
         from openvort.web.deps import get_build_context_fn
         build_context = get_build_context_fn()
@@ -299,6 +300,7 @@ class AgentRuntime:
         ctx.images = images or []
 
         if (not content or not content.strip()) and not images:
+            log.warning(f"[web] 空消息，跳过处理: member_id={member_id}, session_id={session_id}")
             return
 
         messages = await self._sessions.get_messages(ctx.channel, ctx.user_id, session_id)
@@ -383,7 +385,7 @@ class AgentRuntime:
                     interrupted = True
                     break
                 except Exception as e:
-                    log.error(f"LLM API 流式调用失败: {e}")
+                    log.error(f"[web] LLM API 流式调用失败: member_id={member_id}, session_id={session_id}, error={e}")
                     reason = self._extract_error_reason(e)
                     error_text = f"抱歉，AI 服务暂时不可用：{reason}\n请稍后再试。"
                     yield {"type": "text", "text": error_text}
@@ -495,6 +497,7 @@ class AgentRuntime:
                 cache_read_tokens=total_usage.cache_read_input_tokens,
             )
             completed = True
+            log.info(f"[web] 流式请求完成: member_id={member_id}, session_id={session_id}, input={total_usage.input_tokens}, output={total_usage.output_tokens}")
 
             session_info = self._sessions.get_session_info(ctx.channel, ctx.user_id, session_id)
             yield {

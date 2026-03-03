@@ -509,11 +509,15 @@ async function handleSend() {
             streamState.assistantMsg.streaming = false;
             activeStreams.delete(sendSessionId);
 
+            // 始终重置当前会话的 loading 状态，避免卡住
+            if (currentSessionId.value === sendSessionId) {
+                loading.value = false;
+            }
+
             // 如果当前不在这个会话，标记红点
             if (currentSessionId.value !== sendSessionId) {
                 unreadSessionIds.value.add(sendSessionId);
             } else {
-                loading.value = false;
                 scrollToBottom();
                 loadSessionInfo();
             }
@@ -600,7 +604,29 @@ async function handleSend() {
 
         eventSource.addEventListener("server_error", (e: MessageEvent) => {
             const data = e.data;
-            if (data) streamState.targetText += `\n\n错误: ${data}`;
+            if (data) {
+                // 解析错误信息，提供用户友好的提示
+                let errorMsg = "AI 服务暂时不可用，请稍后重试";
+                try {
+                    // 尝试解析常见的错误格式
+                    if (data.includes("Model name not specified")) {
+                        errorMsg = "模型配置错误，请检查编码模型设置";
+                    } else if (data.includes("rate_limit") || data.includes("429")) {
+                        errorMsg = "请求过于频繁，请稍后再试";
+                    } else if (data.includes("authentication") || data.includes("401")) {
+                        errorMsg = "API 密钥验证失败，请检查配置";
+                    } else if (data.includes("timeout") || data.includes("504")) {
+                        errorMsg = "请求超时，请重试";
+                    } else if (data.includes("400")) {
+                        errorMsg = "请求参数错误，请检查模型配置";
+                    } else if (data.includes("500") || data.includes("503")) {
+                        errorMsg = "服务暂时不可用，请稍后重试";
+                    }
+                } catch {
+                    // 解析失败时使用默认错误信息
+                }
+                streamState.targetText += `\n\n${errorMsg}`;
+            }
             eventSource.close();
             flushAndFinish();
         });
@@ -633,8 +659,21 @@ async function handleSend() {
         for (const evtName of ["text", "tool_use", "tool_output", "tool_progress", "tool_result", "usage", "thinking", "done", "server_error", "interrupted"]) {
             eventSource.addEventListener(evtName, trackEvent);
         }
-    } catch {
-        assistantMsg.content = "请求失败，请检查服务是否运行。";
+    } catch (err: any) {
+        // 提供用户友好的错误提示
+        let errorMsg = "请求失败，请检查网络连接";
+        if (err?.response?.status === 400) {
+            errorMsg = "请求参数错误，请检查模型配置";
+        } else if (err?.response?.status === 401) {
+            errorMsg = "API 密钥验证失败，请检查配置";
+        } else if (err?.response?.status === 429) {
+            errorMsg = "请求过于频繁，请稍后再试";
+        } else if (err?.response?.status >= 500) {
+            errorMsg = "服务暂时不可用，请稍后重试";
+        } else if (err?.message?.includes("Network")) {
+            errorMsg = "网络连接失败，请检查网络";
+        }
+        assistantMsg.content = errorMsg;
         loading.value = false;
         aborting.value = false;
     }
