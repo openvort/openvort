@@ -88,6 +88,7 @@ watch(activeContact, (contact) => {
             name: contact.name,
             avatar_url: contact.avatar_url,
             session_id: contact.session_id,
+            position: contact.position,
         }));
     }
 }, { deep: true });
@@ -1014,6 +1015,23 @@ function handleClickOutsidePanel(e: MouseEvent) {
     }
 }
 
+function applyPromptFromQuery() {
+    const promptParam = route.query.prompt as string | undefined;
+    if (promptParam) {
+        handleNewSession();
+        inputText.value = promptParam;
+        router.replace({ name: "chat", query: {} });
+        nextTick(() => {
+            const textarea = document.querySelector('textarea.chat-textarea') as HTMLTextAreaElement;
+            if (textarea) textarea.focus();
+        });
+    }
+}
+
+watch(() => route.query.prompt, (val) => {
+    if (val) applyPromptFromQuery();
+});
+
 onMounted(async () => {
     document.addEventListener("paste", handlePaste);
     document.addEventListener("click", handleClickOutsidePanel);
@@ -1033,7 +1051,7 @@ onMounted(async () => {
     });
 
     // Restore last active contact from localStorage
-    let restoredContact: { type: string; id: string; name?: string; avatar_url?: string; session_id?: string } | null = null;
+    let restoredContact: { type: string; id: string; name?: string; avatar_url?: string; session_id?: string; position?: string } | null = null;
     try {
         const saved = localStorage.getItem('chat-last-contact');
         if (saved) restoredContact = JSON.parse(saved);
@@ -1045,6 +1063,7 @@ onMounted(async () => {
             id: restoredContact.id,
             name: restoredContact.name || "",
             avatar_url: restoredContact.avatar_url || "",
+            position: restoredContact.position || "",
             last_message: "",
             last_message_time: 0,
             unread: 0,
@@ -1077,16 +1096,7 @@ onMounted(async () => {
     }
 
     // Handle pre-filled prompt from query parameter (e.g., AiAssistButton)
-    const promptParam = route.query.prompt as string | undefined;
-    if (promptParam) {
-        handleNewSession();
-        inputText.value = promptParam;
-        router.replace({ name: "chat", query: {} });
-        nextTick(() => {
-            const textarea = document.querySelector('textarea.chat-textarea') as HTMLTextAreaElement;
-            if (textarea) textarea.focus();
-        });
-    }
+    applyPromptFromQuery();
 });
 
 onUnmounted(() => {
@@ -1137,6 +1147,7 @@ onUnmounted(() => {
                                 <span v-else class="text-sm font-medium text-gray-500">{{ (activeContact?.name || '?')[0] }}</span>
                             </div>
                             <h2 class="text-base font-medium text-gray-800">{{ activeContact?.name }}</h2>
+                            <span v-if="activeContact?.position" class="ml-2 text-xs text-gray-400">{{ activeContact.position }}</span>
                         </div>
                     </template>
                     <span v-if="loading" class="ml-3 flex items-center text-xs text-gray-400">

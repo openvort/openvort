@@ -46,11 +46,12 @@ async def _load_member_full(member_id: str) -> dict | None:
         identities = result.scalars().all()
 
         platform_accounts = {}
-        position = ""
+        platform_position = ""
         for ident in identities:
             platform_accounts[ident.platform] = ident.platform_user_id
-            if ident.platform_position and not position:
-                position = ident.platform_position
+            if ident.platform_position and not platform_position:
+                platform_position = ident.platform_position
+        position = member.position or platform_position
 
         # 从 MemberDepartment 关联查真实部门名称
         dept_stmt = (
@@ -120,7 +121,8 @@ async def update_profile(request: Request, req: UpdateProfileRequest):
             member.email = req.email.strip()
         if req.phone is not None:
             member.phone = req.phone.strip()
-        # bio 字段可能尚未加到 Member 模型，安全写入
+        if req.position is not None:
+            member.position = req.position.strip()
         if req.bio is not None and hasattr(member, "bio"):
             member.bio = req.bio.strip()
         await session.commit()

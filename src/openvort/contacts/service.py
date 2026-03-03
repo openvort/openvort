@@ -360,6 +360,8 @@ class ContactService:
                 target.email = source.email
             if not target.phone and source.phone:
                 target.phone = source.phone
+            if not target.position and source.position:
+                target.position = source.position
 
             # 用 SQL 直接迁移 identity，绕过 cascade
             await session.execute(
@@ -419,6 +421,8 @@ class ContactService:
                         target.email = source.email
                     if not target.phone and source.phone:
                         target.phone = source.phone
+                    if not target.position and source.position:
+                        target.position = source.position
 
                     # 用 SQL 直接迁移 identity，绕过 cascade
                     await session.execute(
@@ -608,6 +612,7 @@ class ContactService:
             name=contact.display_name or contact.username or contact.user_id,
             email=contact.email,
             phone=contact.phone,
+            position=contact.position or "",
         )
 
     @staticmethod
@@ -637,13 +642,15 @@ class ContactService:
 
     @staticmethod
     def _backfill_member_info(member: Member, contact: PlatformContact) -> None:
-        """回填 Member 缺失的 email/phone/name（从同步的联系人信息补充）"""
+        """回填 Member 缺失的 email/phone/name/position（从同步的联系人信息补充）"""
         if not member.email and contact.email:
             member.email = contact.email
         if not member.phone and contact.phone:
             member.phone = contact.phone
         if not member.name and contact.display_name:
             member.name = contact.display_name
+        if not member.position and contact.position:
+            member.position = contact.position
 
     # ---- 角色映射 ----
 

@@ -26,6 +26,33 @@ def _is_process_alive(pid: int) -> bool:
         return False
 
 
+def _graceful_kill(pid: int, timeout: float = 5.0) -> bool:
+    """SIGTERM first, wait, then SIGKILL if needed. Returns True if process was stopped."""
+    import time
+
+    if not _is_process_alive(pid):
+        return True
+
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        return True
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not _is_process_alive(pid):
+            return True
+        time.sleep(0.3)
+
+    # Still alive — force kill
+    try:
+        os.kill(pid, signal.SIGKILL)
+        time.sleep(0.5)
+    except OSError:
+        pass
+    return not _is_process_alive(pid)
+
+
 def _check_and_kill_existing():
     """检查并杀掉已有的 openvort 进程，写入当前 PID"""
     if PID_FILE.exists():
@@ -33,16 +60,8 @@ def _check_and_kill_existing():
             old_pid = int(PID_FILE.read_text().strip())
             if old_pid != os.getpid() and _is_process_alive(old_pid):
                 click.echo(f"发现已有进程 (PID={old_pid})，正在终止...")
-                os.kill(old_pid, signal.SIGTERM)
-                # 等待旧进程退出
-                import time
-                for _ in range(10):
-                    time.sleep(0.5)
-                    if not _is_process_alive(old_pid):
-                        break
-                else:
-                    os.kill(old_pid, signal.SIGKILL)
-                click.echo(f"已终止旧进程 (PID={old_pid})")
+                killed = _graceful_kill(old_pid)
+                click.echo(f"已终止旧进程 (PID={old_pid})" if killed else f"警告: 旧进程 {old_pid} 未能完全退出")
         except (ValueError, OSError):
             pass
 
@@ -472,6 +491,61 @@ async def _start_service(relay_url: str | None, poll_db_json: str | None, web_fl
         await close_db()
         _cleanup_pid()
         log.info("已退出")
+
+
+# ============ stop / restart ============
+
+
+@main.command()
+def stop():
+    """停止 OpenVort 服务"""
+    if not PID_FILE.exists():
+        click.echo("未发现运行中的 OpenVort 进程（PID 文件不存在）")
+        return
+
+    try:
+        pid = int(PID_FILE.read_text().strip())
+    except (ValueError, OSError):
+        click.echo("PID 文件损坏，已清理")
+        PID_FILE.unlink(missing_ok=True)
+        return
+
+    if not _is_process_alive(pid):
+        click.echo(f"进程 {pid} 已不存在，清理 PID 文件")
+        PID_FILE.unlink(missing_ok=True)
+        return
+
+    click.echo(f"正在停止 OpenVort (PID={pid}) ...")
+    killed = _graceful_kill(pid)
+    if killed:
+        PID_FILE.unlink(missing_ok=True)
+        click.echo("已停止")
+    else:
+        click.echo(f"警告: 进程 {pid} 未能完全退出，请手动 kill -9 {pid}")
+
+
+@main.command()
+@click.option("--relay-url", default=None, help="Relay Server 地址（中继模式）")
+@click.option("--poll-db", default=None, help="远程数据库轮询配置（JSON 字符串）")
+@click.option("--web/--no-web", default=None, help="启用/禁用 Web 管理面板")
+def restart(relay_url, poll_db, web):
+    """重启 OpenVort 服务（stop + start）"""
+    if PID_FILE.exists():
+        try:
+            pid = int(PID_FILE.read_text().strip())
+            if _is_process_alive(pid):
+                click.echo(f"正在停止旧进程 (PID={pid}) ...")
+                killed = _graceful_kill(pid)
+                if killed:
+                    PID_FILE.unlink(missing_ok=True)
+                    click.echo("旧进程已停止")
+                else:
+                    click.echo(f"警告: 旧进程 {pid} 未能退出，尝试强制启动...")
+        except (ValueError, OSError):
+            pass
+
+    click.echo("正在启动...")
+    _run_async(_start_service(relay_url, poll_db, web))
 
 
 # ============ channels ============

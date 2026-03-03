@@ -52,18 +52,19 @@ const iconMap: Record<string, any> = {
     wrench: Wrench, "folder-git-2": FolderGit2, server: Server, shield: Shield,
 };
 
-// 按角色过滤菜单，并合并插件动态菜单
-const filteredMenus = computed(() => {
+const filterByRole = (items: MenuConfig[]) => {
     const roles = userStore.userInfo.roles || [];
-    const staticMenus = menuConfig.filter(item => {
+    return items.filter(item => {
         if (!item.requiredRole) return true;
         return roles.includes(item.requiredRole);
     });
+};
+
+const allMenus = computed(() => {
+    const staticMenus = filterByRole(menuConfig);
     const dynamicMenus = pluginStore.pluginMenus();
     if (!dynamicMenus.length) return staticMenus;
-
-    // 插件菜单插入到"个人设置"之前
-    const profileIdx = staticMenus.findIndex(m => m.path === "/profile");
+    const profileIdx = staticMenus.findIndex(m => m.position === "bottom");
     if (profileIdx >= 0) {
         const result = [...staticMenus];
         result.splice(profileIdx, 0, ...dynamicMenus);
@@ -71,6 +72,9 @@ const filteredMenus = computed(() => {
     }
     return [...staticMenus, ...dynamicMenus];
 });
+
+const filteredMenus = computed(() => allMenus.value.filter(m => m.position !== "bottom"));
+const bottomMenus = computed(() => allMenus.value.filter(m => m.position === "bottom"));
 
 // 当前展开的菜单
 const openKeys = computed(() => {
@@ -159,6 +163,11 @@ const handleMenuToggle = (title: string, event: Event) => {
         <!-- 菜单 -->
         <nav class="flex-1 overflow-y-auto py-2 px-2">
             <template v-for="item in filteredMenus" :key="item.title">
+                <!-- 分组标签 -->
+                <div v-if="item.label" class="mt-3 mb-1 first:mt-0" :class="collapsed ? 'border-t border-gray-100 mx-2' : ''">
+                    <span v-if="!collapsed" class="px-3 text-[11px] font-medium text-gray-400 uppercase tracking-wider">{{ item.label }}</span>
+                </div>
+
                 <!-- 无子菜单 -->
                 <div
                     v-if="!item.children"
@@ -201,14 +210,28 @@ const handleMenuToggle = (title: string, event: Event) => {
             </template>
         </nav>
 
-        <!-- 折叠按钮 -->
-        <div
-            v-if="!isMobile"
-            class="flex items-center justify-center h-[48px] border-t border-gray-100 cursor-pointer text-gray-400 hover:text-gray-600 transition-colors flex-shrink-0"
-            @click="appStore.toggleSidebar()"
-        >
-            <PanelLeftClose v-if="!collapsed" :size="18" />
-            <PanelLeftOpen v-else :size="18" />
+        <!-- 底部固定区域 -->
+        <div class="flex-shrink-0 border-t border-gray-100 px-2 py-2">
+            <div
+                v-for="item in bottomMenus"
+                :key="item.title"
+                class="flex items-center h-[40px] px-3 rounded-md cursor-pointer mb-0.5 transition-colors"
+                :class="isActive(item) ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50'"
+                @click="handleClick(item)"
+            >
+                <component :is="iconMap[item.icon]" v-if="iconMap[item.icon]" :size="18" class="flex-shrink-0" />
+                <span v-if="!collapsed" class="ml-3 text-[14px] truncate">{{ item.title }}</span>
+            </div>
+            <!-- 折叠按钮 -->
+            <div
+                v-if="!isMobile"
+                class="flex items-center h-[40px] px-3 rounded-md cursor-pointer text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors"
+                @click="appStore.toggleSidebar()"
+            >
+                <PanelLeftClose v-if="!collapsed" :size="18" class="flex-shrink-0" />
+                <PanelLeftOpen v-else :size="18" class="flex-shrink-0" />
+                <span v-if="!collapsed" class="ml-3 text-[14px] truncate">收起侧栏</span>
+            </div>
         </div>
     </aside>
 </template>

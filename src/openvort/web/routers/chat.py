@@ -554,6 +554,7 @@ async def list_contacts(request: Request):
                     "name": m.name,
                     "avatar_url": m.avatar_url or "",
                     "email": m.email or "",
+                    "position": m.position or "",
                 }
 
         seen_targets: set[str] = set()
@@ -568,6 +569,7 @@ async def list_contacts(request: Request):
                 "id": tid,
                 "name": m_info.get("name", tid),
                 "avatar_url": m_info.get("avatar_url", ""),
+                "position": m_info.get("position", ""),
                 "last_message": _extract_last_message(row.messages),
                 "last_message_time": row.updated_at.timestamp() if row.updated_at else 0,
                 "unread": 0,

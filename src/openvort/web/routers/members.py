@@ -15,6 +15,7 @@ class UpdateMemberRequest(BaseModel):
     name: str | None = None
     email: str | None = None
     phone: str | None = None
+    position: str | None = None
     status: str | None = None
     is_account: bool | None = None
 
@@ -167,6 +168,7 @@ async def list_members(search: str = "", role: str = "", page: int = 1, size: in
                 "name": m.name,
                 "email": m.email or "",
                 "phone": m.phone or "",
+                "position": m.position or "",
                 "avatar_url": m.avatar_url or "",
                 "status": m.status,
                 "is_account": m.is_account,
@@ -218,6 +220,7 @@ async def get_member(member_id: str):
             "name": member.name,
             "email": member.email or "",
             "phone": member.phone or "",
+            "position": member.position or "",
             "avatar_url": member.avatar_url or "",
             "status": member.status,
             "is_account": member.is_account,
@@ -262,6 +265,8 @@ async def update_member(member_id: str, req: UpdateMemberRequest):
             member.email = req.email
         if req.phone is not None:
             member.phone = req.phone
+        if req.position is not None:
+            member.position = req.position
         if req.status is not None:
             member.status = req.status
         if req.is_account is not None:

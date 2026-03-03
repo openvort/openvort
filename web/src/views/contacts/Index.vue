@@ -41,6 +41,7 @@ interface MemberItem {
 
 interface MemberDetail extends MemberItem {
     avatar_url: string;
+    position: string;
     permissions: string[];
     departments: { id: number; name: string }[];
     identities: {
@@ -135,7 +136,7 @@ const showSuggestions = ref(false);
 const drawerOpen = ref(false);
 const drawerLoading = ref(false);
 const currentMember = ref<MemberDetail | null>(null);
-const editForm = ref({ name: "", email: "", phone: "" });
+const editForm = ref({ name: "", email: "", phone: "", position: "" });
 const savingEdit = ref(false);
 
 // 角色分配弹窗
@@ -314,6 +315,7 @@ async function openMemberDrawer(memberId: string) {
             name: res.name || "",
             email: res.email || "",
             phone: res.phone || "",
+            position: res.position || "",
         };
     } catch { message.error("加载失败"); }
     finally { drawerLoading.value = false; }
@@ -1570,6 +1572,9 @@ onMounted(() => {
                             </VortFormItem>
                             <VortFormItem label="手机">
                                 <VortInput v-model="editForm.phone" placeholder="请输入手机号" />
+                            </VortFormItem>
+                            <VortFormItem label="职位">
+                                <VortInput v-model="editForm.position" placeholder="留空则自动从平台身份获取" />
                             </VortFormItem>
                             <VortFormItem>
                                 <VortButton variant="primary" size="small" :loading="savingEdit" @click="handleSaveEdit">保存</VortButton>

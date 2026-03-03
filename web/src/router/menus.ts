@@ -13,7 +13,7 @@ export const menuConfig: MenuConfig[] = [
     { title: "AI 助手", icon: "message-square", path: "/chat" },
     { title: "概览", icon: "home", path: "/overview" },
     {
-        title: "VortFlow", icon: "kanban",
+        title: "VortFlow", icon: "kanban", label: "研发协作",
         children: [
             { title: "项目看板", icon: "layout-dashboard", path: "/vortflow/board" },
             { title: "需求列表", icon: "list-checks", path: "/vortflow/stories" },
@@ -27,24 +27,24 @@ export const menuConfig: MenuConfig[] = [
         children: [
             { title: "代码仓库", icon: "folder-git-2", path: "/vortgit/repos" },
             { title: "编码任务", icon: "terminal-square", path: "/vortgit/code-tasks" },
-            { title: "平台管理", icon: "server", path: "/vortgit/providers" },
         ],
     },
     { title: "定时任务", icon: "clock", path: "/schedules" },
     { title: "汇报中心", icon: "file-bar-chart", path: "/reports" },
+    { title: "组织管理", icon: "users", path: "/contacts", label: "团队 & 扩展", requiredRole: "admin" },
+    { title: "Plugins 插件", icon: "puzzle", path: "/plugins", requiredRole: "admin" },
+    { title: "Skills 技能", icon: "book-open", path: "/skills", requiredRole: "admin" },
     {
-        title: "系统管理", icon: "wrench", requiredRole: "admin",
+        title: "系统管理", icon: "wrench", label: "系统", requiredRole: "admin",
         children: [
-            { title: "组织管理", icon: "users", path: "/contacts" },
             { title: "通道管理", icon: "radio", path: "/channels" },
             { title: "Agent 路由", icon: "git-branch", path: "/agents" },
             { title: "模型管理", icon: "cpu", path: "/models" },
-            { title: "插件管理", icon: "puzzle", path: "/plugins" },
-            { title: "技能管理", icon: "book-open", path: "/skills" },
+            { title: "Git 平台", icon: "server", path: "/vortgit/providers" },
             { title: "Webhook", icon: "webhook", path: "/webhooks" },
             { title: "运行日志", icon: "file-text", path: "/logs" },
             { title: "系统设置", icon: "settings", path: "/settings" },
         ],
     },
-    { title: "个人设置", icon: "user", path: "/profile" },
+    { title: "个人设置", icon: "user", path: "/profile", position: "bottom" },
 ];
