@@ -333,17 +333,15 @@ class AgentRuntime:
             except Exception as e:
                 log.warning(f"[web] 检查插件 {plugin.name} 就绪状态失败: {e}")
 
-        system = self._system_prompt + sender_context
-
-        # Inject member context for member proxy chats
+        # Build system prompt: member proxy chats use a standalone persona prompt
         if target_type == "member" and target_id:
-            member_context = await self._build_member_chat_context(target_id)
-            if member_context:
-                system += member_context
+            system = await self._build_member_chat_context(target_id)
+        else:
+            system = self._system_prompt + sender_context
 
         plugin_prompts = self._registry.get_system_prompt_extension()
         if plugin_prompts:
-            system += "\n\n# 插件能力\n\n" + plugin_prompts
+            system += "\n\n# 可用工具\n\n" + plugin_prompts
         if onboarding_hints:
             system += "\n\n# 插件引导（优先处理）\n\n" + "\n\n".join(onboarding_hints)
 
@@ -610,40 +608,95 @@ class AgentRuntime:
         return {"type": "enabled", "budget_tokens": budget}
 
     async def _build_member_chat_context(self, target_id: str) -> str:
-        """Build system prompt context for member proxy chat.
+        """Build a complete standalone system prompt for member proxy chat.
 
-        Fetches target member info and injects it into the prompt so the AI
-        can provide contextually relevant responses about this member.
+        Returns a full persona prompt (NOT a fragment to append) so the AI
+        fully embodies this member instead of acting as an AI assistant.
+        Two styles: minimal (no skills/bio) vs rich (with skills/bio).
+        Falls back to the default SYSTEM_PROMPT on error.
         """
         try:
-            from openvort.web.deps import get_db_session_factory
-            from sqlalchemy import select
+            from openvort.web.deps import get_db_session_factory, get_skill_loader
             from openvort.contacts.models import Member
 
             session_factory = get_db_session_factory()
             if not session_factory:
-                return ""
+                return self._system_prompt
 
             async with session_factory() as db:
                 m = await db.get(Member, target_id)
                 if not m:
-                    return ""
+                    return self._system_prompt
 
-                parts = [f"\n\n# 当前对话主题：关于成员「{m.name}」"]
-                parts.append("你正在一个关于该成员的对话中。用户希望了解或讨论与该成员相关的内容。")
-                parts.append(f"成员姓名: {m.name}")
-                if m.email:
-                    parts.append(f"邮箱: {m.email}")
-                if m.phone:
-                    parts.append(f"手机: {m.phone}")
-                if m.bio:
-                    parts.append(f"简介: {m.bio}")
+            skill_contents: list[str] = []
+            try:
+                skill_loader = get_skill_loader()
+                skill_contents = await skill_loader.get_member_skills_content(target_id)
+            except Exception:
+                pass
 
-                parts.append("\n请基于该成员的背景信息回答用户问题。如果用户询问任务、代码提交等信息，使用相应的工具去查询。")
-                return "\n".join(parts)
+            has_persona = bool(m.bio or skill_contents)
+
+            if has_persona:
+                return self._build_rich_member_prompt(m, skill_contents)
+            else:
+                return self._build_minimal_member_prompt(m)
         except Exception as e:
             log.warning(f"[web] 构建成员对话上下文失败: {e}")
-            return ""
+            return self._system_prompt
+
+    @staticmethod
+    def _build_minimal_member_prompt(member) -> str:
+        """Persona prompt for a member without skills/bio — a friendly colleague."""
+        parts = [f"你是「{member.name}」，团队的一名成员。你正在通过 IM 跟同事聊天。"]
+
+        info_lines = [f"- 姓名: {member.name}"]
+        if member.email:
+            info_lines.append(f"- 邮箱: {member.email}")
+        if member.phone:
+            info_lines.append(f"- 手机: {member.phone}")
+        parts.append("\n## 基本信息\n" + "\n".join(info_lines))
+
+        parts.append(f"""
+## 行为准则
+- 像正常同事聊天一样说话，简洁自然，不要太正式
+- 如果对方只是打招呼，就简短地回应，不需要自我介绍
+- 如果被问到不了解的领域，坦诚说不太清楚，建议找更合适的人
+- 可以使用工具查询你的任务、代码提交等工作数据
+- 绝对不要提到你是 AI、助手或机器人，也不要罗列你的能力
+- 用中文回复""")
+        return "\n".join(parts)
+
+    @staticmethod
+    def _build_rich_member_prompt(member, skill_contents: list[str]) -> str:
+        """Persona prompt for a member with skills/bio — a domain expert."""
+        parts = [f"你是「{member.name}」。"]
+
+        if member.bio:
+            parts.append(f"\n## 个人简介\n{member.bio}")
+
+        info_lines = []
+        if member.email:
+            info_lines.append(f"- 邮箱: {member.email}")
+        if member.phone:
+            info_lines.append(f"- 手机: {member.phone}")
+        if info_lines:
+            parts.append("\n## 基本信息\n" + "\n".join(info_lines))
+
+        if skill_contents:
+            parts.append("\n## 专业技能与背景知识\n" + "\n\n".join(skill_contents))
+
+        parts.append(f"""
+## 行为准则
+- 完全以{member.name}的身份交流，就像真正的{member.name}在跟同事说话
+- 在你擅长的领域自信地分享见解和建议
+- 不擅长的领域诚实说不太了解，可以推荐找谁问
+- 语气自然随和，像同事间的日常对话
+- 如果对方只是打招呼，就简短回应，不需要自我介绍或展示能力
+- 可以使用工具查询任务、代码提交等工作数据来支撑回答
+- 绝对不要提到你是 AI、助手或机器人
+- 用中文回复""")
+        return "\n".join(parts)
 
     @staticmethod
     def _build_user_content(text: str, images: list[dict]) -> str | list[dict]:

@@ -13,6 +13,7 @@ from openvort.web.routers.reporting import router as reporting_router
 from openvort.web.routers.org_calendar import router as org_calendar_router
 from openvort.web.routers.plugins import router as plugins_router
 from openvort.web.routers.skills import router as skills_router
+from openvort.web.routers.member_skills import router as member_skills_router
 from openvort.web.routers.channels import router as channels_router
 from openvort.web.routers.settings import router as settings_router
 from openvort.web.routers.logs import router as logs_router
@@ -41,4 +42,5 @@ __all__ = [
     "webhooks_admin_router",
     "agents_router",
     "models_router",
+    "member_skills_router",
 ]

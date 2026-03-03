@@ -1,37 +1,43 @@
 """
 Skill 加载器
 
-扫描内置 Skill 和用户 workspace Skill，解析 frontmatter，注册到 PluginRegistry。
+DB 驱动的三级 Skill 体系（builtin / public / personal）。
+启动时扫描内置文件同步到 DB，运行时全部通过 DB 读写。
 """
 
 import re
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from openvort.config.settings import get_settings
+from sqlalchemy import select, and_
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
 from openvort.plugin.registry import PluginRegistry
 from openvort.utils.logging import get_logger
 
 log = get_logger("skill.loader")
 
-# frontmatter 解析正则：匹配 --- 开头和结尾的 YAML 块
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
 
 @dataclass
 class Skill:
-    """Skill 数据模型"""
+    """Skill 数据模型（内存视图）"""
 
-    name: str
+    id: str = ""
+    name: str = ""
     description: str = ""
-    content: str = ""  # markdown 正文（不含 frontmatter）
-    source: str = ""  # "builtin" | "workspace"
+    content: str = ""
+    scope: str = ""  # builtin / public / personal
+    owner_id: str = ""
     enabled: bool = True
+    sort_order: int = 0
     path: Path = field(default_factory=lambda: Path())
 
 
-def _parse_skill_file(skill_path: Path, source: str) -> Skill | None:
-    """解析 SKILL.md 文件，提取 frontmatter 和正文"""
+def _parse_skill_file(skill_path: Path) -> dict | None:
+    """Parse SKILL.md, return dict with name/description/content."""
     try:
         raw = skill_path.read_text(encoding="utf-8")
     except Exception as e:
@@ -47,8 +53,6 @@ def _parse_skill_file(skill_path: Path, source: str) -> Skill | None:
     if match:
         frontmatter = match.group(1)
         content = raw[match.end():]
-
-        # 简易 YAML 解析（避免引入 pyyaml 依赖）
         for line in frontmatter.splitlines():
             line = line.strip()
             if line.startswith("name:"):
@@ -59,144 +63,143 @@ def _parse_skill_file(skill_path: Path, source: str) -> Skill | None:
                 val = line.split(":", 1)[1].strip().lower()
                 enabled = val not in ("false", "no", "0", "off")
 
-    return Skill(
-        name=name,
-        description=description,
-        content=content.strip(),
-        source=source,
-        enabled=enabled,
-        path=skill_path,
-    )
+    return {
+        "name": name,
+        "description": description,
+        "content": content.strip(),
+        "enabled": enabled,
+    }
 
 
 class SkillLoader:
-    """Skill 加载器"""
+    """DB-driven Skill loader with builtin file sync."""
 
     def __init__(self, registry: PluginRegistry):
         self.registry = registry
-        self._skills: dict[str, Skill] = {}
+        self._session_factory: async_sessionmaker[AsyncSession] | None = None
 
-    def load_all(self) -> None:
-        """加载所有 Skill（内置 + workspace）"""
-        self._load_builtin_skills()
-        self._load_workspace_skills()
+    async def load_all(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        """Sync builtin files to DB, then register enabled global skills."""
+        self._session_factory = session_factory
 
-        # 将 enabled 的 skill 注册为 prompt
+        await self._sync_builtin_to_db()
+
+        async with session_factory() as db:
+            from openvort.db.models import Skill as SkillModel
+            result = await db.execute(
+                select(SkillModel).where(
+                    SkillModel.scope.in_(["builtin", "public"]),
+                    SkillModel.enabled == True,  # noqa: E712
+                )
+            )
+            rows = result.scalars().all()
+
         enabled_count = 0
-        for skill in self._skills.values():
-            if skill.enabled and skill.content:
-                self.registry.register_prompt(skill.content)
+        for row in rows:
+            if row.content:
+                self.registry.register_prompt(row.content)
                 enabled_count += 1
 
-        log.info(
-            f"已加载 {len(self._skills)} 个 Skill"
-            f"（{enabled_count} 个启用）"
-        )
+        log.info(f"已加载 {len(rows)} 个全局 Skill（{enabled_count} 个启用）")
 
-    def get_skills(self) -> list[Skill]:
-        """返回所有已加载的 Skill"""
-        return list(self._skills.values())
-
-    def get_skill(self, name: str) -> Skill | None:
-        """获取指定 Skill"""
-        return self._skills.get(name)
-
-    def enable_skill(self, name: str) -> bool:
-        """启用 Skill（修改 frontmatter）"""
-        return self._set_skill_enabled(name, True)
-
-    def disable_skill(self, name: str) -> bool:
-        """禁用 Skill（修改 frontmatter）"""
-        return self._set_skill_enabled(name, False)
-
-    def create_skill(self, name: str) -> Path | None:
-        """在 workspace 创建新 Skill 模板"""
-        skills_dir = get_settings().data_dir / "workspace" / "skills"
-        skill_dir = skills_dir / name
-        if skill_dir.exists():
-            log.warning(f"Skill '{name}' 已存在: {skill_dir}")
-            return None
-
-        skill_dir.mkdir(parents=True, exist_ok=True)
-        skill_file = skill_dir / "SKILL.md"
-        skill_file.write_text(
-            f"---\nname: {name}\ndescription: \nenabled: true\n---\n\n# {name}\n\n在此编写 Skill 内容...\n",
-            encoding="utf-8",
-        )
-        log.info(f"已创建 Skill 模板: {skill_file}")
-        return skill_file
-
-    def _load_builtin_skills(self) -> None:
-        """扫描 src/openvort/skills/*/SKILL.md"""
+    def load_all_sync(self) -> None:
+        """Legacy sync loader for CLI commands without DB.
+        Scans files only, registers to PluginRegistry.
+        """
         builtin_dir = Path(__file__).parent.parent / "skills"
-        self._scan_skills_dir(builtin_dir, "builtin")
+        count = 0
+        if builtin_dir.exists():
+            for skill_dir in sorted(builtin_dir.iterdir()):
+                if not skill_dir.is_dir():
+                    continue
+                skill_file = skill_dir / "SKILL.md"
+                if not skill_file.exists():
+                    continue
+                parsed = _parse_skill_file(skill_file)
+                if parsed and parsed["enabled"] and parsed["content"]:
+                    self.registry.register_prompt(parsed["content"])
+                    count += 1
+        log.info(f"已加载 {count} 个内置 Skill（同步模式）")
 
-    def _load_workspace_skills(self) -> None:
-        """扫描 ~/.openvort/workspace/skills/*/SKILL.md"""
-        workspace_dir = get_settings().data_dir / "workspace" / "skills"
-        self._scan_skills_dir(workspace_dir, "workspace")
+    async def _sync_builtin_to_db(self) -> None:
+        """Scan builtin SKILL.md files and upsert into DB."""
+        from openvort.db.models import Skill as SkillModel
 
-    def _scan_skills_dir(self, base_dir: Path, source: str) -> None:
-        """扫描指定目录下的 Skill"""
-        if not base_dir.exists():
+        builtin_dir = Path(__file__).parent.parent / "skills"
+        if not builtin_dir.exists():
             return
 
-        for skill_dir in sorted(base_dir.iterdir()):
+        file_skills: dict[str, dict] = {}
+        for skill_dir in sorted(builtin_dir.iterdir()):
             if not skill_dir.is_dir():
                 continue
             skill_file = skill_dir / "SKILL.md"
             if not skill_file.exists():
                 continue
+            parsed = _parse_skill_file(skill_file)
+            if parsed:
+                file_skills[parsed["name"]] = parsed
 
-            skill = _parse_skill_file(skill_file, source)
-            if skill:
-                if skill.name in self._skills:
-                    log.warning(
-                        f"Skill '{skill.name}' 重复"
-                        f"（{self._skills[skill.name].source} vs {source}），"
-                        f"workspace 覆盖 builtin"
-                    )
-                    if source != "workspace":
-                        continue
-                self._skills[skill.name] = skill
-                log.info(f"已加载 Skill: {skill.name} ({source})")
+        if not file_skills:
+            return
 
-    def _set_skill_enabled(self, name: str, enabled: bool) -> bool:
-        """修改 Skill 的 enabled 状态（回写 frontmatter）"""
-        skill = self._skills.get(name)
-        if not skill:
-            return False
+        async with self._session_factory() as db:
+            result = await db.execute(
+                select(SkillModel).where(SkillModel.scope == "builtin")
+            )
+            existing = {row.name: row for row in result.scalars().all()}
 
-        try:
-            raw = skill.path.read_text(encoding="utf-8")
-        except Exception:
-            return False
+            for name, data in file_skills.items():
+                if name in existing:
+                    row = existing[name]
+                    row.description = data["description"]
+                    row.content = data["content"]
+                else:
+                    db.add(SkillModel(
+                        id=uuid.uuid4().hex,
+                        name=name,
+                        description=data["description"],
+                        content=data["content"],
+                        scope="builtin",
+                        enabled=data["enabled"],
+                    ))
 
-        match = _FRONTMATTER_RE.match(raw)
-        if not match:
-            # 没有 frontmatter，添加一个
-            new_raw = f"---\nname: {name}\nenabled: {str(enabled).lower()}\n---\n\n{raw}"
-        else:
-            frontmatter = match.group(1)
-            body = raw[match.end():]
+            # Remove DB builtins that no longer exist on disk
+            for name, row in existing.items():
+                if name not in file_skills:
+                    await db.delete(row)
 
-            # 替换或添加 enabled 字段
-            lines = frontmatter.splitlines()
-            found = False
-            for i, line in enumerate(lines):
-                if line.strip().startswith("enabled:"):
-                    lines[i] = f"enabled: {str(enabled).lower()}"
-                    found = True
-                    break
-            if not found:
-                lines.append(f"enabled: {str(enabled).lower()}")
+            await db.commit()
 
-            new_raw = "---\n" + "\n".join(lines) + "\n---\n\n" + body
+    async def get_member_skills_content(self, member_id: str) -> list[str]:
+        """Return content list of a member's personal + subscribed public skills."""
+        if not self._session_factory:
+            return []
 
-        try:
-            skill.path.write_text(new_raw, encoding="utf-8")
-            skill.enabled = enabled
-            return True
-        except Exception as e:
-            log.error(f"写入 Skill 文件失败 {skill.path}: {e}")
-            return False
+        from openvort.db.models import Skill as SkillModel, MemberSkill
+
+        async with self._session_factory() as db:
+            # Personal skills
+            result = await db.execute(
+                select(SkillModel).where(
+                    SkillModel.scope == "personal",
+                    SkillModel.owner_id == member_id,
+                    SkillModel.enabled == True,  # noqa: E712
+                ).order_by(SkillModel.sort_order)
+            )
+            personal = [r.content for r in result.scalars().all() if r.content]
+
+            # Subscribed public skills
+            result = await db.execute(
+                select(SkillModel).join(
+                    MemberSkill, MemberSkill.skill_id == SkillModel.id
+                ).where(
+                    MemberSkill.member_id == member_id,
+                    MemberSkill.enabled == True,  # noqa: E712
+                    SkillModel.scope == "public",
+                    SkillModel.enabled == True,  # noqa: E712
+                ).order_by(SkillModel.sort_order)
+            )
+            subscribed = [r.content for r in result.scalars().all() if r.content]
+
+        return personal + subscribed

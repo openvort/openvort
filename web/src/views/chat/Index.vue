@@ -19,6 +19,7 @@ import { marked } from "marked";
 import { pinyin } from "pinyin-pro";
 import ContactList from "./ContactList.vue";
 import SessionSwitcher from "./SessionSwitcher.vue";
+import MemberProfile from "./MemberProfile.vue";
 import type { ChatMessage, ChatSession, PendingImage, Contact, MentionMember, SlashCommand, Draft } from "./types";
 
 const route = useRoute();
@@ -48,6 +49,8 @@ const currentSessionId = ref<string>("");
 const contactListRef = ref<InstanceType<typeof ContactList>>();
 const sessionSwitcherRef = ref<InstanceType<typeof SessionSwitcher>>();
 
+const memberProfileOpen = ref(false);
+
 const isAiMode = computed(() => !activeContact.value || activeContact.value.type === "ai");
 const currentSessionTitle = computed(() => {
     if (!currentSessionId.value) return "新对话";
@@ -76,6 +79,18 @@ function restoreDraft(sessionId: string) {
 watch(currentSessionId, (val) => {
     localStorage.setItem('chat-last-session-id', val);
 });
+
+watch(activeContact, (contact) => {
+    if (contact) {
+        localStorage.setItem('chat-last-contact', JSON.stringify({
+            type: contact.type,
+            id: contact.id,
+            name: contact.name,
+            avatar_url: contact.avatar_url,
+            session_id: contact.session_id,
+        }));
+    }
+}, { deep: true });
 
 // ---- 红点 & 流式跨会话保持 ----
 const unreadSessionIds = ref<Set<string>>(new Set());
@@ -203,6 +218,7 @@ async function handleContactSelect(contact: Contact) {
             try {
                 const res: any = await startMemberChat(contact.id);
                 if (res?.session_id) {
+                    contact.session_id = res.session_id;
                     await switchSession(res.session_id);
                 }
             } catch {
@@ -1016,18 +1032,48 @@ onMounted(async () => {
         }
     });
 
-    // Default to AI assistant
-    activeContact.value = {
-        type: "ai", id: "ai", name: "AI 助手",
-        avatar_url: "", last_message: "", last_message_time: 0, unread: 0, pinned: true,
-    };
-    await sessionSwitcherRef.value?.loadSessions();
+    // Restore last active contact from localStorage
+    let restoredContact: { type: string; id: string; name?: string; avatar_url?: string; session_id?: string } | null = null;
+    try {
+        const saved = localStorage.getItem('chat-last-contact');
+        if (saved) restoredContact = JSON.parse(saved);
+    } catch { /* ignore */ }
 
-    const lastSessionId = localStorage.getItem('chat-last-session-id');
-    if (lastSessionId && sessions.value.some(s => s.session_id === lastSessionId)) {
-        await switchSession(lastSessionId);
-    } else if (sessions.value.length > 0) {
-        await switchSession(sessions.value[0].session_id);
+    if (restoredContact?.type === "member" && restoredContact.id) {
+        activeContact.value = {
+            type: "member",
+            id: restoredContact.id,
+            name: restoredContact.name || "",
+            avatar_url: restoredContact.avatar_url || "",
+            last_message: "",
+            last_message_time: 0,
+            unread: 0,
+            session_id: restoredContact.session_id || "",
+        };
+        if (restoredContact.session_id) {
+            await switchSession(restoredContact.session_id);
+        } else {
+            try {
+                const res: any = await startMemberChat(restoredContact.id);
+                if (res?.session_id) {
+                    activeContact.value.session_id = res.session_id;
+                    await switchSession(res.session_id);
+                }
+            } catch { /* fallback to empty state */ }
+        }
+    } else {
+        activeContact.value = {
+            type: "ai", id: "ai", name: "AI 助手",
+            avatar_url: "", last_message: "", last_message_time: 0, unread: 0, pinned: true,
+        };
+        await sessionSwitcherRef.value?.loadSessions();
+
+        const lastSessionId = localStorage.getItem('chat-last-session-id');
+        if (lastSessionId && sessions.value.some(s => s.session_id === lastSessionId)) {
+            await switchSession(lastSessionId);
+        } else if (sessions.value.length > 0) {
+            await switchSession(sessions.value[0].session_id);
+        }
     }
 
     // Handle pre-filled prompt from query parameter (e.g., AiAssistButton)
@@ -1082,14 +1128,16 @@ onUnmounted(() => {
                             @sessions-loaded="handleSessionsLoaded"
                         />
                     </template>
-                    <!-- Member mode: show member info -->
+                    <!-- Member mode: show member info (click to open profile) -->
                     <template v-else>
-                        <div class="w-8 h-8 rounded-full flex items-center justify-center mr-2 overflow-hidden"
-                            :class="activeContact?.avatar_url ? '' : 'bg-gray-100'">
-                            <img v-if="activeContact?.avatar_url" :src="activeContact.avatar_url" class="w-full h-full object-cover" />
-                            <span v-else class="text-sm font-medium text-gray-500">{{ (activeContact?.name || '?')[0] }}</span>
+                        <div class="flex items-center cursor-pointer hover:opacity-80 transition-opacity" @click="memberProfileOpen = true">
+                            <div class="w-8 h-8 rounded-full flex items-center justify-center mr-2 overflow-hidden"
+                                :class="activeContact?.avatar_url ? '' : 'bg-gray-100'">
+                                <img v-if="activeContact?.avatar_url" :src="activeContact.avatar_url" class="w-full h-full object-cover" />
+                                <span v-else class="text-sm font-medium text-gray-500">{{ (activeContact?.name || '?')[0] }}</span>
+                            </div>
+                            <h2 class="text-base font-medium text-gray-800">{{ activeContact?.name }}</h2>
                         </div>
-                        <h2 class="text-base font-medium text-gray-800">{{ activeContact?.name }}</h2>
                     </template>
                     <span v-if="loading" class="ml-3 flex items-center text-xs text-gray-400">
                         <Loader2 :size="14" class="animate-spin mr-1" /> 思考中...
@@ -1142,8 +1190,8 @@ onUnmounted(() => {
             </div>
 
             <!-- 消息列表 -->
-            <div ref="chatContainer" class="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-                <VortImagePreviewGroup>
+            <div ref="chatContainer" class="flex-1 overflow-y-auto px-6 py-4">
+                <VortImagePreviewGroup class="space-y-6">
                     <!-- 无会话状态 -->
                     <div v-if="!currentSessionId && isAiMode" class="flex flex-col items-center justify-center h-full text-gray-400">
                         <Bot :size="48" class="mb-4 text-gray-300" />
@@ -1398,6 +1446,15 @@ onUnmounted(() => {
                 </div>
             </div>
         </div>
+
+        <!-- Member profile drawer -->
+        <MemberProfile
+            v-if="activeContact && activeContact.type === 'member'"
+            v-model:open="memberProfileOpen"
+            :member-id="activeContact.id"
+            :member-name="activeContact.name"
+            :member-avatar-url="activeContact.avatar_url"
+        />
     </div>
 </template>
 

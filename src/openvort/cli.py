@@ -198,10 +198,10 @@ async def _start_service(relay_url: str | None, poll_db_json: str | None, web_fl
     loader.load_all()
     await loader.load_all_async()
 
-    # 加载 Skill（知识注入）
+    # 加载 Skill（知识注入，DB 驱动）
     from openvort.skill.loader import SkillLoader
     skill_loader = SkillLoader(registry)
-    skill_loader.load_all()
+    await skill_loader.load_all(session_factory)
 
     # 注入 AuthService 到 ContactsPlugin
     for plugin in loader.get_plugins():
@@ -853,88 +853,28 @@ def skills():
 
 @skills.command("list")
 def skills_list():
-    """列出所有 Skill（内置 + workspace）"""
-    from openvort.plugin import PluginRegistry
-    from openvort.skill.loader import SkillLoader
-
-    registry = PluginRegistry()
-    loader = SkillLoader(registry)
-    loader.load_all()
-
-    all_skills = loader.get_skills()
-    if not all_skills:
+    """列出所有内置 Skill"""
+    from openvort.skill.loader import _parse_skill_file
+    builtin_dir = Path(__file__).parent / "skills"
+    if not builtin_dir.exists():
         click.echo("未发现任何 Skill")
         return
 
-    # 按来源分组
-    builtin = [s for s in all_skills if s.source == "builtin"]
-    workspace = [s for s in all_skills if s.source == "workspace"]
+    count = 0
+    for skill_dir in sorted(builtin_dir.iterdir()):
+        if not skill_dir.is_dir():
+            continue
+        skill_file = skill_dir / "SKILL.md"
+        if not skill_file.exists():
+            continue
+        parsed = _parse_skill_file(skill_file)
+        if parsed:
+            status = "✅ 启用" if parsed["enabled"] else "❌ 禁用"
+            click.echo(f"  {parsed['name']:20s} {parsed['description'][:40]:40s} {status}")
+            count += 1
 
-    if builtin:
-        click.echo(f"\n内置 Skill ({len(builtin)}):\n")
-        for s in builtin:
-            status = "✅ 启用" if s.enabled else "❌ 禁用"
-            click.echo(f"  {s.name:20s} {s.description[:40]:40s} {status}")
-
-    if workspace:
-        click.echo(f"\n用户 Skill ({len(workspace)}):\n")
-        for s in workspace:
-            status = "✅ 启用" if s.enabled else "❌ 禁用"
-            click.echo(f"  {s.name:20s} {s.description[:40]:40s} {status}")
-
-    click.echo(f"\n共 {len(all_skills)} 个 Skill")
-
-
-@skills.command("enable")
-@click.argument("name")
-def skills_enable(name):
-    """启用指定 Skill"""
-    from openvort.plugin import PluginRegistry
-    from openvort.skill.loader import SkillLoader
-
-    registry = PluginRegistry()
-    loader = SkillLoader(registry)
-    loader.load_all()
-
-    if loader.enable_skill(name):
-        click.echo(f"✅ Skill '{name}' 已启用")
-    else:
-        click.echo(f"❌ 未找到 Skill '{name}'")
-
-
-@skills.command("disable")
-@click.argument("name")
-def skills_disable(name):
-    """禁用指定 Skill"""
-    from openvort.plugin import PluginRegistry
-    from openvort.skill.loader import SkillLoader
-
-    registry = PluginRegistry()
-    loader = SkillLoader(registry)
-    loader.load_all()
-
-    if loader.disable_skill(name):
-        click.echo(f"✅ Skill '{name}' 已禁用")
-    else:
-        click.echo(f"❌ 未找到 Skill '{name}'")
-
-
-@skills.command("create")
-@click.argument("name")
-def skills_create(name):
-    """在 workspace 创建新 Skill 模板"""
-    from openvort.plugin import PluginRegistry
-    from openvort.skill.loader import SkillLoader
-
-    registry = PluginRegistry()
-    loader = SkillLoader(registry)
-
-    path = loader.create_skill(name)
-    if path:
-        click.echo(f"✅ 已创建 Skill 模板: {path}")
-        click.echo(f"   编辑 {path} 添加 Skill 内容，重启服务后生效")
-    else:
-        click.echo(f"❌ Skill '{name}' 已存在")
+    click.echo(f"\n共 {count} 个内置 Skill")
+    click.echo("公共和个人 Skill 请通过 Web 管理面板管理")
 
 
 # ============ pairing ============

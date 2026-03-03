@@ -624,36 +624,83 @@ export function runAdminSchedule(jobId: string) {
     return request.post(`/admin/schedules/${jobId}/run`);
 }
 
-// ---- Skill 管理（管理员）----
+// ---- Skill 管理（管理员：内置 + 公共）----
 
-/** Skill 列表 */
+/** Skill 列表（builtin + public） */
 export function getSkills() {
     return request.get("/admin/skills");
 }
 
 /** Skill 详情 */
-export function getSkill(name: string) {
-    return request.get(`/admin/skills/${name}`);
+export function getSkill(id: string) {
+    return request.get(`/admin/skills/${id}`);
 }
 
-/** 创建 Skill */
+/** 创建公共 Skill */
 export function createSkill(data: { name: string; description?: string; content?: string }) {
     return request.post("/admin/skills", data);
 }
 
-/** 更新 Skill */
-export function updateSkill(name: string, data: { description?: string; content?: string }) {
-    return request.put(`/admin/skills/${name}`, data);
+/** 更新公共 Skill */
+export function updateSkill(id: string, data: { name?: string; description?: string; content?: string }) {
+    return request.put(`/admin/skills/${id}`, data);
 }
 
-/** 删除 Skill */
-export function deleteSkill(name: string) {
-    return request.delete(`/admin/skills/${name}`);
+/** 删除公共 Skill */
+export function deleteSkill(id: string) {
+    return request.delete(`/admin/skills/${id}`);
 }
 
 /** 启用/禁用 Skill */
-export function toggleSkill(name: string) {
-    return request.post(`/admin/skills/${name}/toggle`);
+export function toggleSkill(id: string) {
+    return request.post(`/admin/skills/${id}/toggle`);
+}
+
+// ---- 成员技能（登录用户）----
+
+/** 获取成员个人技能 + 订阅 */
+export function getMemberSkills(memberId: string) {
+    return request.get(`/skills/member/${memberId}`);
+}
+
+/** 创建个人技能 */
+export function createPersonalSkill(memberId: string, data: { name: string; description?: string; content?: string }) {
+    return request.post(`/skills/member/${memberId}/personal`, data);
+}
+
+/** 更新个人技能 */
+export function updatePersonalSkill(skillId: string, data: { name?: string; description?: string; content?: string }) {
+    return request.put(`/skills/personal/${skillId}`, data);
+}
+
+/** 删除个人技能 */
+export function deletePersonalSkill(skillId: string) {
+    return request.delete(`/skills/personal/${skillId}`);
+}
+
+/** 列出可订阅的公共技能 */
+export function getPublicSkills() {
+    return request.get("/skills/public");
+}
+
+/** 订阅公共技能 */
+export function subscribeMemberSkill(memberId: string, skillId: string) {
+    return request.post(`/skills/member/${memberId}/subscribe/${skillId}`);
+}
+
+/** 取消订阅公共技能 */
+export function unsubscribeMemberSkill(memberId: string, skillId: string) {
+    return request.delete(`/skills/member/${memberId}/subscribe/${skillId}`);
+}
+
+/** 更新成员 bio */
+export function updateMemberBio(memberId: string, bio: string) {
+    return request.put(`/skills/member/${memberId}/bio`, { bio });
+}
+
+/** 获取 AI 生成 bio 的 prompt */
+export function generateMemberBioPrompt(memberId: string) {
+    return request.get(`/skills/member/${memberId}/generate-bio-prompt`);
 }
 
 // ---- Webhook 管理（管理员）----

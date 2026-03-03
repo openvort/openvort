@@ -1,7 +1,7 @@
 """
 Skill 系统
 
-纯 markdown 知识注入，面向所有用户。
+三级知识注入体系：内置 / 公共 / 个人。
 """
 
 from openvort.skill.loader import Skill, SkillLoader

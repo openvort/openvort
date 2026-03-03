@@ -36,6 +36,7 @@ export interface Contact {
     session_id?: string;
     pinned?: boolean;
     position?: string;
+    bio?: string;
 }
 
 export interface MentionMember {
