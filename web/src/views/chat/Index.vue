@@ -1057,7 +1057,7 @@ onUnmounted(() => {
 <template>
     <div class="flex h-full">
         <!-- 左侧联系人列表 -->
-        <div class="flex-shrink-0 w-[260px]">
+        <div class="flex-shrink-0 w-[260px] overflow-hidden">
             <ContactList
                 ref="contactListRef"
                 :active-contact-id="activeContact?.id || 'ai'"

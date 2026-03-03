@@ -233,6 +233,7 @@ defineExpose({ refreshContacts, loadContacts });
                 <VortDropdown
                     v-for="c in filteredContacts" :key="c.id"
                     trigger="contextMenu"
+                    class="!block"
                 >
                     <div
                         class="flex items-center gap-3 mx-2 px-3 py-3 rounded-lg cursor-pointer transition-colors mb-0.5"
@@ -248,14 +249,14 @@ defineExpose({ refreshContacts, loadContacts });
                         </div>
 
                         <!-- Name + last message -->
-                        <div class="flex-1 min-w-0">
-                            <div class="flex items-center justify-between">
-                                <span class="text-sm font-medium text-gray-800 truncate">{{ c.name }}</span>
-                                <span class="text-[11px] text-gray-400 flex-shrink-0 ml-2">{{ formatTime(c.last_message_time) }}</span>
+                        <div class="flex-1 min-w-0 overflow-hidden">
+                            <div class="flex items-center justify-between gap-2">
+                                <span class="text-sm font-medium text-gray-800 truncate min-w-0">{{ c.name }}</span>
+                                <span class="text-[11px] text-gray-400 flex-shrink-0 whitespace-nowrap">{{ formatTime(c.last_message_time) }}</span>
                             </div>
-                            <div class="flex items-center justify-between mt-0.5">
-                                <span class="text-xs text-gray-400 truncate">{{ c.last_message || (c.type === 'ai' ? '点击开始对话' : '') }}</span>
-                                <div v-if="c.unread" class="flex-shrink-0 ml-2 w-4 h-4 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center">
+                            <div class="flex items-center justify-between mt-0.5 gap-2">
+                                <span class="text-xs text-gray-400 truncate min-w-0">{{ c.last_message || (c.type === 'ai' ? '点击开始对话' : '') }}</span>
+                                <div v-if="c.unread" class="flex-shrink-0 w-4 h-4 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center">
                                     {{ c.unread > 99 ? '99+' : c.unread }}
                                 </div>
                             </div>
