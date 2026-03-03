@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from "vue";
+import { ref, computed, watch, onMounted, nextTick } from "vue";
 import { Bot, Plus, Search, Loader2 } from "lucide-vue-next";
 import { getChatContacts, getChatMembers, startMemberChat, togglePinContact, hideChatContact, resetChatSession } from "@/api";
 import { message } from "@/components/vort/message";
@@ -22,6 +22,9 @@ const showNewChatPopover = ref(false);
 const newChatKeyword = ref("");
 const newChatMembers = ref<MentionMember[]>([]);
 const newChatLoading = ref(false);
+const newChatActiveIndex = ref(-1);
+const newChatInputRef = ref<HTMLInputElement | null>(null);
+const newChatListRef = ref<HTMLElement | null>(null);
 
 const filteredContacts = computed(() => {
     if (!searchKeyword.value.trim()) return contacts.value;
@@ -119,24 +122,64 @@ async function handleHideContact(contact: Contact) {
 // New chat: search members
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
+async function loadNewChatMembers(keyword = "") {
+    newChatLoading.value = true;
+    try {
+        const res: any = await getChatMembers(keyword, 20);
+        newChatMembers.value = res?.members || [];
+    } catch {
+        newChatMembers.value = [];
+    } finally {
+        newChatLoading.value = false;
+    }
+}
+
+watch(showNewChatPopover, (open) => {
+    if (open) {
+        newChatKeyword.value = "";
+        newChatMembers.value = [];
+        newChatActiveIndex.value = -1;
+        loadNewChatMembers();
+        nextTick(() => newChatInputRef.value?.focus());
+    }
+});
+
 watch(newChatKeyword, (kw) => {
     if (searchTimer) clearTimeout(searchTimer);
-    if (!kw.trim()) {
-        newChatMembers.value = [];
-        return;
-    }
-    searchTimer = setTimeout(async () => {
-        newChatLoading.value = true;
-        try {
-            const res: any = await getChatMembers(kw.trim(), 20);
-            newChatMembers.value = res?.members || [];
-        } catch {
-            newChatMembers.value = [];
-        } finally {
-            newChatLoading.value = false;
-        }
-    }, 300);
+    newChatActiveIndex.value = -1;
+    searchTimer = setTimeout(() => loadNewChatMembers(kw.trim()), 300);
 });
+
+function handleNewChatKeydown(e: KeyboardEvent) {
+    const len = newChatMembers.value.length;
+    if (!len) return;
+
+    if (e.key === "ArrowDown") {
+        e.preventDefault();
+        newChatActiveIndex.value = (newChatActiveIndex.value + 1) % len;
+        scrollActiveIntoView();
+    } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        newChatActiveIndex.value = (newChatActiveIndex.value - 1 + len) % len;
+        scrollActiveIntoView();
+    } else if (e.key === "Enter") {
+        e.preventDefault();
+        const idx = newChatActiveIndex.value;
+        if (idx >= 0 && idx < len) {
+            handleStartChat(newChatMembers.value[idx]);
+        }
+    }
+}
+
+function scrollActiveIntoView() {
+    nextTick(() => {
+        const container = newChatListRef.value;
+        if (!container) return;
+        const items = container.querySelectorAll("[data-member-item]");
+        const active = items[newChatActiveIndex.value] as HTMLElement | undefined;
+        active?.scrollIntoView({ block: "nearest" });
+    });
+}
 
 async function handleStartChat(member: MentionMember) {
     showNewChatPopover.value = false;
@@ -184,34 +227,36 @@ defineExpose({ refreshContacts, loadContacts });
                     <div class="w-[280px] -m-3">
                         <div class="px-3 pt-3 pb-2">
                             <input
+                                ref="newChatInputRef"
                                 v-model="newChatKeyword"
                                 placeholder="搜索成员..."
                                 class="w-full h-8 px-3 text-sm bg-gray-50 border border-gray-200 rounded-md outline-none focus:ring-1 focus:ring-blue-400 focus:bg-white"
-                                autofocus
+                                @keydown="handleNewChatKeydown"
                             />
                         </div>
-                        <div class="max-h-[300px] overflow-y-auto">
+                        <div ref="newChatListRef" class="max-h-[300px] overflow-y-auto">
                             <div v-if="newChatLoading" class="flex items-center justify-center py-6">
                                 <Loader2 :size="16" class="animate-spin text-gray-400" />
-                            </div>
-                            <div v-else-if="!newChatKeyword.trim()" class="px-3 py-4 text-xs text-gray-400 text-center">
-                                输入关键词搜索成员
                             </div>
                             <div v-else-if="newChatMembers.length === 0" class="px-3 py-4 text-xs text-gray-400 text-center">
                                 未找到匹配的成员
                             </div>
                             <div v-else class="py-1">
                                 <div
-                                    v-for="m in newChatMembers" :key="m.id"
-                                    class="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-gray-50 transition-colors"
+                                    v-for="(m, idx) in newChatMembers" :key="m.id"
+                                    data-member-item
+                                    class="flex items-center gap-2.5 px-3 py-2 cursor-pointer transition-colors"
+                                    :class="idx === newChatActiveIndex ? 'bg-blue-50' : 'hover:bg-gray-50'"
                                     @click="handleStartChat(m)"
+                                    @mouseenter="newChatActiveIndex = idx"
                                 >
                                     <div class="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0 text-xs font-medium text-blue-600">
                                         {{ m.name.charAt(0) }}
                                     </div>
                                     <div class="min-w-0 flex-1">
                                         <div class="text-sm text-gray-800 truncate">{{ m.name }}</div>
-                                        <div v-if="m.email" class="text-xs text-gray-400 truncate">{{ m.email }}</div>
+                                        <div v-if="m.department || m.position" class="text-xs text-gray-400 truncate">{{ [m.department, m.position].filter(Boolean).join(' / ') }}</div>
+                                        <div v-else-if="m.email" class="text-xs text-gray-400 truncate">{{ m.email }}</div>
                                     </div>
                                 </div>
                             </div>

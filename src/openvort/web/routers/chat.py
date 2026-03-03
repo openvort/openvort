@@ -407,6 +407,8 @@ async def search_members(request: Request, keyword: str = "", limit: int = 20):
     from openvort.contacts.models import Member
     from openvort.web.deps import get_db_session_factory
 
+    from openvort.contacts.models import Department, MemberDepartment
+
     session_factory = get_db_session_factory()
     async with session_factory() as session:
         stmt = select(Member).where(Member.status == "active").order_by(Member.name)
@@ -420,6 +422,20 @@ async def search_members(request: Request, keyword: str = "", limit: int = 20):
         result = await session.execute(stmt)
         members = result.scalars().all()
 
+        member_ids = [m.id for m in members]
+        dept_map: dict[str, str] = {}
+        if member_ids:
+            dept_stmt = (
+                select(MemberDepartment.member_id, Department.name)
+                .join(Department, MemberDepartment.department_id == Department.id)
+                .where(MemberDepartment.member_id.in_(member_ids))
+                .order_by(MemberDepartment.is_primary.desc())
+            )
+            dept_result = await session.execute(dept_stmt)
+            for mid, dname in dept_result:
+                if mid not in dept_map:
+                    dept_map[mid] = dname
+
         return {
             "members": [
                 {
@@ -427,6 +443,8 @@ async def search_members(request: Request, keyword: str = "", limit: int = 20):
                     "name": m.name,
                     "avatar_url": m.avatar_url or "",
                     "email": m.email or "",
+                    "position": m.position or "",
+                    "department": dept_map.get(m.id, ""),
                 }
                 for m in members
             ]

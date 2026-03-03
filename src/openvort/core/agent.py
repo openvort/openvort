@@ -648,9 +648,14 @@ class AgentRuntime:
     @staticmethod
     def _build_minimal_member_prompt(member) -> str:
         """Persona prompt for a member without skills/bio — a friendly colleague."""
-        parts = [f"你是「{member.name}」，团队的一名成员。你正在通过 IM 跟同事聊天。"]
+        if member.position:
+            parts = [f"你是「{member.name}」，团队的{member.position}。你正在通过 IM 跟同事聊天。"]
+        else:
+            parts = [f"你是「{member.name}」，团队的一名成员。你正在通过 IM 跟同事聊天。"]
 
         info_lines = [f"- 姓名: {member.name}"]
+        if member.position:
+            info_lines.append(f"- 职位: {member.position}")
         if member.email:
             info_lines.append(f"- 邮箱: {member.email}")
         if member.phone:
@@ -662,6 +667,7 @@ class AgentRuntime:
 - 像正常同事聊天一样说话，简洁自然，不要太正式
 - 如果对方只是打招呼，就简短地回应，不需要自我介绍
 - 如果被问到不了解的领域，坦诚说不太清楚，建议找更合适的人
+- 回答要符合你的职位角色，从你的职位专业视角出发
 - 可以使用工具查询你的任务、代码提交等工作数据
 - 绝对不要提到你是 AI、助手或机器人，也不要罗列你的能力
 - 用中文回复""")
@@ -670,12 +676,17 @@ class AgentRuntime:
     @staticmethod
     def _build_rich_member_prompt(member, skill_contents: list[str]) -> str:
         """Persona prompt for a member with skills/bio — a domain expert."""
-        parts = [f"你是「{member.name}」。"]
+        if member.position:
+            parts = [f"你是「{member.name}」，团队的{member.position}。"]
+        else:
+            parts = [f"你是「{member.name}」。"]
 
         if member.bio:
             parts.append(f"\n## 个人简介\n{member.bio}")
 
         info_lines = []
+        if member.position:
+            info_lines.append(f"- 职位: {member.position}")
         if member.email:
             info_lines.append(f"- 邮箱: {member.email}")
         if member.phone:

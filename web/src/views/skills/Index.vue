@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from "vue";
+import { ref, onMounted, watch } from "vue";
 import {
     getSkills, getSkill, createSkill, updateSkill, deleteSkill, toggleSkill,
     getMemberSkills, createPersonalSkill, updatePersonalSkill, deletePersonalSkill,
@@ -7,7 +7,7 @@ import {
 } from "@/api";
 import { message } from "@/components/vort/message";
 import { dialog } from "@/components/vort/dialog";
-import { Plus, Trash2, Save, Package, Globe, User, Search } from "lucide-vue-next";
+import { Plus, Trash2, Save, Package, Globe, User } from "lucide-vue-next";
 
 interface SkillItem {
     id: string;
@@ -22,9 +22,6 @@ interface MemberOption {
     id: string;
     name: string;
 }
-
-// ---- Tab state ----
-const activeTab = ref("builtin");
 
 // ---- Builtin + Public lists ----
 const builtinSkills = ref<SkillItem[]>([]);
@@ -41,7 +38,6 @@ async function loadSkills() {
     finally { loading.value = false; }
 }
 
-// ---- Toggle ----
 async function handleToggle(skill: SkillItem) {
     try {
         const res: any = await toggleSkill(skill.id);
@@ -49,12 +45,10 @@ async function handleToggle(skill: SkillItem) {
             skill.enabled = res.enabled;
             message.success(res.enabled ? "已启用" : "已禁用");
         }
-    } catch {
-        message.error("操作失败");
-    }
+    } catch { message.error("操作失败"); }
 }
 
-// ---- Drawer (builtin/public detail/edit) ----
+// ---- Detail drawer (builtin readonly / public editable) ----
 const drawerOpen = ref(false);
 const drawerSkill = ref<SkillItem | null>(null);
 const drawerLoading = ref(false);
@@ -70,11 +64,9 @@ async function openDrawer(skill: SkillItem) {
             content: res.content, scope: res.scope, enabled: res.enabled,
         };
     } catch {
-        message.error("加载 Skill 详情失败");
+        message.error("加载详情失败");
         drawerOpen.value = false;
-    } finally {
-        drawerLoading.value = false;
-    }
+    } finally { drawerLoading.value = false; }
 }
 
 async function handleSaveDrawer() {
@@ -89,11 +81,8 @@ async function handleSaveDrawer() {
         message.success("保存成功");
         drawerOpen.value = false;
         loadSkills();
-    } catch {
-        message.error("保存失败");
-    } finally {
-        saving.value = false;
-    }
+    } catch { message.error("保存失败"); }
+    finally { saving.value = false; }
 }
 
 function handleDeletePublic(skill: SkillItem) {
@@ -106,14 +95,12 @@ function handleDeletePublic(skill: SkillItem) {
                 message.success("删除成功");
                 drawerOpen.value = false;
                 loadSkills();
-            } catch {
-                message.error("删除失败");
-            }
+            } catch { message.error("删除失败"); }
         },
     });
 }
 
-// ---- Create public skill dialog ----
+// ---- Create public skill ----
 const createDialogOpen = ref(false);
 const createForm = ref({ name: "", description: "", content: "" });
 const creating = ref(false);
@@ -124,10 +111,7 @@ function openCreateDialog() {
 }
 
 async function handleCreate() {
-    if (!createForm.value.name.trim()) {
-        message.error("请输入名称");
-        return;
-    }
+    if (!createForm.value.name.trim()) { message.error("请输入名称"); return; }
     creating.value = true;
     try {
         await createSkill(createForm.value);
@@ -136,17 +120,14 @@ async function handleCreate() {
         loadSkills();
     } catch (e: any) {
         message.error(e?.response?.data?.detail || "创建失败");
-    } finally {
-        creating.value = false;
-    }
+    } finally { creating.value = false; }
 }
 
-// ---- Personal skills tab ----
+// ---- Personal skills ----
 const members = ref<MemberOption[]>([]);
 const selectedMemberId = ref("");
 const personalSkills = ref<SkillItem[]>([]);
 const personalLoading = ref(false);
-const memberBio = ref("");
 
 async function loadMembers() {
     try {
@@ -156,72 +137,47 @@ async function loadMembers() {
 }
 
 async function loadPersonalSkills() {
-    if (!selectedMemberId.value) {
-        personalSkills.value = [];
-        return;
-    }
+    if (!selectedMemberId.value) { personalSkills.value = []; return; }
     personalLoading.value = true;
     try {
         const res: any = await getMemberSkills(selectedMemberId.value);
         personalSkills.value = res?.personal || [];
-        memberBio.value = res?.bio || "";
     } catch { personalSkills.value = []; }
     finally { personalLoading.value = false; }
 }
 
 watch(selectedMemberId, () => loadPersonalSkills());
 
-// ---- Personal skill drawer ----
 const personalDrawerOpen = ref(false);
 const personalDrawerMode = ref<"add" | "edit">("add");
 const personalDrawerForm = ref({ id: "", name: "", description: "", content: "" });
 const personalSaving = ref(false);
 
 function openPersonalAdd() {
-    if (!selectedMemberId.value) {
-        message.warning("请先选择成员");
-        return;
-    }
+    if (!selectedMemberId.value) { message.warning("请先选择成员"); return; }
     personalDrawerMode.value = "add";
     personalDrawerForm.value = { id: "", name: "", description: "", content: "" };
     personalDrawerOpen.value = true;
 }
 
-async function openPersonalEdit(skill: SkillItem) {
+function openPersonalEdit(skill: SkillItem) {
     personalDrawerMode.value = "edit";
-    personalDrawerForm.value = {
-        id: skill.id,
-        name: skill.name,
-        description: skill.description,
-        content: skill.content || "",
-    };
-    // Load full content if not available
-    if (!skill.content) {
-        try {
-            const res: any = await getSkill(skill.id);
-            personalDrawerForm.value.content = res?.content || "";
-        } catch { /* ignore */ }
-    }
+    personalDrawerForm.value = { id: skill.id, name: skill.name, description: skill.description, content: skill.content || "" };
     personalDrawerOpen.value = true;
 }
 
 async function handleSavePersonal() {
-    if (!personalDrawerForm.value.name.trim()) {
-        message.error("请输入名称");
-        return;
-    }
+    if (!personalDrawerForm.value.name.trim()) { message.error("请输入名称"); return; }
     personalSaving.value = true;
     try {
         if (personalDrawerMode.value === "add") {
             await createPersonalSkill(selectedMemberId.value, {
-                name: personalDrawerForm.value.name,
-                description: personalDrawerForm.value.description,
+                name: personalDrawerForm.value.name, description: personalDrawerForm.value.description,
                 content: personalDrawerForm.value.content,
             });
         } else {
             await updatePersonalSkill(personalDrawerForm.value.id, {
-                name: personalDrawerForm.value.name,
-                description: personalDrawerForm.value.description,
+                name: personalDrawerForm.value.name, description: personalDrawerForm.value.description,
                 content: personalDrawerForm.value.content,
             });
         }
@@ -230,113 +186,101 @@ async function handleSavePersonal() {
         loadPersonalSkills();
     } catch (e: any) {
         message.error(e?.response?.data?.detail || "保存失败");
-    } finally {
-        personalSaving.value = false;
-    }
+    } finally { personalSaving.value = false; }
 }
 
 function handleDeletePersonal(skill: SkillItem) {
     dialog.confirm({
-        title: `确认删除个人技能「${skill.name}」？`,
-        content: "删除后不可恢复",
+        title: `确认删除「${skill.name}」？`,
         onOk: async () => {
             try {
                 await deletePersonalSkill(skill.id);
-                message.success("删除成功");
+                message.success("已删除");
                 loadPersonalSkills();
-            } catch {
-                message.error("删除失败");
-            }
+            } catch { message.error("删除失败"); }
         },
     });
 }
 
-onMounted(() => {
-    loadSkills();
-    loadMembers();
-});
+onMounted(() => { loadSkills(); loadMembers(); });
 </script>
 
 <template>
     <div class="space-y-4">
+        <!-- 内置技能 -->
         <div class="bg-white rounded-xl p-6">
             <div class="flex items-center justify-between mb-4">
-                <h2 class="text-lg font-medium text-gray-800">技能管理</h2>
-                <VortButton v-if="activeTab === 'public'" variant="primary" @click="openCreateDialog">
-                    <Plus :size="14" class="mr-1" /> 新建公共技能
+                <div class="flex items-center gap-2">
+                    <Package :size="18" class="text-blue-600" />
+                    <h3 class="text-base font-medium text-gray-800">内置技能</h3>
+                    <span class="text-xs text-gray-400">随代码内置，全局生效</span>
+                </div>
+            </div>
+            <VortSpin :spinning="loading">
+                <div v-if="builtinSkills.length === 0 && !loading" class="text-center py-6 text-gray-400 text-sm">暂无内置技能</div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                    <div v-for="skill in builtinSkills" :key="skill.id"
+                        class="flex items-center justify-between px-4 py-3 rounded-lg border border-gray-100 hover:border-blue-200 transition-colors cursor-pointer"
+                        @click="openDrawer(skill)">
+                        <div class="min-w-0 flex-1">
+                            <div class="text-sm font-medium text-gray-800 truncate">{{ skill.name }}</div>
+                            <div class="text-xs text-gray-400 truncate mt-0.5">{{ skill.description || '暂无描述' }}</div>
+                        </div>
+                        <div class="flex items-center gap-2 flex-shrink-0 ml-3" @click.stop>
+                            <VortTag color="blue" size="small">内置</VortTag>
+                            <VortSwitch :checked="skill.enabled" size="small" @change="handleToggle(skill)" />
+                        </div>
+                    </div>
+                </div>
+            </VortSpin>
+        </div>
+
+        <!-- 公共技能 -->
+        <div class="bg-white rounded-xl p-6">
+            <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center gap-2">
+                    <Globe :size="18" class="text-green-600" />
+                    <h3 class="text-base font-medium text-gray-800">公共技能</h3>
+                    <span class="text-xs text-gray-400">管理员维护，成员可订阅</span>
+                </div>
+                <VortButton variant="primary" size="small" @click="openCreateDialog">
+                    <Plus :size="14" class="mr-1" /> 新建
                 </VortButton>
-                <VortButton v-if="activeTab === 'personal'" variant="primary" @click="openPersonalAdd">
-                    <Plus :size="14" class="mr-1" /> 新增个人技能
+            </div>
+            <VortSpin :spinning="loading">
+                <div v-if="publicSkills.length === 0 && !loading" class="text-center py-6 text-gray-400 text-sm">
+                    暂无公共技能，点击右上角新建
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                    <div v-for="skill in publicSkills" :key="skill.id"
+                        class="flex items-center justify-between px-4 py-3 rounded-lg border border-gray-100 hover:border-green-200 transition-colors cursor-pointer"
+                        @click="openDrawer(skill)">
+                        <div class="min-w-0 flex-1">
+                            <div class="text-sm font-medium text-gray-800 truncate">{{ skill.name }}</div>
+                            <div class="text-xs text-gray-400 truncate mt-0.5">{{ skill.description || '暂无描述' }}</div>
+                        </div>
+                        <div class="flex items-center gap-2 flex-shrink-0 ml-3" @click.stop>
+                            <VortTag color="green" size="small">公共</VortTag>
+                            <VortSwitch :checked="skill.enabled" size="small" @change="handleToggle(skill)" />
+                        </div>
+                    </div>
+                </div>
+            </VortSpin>
+        </div>
+
+        <!-- 个人技能 -->
+        <div class="bg-white rounded-xl p-6">
+            <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center gap-2">
+                    <User :size="18" class="text-purple-600" />
+                    <h3 class="text-base font-medium text-gray-800">个人技能</h3>
+                    <span class="text-xs text-gray-400">绑定成员，代理对话时注入</span>
+                </div>
+                <VortButton variant="primary" size="small" @click="openPersonalAdd">
+                    <Plus :size="14" class="mr-1" /> 新增
                 </VortButton>
             </div>
 
-            <VortTabs v-model="activeTab">
-                <VortTabPane key="builtin" tab="内置技能" />
-                <VortTabPane key="public" tab="公共技能" />
-                <VortTabPane key="personal" tab="个人技能" />
-            </VortTabs>
-        </div>
-
-        <!-- Builtin tab -->
-        <div v-if="activeTab === 'builtin'" class="bg-white rounded-xl p-6">
-            <VortSpin :spinning="loading">
-                <div v-if="builtinSkills.length === 0 && !loading" class="text-center py-8 text-gray-400 text-sm">
-                    暂无内置技能
-                </div>
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    <VortCard v-for="skill in builtinSkills" :key="skill.id" :shadow="false" padding="small"
-                        class="cursor-pointer hover:border-blue-200 transition-colors" @click="openDrawer(skill)">
-                        <div class="flex items-center justify-between">
-                            <div class="flex items-center min-w-0">
-                                <div class="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center mr-3 flex-shrink-0">
-                                    <Package :size="20" class="text-blue-600" />
-                                </div>
-                                <div class="min-w-0">
-                                    <h4 class="text-sm font-medium text-gray-800 truncate">{{ skill.name }}</h4>
-                                    <p class="text-xs text-gray-400 truncate">{{ skill.description || '暂无描述' }}</p>
-                                </div>
-                            </div>
-                            <div class="flex items-center gap-2 flex-shrink-0 ml-3" @click.stop>
-                                <VortTag color="blue" size="small">内置</VortTag>
-                                <VortSwitch :checked="skill.enabled" size="small" @change="handleToggle(skill)" />
-                            </div>
-                        </div>
-                    </VortCard>
-                </div>
-            </VortSpin>
-        </div>
-
-        <!-- Public tab -->
-        <div v-if="activeTab === 'public'" class="bg-white rounded-xl p-6">
-            <VortSpin :spinning="loading">
-                <div v-if="publicSkills.length === 0 && !loading" class="text-center py-8 text-gray-400 text-sm">
-                    暂无公共技能，点击右上角新建
-                </div>
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    <VortCard v-for="skill in publicSkills" :key="skill.id" :shadow="false" padding="small"
-                        class="cursor-pointer hover:border-blue-200 transition-colors" @click="openDrawer(skill)">
-                        <div class="flex items-center justify-between">
-                            <div class="flex items-center min-w-0">
-                                <div class="w-10 h-10 rounded-lg bg-green-50 flex items-center justify-center mr-3 flex-shrink-0">
-                                    <Globe :size="20" class="text-green-600" />
-                                </div>
-                                <div class="min-w-0">
-                                    <h4 class="text-sm font-medium text-gray-800 truncate">{{ skill.name }}</h4>
-                                    <p class="text-xs text-gray-400 truncate">{{ skill.description || '暂无描述' }}</p>
-                                </div>
-                            </div>
-                            <div class="flex items-center gap-2 flex-shrink-0 ml-3" @click.stop>
-                                <VortTag color="green" size="small">公共</VortTag>
-                                <VortSwitch :checked="skill.enabled" size="small" @change="handleToggle(skill)" />
-                            </div>
-                        </div>
-                    </VortCard>
-                </div>
-            </VortSpin>
-        </div>
-
-        <!-- Personal tab -->
-        <div v-if="activeTab === 'personal'" class="bg-white rounded-xl p-6">
             <div class="flex items-center gap-4 mb-4">
                 <span class="text-sm text-gray-500 whitespace-nowrap">选择成员</span>
                 <VortSelect v-model="selectedMemberId" placeholder="请选择成员" allow-clear class="w-[200px]">
@@ -345,39 +289,29 @@ onMounted(() => {
             </div>
 
             <VortSpin :spinning="personalLoading">
-                <div v-if="!selectedMemberId" class="text-center py-8 text-gray-400 text-sm">
-                    请选择一个成员查看其个人技能
-                </div>
-                <div v-else-if="personalSkills.length === 0 && !personalLoading" class="text-center py-8 text-gray-400 text-sm">
-                    该成员暂无个人技能
-                </div>
-                <div v-else class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    <VortCard v-for="skill in personalSkills" :key="skill.id" :shadow="false" padding="small"
-                        class="cursor-pointer hover:border-purple-200 transition-colors" @click="openPersonalEdit(skill)">
-                        <div class="flex items-center justify-between">
-                            <div class="flex items-center min-w-0">
-                                <div class="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center mr-3 flex-shrink-0">
-                                    <User :size="20" class="text-purple-600" />
-                                </div>
-                                <div class="min-w-0">
-                                    <h4 class="text-sm font-medium text-gray-800 truncate">{{ skill.name }}</h4>
-                                    <p class="text-xs text-gray-400 truncate">{{ skill.description || '暂无描述' }}</p>
-                                </div>
-                            </div>
-                            <div class="flex items-center gap-2 flex-shrink-0 ml-3" @click.stop>
-                                <VortTag color="purple" size="small">个人</VortTag>
-                                <VortPopconfirm title="确认删除？" @confirm="handleDeletePersonal(skill)">
-                                    <a class="text-sm text-red-500 cursor-pointer"><Trash2 :size="14" /></a>
-                                </VortPopconfirm>
-                            </div>
+                <div v-if="!selectedMemberId" class="text-center py-6 text-gray-400 text-sm">请选择成员查看个人技能</div>
+                <div v-else-if="personalSkills.length === 0 && !personalLoading" class="text-center py-6 text-gray-400 text-sm">该成员暂无个人技能</div>
+                <div v-else class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                    <div v-for="skill in personalSkills" :key="skill.id"
+                        class="flex items-center justify-between px-4 py-3 rounded-lg border border-gray-100 hover:border-purple-200 transition-colors cursor-pointer"
+                        @click="openPersonalEdit(skill)">
+                        <div class="min-w-0 flex-1">
+                            <div class="text-sm font-medium text-gray-800 truncate">{{ skill.name }}</div>
+                            <div class="text-xs text-gray-400 truncate mt-0.5">{{ skill.description || '暂无描述' }}</div>
                         </div>
-                    </VortCard>
+                        <div class="flex items-center gap-2 flex-shrink-0 ml-3" @click.stop>
+                            <VortTag color="purple" size="small">个人</VortTag>
+                            <VortPopconfirm title="确认删除？" @confirm="handleDeletePersonal(skill)">
+                                <a class="text-red-400 hover:text-red-500 cursor-pointer"><Trash2 :size="14" /></a>
+                            </VortPopconfirm>
+                        </div>
+                    </div>
                 </div>
             </VortSpin>
         </div>
 
-        <!-- Builtin/Public detail drawer -->
-        <VortDrawer :open="drawerOpen" :title="drawerSkill?.name || 'Skill 详情'" :width="640" @update:open="drawerOpen = $event">
+        <!-- Detail / edit drawer -->
+        <VortDrawer :open="drawerOpen" :title="drawerSkill?.name || '技能详情'" :width="640" @update:open="drawerOpen = $event">
             <VortSpin :spinning="drawerLoading">
                 <div v-if="drawerSkill" class="space-y-4">
                     <VortForm label-width="80px">

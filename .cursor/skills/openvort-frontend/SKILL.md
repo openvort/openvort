@@ -515,7 +515,8 @@ const handleSave = () => { drawerVisible.value = false; loadData(); };
 | `vort-popconfirm` | `:title`, `@confirm` |
 | `vort-divider` | `type="vertical"` |
 | `vort-spin` | `:spinning` |
-| `vort-tabs` / `vort-tab-pane` | `v-model`, `key`, `tab` |
+| `vort-tabs` | `v-model:activeKey`（注意不是 v-model）, `type="line\|card\|editable-card"`, `:hide-content`, `size`, `centered` |
+| `vort-tab-pane` | `tab-key`（注意不是 key）, `tab`, `disabled`, `force-render` |
 | `vort-textarea` | `v-model`, `:rows` |
 | `vort-switch` | `v-model:checked`（注意：不是 v-model）, `:disabled`, `:loading`, `size="small"`, `:before-change` |
 | `vort-checkbox` | `v-model:checked`, `@update:checked` |
@@ -601,6 +602,37 @@ message.info("提示信息");
 
 ```vue
 <vort-checkbox v-model:checked="checked" />
+```
+
+### vort-tabs / vort-tab-pane 用法
+
+`vort-tabs` 使用 `v-model:activeKey`，**不是** `v-model`。
+`vort-tab-pane` 使用 `tab-key`，**不是** Vue 的 `key` 属性。
+
+```vue
+<!-- 正确 -->
+<VortTabs v-model:activeKey="activeTab">
+    <VortTabPane tab-key="first" tab="第一项">内容1</VortTabPane>
+    <VortTabPane tab-key="second" tab="第二项">内容2</VortTabPane>
+</VortTabs>
+
+<!-- 错误 — tab 不会显示！ -->
+<VortTabs v-model="activeTab">
+    <VortTabPane key="first" tab="第一项">内容1</VortTabPane>
+</VortTabs>
+```
+
+**仅导航模式**（内容区域自行渲染，不放在 TabPane 内部）：
+
+```vue
+<VortTabs v-model:activeKey="activeTab" :hide-content="true">
+    <VortTabPane tab-key="a" tab="标签A" />
+    <VortTabPane tab-key="b" tab="标签B" />
+</VortTabs>
+
+<!-- 外部根据 activeTab 自行渲染 -->
+<div v-if="activeTab === 'a'">内容 A</div>
+<div v-if="activeTab === 'b'">内容 B</div>
 ```
 
 ### Checkbox 点不动（高频问题排查）

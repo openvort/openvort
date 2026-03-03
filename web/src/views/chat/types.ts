@@ -44,6 +44,8 @@ export interface MentionMember {
     name: string;
     avatar_url: string;
     email: string;
+    position?: string;
+    department?: string;
 }
 
 export interface SlashCommand {
