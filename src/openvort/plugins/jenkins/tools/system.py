@@ -4,7 +4,6 @@ Jenkins system tools.
 
 from __future__ import annotations
 
-from openvort.plugins.jenkins.config import JenkinsSettings
 from openvort.plugins.jenkins.tools.base import JenkinsToolBase
 
 
@@ -16,13 +15,15 @@ class SystemInfoTool(JenkinsToolBase):
     )
     required_permission = "jenkins.read"
 
-    def __init__(self, settings: JenkinsSettings):
-        super().__init__(settings)
-
     def input_schema(self) -> dict:
         return {
             "type": "object",
             "properties": {
+                "instance_id": {
+                    "type": "string",
+                    "description": "Jenkins 实例 ID（可选，不传则使用默认实例）",
+                    "default": "",
+                },
                 "include_queue": {
                     "type": "boolean",
                     "description": "是否附带队列信息",
@@ -73,4 +74,5 @@ class SystemInfoTool(JenkinsToolBase):
 
             return result
 
-        return await self._run(_handle)
+        instance_id = str(params.get("instance_id", "") or "").strip()
+        return await self._run(_handle, instance_id=instance_id)

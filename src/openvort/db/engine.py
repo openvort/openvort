@@ -117,6 +117,11 @@ async def init_db(database_url: str) -> None:
         pass
 
     try:
+        import openvort.plugins.jenkins.models  # noqa: F401
+    except ImportError:
+        pass
+
+    try:
         import openvort.plugins.report.models  # noqa: F401
     except ImportError:
         pass

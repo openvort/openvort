@@ -4,11 +4,19 @@ Jenkins REST API client.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from urllib.parse import quote
 
 import httpx
 
-from openvort.plugins.jenkins.config import JenkinsSettings
+@dataclass(slots=True)
+class JenkinsConnection:
+    """Runtime Jenkins connection config."""
+
+    url: str
+    username: str
+    api_token: str
+    verify_ssl: bool = True
 
 
 class JenkinsClientError(RuntimeError):
@@ -18,27 +26,30 @@ class JenkinsClientError(RuntimeError):
 class JenkinsClient:
     """轻量 Jenkins API 客户端（Basic Auth + 可选 Crumb）。"""
 
-    def __init__(self, settings: JenkinsSettings):
-        self._settings = settings
-        self._base_url = (settings.url or "").rstrip("/")
+    def __init__(self, connection: JenkinsConnection):
+        self._connection = connection
+        self._base_url = (connection.url or "").rstrip("/")
+        self._username = connection.username or ""
+        self._api_token = connection.api_token or ""
+        self._verify_ssl = bool(connection.verify_ssl)
         self._client = httpx.AsyncClient(
             timeout=30,
-            auth=(settings.username, settings.api_token) if settings.username else None,
-            verify=settings.verify_ssl,
+            auth=(self._username, self._api_token) if self._username else None,
+            verify=self._verify_ssl,
         )
         self._crumb_field = ""
         self._crumb_value = ""
 
     def is_configured(self) -> bool:
-        return bool(self._base_url and self._settings.username and self._settings.api_token)
+        return bool(self._base_url and self._username and self._api_token)
 
     def missing_config_fields(self) -> list[str]:
         missing: list[str] = []
         if not self._base_url:
             missing.append("url")
-        if not self._settings.username:
+        if not self._username:
             missing.append("username")
-        if not self._settings.api_token:
+        if not self._api_token:
             missing.append("api_token")
         return missing
 
@@ -191,7 +202,7 @@ class JenkinsClient:
     async def _ensure_crumb(self) -> None:
         if self._crumb_field and self._crumb_value:
             return
-        if not self._settings.username:
+        if not self._username:
             return
 
         try:

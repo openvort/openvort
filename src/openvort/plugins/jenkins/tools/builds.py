@@ -4,7 +4,6 @@ Jenkins build tools.
 
 from __future__ import annotations
 
-from openvort.plugins.jenkins.config import JenkinsSettings
 from openvort.plugins.jenkins.tools.base import JenkinsToolBase
 
 
@@ -16,13 +15,15 @@ class TriggerBuildTool(JenkinsToolBase):
     )
     required_permission = "jenkins.write"
 
-    def __init__(self, settings: JenkinsSettings):
-        super().__init__(settings)
-
     def input_schema(self) -> dict:
         return {
             "type": "object",
             "properties": {
+                "instance_id": {
+                    "type": "string",
+                    "description": "Jenkins 实例 ID（可选，不传则使用默认实例）",
+                    "default": "",
+                },
                 "job_name": {
                     "type": "string",
                     "description": "Job 名称（支持多级目录，如 folder/project-ci）",
@@ -57,7 +58,8 @@ class TriggerBuildTool(JenkinsToolBase):
                 **result,
             }
 
-        return await self._run(_handle)
+        instance_id = str(params.get("instance_id", "") or "").strip()
+        return await self._run(_handle, instance_id=instance_id)
 
 
 class BuildStatusTool(JenkinsToolBase):
@@ -68,13 +70,15 @@ class BuildStatusTool(JenkinsToolBase):
     )
     required_permission = "jenkins.read"
 
-    def __init__(self, settings: JenkinsSettings):
-        super().__init__(settings)
-
     def input_schema(self) -> dict:
         return {
             "type": "object",
             "properties": {
+                "instance_id": {
+                    "type": "string",
+                    "description": "Jenkins 实例 ID（可选，不传则使用默认实例）",
+                    "default": "",
+                },
                 "job_name": {
                     "type": "string",
                     "description": "Job 名称",
@@ -102,7 +106,8 @@ class BuildStatusTool(JenkinsToolBase):
             status = await client.get_build_status(job_name, build_number)
             return {"ok": True, "job_name": job_name, "build": status}
 
-        return await self._run(_handle)
+        instance_id = str(params.get("instance_id", "") or "").strip()
+        return await self._run(_handle, instance_id=instance_id)
 
 
 class BuildLogTool(JenkinsToolBase):
@@ -113,13 +118,15 @@ class BuildLogTool(JenkinsToolBase):
     )
     required_permission = "jenkins.read"
 
-    def __init__(self, settings: JenkinsSettings):
-        super().__init__(settings)
-
     def input_schema(self) -> dict:
         return {
             "type": "object",
             "properties": {
+                "instance_id": {
+                    "type": "string",
+                    "description": "Jenkins 实例 ID（可选，不传则使用默认实例）",
+                    "default": "",
+                },
                 "job_name": {
                     "type": "string",
                     "description": "Job 名称",
@@ -158,4 +165,5 @@ class BuildLogTool(JenkinsToolBase):
             data = await client.get_build_log(job_name, build_number, tail_lines=tail_lines)
             return {"ok": True, "job_name": job_name, "build_number": build_number, **data}
 
-        return await self._run(_handle)
+        instance_id = str(params.get("instance_id", "") or "").strip()
+        return await self._run(_handle, instance_id=instance_id)
