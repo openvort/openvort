@@ -175,7 +175,18 @@ export function getDashboard() {
 // -- 成员管理 --
 
 /** 新增成员 */
-export function createMember(data: { name: string; email?: string; phone?: string; position?: string; is_account?: boolean }) {
+export function createMember(data: {
+    name: string;
+    email?: string;
+    phone?: string;
+    position?: string;
+    is_account?: boolean;
+    is_virtual?: boolean;
+    virtual_role?: string;
+    skills?: string[];
+    auto_report?: boolean;
+    report_frequency?: string;
+}) {
     return request.post("/admin/members", data);
 }
 
@@ -252,6 +263,43 @@ export function batchAssignDept(ids: string[], deptId: number) {
 /** 批量移除部门 */
 export function batchRemoveDept(ids: string[], deptId: number) {
     return request.post("/admin/members/batch/remove-dept", { ids, dept_id: deptId });
+}
+
+// ---- 角色技能映射 API ----
+
+/** 获取角色推荐技能 */
+export function getRoleSkills(role?: string) {
+    return request.get("/admin/members/roles/skills", { params: { role } });
+}
+
+/** 为角色添加推荐技能 */
+export function addRoleSkill(role: string, skillId: string, priority: number = 0) {
+    return request.post("/admin/members/roles/skills", { role, skill_id: skillId, priority });
+}
+
+/** 移除角色的推荐技能 */
+export function removeRoleSkill(role: string, skillId: string) {
+    return request.delete("/admin/members/roles/skills", { data: { role, skill_id: skillId } });
+}
+
+/** 获取成员技能列表（含来源） */
+export function getMemberSkillsWithSource(memberId: string) {
+    return request.get(`/admin/members/${memberId}/skills`);
+}
+
+/** 为成员添加技能订阅 */
+export function addMemberSkill(memberId: string, skillId: string, source: string = "public") {
+    return request.post(`/admin/members/${memberId}/skills`, { skill_id: skillId, source });
+}
+
+/** 更新成员技能 */
+export function updateMemberSkill(memberId: string, skillId: string, data: { enabled?: boolean; custom_content?: string }) {
+    return request.put(`/admin/members/${memberId}/skills/${skillId}`, data);
+}
+
+/** 移除成员技能 */
+export function removeMemberSkill(memberId: string, skillId: string) {
+    return request.delete(`/admin/members/${memberId}/skills/${skillId}`);
 }
 
 /** 角色列表 */
@@ -663,9 +711,9 @@ export function runAdminSchedule(jobId: string) {
 
 // ---- Skill 管理（管理员：内置 + 公共）----
 
-/** Skill 列表（builtin + public） */
-export function getSkills() {
-    return request.get("/admin/skills");
+/** Skill 列表（builtin + public），可按 skill_type 筛选 */
+export function getSkills(params?: { skill_type?: string }) {
+    return request.get("/admin/skills", { params });
 }
 
 /** Skill 详情 */
@@ -674,12 +722,12 @@ export function getSkill(id: string) {
 }
 
 /** 创建公共 Skill */
-export function createSkill(data: { name: string; description?: string; content?: string }) {
+export function createSkill(data: { name: string; description?: string; content?: string; skill_type?: string }) {
     return request.post("/admin/skills", data);
 }
 
 /** 更新公共 Skill */
-export function updateSkill(id: string, data: { name?: string; description?: string; content?: string }) {
+export function updateSkill(id: string, data: { name?: string; description?: string; content?: string; skill_type?: string }) {
     return request.put(`/admin/skills/${id}`, data);
 }
 

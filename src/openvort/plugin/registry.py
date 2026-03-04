@@ -16,7 +16,7 @@ class PluginRegistry:
     def __init__(self):
         self._channels: dict[str, BaseChannel] = {}
         self._tools: dict[str, BaseTool] = {}
-        self._prompts: list[str] = []
+        self._prompts: list[tuple[str, str]] = []  # (source, content)
         self._plugins: dict[str, "BasePlugin"] = {}
         self._disabled: set[str] = set()
 
@@ -46,8 +46,7 @@ class PluginRegistry:
         tool_names = [t.name for t in plugin.get_tools()]
         for tn in tool_names:
             self._tools.pop(tn, None)
-        plugin_prompts = set(plugin.get_prompts())
-        self._prompts = [p for p in self._prompts if p not in plugin_prompts]
+        self._prompts = [(s, c) for s, c in self._prompts if s != f"plugin:{name}"]
         self._disabled.add(name)
         log.info(f"已禁用 Plugin: {name}（移除 {len(tool_names)} 个 Tool）")
 
@@ -59,7 +58,7 @@ class PluginRegistry:
         for tool in plugin.get_tools():
             self.register_tool(tool)
         for prompt in plugin.get_prompts():
-            self.register_prompt(prompt)
+            self.register_prompt(prompt, source=f"plugin:{name}")
         self._disabled.discard(name)
         log.info(f"已启用 Plugin: {name}")
 
@@ -74,8 +73,7 @@ class PluginRegistry:
         tool_names = [t.name for t in plugin.get_tools()]
         for tn in tool_names:
             self._tools.pop(tn, None)
-        plugin_prompts = set(plugin.get_prompts())
-        self._prompts = [p for p in self._prompts if p not in plugin_prompts]
+        self._prompts = [(s, c) for s, c in self._prompts if s != f"plugin:{name}"]
         self._disabled.discard(name)
         log.info(f"已注销 Plugin: {name}（移除 {len(tool_names)} 个 Tool）")
 
@@ -147,14 +145,28 @@ class PluginRegistry:
             result.append(tool.to_claude_tool())
         return result
 
-    # ---- Prompt 管理（插件领域知识）----
+    # ---- Prompt 管理（插件领域知识 + Skill）----
 
-    def register_prompt(self, prompt: str) -> None:
-        """注册一条插件领域知识 prompt"""
-        self._prompts.append(prompt)
+    def register_prompt(self, prompt: str, source: str = "") -> None:
+        """注册一条领域知识 prompt（带来源标记）"""
+        self._prompts.append((source, prompt))
 
     def get_system_prompt_extension(self) -> str:
-        """拼接所有插件的领域知识，用于追加到 Agent system prompt"""
+        """拼接所有领域知识，按来源分节输出"""
         if not self._prompts:
             return ""
-        return "\n\n".join(self._prompts)
+
+        plugin_parts = []
+        skill_parts = []
+        for source, content in self._prompts:
+            if source.startswith("plugin:"):
+                plugin_parts.append(content)
+            else:
+                skill_parts.append(content)
+
+        sections = []
+        if plugin_parts:
+            sections.append("## 插件能力\n\n" + "\n\n".join(plugin_parts))
+        if skill_parts:
+            sections.append("## 技能知识\n\n" + "\n\n".join(skill_parts))
+        return "\n\n".join(sections)

@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from openvort.db.engine import Base
 
@@ -142,6 +142,7 @@ class Skill(Base):
     description: Mapped[str] = mapped_column(Text, default="")
     content: Mapped[str] = mapped_column(Text, default="")  # markdown
     scope: Mapped[str] = mapped_column(String(16), index=True)  # builtin / public / personal
+    skill_type: Mapped[str] = mapped_column(String(16), default="workflow")  # role / workflow / report / system
     owner_id: Mapped[str] = mapped_column(String(32), default="", index=True)  # personal → member.id
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
@@ -161,5 +162,18 @@ class MemberSkill(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     member_id: Mapped[str] = mapped_column(String(32), ForeignKey("members.id"), index=True)
     skill_id: Mapped[str] = mapped_column(String(32), ForeignKey("skills.id"), index=True)
+    source: Mapped[str] = mapped_column(String(32), default="personal")  # role:developer / personal / public
+    custom_content: Mapped[str] = mapped_column(Text, default="")  # 自定义内容，覆盖 Skill.content
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class RoleSkill(Base):
+    """角色-技能映射表"""
+
+    __tablename__ = "role_skills"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    role: Mapped[str] = mapped_column(String(32), index=True)  # developer/pm/qa/designer/assistant
+    skill_id: Mapped[str] = mapped_column(String(32), ForeignKey("skills.id"), index=True)
+    priority: Mapped[int] = mapped_column(Integer, default=0)  # 越小越优先

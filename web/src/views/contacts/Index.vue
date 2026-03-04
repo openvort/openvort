@@ -24,6 +24,7 @@ import {
 import { message } from "@/components/vort/message";
 import { dialog } from "@/components/vort/dialog";
 import { DeptTree } from "@/components/vort-biz/dept-tree";
+import { MemberWizard } from "@/components/vort-biz/member-wizard";
 import type { DeptNode } from "@/components/vort-biz/dept-tree";
 
 // ---- 类型 ----
@@ -237,22 +238,26 @@ const virtualRoleOptions = [
     { value: "assistant", label: "通用助手" },
 ];
 
-const skillOptions = [
-    { value: "code-review", label: "代码审查" },
-    { value: "daily-report", label: "日报生成" },
-];
+const skillOptions = ref<{ value: string; label: string }[]>([]);
+
+async function loadSkillOptions() {
+    try {
+        const { getSkills } = await import("@/api");
+        const res: any = await getSkills();
+        skillOptions.value = (res?.skills || []).map((s: any) => ({ value: s.id, label: s.name }));
+    } catch { /* ignore */ }
+}
 
 const reportFrequencyOptions = [
     { value: "daily", label: "每日" },
     { value: "weekly", label: "每周" },
 ];
 
+// 向导式创建成员
+const wizardOpen = ref(false);
+
 function openCreateMemberDialog() {
-    createMemberForm.value = {
-        name: "", email: "", phone: "", position: "", is_account: false,
-        is_virtual: false, virtual_role: "", skills: [], auto_report: false, report_frequency: "daily"
-    };
-    createMemberDialogOpen.value = true;
+    wizardOpen.value = true;
 }
 
 async function handleCreateMember() {
@@ -1127,6 +1132,7 @@ onMounted(() => {
     loadRelations();
     loadCalendar();
     loadWorkSettings();
+    loadSkillOptions();
 });
 </script>
 
@@ -2125,5 +2131,12 @@ onMounted(() => {
                 </template>
             </div>
         </VortDialog>
+
+        <!-- 向导式创建成员 -->
+        <MemberWizard
+            :open="wizardOpen"
+            @update:open="wizardOpen = $event"
+            @complete="async () => { await Promise.all([loadMembers(), loadDeptTree()]); }"
+        />
     </div>
 </template>

@@ -16,34 +16,36 @@ class CreateSkillRequest(BaseModel):
     name: str
     description: str = ""
     content: str = ""
+    skill_type: str = "workflow"  # role / workflow / report / system
 
 
 class UpdateSkillRequest(BaseModel):
     name: str | None = None
     description: str | None = None
     content: str | None = None
+    skill_type: str | None = None
 
 
 @router.get("")
-async def list_skills():
-    """列出所有 Skill（builtin + public）"""
+async def list_skills(skill_type: str = ""):
+    """列出所有 Skill（builtin + public），可按 skill_type 筛选"""
     factory = get_db_session_factory()
     async with factory() as db:
-        result = await db.execute(
-            select(Skill).where(Skill.scope.in_(["builtin", "public"])).order_by(Skill.sort_order, Skill.name)
-        )
+        stmt = select(Skill).where(Skill.scope.in_(["builtin", "public"]))
+        if skill_type:
+            stmt = stmt.where(Skill.skill_type == skill_type)
+        stmt = stmt.order_by(Skill.skill_type, Skill.sort_order, Skill.name)
+        result = await db.execute(stmt)
         rows = result.scalars().all()
 
-    builtin = []
-    public = []
+    items = []
     for s in rows:
-        item = {"id": s.id, "name": s.name, "description": s.description, "scope": s.scope, "enabled": s.enabled}
-        if s.scope == "builtin":
-            builtin.append(item)
-        else:
-            public.append(item)
+        items.append({
+            "id": s.id, "name": s.name, "description": s.description,
+            "scope": s.scope, "skill_type": s.skill_type, "enabled": s.enabled,
+        })
 
-    return {"builtin": builtin, "public": public}
+    return {"skills": items}
 
 
 @router.get("/{skill_id}")
@@ -56,7 +58,8 @@ async def get_skill(skill_id: str):
         raise HTTPException(status_code=404, detail="Skill 不存在")
     return {
         "id": row.id, "name": row.name, "description": row.description,
-        "content": row.content, "scope": row.scope, "enabled": row.enabled,
+        "content": row.content, "scope": row.scope, "skill_type": row.skill_type,
+        "enabled": row.enabled,
     }
 
 
@@ -80,6 +83,7 @@ async def create_skill(req: CreateSkillRequest):
             description=req.description,
             content=req.content,
             scope="public",
+            skill_type=req.skill_type,
         )
         db.add(skill)
         await db.commit()
@@ -106,6 +110,8 @@ async def update_skill(skill_id: str, req: UpdateSkillRequest):
             row.description = req.description
         if req.content is not None:
             row.content = req.content
+        if req.skill_type is not None:
+            row.skill_type = req.skill_type
         await db.commit()
 
     return {"success": True}

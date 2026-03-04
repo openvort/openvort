@@ -179,7 +179,7 @@ class AgentRuntime:
 
                 plugin_prompts = self._registry.get_system_prompt_extension()
                 if plugin_prompts:
-                    system += "\n\n# 插件能力\n\n" + plugin_prompts
+                    system += "\n\n" + plugin_prompts
                 if onboarding_hints:
                     system += "\n\n# 插件引导（优先处理）\n\n" + "\n\n".join(onboarding_hints)
 
@@ -405,7 +405,7 @@ class AgentRuntime:
 
         plugin_prompts = self._registry.get_system_prompt_extension()
         if plugin_prompts:
-            system += "\n\n# 可用工具\n\n" + plugin_prompts
+            system += "\n\n" + plugin_prompts
         if onboarding_hints:
             system += "\n\n# 插件引导（优先处理）\n\n" + "\n\n".join(onboarding_hints)
 
