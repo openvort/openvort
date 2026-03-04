@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { useCrudPage } from "@/hooks";
+import { z } from "zod";
+import { useCrudPage, useDirtyCheck } from "@/hooks";
 import {
     getVortflowBugs, getVortflowStories, createVortflowBug,
     updateVortflowBug, deleteVortflowBug, transitionVortflowBug,
@@ -86,19 +87,30 @@ const drawerVisible = ref(false);
 const drawerTitle = ref("");
 const drawerMode = ref<"view" | "edit" | "add">("view");
 const currentRow = ref<Partial<BugItem>>({});
+const formRef = ref();
 const formLoading = ref(false);
+const { takeSnapshot, confirmClose } = useDirtyCheck(currentRow);
+
+const bugValidationSchema = z.object({
+    story_id: z.string().optional().or(z.literal('')).nullable(),
+    title: z.string().min(1, '缺陷标题不能为空'),
+    severity: z.any().optional(),
+    description: z.string().optional().or(z.literal('')),
+});
 
 const handleAdd = () => {
     drawerMode.value = "add";
     drawerTitle.value = "新增缺陷";
     currentRow.value = { severity: 3 };
     drawerVisible.value = true;
+    takeSnapshot();
 };
 const handleEdit = (row: BugItem) => {
     drawerMode.value = "edit";
     drawerTitle.value = "编辑缺陷";
     currentRow.value = { ...row };
     drawerVisible.value = true;
+    takeSnapshot();
 };
 const handleView = (row: BugItem) => {
     drawerMode.value = "view";
@@ -109,8 +121,8 @@ const handleView = (row: BugItem) => {
 };
 
 const handleSave = async () => {
+    try { await formRef.value?.validate(); } catch { return; }
     const r = currentRow.value;
-    if (!r.title?.trim()) return;
     formLoading.value = true;
     try {
         if (drawerMode.value === "add") {
@@ -235,7 +247,7 @@ loadData();
         </div>
 
         <!-- Drawer -->
-        <vort-drawer v-model:open="drawerVisible" :title="drawerTitle" :width="600">
+        <vort-drawer :open="drawerVisible" :title="drawerTitle" :width="900" @update:open="(val: boolean) => { if (!val && drawerMode !== 'view') { confirmClose(() => { drawerVisible = false }) } else { drawerVisible = val } }">
             <!-- View -->
             <div v-if="drawerMode === 'view'">
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
@@ -261,7 +273,9 @@ loadData();
                     </div>
                     <div v-if="currentRow.description" class="sm:col-span-2">
                         <span class="text-sm text-gray-400">描述</span>
-                        <div class="text-sm text-gray-800 mt-1 whitespace-pre-wrap">{{ currentRow.description }}</div>
+                        <div class="mt-1">
+                            <MarkdownView :content="currentRow.description" />
+                        </div>
                     </div>
                 </div>
                 <div v-if="allowedTransitions.length" class="border-t pt-4">
@@ -282,16 +296,16 @@ loadData();
             </div>
             <!-- Edit / Add -->
             <template v-else>
-                <vort-form label-width="80px">
-                    <vort-form-item label="关联需求">
+                <vort-form ref="formRef" :model="currentRow" :rules="bugValidationSchema" label-width="80px">
+                    <vort-form-item label="关联需求" name="story_id">
                         <vort-select v-model="currentRow.story_id" placeholder="可选，关联需求" allow-clear class="w-full">
                             <vort-select-option v-for="s in stories" :key="s.id" :value="s.id">{{ s.title }}</vort-select-option>
                         </vort-select>
                     </vort-form-item>
-                    <vort-form-item label="标题" required>
+                    <vort-form-item label="标题" name="title" required has-feedback>
                         <vort-input v-model="currentRow.title" placeholder="请输入缺陷标题" />
                     </vort-form-item>
-                    <vort-form-item label="严重程度">
+                    <vort-form-item label="严重程度" name="severity">
                         <vort-select v-model="currentRow.severity" class="w-full">
                             <vort-select-option :value="1">致命</vort-select-option>
                             <vort-select-option :value="2">严重</vort-select-option>
@@ -299,12 +313,12 @@ loadData();
                             <vort-select-option :value="4">轻微</vort-select-option>
                         </vort-select>
                     </vort-form-item>
-                    <vort-form-item label="描述">
-                        <vort-textarea v-model="currentRow.description" placeholder="请输入缺陷描述，包括复现步骤" :rows="5" />
+                    <vort-form-item label="描述" name="description">
+                        <VortEditor v-model="currentRow.description" placeholder="请输入缺陷描述，包括复现步骤" min-height="200px" />
                     </vort-form-item>
                 </vort-form>
                 <div class="flex justify-end gap-3 mt-6">
-                    <vort-button @click="drawerVisible = false">取消</vort-button>
+                    <vort-button @click="confirmClose(() => { drawerVisible = false })">取消</vort-button>
                     <vort-button variant="primary" :loading="formLoading" @click="handleSave">确定</vort-button>
                 </div>
             </template>

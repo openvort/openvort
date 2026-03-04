@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { useCrudPage } from "@/hooks";
+import { z } from "zod";
+import { useCrudPage, useDirtyCheck } from "@/hooks";
 import {
     getVortflowStories, getVortflowProjects, createVortflowStory,
     updateVortflowStory, deleteVortflowStory, transitionVortflowStory,
@@ -91,19 +92,31 @@ const drawerVisible = ref(false);
 const drawerTitle = ref("");
 const drawerMode = ref<"view" | "edit" | "add">("view");
 const currentRow = ref<Partial<StoryItem>>({});
+const formRef = ref();
 const formLoading = ref(false);
+const { takeSnapshot, confirmClose } = useDirtyCheck(currentRow);
+
+const storyValidationSchema = z.object({
+    project_id: z.string().min(1, '请选择项目'),
+    title: z.string().min(1, '需求标题不能为空'),
+    priority: z.any().optional(),
+    deadline: z.string().optional().or(z.literal('')),
+    description: z.string().optional().or(z.literal('')),
+});
 
 const handleAdd = () => {
     drawerMode.value = "add";
     drawerTitle.value = "新增需求";
     currentRow.value = { priority: 3, project_id: projects.value[0]?.id || "" };
     drawerVisible.value = true;
+    takeSnapshot();
 };
 const handleEdit = (row: StoryItem) => {
     drawerMode.value = "edit";
     drawerTitle.value = "编辑需求";
     currentRow.value = { ...row, deadline: row.deadline ? row.deadline.split("T")[0] : "" };
     drawerVisible.value = true;
+    takeSnapshot();
 };
 const handleView = (row: StoryItem) => {
     drawerMode.value = "view";
@@ -114,8 +127,8 @@ const handleView = (row: StoryItem) => {
 };
 
 const handleSave = async () => {
+    try { await formRef.value?.validate(); } catch { return; }
     const r = currentRow.value;
-    if (!r.title?.trim()) return;
     formLoading.value = true;
     try {
         if (drawerMode.value === "add") {
@@ -258,7 +271,7 @@ loadData();
         </div>
 
         <!-- Drawer -->
-        <vort-drawer v-model:open="drawerVisible" :title="drawerTitle" :width="600">
+        <vort-drawer :open="drawerVisible" :title="drawerTitle" :width="900" @update:open="(val: boolean) => { if (!val && drawerMode !== 'view') { confirmClose(() => { drawerVisible = false }) } else { drawerVisible = val } }">
             <!-- View mode -->
             <div v-if="drawerMode === 'view'">
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
@@ -284,7 +297,9 @@ loadData();
                     </div>
                     <div v-if="currentRow.description" class="sm:col-span-2">
                         <span class="text-sm text-gray-400">描述</span>
-                        <div class="text-sm text-gray-800 mt-1 whitespace-pre-wrap">{{ currentRow.description }}</div>
+                        <div class="mt-1">
+                            <MarkdownView :content="currentRow.description" />
+                        </div>
                     </div>
                 </div>
                 <!-- Transition buttons -->
@@ -306,16 +321,16 @@ loadData();
             </div>
             <!-- Edit / Add mode -->
             <template v-else>
-                <vort-form label-width="80px">
-                    <vort-form-item label="项目" required>
+                <vort-form ref="formRef" :model="currentRow" :rules="storyValidationSchema" label-width="80px">
+                    <vort-form-item label="项目" name="project_id" required has-feedback>
                         <vort-select v-model="currentRow.project_id" placeholder="选择项目" :disabled="drawerMode === 'edit'" class="w-full">
                             <vort-select-option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name }}</vort-select-option>
                         </vort-select>
                     </vort-form-item>
-                    <vort-form-item label="标题" required>
+                    <vort-form-item label="标题" name="title" required has-feedback>
                         <vort-input v-model="currentRow.title" placeholder="请输入需求标题" />
                     </vort-form-item>
-                    <vort-form-item label="优先级">
+                    <vort-form-item label="优先级" name="priority">
                         <vort-select v-model="currentRow.priority" class="w-full">
                             <vort-select-option :value="1">紧急</vort-select-option>
                             <vort-select-option :value="2">高</vort-select-option>
@@ -323,15 +338,15 @@ loadData();
                             <vort-select-option :value="4">低</vort-select-option>
                         </vort-select>
                     </vort-form-item>
-                    <vort-form-item label="截止日期">
+                    <vort-form-item label="截止日期" name="deadline">
                         <vort-date-picker v-model="currentRow.deadline" value-format="YYYY-MM-DD" placeholder="请选择截止日期" class="w-full" />
                     </vort-form-item>
-                    <vort-form-item label="描述">
-                        <vort-textarea v-model="currentRow.description" placeholder="请输入需求描述" :rows="4" />
+                    <vort-form-item label="描述" name="description">
+                        <VortEditor v-model="currentRow.description" placeholder="请输入需求描述" min-height="160px" />
                     </vort-form-item>
                 </vort-form>
                 <div class="flex justify-end gap-3 mt-6">
-                    <vort-button @click="drawerVisible = false">取消</vort-button>
+                    <vort-button @click="confirmClose(() => { drawerVisible = false })">取消</vort-button>
                     <vort-button variant="primary" :loading="formLoading" @click="handleSave">确定</vort-button>
                 </div>
             </template>

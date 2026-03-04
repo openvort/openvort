@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { useCrudPage } from "@/hooks";
+import { z } from "zod";
+import { useCrudPage, useDirtyCheck } from "@/hooks";
 import {
     getVortflowMilestones, getVortflowProjects, createVortflowMilestone,
     updateVortflowMilestone, deleteVortflowMilestone, completeVortflowMilestone,
@@ -55,19 +56,30 @@ const drawerVisible = ref(false);
 const drawerTitle = ref("");
 const drawerMode = ref<"view" | "edit" | "add">("view");
 const currentRow = ref<Partial<MilestoneItem>>({});
+const formRef = ref();
 const formLoading = ref(false);
+const { takeSnapshot, confirmClose } = useDirtyCheck(currentRow);
+
+const milestoneValidationSchema = z.object({
+    project_id: z.string().min(1, '请选择项目'),
+    name: z.string().min(1, '里程碑名称不能为空'),
+    due_date: z.string().optional().or(z.literal('')).nullable(),
+    description: z.string().optional().or(z.literal('')),
+});
 
 const handleAdd = () => {
     drawerMode.value = "add";
     drawerTitle.value = "新增里程碑";
     currentRow.value = { project_id: projects.value[0]?.id || "" };
     drawerVisible.value = true;
+    takeSnapshot();
 };
 const handleEdit = (item: MilestoneItem) => {
     drawerMode.value = "edit";
     drawerTitle.value = "编辑里程碑";
     currentRow.value = { ...item, due_date: item.due_date ? item.due_date.split("T")[0] : "" };
     drawerVisible.value = true;
+    takeSnapshot();
 };
 const handleView = (item: MilestoneItem) => {
     drawerMode.value = "view";
@@ -77,8 +89,8 @@ const handleView = (item: MilestoneItem) => {
 };
 
 const handleSave = async () => {
+    try { await formRef.value?.validate(); } catch { return; }
     const r = currentRow.value;
-    if (!r.name?.trim()) return;
     formLoading.value = true;
     try {
         if (drawerMode.value === "add") {
@@ -195,7 +207,7 @@ loadData();
         </div>
 
         <!-- Drawer -->
-        <vort-drawer v-model:open="drawerVisible" :title="drawerTitle" :width="550">
+        <vort-drawer :open="drawerVisible" :title="drawerTitle" :width="900" @update:open="(val: boolean) => { if (!val && drawerMode !== 'view') { confirmClose(() => { drawerVisible = false }) } else { drawerVisible = val } }">
             <!-- View -->
             <div v-if="drawerMode === 'view'">
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -229,30 +241,32 @@ loadData();
                     </div>
                     <div v-if="currentRow.description" class="sm:col-span-2">
                         <span class="text-sm text-gray-400">描述</span>
-                        <div class="text-sm text-gray-800 mt-1 whitespace-pre-wrap">{{ currentRow.description }}</div>
+                        <div class="mt-1">
+                            <MarkdownView :content="currentRow.description" />
+                        </div>
                     </div>
                 </div>
             </div>
             <!-- Edit / Add -->
             <template v-else>
-                <vort-form label-width="80px">
-                    <vort-form-item label="项目" required>
+                <vort-form ref="formRef" :model="currentRow" :rules="milestoneValidationSchema" label-width="80px">
+                    <vort-form-item label="项目" name="project_id" required has-feedback>
                         <vort-select v-model="currentRow.project_id" placeholder="选择项目" :disabled="drawerMode === 'edit'" class="w-full">
                             <vort-select-option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name }}</vort-select-option>
                         </vort-select>
                     </vort-form-item>
-                    <vort-form-item label="名称" required>
+                    <vort-form-item label="名称" name="name" required has-feedback>
                         <vort-input v-model="currentRow.name" placeholder="请输入里程碑名称" />
                     </vort-form-item>
-                    <vort-form-item label="截止日期">
+                    <vort-form-item label="截止日期" name="due_date">
                         <vort-date-picker v-model="currentRow.due_date" value-format="YYYY-MM-DD" placeholder="请选择截止日期" class="w-full" />
                     </vort-form-item>
-                    <vort-form-item label="描述">
-                        <vort-textarea v-model="currentRow.description" placeholder="请输入描述" :rows="4" />
+                    <vort-form-item label="描述" name="description">
+                        <VortEditor v-model="currentRow.description" placeholder="请输入描述" min-height="160px" />
                     </vort-form-item>
                 </vort-form>
                 <div class="flex justify-end gap-3 mt-6">
-                    <vort-button @click="drawerVisible = false">取消</vort-button>
+                    <vort-button @click="confirmClose(() => { drawerVisible = false })">取消</vort-button>
                     <vort-button variant="primary" :loading="formLoading" @click="handleSave">确定</vort-button>
                 </div>
             </template>

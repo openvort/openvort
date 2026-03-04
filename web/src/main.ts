@@ -2,6 +2,8 @@
 import "@/assets/styles/index.css";
 import "@/components/vort/styles/index.css";
 
+import "@/utils/zod-zh";
+
 import { createApp } from "vue";
 import App from "./App.vue";
 import router from "./router";

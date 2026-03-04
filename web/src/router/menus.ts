@@ -39,11 +39,10 @@ export const menuConfig: MenuConfig[] = [
         children: [
             { title: "通道管理", icon: "radio", path: "/channels" },
             { title: "Agent 路由", icon: "git-branch", path: "/agents" },
-            { title: "模型管理", icon: "cpu", path: "/models" },
+            { title: "AI 配置", icon: "sparkles", path: "/ai-config" },
             { title: "Git 平台", icon: "server", path: "/vortgit/providers" },
             { title: "Webhook", icon: "webhook", path: "/webhooks" },
             { title: "运行日志", icon: "file-text", path: "/logs" },
-            { title: "系统设置", icon: "settings", path: "/settings" },
         ],
     },
     { title: "个人设置", icon: "user", path: "/profile", position: "bottom" },

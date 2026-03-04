@@ -405,6 +405,16 @@ class AgentRuntime:
                 if interrupted:
                     break
 
+                if not response.content:
+                    log.warning(f"[web] LLM 返回空响应: member_id={member_id}, session_id={session_id}, model={self._llm.primary_model}")
+                    error_text = "抱歉，AI 服务返回了空响应，请稍后再试。"
+                    current_text = error_text
+                    yield {"type": "text", "text": error_text}
+                    messages.append({"role": "assistant", "content": [{"type": "text", "text": error_text}]})
+                    await self._sessions.save_messages(ctx.channel, ctx.user_id, messages, session_id)
+                    completed = True
+                    return
+
                 messages.append({"role": "assistant", "content": self._serialize_content(response.content)})
 
                 if response.stop_reason != "tool_use":
@@ -492,9 +502,14 @@ class AgentRuntime:
                 messages.append({"role": "user", "content": tool_results})
 
             if interrupted:
-                # 中断发生在首轮流式文本阶段时，补齐已生成文本以便 finally 落库。
-                if current_text and (not messages or messages[-1].get("role") != "assistant"):
-                    messages.append({"role": "assistant", "content": [{"type": "text", "text": current_text}]})
+                saved_text = f"{current_text}..." if current_text else ""
+                if saved_text and (not messages or messages[-1].get("role") != "assistant"):
+                    messages.append({"role": "assistant", "content": [{"type": "text", "text": saved_text}]})
+                elif saved_text and messages and messages[-1].get("role") == "assistant":
+                    for block in messages[-1].get("content", []):
+                        if isinstance(block, dict) and block.get("type") == "text":
+                            block["text"] = saved_text
+                            break
                 return
 
             # Save and yield usage on normal completion

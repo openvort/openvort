@@ -25,7 +25,7 @@ const newChatMembers = ref<MentionMember[]>([]);
 const newChatLoading = ref(false);
 const newChatActiveIndex = ref(-1);
 const newChatInputRef = ref<HTMLInputElement | null>(null);
-const newChatListRef = ref<HTMLElement | null>(null);
+const newChatListRef = ref<any>(null);
 
 const filteredContacts = computed(() => {
     if (!searchKeyword.value.trim()) return contacts.value;
@@ -213,7 +213,7 @@ function handleNewChatKeydown(e: KeyboardEvent) {
 
 function scrollActiveIntoView() {
     nextTick(() => {
-        const container = newChatListRef.value;
+        const container = newChatListRef.value?.wrapRef ?? newChatListRef.value;
         if (!container) return;
         const items = container.querySelectorAll("[data-member-item]");
         const active = items[newChatActiveIndex.value] as HTMLElement | undefined;
@@ -274,7 +274,7 @@ defineExpose({ refreshContacts, loadContacts });
                                 @keydown="handleNewChatKeydown"
                             />
                         </div>
-                        <div ref="newChatListRef" class="max-h-[300px] overflow-y-auto">
+                        <VortScrollbar ref="newChatListRef" max-height="300px">
                             <div v-if="newChatLoading" class="flex items-center justify-center py-6">
                                 <Loader2 :size="16" class="animate-spin text-gray-400" />
                             </div>
@@ -301,14 +301,14 @@ defineExpose({ refreshContacts, loadContacts });
                                     </div>
                                 </div>
                             </template>
-                        </div>
+                        </VortScrollbar>
                     </div>
                 </template>
             </VortPopover>
         </div>
 
         <!-- Contact list -->
-        <div class="flex-1 overflow-y-auto">
+        <VortScrollbar class="flex-1">
             <div v-if="contactsLoading" class="flex items-center justify-center py-8">
                 <Loader2 :size="20" class="animate-spin text-gray-300" />
             </div>
@@ -365,6 +365,6 @@ defineExpose({ refreshContacts, loadContacts });
                     </template>
                 </VortDropdown>
             </div>
-        </div>
+        </VortScrollbar>
     </div>
 </template>

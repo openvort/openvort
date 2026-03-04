@@ -303,11 +303,13 @@ async def chat_history(request: Request, limit: int = 50, session_id: str = "def
     session_store = get_session_store()
     messages = await session_store.get_messages("web", member_id, session_id)
 
+    trimmed = messages[-limit:]
     result = []
-    for i, msg in enumerate(messages[-limit:]):
+    for i, msg in enumerate(trimmed):
         role = msg.get("role", "user")
         content = ""
         images: list[str] = []
+        tool_calls: list[dict] = []
         if isinstance(msg.get("content"), str):
             content = msg["content"]
         elif isinstance(msg.get("content"), list):
@@ -319,10 +321,38 @@ async def chat_history(request: Request, limit: int = 50, session_id: str = "def
                         file_url = block.get("file_url", "")
                         if file_url:
                             images.append(file_url)
+                    elif block.get("type") == "tool_use":
+                        tool_calls.append({
+                            "name": block.get("name", ""),
+                            "id": block.get("id", ""),
+                            "status": "done",
+                        })
                     elif block.get("type") == "tool_result":
                         continue
-        if role in ("user", "assistant") and (content or images):
+
+        # Match tool outputs from the next user message (tool_result blocks)
+        if role == "assistant" and tool_calls:
+            next_msg = trimmed[i + 1] if i + 1 < len(trimmed) else None
+            if next_msg and next_msg.get("role") == "user" and isinstance(next_msg.get("content"), list):
+                result_map: dict[str, str] = {}
+                for block in next_msg["content"]:
+                    if isinstance(block, dict) and block.get("type") == "tool_result":
+                        result_map[block.get("tool_use_id", "")] = block.get("content", "")
+                for tc in tool_calls:
+                    tc["output"] = result_map.get(tc.get("id", ""), "")
+
+        if role == "assistant" and (content or tool_calls):
             entry: dict = {
+                "id": str(i),
+                "role": role,
+                "content": content,
+                "timestamp": 0,
+            }
+            if tool_calls:
+                entry["tool_calls"] = tool_calls
+            result.append(entry)
+        elif role == "user" and (content or images):
+            entry = {
                 "id": str(i),
                 "role": role,
                 "content": content,

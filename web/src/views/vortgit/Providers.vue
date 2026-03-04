@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onActivated, computed, watch } from "vue";
+import { z } from "zod";
 import { useCrudPage } from "@/hooks";
 import { getVortgitProviders, createVortgitProvider, updateVortgitProvider, deleteVortgitProvider, getVortgitCodingEnvStatus } from "@/api";
 import { Plus, Eye, EyeOff, RefreshCw, CheckCircle2, XCircle, AlertCircle, Terminal, Container } from "lucide-vue-next";
@@ -63,8 +64,17 @@ const drawerVisible = ref(false);
 const drawerTitle = ref("");
 const drawerMode = ref<"view" | "edit" | "add">("view");
 const currentRow = ref<Partial<ProviderItem & { access_token: string }>>({});
+const formRef = ref();
 const saving = ref(false);
 const showToken = ref(false);
+
+const providerValidationSchema = z.object({
+    name: z.string().min(1, '平台名称不能为空'),
+    platform: z.string().min(1, '请选择平台类型'),
+    api_base: z.string().optional().or(z.literal('')),
+    access_token: z.string().optional().or(z.literal('')),
+    is_default: z.any().optional(),
+});
 
 const handleAdd = () => {
     drawerMode.value = "add";
@@ -94,11 +104,8 @@ const handleView = (row: ProviderItem) => {
 };
 
 const handleSave = async () => {
+    try { await formRef.value?.validate(); } catch { return; }
     const data = currentRow.value;
-    if (!data.name?.trim()) {
-        message.warning("请输入平台名称");
-        return;
-    }
     saving.value = true;
     try {
         if (drawerMode.value === "add") {
@@ -347,11 +354,11 @@ watch(() => currentRow.value.platform, (newPlatform) => {
                 <div><span class="text-sm text-gray-400">默认平台</span><div class="text-sm text-gray-800 mt-1">{{ currentRow.is_default ? '是' : '否' }}</div></div>
             </div>
             <template v-else>
-                <vort-form label-width="100px">
-                    <vort-form-item label="名称" required>
+                <vort-form ref="formRef" :model="currentRow" :rules="providerValidationSchema" label-width="100px">
+                    <vort-form-item label="名称" name="name" required has-feedback>
                         <vort-input v-model="currentRow.name" placeholder="如：公司 Gitee" />
                     </vort-form-item>
-                    <vort-form-item label="平台类型" required>
+                    <vort-form-item label="平台类型" name="platform" required has-feedback>
                         <vort-select v-model="currentRow.platform" placeholder="选择平台">
                             <vort-select-option v-for="opt in platformOptions" :key="opt.value" :value="opt.value">
                                 {{ opt.label }}
@@ -361,13 +368,13 @@ watch(() => currentRow.value.platform, (newPlatform) => {
                             {{ currentPlatformInfo.description }}
                         </div>
                     </vort-form-item>
-                    <vort-form-item label="API 地址">
+                    <vort-form-item label="API 地址" name="api_base">
                         <vort-input v-model="currentRow.api_base" placeholder="留空使用默认地址" />
                         <div v-if="currentPlatformInfo" class="text-xs text-gray-400 mt-1">
                             默认：{{ currentPlatformInfo.apiBase }}
                         </div>
                     </vort-form-item>
-                    <vort-form-item label="Access Token">
+                    <vort-form-item label="Access Token" name="access_token">
                         <div class="flex items-center gap-2 w-full">
                             <vort-input
                                 v-model="currentRow.access_token"
@@ -383,7 +390,7 @@ watch(() => currentRow.value.platform, (newPlatform) => {
                             💡 {{ currentPlatformInfo.tokenGuide }}
                         </div>
                     </vort-form-item>
-                    <vort-form-item label="默认平台">
+                    <vort-form-item label="默认平台" name="is_default">
                         <vort-switch v-model:checked="currentRow.is_default" />
                         <span class="text-xs text-gray-400 ml-2">设为默认后，新建需求时将优先使用此平台</span>
                     </vort-form-item>

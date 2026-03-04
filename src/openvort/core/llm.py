@@ -464,6 +464,15 @@ class OpenAIStreamWrapper:
     async def __aenter__(self):
         self._response = self._http.stream("POST", self._url, json=self._body)
         self._stream = await self._response.__aenter__()
+        if self._stream.status_code >= 400:
+            error_text = ""
+            async for chunk in self._stream.aiter_text():
+                error_text += chunk
+                if len(error_text) > 1000:
+                    break
+            raise RuntimeError(
+                f"Chat Completions HTTP {self._stream.status_code}: {error_text[:500]}"
+            )
         return self
 
     async def __aexit__(self, *args):
@@ -483,9 +492,12 @@ class OpenAIStreamWrapper:
                 chunk = json.loads(payload)
             except json.JSONDecodeError:
                 continue
+            if "error" in chunk:
+                err = chunk["error"]
+                msg = err.get("message", "") if isinstance(err, dict) else str(err)
+                raise RuntimeError(f"Chat Completions stream error: {msg}")
             choices = chunk.get("choices") or []
             if not choices:
-                # 某些兼容服务会在尾块只返回 usage，不带 choices
                 if chunk.get("usage"):
                     self._final_usage = self._parse_stream_usage(chunk["usage"])
                 continue
@@ -641,7 +653,6 @@ class OpenAIResponsesProvider(LLMProvider):
                             call_id = block.get("id", "")
                             items.append({
                                 "type": "function_call",
-                                "id": call_id,
                                 "call_id": call_id,
                                 "name": block.get("name", ""),
                                 "arguments": json.dumps(args) if isinstance(args, dict) else str(args),

@@ -43,8 +43,9 @@ const routes: RouteRecordRaw[] = [
             { path: "logs", name: "logs", component: () => import("@/views/logs/Index.vue"), meta: { title: "运行日志", requiredRole: "admin" } },
             { path: "webhooks", name: "webhooks", component: () => import("@/views/webhooks/Index.vue"), meta: { title: "Webhook 管理", requiredRole: "admin" } },
             { path: "agents", name: "agents", component: () => import("@/views/agents/Index.vue"), meta: { title: "Agent 路由", requiredRole: "admin" } },
-            { path: "models", name: "models", component: () => import("@/views/models/Index.vue"), meta: { title: "模型管理", requiredRole: "admin" } },
-            { path: "settings", name: "settings", component: () => import("@/views/settings/Index.vue"), meta: { title: "系统设置", requiredRole: "admin" } },
+            { path: "ai-config", name: "ai-config", component: () => import("@/views/ai-config/Index.vue"), meta: { title: "AI 配置", requiredRole: "admin" } },
+            { path: "models", redirect: "/ai-config" },
+            { path: "settings", redirect: "/ai-config" },
             // 异常页
             { path: "dashboard", redirect: "/overview" },
             { path: "workspace", redirect: "/overview" },

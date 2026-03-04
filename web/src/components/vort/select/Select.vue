@@ -289,15 +289,16 @@ const hiddenTagPlaceholder = computed(() => {
 
 // 过滤后的选项
 const filteredOptions = computed(() => {
+    const validOptions = mergedOptions.value.filter((opt) => opt.value !== "" && opt.value != null);
     if (!searchValue.value || !props.filterOption) {
-        return mergedOptions.value;
+        return validOptions;
     }
     const search = searchValue.value.toLowerCase();
     const filterFn = props.filterOption;
     if (typeof filterFn === "function") {
-        return mergedOptions.value.filter((opt) => filterFn(searchValue.value, opt));
+        return validOptions.filter((opt) => filterFn(searchValue.value, opt));
     }
-    return mergedOptions.value.filter((opt) => opt.label.toLowerCase().includes(search) || String(opt.value).toLowerCase().includes(search));
+    return validOptions.filter((opt) => opt.label.toLowerCase().includes(search) || String(opt.value).toLowerCase().includes(search));
 });
 
 // 是否显示清除按钮
@@ -576,7 +577,7 @@ defineExpose({
 
                         <!-- 非搜索模式显示文本 -->
                         <template v-else>
-                            <span v-if="selectedOptions && !isMultiple" :class="['vort-select-value', (isFocused || isOpen) && 'vort-select-value-focused']">
+                            <span v-if="selectedOptions && !isMultiple" class="vort-select-value">
                                 <!-- 支持自定义渲染内容 -->
                                 <component v-if="(selectedOptions as SelectOption).render" :is="(selectedOptions as SelectOption).render" />
                                 <template v-else>
@@ -870,10 +871,6 @@ defineExpose({
     white-space: nowrap;
     color: var(--vort-text, rgba(0, 0, 0, 0.88));
     transition: color var(--vort-transition-colors, 0.2s);
-}
-
-.vort-select-value-focused {
-    color: rgba(0, 0, 0, 0.25);
 }
 
 /* ========================================

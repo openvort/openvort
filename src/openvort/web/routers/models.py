@@ -15,6 +15,18 @@ log = get_logger("web.models")
 router = APIRouter()
 
 
+async def _reload_llm_if_active(config_service, model_id: str) -> None:
+    """If the edited model is the active primary or fallback, hot-reload the LLMClient."""
+    try:
+        primary_id, fallback_ids = await config_service.get_llm_model_selection()
+        if model_id == primary_id or model_id in fallback_ids:
+            from openvort.web.routers.settings import _reload_llm_client
+            await _reload_llm_client()
+            log.info(f"模型 {model_id} 是活跃模型，已触发 LLMClient 热更新")
+    except Exception as e:
+        log.warning(f"检查/热更新失败: {e}")
+
+
 def _mask_key(api_key: str) -> str:
     if not api_key:
         return ""
@@ -85,6 +97,8 @@ async def update_model(model_id: str, req: ModelUpdateRequest):
         updates.pop("api_key", None)
     target.update(updates)
     await config_service.save_llm_models(models)
+
+    await _reload_llm_if_active(config_service, model_id)
     return {"success": True}
 
 
@@ -111,6 +125,7 @@ class FetchModelsRequest(BaseModel):
     provider: str
     api_key: str = ""
     api_base: str = ""
+    model_id: str = ""
 
 
 @router.post("/fetch-available")
@@ -121,6 +136,16 @@ async def fetch_available_models(req: FetchModelsRequest):
     provider_name = req.provider
     api_key = req.api_key
     api_base = req.api_base
+
+    if req.model_id and (not api_key or "***" in api_key):
+        config_service = get_config_service()
+        models = await config_service.get_llm_models()
+        for item in models:
+            if item.get("id") == req.model_id:
+                api_key = item.get("api_key", "")
+                if not api_base:
+                    api_base = item.get("api_base", "")
+                break
 
     if not api_key:
         return {"success": False, "error": "API Key 未填写"}

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, shallowRef } from "vue";
+import { z } from "zod";
 import { useCrudPage } from "@/hooks";
 import axios from "axios";
 import { Plus } from "lucide-vue-next";
@@ -36,12 +37,22 @@ const { listData, loading, total, filterParams, showPagination, rowSelection, ha
 const drawerVisible = ref(false);
 const drawerTitle = ref("");
 const drawerMode = ref<"view" | "edit" | "add">("view");
-const currentRow = ref<UserItem | null>(null);
+const currentRow = ref<Partial<UserItem>>({});
+const formRef = ref();
+
+const userValidationSchema = z.object({
+    username: z.string().min(1, '用户名不能为空'),
+    realName: z.string().min(1, '姓名不能为空'),
+    email: z.string().email('请输入有效的邮箱地址').optional().or(z.literal('')),
+    phone: z.string().optional().or(z.literal('')),
+    role: z.string().optional().or(z.literal('')),
+    department: z.string().optional().or(z.literal('')),
+});
 
 const handleAdd = () => {
     drawerMode.value = "add";
     drawerTitle.value = "新增用户";
-    currentRow.value = null;
+    currentRow.value = {};
     drawerVisible.value = true;
 };
 
@@ -59,7 +70,8 @@ const handleView = (row: UserItem) => {
     drawerVisible.value = true;
 };
 
-const handleDrawerOk = () => {
+const handleDrawerOk = async () => {
+    try { await formRef.value?.validate(); } catch { return; }
     drawerVisible.value = false;
     loadData();
 };
@@ -151,7 +163,7 @@ loadData();
         <!-- 抽屉 -->
         <vort-drawer v-model:open="drawerVisible" :title="drawerTitle" :width="600">
             <!-- 查看模式 -->
-            <div v-if="drawerMode === 'view' && currentRow" class="space-y-4">
+            <div v-if="drawerMode === 'view' && currentRow.id" class="space-y-4">
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div><span class="text-sm text-gray-400">用户名</span><div class="text-sm text-gray-800 mt-1">{{ currentRow.username }}</div></div>
                     <div><span class="text-sm text-gray-400">姓名</span><div class="text-sm text-gray-800 mt-1">{{ currentRow.realName }}</div></div>
@@ -166,13 +178,13 @@ loadData();
 
             <!-- 编辑/新增模式 -->
             <div v-else>
-                <vort-form label-width="80px">
-                    <vort-form-item label="用户名" required><vort-input v-model="(currentRow || {} as any).username" placeholder="请输入用户名" /></vort-form-item>
-                    <vort-form-item label="姓名" required><vort-input v-model="(currentRow || {} as any).realName" placeholder="请输入姓名" /></vort-form-item>
-                    <vort-form-item label="邮箱"><vort-input v-model="(currentRow || {} as any).email" placeholder="请输入邮箱" /></vort-form-item>
-                    <vort-form-item label="手机号"><vort-input v-model="(currentRow || {} as any).phone" placeholder="请输入手机号" /></vort-form-item>
-                    <vort-form-item label="角色"><vort-input v-model="(currentRow || {} as any).role" placeholder="请选择角色" /></vort-form-item>
-                    <vort-form-item label="部门"><vort-input v-model="(currentRow || {} as any).department" placeholder="请选择部门" /></vort-form-item>
+                <vort-form ref="formRef" :model="currentRow" :rules="userValidationSchema" label-width="80px">
+                    <vort-form-item label="用户名" name="username" required has-feedback><vort-input v-model="currentRow.username" placeholder="请输入用户名" /></vort-form-item>
+                    <vort-form-item label="姓名" name="realName" required has-feedback><vort-input v-model="currentRow.realName" placeholder="请输入姓名" /></vort-form-item>
+                    <vort-form-item label="邮箱" name="email" has-feedback><vort-input v-model="currentRow.email" placeholder="请输入邮箱" /></vort-form-item>
+                    <vort-form-item label="手机号" name="phone"><vort-input v-model="currentRow.phone" placeholder="请输入手机号" /></vort-form-item>
+                    <vort-form-item label="角色" name="role"><vort-input v-model="currentRow.role" placeholder="请选择角色" /></vort-form-item>
+                    <vort-form-item label="部门" name="department"><vort-input v-model="currentRow.department" placeholder="请选择部门" /></vort-form-item>
                 </vort-form>
                 <div class="flex justify-end gap-3 mt-6">
                     <vort-button @click="drawerVisible = false">取消</vort-button>

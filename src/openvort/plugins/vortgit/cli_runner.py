@@ -31,11 +31,11 @@ PROVIDER_ENV_MAP: dict[str, dict[str, str]] = {
         "ANTHROPIC_AUTH_TOKEN": "{api_key}",
         "ANTHROPIC_BASE_URL": "{api_base}",
     },
-    "openai": {"OPENAI_API_KEY": "{api_key}", "OPENAI_API_BASE": "{api_base}"},
-    "deepseek": {"OPENAI_API_KEY": "{api_key}", "OPENAI_API_BASE": "{api_base}"},
-    "moonshot": {"OPENAI_API_KEY": "{api_key}", "OPENAI_API_BASE": "{api_base}"},
-    "qwen": {"OPENAI_API_KEY": "{api_key}", "OPENAI_API_BASE": "{api_base}"},
-    "zhipu": {"OPENAI_API_KEY": "{api_key}", "OPENAI_API_BASE": "{api_base}"},
+    "openai": {"OPENAI_API_KEY": "{api_key}", "OPENAI_API_BASE": "{api_base}", "OPENAI_BASE_URL": "{api_base}"},
+    "deepseek": {"OPENAI_API_KEY": "{api_key}", "OPENAI_API_BASE": "{api_base}", "OPENAI_BASE_URL": "{api_base}"},
+    "moonshot": {"OPENAI_API_KEY": "{api_key}", "OPENAI_API_BASE": "{api_base}", "OPENAI_BASE_URL": "{api_base}"},
+    "qwen": {"OPENAI_API_KEY": "{api_key}", "OPENAI_API_BASE": "{api_base}", "OPENAI_BASE_URL": "{api_base}"},
+    "zhipu": {"OPENAI_API_KEY": "{api_key}", "OPENAI_API_BASE": "{api_base}", "OPENAI_BASE_URL": "{api_base}"},
 }
 
 # Default api_base for OpenAI-compatible providers
@@ -55,11 +55,12 @@ class CLIToolSpec:
     binary: str
     install_cmd: str
     detect_cmd: str
+    uninstall_cmd: str = ""
     env_keys: list[str] = field(default_factory=list)
     run_args: list[str] = field(default_factory=list)
     model_arg: str = "--model"
     supported_providers: list[str] = field(default_factory=lambda: [
-        "anthropic", "openai", "deepseek", "moonshot", "qwen", "zhipu",
+        "anthropic", "openai", "custom", "deepseek", "moonshot", "qwen", "zhipu",
     ])
     docker_available: bool = True
 
@@ -71,10 +72,11 @@ BUILTIN_CLI_TOOLS: dict[str, CLIToolSpec] = {
         binary="claude",
         install_cmd="npm install -g @anthropic-ai/claude-code",
         detect_cmd="claude --version",
+        uninstall_cmd="npm uninstall -g @anthropic-ai/claude-code",
         env_keys=["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"],
         run_args=["-p", "{prompt}", "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions"],
         model_arg="--model",
-        supported_providers=["anthropic"],
+        supported_providers=["anthropic", "custom"],
         docker_available=True,
     ),
     "aider": CLIToolSpec(
@@ -83,6 +85,7 @@ BUILTIN_CLI_TOOLS: dict[str, CLIToolSpec] = {
         binary="aider",
         install_cmd="pip install aider-chat",
         detect_cmd="aider --version",
+        uninstall_cmd="pip uninstall -y aider-chat",
         env_keys=["OPENAI_API_KEY", "ANTHROPIC_API_KEY"],
         run_args=[
             "--yes-always",
@@ -94,7 +97,25 @@ BUILTIN_CLI_TOOLS: dict[str, CLIToolSpec] = {
             "--message", "{prompt}",
         ],
         model_arg="--model",
-        supported_providers=["anthropic", "openai", "deepseek", "moonshot", "qwen", "zhipu"],
+        supported_providers=["anthropic", "openai", "custom", "deepseek", "moonshot", "qwen", "zhipu"],
+        docker_available=True,
+    ),
+    "codex": CLIToolSpec(
+        name="codex",
+        display_name="Codex CLI",
+        binary="codex",
+        install_cmd="npm install -g @openai/codex",
+        detect_cmd="codex --version",
+        uninstall_cmd="npm uninstall -g @openai/codex",
+        env_keys=["OPENAI_API_KEY", "OPENAI_API_BASE", "OPENAI_BASE_URL"],
+        run_args=[
+            "exec",
+            "--full-auto",
+            "--json",
+            "{prompt}",
+        ],
+        model_arg="--model",
+        supported_providers=["openai", "custom", "deepseek", "moonshot", "qwen", "zhipu"],
         docker_available=True,
     ),
 }
@@ -139,6 +160,40 @@ class CLIRunner:
         spec = self._tools.get(tool_name)
         return list(spec.supported_providers) if spec else []
 
+    @staticmethod
+    def get_tools_status() -> list[dict]:
+        """Return install status for all built-in CLI tools."""
+        import shutil
+        import subprocess
+
+        results: list[dict] = []
+        for spec in BUILTIN_CLI_TOOLS.values():
+            info: dict = {
+                "name": spec.name,
+                "display_name": spec.display_name,
+                "binary": spec.binary,
+                "install_cmd": spec.install_cmd,
+                "uninstall_cmd": spec.uninstall_cmd,
+                "supported_providers": spec.supported_providers,
+                "installed": False,
+                "version": "",
+                "path": "",
+            }
+            path = shutil.which(spec.binary)
+            if path:
+                info["installed"] = True
+                info["path"] = path
+                try:
+                    proc = subprocess.run(
+                        spec.detect_cmd.split(),
+                        capture_output=True, text=True, timeout=10,
+                    )
+                    info["version"] = proc.stdout.strip() or proc.stderr.strip()
+                except Exception:
+                    info["version"] = "unknown"
+            results.append(info)
+        return results
+
     async def run(
         self,
         tool_name: str,
@@ -175,6 +230,9 @@ class CLIRunner:
         if spec.name == "claude-code":
             merged_env.setdefault("API_TIMEOUT_MS", "3000000")
             merged_env.setdefault("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1")
+
+        if spec.name == "codex":
+            merged_env.setdefault("CODEX_QUIET_MODE", "1")
 
         command = self._build_command(spec, prompt, model_config)
 
@@ -219,11 +277,21 @@ class CLIRunner:
     ) -> list[str]:
         """Build the shell command from tool spec, injecting --model if configured."""
         cmd = [spec.binary]
+
+        model_args: list[str] = []
         if model_config and model_config.get("model") and spec.model_arg:
             model_name = self._resolve_model_name(spec, model_config)
-            cmd.extend([spec.model_arg, model_name])
-        for arg in spec.run_args:
-            cmd.append(arg.replace("{prompt}", prompt))
+            model_args = [spec.model_arg, model_name]
+
+        args = [arg.replace("{prompt}", prompt) for arg in spec.run_args]
+
+        # For tools with subcommands (e.g. "codex exec ..."),
+        # place subcommand before --model so the CLI parses correctly.
+        if args and not args[0].startswith("-"):
+            cmd.append(args.pop(0))
+
+        cmd.extend(model_args)
+        cmd.extend(args)
         return cmd
 
     @staticmethod
@@ -254,7 +322,7 @@ class CLIRunner:
         if not provider or not api_key:
             return
 
-        mapping = PROVIDER_ENV_MAP.get(provider, {})
+        mapping = PROVIDER_ENV_MAP.get(provider) or PROVIDER_ENV_MAP.get("openai", {})
         effective_base = api_base or PROVIDER_DEFAULT_API_BASE.get(provider, "")
 
         for env_key, template in mapping.items():

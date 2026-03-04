@@ -23,6 +23,7 @@ class LLMModelConfig(BaseSettings):
     model: str = "claude-sonnet-4-20250514"
     max_tokens: int = 4096
     timeout: int = 120
+    api_format: str = "auto"
 
     def to_dict(self) -> dict:
         return {
@@ -32,6 +33,7 @@ class LLMModelConfig(BaseSettings):
             "model": self.model,
             "max_tokens": self.max_tokens,
             "timeout": self.timeout,
+            "api_format": self.api_format,
         }
 
 
@@ -47,6 +49,7 @@ class LLMSettings(BaseSettings):
     model: str = "claude-sonnet-4-20250514"
     max_tokens: int = 4096
     timeout: int = 120
+    api_format: str = "auto"
 
     # Failover 备选模型（JSON 字符串，如 '[{"provider":"openai","api_key":"sk-...","model":"gpt-4o"}]'）
     fallback_models: str = ""
@@ -74,6 +77,7 @@ class LLMSettings(BaseSettings):
             "model": self.model,
             "max_tokens": self.max_tokens,
             "timeout": self.timeout,
+            "api_format": self.api_format,
         }
 
 

@@ -8,7 +8,7 @@ import {
     CheckCircle, User, Settings, ChevronDown, PanelLeftClose, PanelLeftOpen,
     MessageSquare, Puzzle, Radio, Users, Clock, BookOpen, Webhook, GitBranch, Cpu,
     Kanban, LayoutDashboard, ListChecks, CheckSquare, Bug, Milestone,
-    Wrench, FolderGit2, Server, Shield
+    Wrench, FolderGit2, Server, Shield, Sparkles
 } from "lucide-vue-next";
 
 const props = defineProps<{ isMobile?: boolean }>();
@@ -50,6 +50,7 @@ const iconMap: Record<string, any> = {
     kanban: Kanban, "layout-dashboard": LayoutDashboard, "list-checks": ListChecks,
     "check-square": CheckSquare, bug: Bug, milestone: Milestone,
     wrench: Wrench, "folder-git-2": FolderGit2, server: Server, shield: Shield,
+    sparkles: Sparkles,
 };
 
 const filterByRole = (items: MenuConfig[]) => {
@@ -161,54 +162,56 @@ const handleMenuToggle = (title: string, event: Event) => {
         </div>
 
         <!-- 菜单 -->
-        <nav class="flex-1 overflow-y-auto py-2 px-2">
-            <template v-for="item in filteredMenus" :key="item.title">
-                <!-- 分组标签 -->
-                <div v-if="item.label" class="mt-3 mb-1 first:mt-0" :class="collapsed ? 'border-t border-gray-100 mx-2' : ''">
-                    <span v-if="!collapsed" class="px-3 text-[11px] font-medium text-gray-400 uppercase tracking-wider">{{ item.label }}</span>
-                </div>
+        <VortScrollbar class="flex-1">
+            <nav class="py-2 px-2">
+                <template v-for="item in filteredMenus" :key="item.title">
+                    <!-- 分组标签 -->
+                    <div v-if="item.label" class="mt-3 mb-1 first:mt-0" :class="collapsed ? 'border-t border-gray-100 mx-2' : ''">
+                        <span v-if="!collapsed" class="px-3 text-[11px] font-medium text-gray-400 uppercase tracking-wider">{{ item.label }}</span>
+                    </div>
 
-                <!-- 无子菜单 -->
-                <div
-                    v-if="!item.children"
-                    class="flex items-center h-[40px] px-3 rounded-md cursor-pointer mb-0.5 transition-colors"
-                    :class="isActive(item) ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50'"
-                    @click="handleClick(item)"
-                >
-                    <component :is="iconMap[item.icon]" v-if="iconMap[item.icon]" :size="18" class="flex-shrink-0" />
-                    <span v-if="!collapsed" class="ml-3 text-[14px] truncate">{{ item.title }}</span>
-                </div>
-
-                <!-- 有子菜单 -->
-                <details
-                    v-else
-                    class="mb-0.5"
-                    :open="openKeys.includes(item.title)"
-                    @toggle="handleMenuToggle(item.title, $event)"
-                >
-                    <summary
-                        class="flex items-center h-[40px] px-3 rounded-md cursor-pointer transition-colors list-none"
-                        :class="isActive(item) ? 'text-blue-600' : 'text-gray-600 hover:bg-gray-50'"
+                    <!-- 无子菜单 -->
+                    <div
+                        v-if="!item.children"
+                        class="flex items-center h-[40px] px-3 rounded-md cursor-pointer mb-0.5 transition-colors"
+                        :class="isActive(item) ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50'"
+                        @click="handleClick(item)"
                     >
                         <component :is="iconMap[item.icon]" v-if="iconMap[item.icon]" :size="18" class="flex-shrink-0" />
-                        <span v-if="!collapsed" class="ml-3 text-[14px] flex-1 truncate">{{ item.title }}</span>
-                        <ChevronDown v-if="!collapsed" :size="14" class="text-gray-400 transition-transform" />
-                    </summary>
-
-                    <div v-if="!collapsed" class="ml-4 pl-4 border-l border-gray-100">
-                        <div
-                            v-for="child in item.children"
-                            :key="child.title"
-                            class="flex items-center h-[36px] px-3 rounded-md cursor-pointer text-[13px] transition-colors"
-                            :class="isChildActive(child) ? 'bg-blue-50 text-blue-600' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700'"
-                            @click="handleChildClick(child)"
-                        >
-                            {{ child.title }}
-                        </div>
+                        <span v-if="!collapsed" class="ml-3 text-[14px] truncate">{{ item.title }}</span>
                     </div>
-                </details>
-            </template>
-        </nav>
+
+                    <!-- 有子菜单 -->
+                    <details
+                        v-else
+                        class="mb-0.5"
+                        :open="openKeys.includes(item.title)"
+                        @toggle="handleMenuToggle(item.title, $event)"
+                    >
+                        <summary
+                            class="flex items-center h-[40px] px-3 rounded-md cursor-pointer transition-colors list-none"
+                            :class="isActive(item) ? 'text-blue-600' : 'text-gray-600 hover:bg-gray-50'"
+                        >
+                            <component :is="iconMap[item.icon]" v-if="iconMap[item.icon]" :size="18" class="flex-shrink-0" />
+                            <span v-if="!collapsed" class="ml-3 text-[14px] flex-1 truncate">{{ item.title }}</span>
+                            <ChevronDown v-if="!collapsed" :size="14" class="text-gray-400 transition-transform" />
+                        </summary>
+
+                        <div v-if="!collapsed" class="ml-4 pl-4 border-l border-gray-100">
+                            <div
+                                v-for="child in item.children"
+                                :key="child.title"
+                                class="flex items-center h-[36px] px-3 rounded-md cursor-pointer text-[13px] transition-colors"
+                                :class="isChildActive(child) ? 'bg-blue-50 text-blue-600' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700'"
+                                @click="handleChildClick(child)"
+                            >
+                                {{ child.title }}
+                            </div>
+                        </div>
+                    </details>
+                </template>
+            </nav>
+        </VortScrollbar>
 
         <!-- 底部固定区域 -->
         <div class="flex-shrink-0 border-t border-gray-100 px-2 py-2">

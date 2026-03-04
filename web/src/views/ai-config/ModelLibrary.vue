@@ -213,22 +213,22 @@ const testResults = ref<Record<string, {
     detected_format?: string;
 }>>({});
 
-// ---- 模型自动识别 ----
 const availableModels = ref<{ value: string; label: string }[]>([]);
 const fetchingModels = ref(false);
 
 async function handleFetchModels() {
-    if (!form.value.api_key && !apiKeyBackup.value) {
+    const apiKey = editingApiKey.value ? form.value.api_key : apiKeyBackup.value;
+    if (!apiKey && !editingId.value) {
         message.error("请先填写 API Key");
         return;
     }
     fetchingModels.value = true;
     try {
-        const apiKey = editingApiKey.value ? form.value.api_key : apiKeyBackup.value;
         const ret: any = await fetchAvailableModels({
             provider: form.value.provider,
             api_key: apiKey,
             api_base: form.value.api_base,
+            model_id: editingId.value || undefined,
         });
         if (ret.success && Array.isArray(ret.models)) {
             availableModels.value = ret.models.map((m: string) => ({ value: m, label: m }));
@@ -244,15 +244,12 @@ async function handleFetchModels() {
     }
 }
 
-// ---- 批量测试 ----
 const batchTesting = ref(false);
 
 async function handleBatchTest() {
     if (batchTesting.value) return;
     batchTesting.value = true;
-    // Clear previous results
     testResults.value = {};
-    // Mark all as testing
     for (const row of list.value) {
         testingMap.value[row.id] = true;
     }
@@ -286,9 +283,7 @@ async function handleBatchTest() {
 }
 
 async function handleTest(row: ModelItem) {
-    if (testingMap.value[row.id]) {
-        return;
-    }
+    if (testingMap.value[row.id]) return;
     testingMap.value[row.id] = true;
     delete testResults.value[row.id];
     try {
@@ -316,82 +311,79 @@ onMounted(loadData);
 </script>
 
 <template>
-    <div class="space-y-4">
-        <div class="bg-white rounded-xl p-6">
-            <div class="flex items-center justify-between mb-4">
-                <h3 class="text-base font-medium text-gray-800">模型管理</h3>
-                <div class="flex items-center gap-2">
-                    <VortButton :loading="batchTesting" @click="handleBatchTest">
-                        <RefreshCw :size="14" class="mr-1" /> 批量测试
-                    </VortButton>
-                    <VortButton variant="primary" @click="handleAdd">
-                        <Plus :size="14" class="mr-1" /> 新增模型
-                    </VortButton>
-                </div>
-            </div>
-            <p class="text-sm text-gray-500 mb-4">
-                统一维护模型参数与凭证，系统设置中可直接选择主模型和备选模型。
+    <div>
+        <div class="flex items-center justify-between mb-4">
+            <p class="text-sm text-gray-500">
+                统一维护模型参数与凭证，在对话模型和编码工具中可直接引用。
             </p>
-
-            <VortTable :data-source="list" :loading="loading" row-key="id" :pagination="false">
-                <VortTableColumn label="名称" prop="name" :width="180" />
-                <VortTableColumn label="Provider" prop="provider" :width="120" />
-                <VortTableColumn label="模型" prop="model" :width="220" />
-                <VortTableColumn label="API Key" :width="140">
-                    <template #default="{ row }">
-                        <span class="text-xs text-gray-500">{{ maskApiKey(row.api_key) }}</span>
-                    </template>
-                </VortTableColumn>
-                <VortTableColumn label="API Base" prop="api_base" :width="220">
-                    <template #default="{ row }">
-                        <span class="text-xs text-gray-500">{{ row.api_base || "默认" }}</span>
-                    </template>
-                </VortTableColumn>
-                <VortTableColumn label="Max Tokens" prop="max_tokens" :width="100" />
-                <VortTableColumn label="超时(秒)" prop="timeout" :width="80" />
-                <VortTableColumn label="启用" :width="80">
-                    <template #default="{ row }">
-                        <VortSwitch :checked="row.enabled" @change="handleToggle(row)" />
-                    </template>
-                </VortTableColumn>
-                <VortTableColumn label="操作" :width="230" fixed="right">
-                    <template #default="{ row }">
-                        <div class="flex items-center gap-2 whitespace-nowrap">
-                            <a
-                                class="text-sm cursor-pointer"
-                                :class="testingMap[row.id] ? 'text-gray-400 pointer-events-none' : 'text-green-600 hover:text-green-700'"
-                                @click="handleTest(row)"
-                            >
-                                <span v-if="testingMap[row.id]" class="inline-flex items-center gap-1">
-                                    <svg class="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                                    测试中
-                                </span>
-                                <span v-else>测试</span>
-                            </a>
-                            <vort-divider type="vertical" />
-                            <a class="text-sm text-blue-600 cursor-pointer" @click="handleCopy(row)">复制</a>
-                            <vort-divider type="vertical" />
-                            <a class="text-sm text-blue-600 cursor-pointer" @click="handleEdit(row)">编辑</a>
-                            <vort-divider type="vertical" />
-                            <DeleteRecord :request-api="() => deleteModelChecked(row.id)" :params="{}" @after-delete="loadData">
-                                <a class="text-sm text-red-500 cursor-pointer">删除</a>
-                            </DeleteRecord>
-                        </div>
-                        <div v-if="testResults[row.id]" class="mt-1 text-xs">
-                            <span v-if="testResults[row.id].success" class="text-green-600">
-                                ✓ 连接正常 · {{ testResults[row.id].latency_ms }}ms
-                                <span v-if="testResults[row.id].api_format" class="text-gray-400 ml-1">
-                                    · {{ apiFormatLabel(testResults[row.id].api_format!) }}
-                                </span>
-                            </span>
-                            <span v-else class="text-red-500" :title="testResults[row.id].error">
-                                ✗ {{ testResults[row.id].error?.slice(0, 60) }}
-                            </span>
-                        </div>
-                    </template>
-                </VortTableColumn>
-            </VortTable>
+            <div class="flex items-center gap-2">
+                <VortButton :loading="batchTesting" @click="handleBatchTest">
+                    <RefreshCw :size="14" class="mr-1" /> 批量测试
+                </VortButton>
+                <VortButton variant="primary" @click="handleAdd">
+                    <Plus :size="14" class="mr-1" /> 新增模型
+                </VortButton>
+            </div>
         </div>
+
+        <VortTable :data-source="list" :loading="loading" row-key="id" :pagination="false">
+            <VortTableColumn label="名称" prop="name" :width="180" />
+            <VortTableColumn label="Provider" prop="provider" :width="120" />
+            <VortTableColumn label="模型" prop="model" :width="220" />
+            <VortTableColumn label="API Key" :width="140">
+                <template #default="{ row }">
+                    <span class="text-xs text-gray-500">{{ maskApiKey(row.api_key) }}</span>
+                </template>
+            </VortTableColumn>
+            <VortTableColumn label="API Base" prop="api_base" :width="220">
+                <template #default="{ row }">
+                    <span class="text-xs text-gray-500">{{ row.api_base || "默认" }}</span>
+                </template>
+            </VortTableColumn>
+            <VortTableColumn label="Max Tokens" prop="max_tokens" :width="100" />
+            <VortTableColumn label="超时(秒)" prop="timeout" :width="80" />
+            <VortTableColumn label="启用" :width="80">
+                <template #default="{ row }">
+                    <VortSwitch :checked="row.enabled" @change="handleToggle(row)" />
+                </template>
+            </VortTableColumn>
+            <VortTableColumn label="操作" :width="230" fixed="right">
+                <template #default="{ row }">
+                    <div class="flex items-center gap-2 whitespace-nowrap">
+                        <a
+                            class="text-sm cursor-pointer"
+                            :class="testingMap[row.id] ? 'text-gray-400 pointer-events-none' : 'text-green-600 hover:text-green-700'"
+                            @click="handleTest(row)"
+                        >
+                            <span v-if="testingMap[row.id]" class="inline-flex items-center gap-1">
+                                <svg class="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                                测试中
+                            </span>
+                            <span v-else>测试</span>
+                        </a>
+                        <vort-divider type="vertical" />
+                        <a class="text-sm text-blue-600 cursor-pointer" @click="handleCopy(row)">复制</a>
+                        <vort-divider type="vertical" />
+                        <a class="text-sm text-blue-600 cursor-pointer" @click="handleEdit(row)">编辑</a>
+                        <vort-divider type="vertical" />
+                        <DeleteRecord :request-api="() => deleteModelChecked(row.id)" :params="{}" @after-delete="loadData">
+                            <a class="text-sm text-red-500 cursor-pointer">删除</a>
+                        </DeleteRecord>
+                    </div>
+                    <div v-if="testResults[row.id]" class="mt-1 text-xs">
+                        <span v-if="testResults[row.id].success" class="text-green-600">
+                            ✓ 连接正常 · {{ testResults[row.id].latency_ms }}ms
+                            <span v-if="testResults[row.id].api_format" class="text-gray-400 ml-1">
+                                · {{ apiFormatLabel(testResults[row.id].api_format!) }}
+                            </span>
+                        </span>
+                        <span v-else class="text-red-500" :title="testResults[row.id].error">
+                            ✗ {{ testResults[row.id].error?.slice(0, 60) }}
+                        </span>
+                    </div>
+                </template>
+            </VortTableColumn>
+        </VortTable>
 
         <VortDialog :open="dialogOpen" :title="editing ? '编辑模型' : '新增模型'" @update:open="dialogOpen = $event">
             <VortForm label-width="110px" class="mt-2">
@@ -404,6 +396,25 @@ onMounted(loadData);
                             {{ opt.label }}
                         </VortSelectOption>
                     </VortSelect>
+                </VortFormItem>
+                <VortFormItem label="API Key">
+                    <div class="flex items-center gap-3 w-full">
+                        <template v-if="editingApiKey">
+                            <VortInputPassword v-model="form.api_key" placeholder="输入 API Key" class="flex-1 min-w-0" />
+                            <button v-if="editing" class="text-sm text-gray-500 hover:text-gray-700 shrink-0 whitespace-nowrap" type="button" @click="cancelEditApiKey">
+                                取消
+                            </button>
+                        </template>
+                        <template v-else>
+                            <span class="text-sm text-gray-500">{{ maskApiKey(form.api_key) }}</span>
+                            <button class="text-sm text-blue-600 hover:text-blue-700" type="button" @click="startEditApiKey">
+                                编辑
+                            </button>
+                        </template>
+                    </div>
+                </VortFormItem>
+                <VortFormItem label="API Base">
+                    <VortInput v-model="form.api_base" placeholder="留空使用默认地址" />
                 </VortFormItem>
                 <VortFormItem label="模型" required>
                     <div class="flex items-center gap-2 w-full">
@@ -425,25 +436,6 @@ onMounted(loadData);
                             <Search :size="14" />
                         </VortButton>
                     </div>
-                </VortFormItem>
-                <VortFormItem label="API Key">
-                    <div class="flex items-center gap-3 w-full">
-                        <template v-if="editingApiKey">
-                            <VortInputPassword v-model="form.api_key" placeholder="输入 API Key" class="flex-1 min-w-0" />
-                            <button class="text-sm text-gray-500 hover:text-gray-700 shrink-0 whitespace-nowrap" type="button" @click="cancelEditApiKey">
-                                取消
-                            </button>
-                        </template>
-                        <template v-else>
-                            <span class="text-sm text-gray-500">{{ maskApiKey(form.api_key) }}</span>
-                            <button class="text-sm text-blue-600 hover:text-blue-700" type="button" @click="startEditApiKey">
-                                编辑
-                            </button>
-                        </template>
-                    </div>
-                </VortFormItem>
-                <VortFormItem label="API Base">
-                    <VortInput v-model="form.api_base" placeholder="留空使用默认地址" />
                 </VortFormItem>
                 <VortFormItem v-if="form.provider !== 'anthropic'" label="API 格式">
                     <VortSelect v-model="form.api_format" class="w-full">

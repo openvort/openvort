@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from "vue";
+import { z } from "zod";
 import { useRoute, useRouter } from "vue-router";
 import { ArrowLeft, ListChecks, CheckSquare, Bug, Users, Plus, Trash2, FolderGit2, TerminalSquare, ExternalLink } from "lucide-vue-next";
 import {
@@ -98,9 +99,20 @@ const loadData = async () => {
 const memberDialogVisible = ref(false);
 const newMemberId = ref("");
 const newMemberRole = ref("member");
+const memberFormRef = ref();
+
+const memberValidationSchema = z.object({
+    member_id: z.string().min(1, '成员 ID 不能为空'),
+    role: z.string().optional(),
+});
+
+const memberFormData = computed(() => ({
+    member_id: newMemberId.value,
+    role: newMemberRole.value,
+}));
 
 const handleAddMember = async () => {
-    if (!newMemberId.value.trim()) return;
+    try { await memberFormRef.value?.validate(); } catch { return; }
     await addVortflowProjectMember(projectId.value, { member_id: newMemberId.value, role: newMemberRole.value });
     newMemberId.value = "";
     memberDialogVisible.value = false;
@@ -178,7 +190,9 @@ onMounted(loadData);
                 </div>
                 <div v-if="project.description" class="mt-3">
                     <span class="text-sm text-gray-400">描述</span>
-                    <div class="text-sm text-gray-800 mt-1 whitespace-pre-wrap">{{ project.description }}</div>
+                    <div class="mt-1">
+                        <MarkdownView :content="project.description" />
+                    </div>
                 </div>
             </div>
 
@@ -313,11 +327,11 @@ onMounted(loadData);
 
         <!-- Add Member Dialog -->
         <vort-dialog :open="memberDialogVisible" title="添加项目成员" :width="400" @update:open="memberDialogVisible = $event">
-            <vort-form label-width="60px">
-                <vort-form-item label="成员ID" required>
+            <vort-form ref="memberFormRef" :model="memberFormData" :rules="memberValidationSchema" label-width="60px">
+                <vort-form-item label="成员ID" name="member_id" required has-feedback>
                     <vort-input v-model="newMemberId" placeholder="输入成员 ID" />
                 </vort-form-item>
-                <vort-form-item label="角色">
+                <vort-form-item label="角色" name="role">
                     <vort-select v-model="newMemberRole" class="w-full">
                         <vort-select-option value="owner">Owner</vort-select-option>
                         <vort-select-option value="pm">PM</vort-select-option>

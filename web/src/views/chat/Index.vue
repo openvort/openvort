@@ -4,15 +4,18 @@ import { useRoute, useRouter } from "vue-router";
 import { useUserStore } from "@/stores";
 import {
     Send, Bot, Loader2, Wrench, X, ImagePlus, FileText, MonitorPlay, Smile,
-    Settings, Check, Brain, PackageMinus, RotateCcw, Zap, StopCircle
+    Settings, Check, Brain, PackageMinus, RotateCcw, Zap, StopCircle, Square,
+    Hash, Bug, ListTodo, BookOpen, Milestone, GitBranch, ChevronDown, ChevronRight
 } from "lucide-vue-next";
 import { Popover as VortPopover } from "@/components/vort/popover";
 import { Image as VortImage, ImagePreviewGroup as VortImagePreviewGroup } from "@/components/vort/image";
 import {
     sendChatMessage, getChatStreamUrl, getChatHistory, getChatSessionInfo,
     setChatThinking, compactChatSession, resetChatSession,
-    getChatSessions, createChatSession, getChatMembers, abortChatMessage, startMemberChat
+    getChatSessions, createChatSession, getChatMembers, abortChatMessage, startMemberChat,
+    getVortflowBugs, getVortflowTasks, getVortflowStories, getVortflowMilestones
 } from "@/api";
+import { usePluginStore } from "@/stores/modules/plugin";
 import { message } from "@/components/vort/message";
 import { dialog } from "@/components/vort/dialog";
 import { marked } from "marked";
@@ -20,16 +23,17 @@ import { pinyin } from "pinyin-pro";
 import ContactList from "./ContactList.vue";
 import SessionSwitcher from "./SessionSwitcher.vue";
 import MemberProfile from "./MemberProfile.vue";
-import type { ChatMessage, ChatSession, PendingImage, Contact, MentionMember, SlashCommand, Draft } from "./types";
+import type { ChatMessage, ChatSession, PendingImage, Contact, MentionMember, SlashCommand, Draft, HashTagCategory, HashTagItem, ToolCall } from "./types";
 
 const route = useRoute();
 const router = useRouter();
 const userStore = useUserStore();
+const pluginStore = usePluginStore();
 const messages = ref<ChatMessage[]>([]);
 const inputText = ref("");
 const loading = ref(false);
 const aborting = ref(false);
-const chatContainer = ref<HTMLElement>();
+const chatScrollbar = ref<InstanceType<typeof import("@/components/vort/scrollbar/Scrollbar.vue").default> | null>(null);
 const inputArea = ref<HTMLElement>();
 const pendingImages = ref<PendingImage[]>([]);
 const isDragging = ref(false);
@@ -127,8 +131,9 @@ function scrollToBottom() {
     if (scrollRAF) return;
     scrollRAF = requestAnimationFrame(() => {
         scrollRAF = null;
-        if (chatContainer.value) {
-            chatContainer.value.scrollTop = chatContainer.value.scrollHeight;
+        const wrap = chatScrollbar.value?.wrapRef;
+        if (wrap) {
+            wrap.scrollTop = wrap.scrollHeight;
         }
     });
 }
@@ -136,6 +141,34 @@ function scrollToBottom() {
 function formatToolElapsed(seconds: number): string {
     if (seconds < 60) return `${seconds}s`;
     return `${Math.floor(seconds / 60)}m${seconds % 60}s`;
+}
+
+function mergeToolCalls(tools: ToolCall[]): ToolCall[] {
+    const merged: ToolCall[] = [];
+    for (const t of tools) {
+        const last = merged[merged.length - 1];
+        if (last && last.name === t.name && last.status === "done" && t.status === "done") {
+            last.count = (last.count || 1) + 1;
+            if (t.output) {
+                last.output = last.output ? last.output + "\n" + t.output : t.output;
+            }
+        } else {
+            merged.push({ ...t, count: t.count || 1 });
+        }
+    }
+    return merged;
+}
+
+function toggleToolCollapsed(tool: ToolCall) {
+    tool.collapsed = !tool.collapsed;
+    nextTick(scrollToBottom);
+}
+
+function toggleToolsExpanded(msg: ChatMessage) {
+    msg.toolsExpanded = !msg.toolsExpanded;
+    if (msg.toolsExpanded) {
+        nextTick(scrollToBottom);
+    }
 }
 
 // --- 流式 Markdown 渲染 ---
@@ -301,7 +334,7 @@ async function loadHistory() {
     try {
         const res: any = await getChatHistory(50, currentSessionId.value);
         if (res?.messages) {
-            messages.value = res.messages.map((m: any) => {
+            const raw: ChatMessage[] = res.messages.map((m: any) => {
                 const images = m.images?.map((img: string) => {
                     if (img && !img.startsWith('data:') && !img.startsWith('http') && !img.startsWith('/')) {
                         return `/api/${img}`;
@@ -312,14 +345,44 @@ async function loadHistory() {
                 if (images?.length && /^(请看图片)+$/.test(content.trim())) {
                     content = "";
                 }
-                return {
+                const msg: ChatMessage = {
                     id: m.id || String(++messageCounter),
                     role: m.role,
                     content,
                     images,
                     timestamp: m.timestamp || Date.now()
                 };
+                if (m.tool_calls?.length) {
+                    msg.toolCalls = mergeToolCalls(
+                        m.tool_calls.map((tc: any) => ({
+                            name: tc.name,
+                            status: tc.status || "done",
+                            output: tc.output || "",
+                            collapsed: true,
+                            count: 1,
+                        }))
+                    );
+                }
+                return msg;
             });
+            // Merge tool-only assistant messages into the next assistant message
+            const merged: ChatMessage[] = [];
+            let pendingTools: ToolCall[] = [];
+            for (const msg of raw) {
+                if (msg.role === "assistant" && !msg.content && msg.toolCalls?.length) {
+                    pendingTools.push(...msg.toolCalls);
+                } else {
+                    if (msg.role === "assistant" && pendingTools.length) {
+                        msg.toolCalls = [...pendingTools, ...(msg.toolCalls || [])];
+                        pendingTools = [];
+                    }
+                    merged.push(msg);
+                }
+            }
+            if (pendingTools.length) {
+                merged.push({ id: String(++messageCounter), role: "assistant", content: "", toolCalls: pendingTools, timestamp: Date.now() });
+            }
+            messages.value = merged;
             scrollToBottom();
         }
     } catch { /* 首次无历史 */ }
@@ -433,7 +496,7 @@ async function handleSend() {
             stopTypewriter();
             let finalText = streamState.targetText;
             if (options?.interrupted) {
-                finalText = finalText ? `${finalText}\n\n[已中断]` : "已中断生成。";
+                finalText = finalText ? `${finalText}...` : "";
             }
             streamState.assistantMsg.content = finalText;
             streamState.assistantMsg.streaming = false;
@@ -468,7 +531,15 @@ async function handleSend() {
             try {
                 const data = JSON.parse(e.data);
                 if (!streamState.assistantMsg.toolCalls) streamState.assistantMsg.toolCalls = [];
-                streamState.assistantMsg.toolCalls.push({ name: data.name, status: "running" });
+                const calls = streamState.assistantMsg.toolCalls;
+                const last = calls[calls.length - 1];
+                if (last && last.name === data.name && last.status === "done") {
+                    last.count = (last.count || 1) + 1;
+                    last.status = "running";
+                    last.elapsed = undefined;
+                } else {
+                    calls.push({ name: data.name, status: "running", count: 1 });
+                }
                 if (currentSessionId.value === sendSessionId) scrollToBottom();
             } catch { /* ignore */ }
         });
@@ -476,7 +547,8 @@ async function handleSend() {
         eventSource.addEventListener("tool_output", (e: MessageEvent) => {
             try {
                 const data = JSON.parse(e.data);
-                const call = streamState.assistantMsg.toolCalls?.find(t => t.name === data.name && t.status === "running");
+                const calls = streamState.assistantMsg.toolCalls;
+                const call = calls && [...calls].reverse().find(t => t.name === data.name && t.status === "running");
                 if (call) {
                     call.output = call.output ? call.output + "\n" + data.output : data.output;
                     if (currentSessionId.value === sendSessionId) scrollToBottom();
@@ -487,7 +559,8 @@ async function handleSend() {
         eventSource.addEventListener("tool_progress", (e: MessageEvent) => {
             try {
                 const data = JSON.parse(e.data);
-                const call = streamState.assistantMsg.toolCalls?.find(t => t.name === data.name && t.status === "running");
+                const calls = streamState.assistantMsg.toolCalls;
+                const call = calls && [...calls].reverse().find(t => t.name === data.name && t.status === "running");
                 if (call) call.elapsed = data.elapsed;
             } catch { /* ignore */ }
         });
@@ -495,8 +568,17 @@ async function handleSend() {
         eventSource.addEventListener("tool_result", (e: MessageEvent) => {
             try {
                 const data = JSON.parse(e.data);
-                const call = streamState.assistantMsg.toolCalls?.find(t => t.name === data.name && t.status === "running");
-                if (call) call.status = "done";
+                const calls = streamState.assistantMsg.toolCalls;
+                const call = calls && [...calls].reverse().find(t => t.name === data.name && t.status === "running");
+                if (call) {
+                    call.status = "done";
+                    if (data.result) {
+                        call.output = call.output
+                            ? call.output + "\n---\n" + data.result
+                            : data.result;
+                    }
+                    call.collapsed = !!call.output;
+                }
                 if (currentSessionId.value === sendSessionId) scrollToBottom();
             } catch { /* ignore */ }
         });
@@ -631,9 +713,9 @@ async function handleAbortCurrentStream() {
                 clearInterval(streamState.twTimer);
                 streamState.twTimer = null;
             }
-            streamState.assistantMsg.content = streamState.targetText
-                ? `${streamState.targetText}\n\n[已中断]`
-                : "已中断生成。";
+                streamState.assistantMsg.content = streamState.targetText
+                ? `${streamState.targetText}...`
+                : "";
             streamState.assistantMsg.streaming = false;
             activeStreams.delete(sessionId);
             loading.value = false;
@@ -751,7 +833,7 @@ function formatTime(ts: number): string {
     return d.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
 }
 
-// ---- @mention 和 /command 提示 ----
+// ---- @mention、/command、#tag 提示 ----
 const slashCommands: SlashCommand[] = [
     { name: "/new", label: "/new", description: "重置会话" },
     { name: "/status", label: "/status", description: "查看会话状态" },
@@ -763,14 +845,58 @@ const slashCommands: SlashCommand[] = [
 
 const showMentionPanel = ref(false);
 const showCommandPanel = ref(false);
+const showHashTagPanel = ref(false);
 const mentionMembers = ref<MentionMember[]>([]);
 const filteredCommands = ref<SlashCommand[]>([]);
 const mentionActiveIndex = ref(0);
 const commandActiveIndex = ref(0);
+const hashTagActiveIndex = ref(0);
 const mentionQuery = ref("");
 const commandQuery = ref("");
+const hashTagQuery = ref("");
 const panelStyle = ref({ left: '0px' });
 let mentionStartPos = -1;
+let hashTagStartPos = -1;
+
+// #tag two-level state
+const hashTagLevel = ref<'category' | 'items'>('category');
+const hashTagSelectedCategory = ref<HashTagCategory | null>(null);
+const hashTagItems = ref<HashTagItem[]>([]);
+const hashTagItemsLoading = ref(false);
+
+const allHashTagCategories: HashTagCategory[] = [
+    { key: 'bug', label: '#bug', description: '缺陷跟踪', plugin: 'vortflow' },
+    { key: 'task', label: '#task', description: '任务管理', plugin: 'vortflow' },
+    { key: 'story', label: '#story', description: '需求列表', plugin: 'vortflow' },
+    { key: 'milestone', label: '#milestone', description: '里程碑', plugin: 'vortflow' },
+];
+
+const availableHashTagCategories = computed(() => {
+    const enabledPlugins = new Set(pluginStore.extensions.map(e => e.plugin));
+    return allHashTagCategories.filter(c => enabledPlugins.has(c.plugin));
+});
+
+const filteredHashTagCategories = computed(() => {
+    if (!hashTagQuery.value) return availableHashTagCategories.value;
+    const kw = hashTagQuery.value.toLowerCase();
+    return availableHashTagCategories.value.filter(
+        c => c.key.includes(kw) || c.label.includes(kw) || c.description.includes(kw)
+    );
+});
+
+const filteredHashTagItems = computed(() => {
+    if (!hashTagQuery.value) return hashTagItems.value;
+    const kw = hashTagQuery.value.toLowerCase();
+    return hashTagItems.value.filter(
+        item => item.id.toLowerCase().includes(kw) || item.title.toLowerCase().includes(kw)
+    );
+});
+
+// Unified display list for the #tag panel
+const hashTagDisplayList = computed(() => {
+    if (hashTagLevel.value === 'category') return filteredHashTagCategories.value;
+    return filteredHashTagItems.value;
+});
 
 // All members cache for local pinyin search
 const allMembers = ref<MentionMember[]>([]);
@@ -876,10 +1002,21 @@ function updatePanelPosition() {
     panelStyle.value = { left: `${relativeLeft}px` };
 }
 
-// Watch inputText to detect @ and / triggers
+// Whether any popup panel is open
+const isAnyPanelOpen = computed(() => showMentionPanel.value || showCommandPanel.value || showHashTagPanel.value);
+
+// Watch inputText to detect @, / and # triggers
 watch(inputText, () => {
     nextTick(() => handleInput());
 });
+
+function closeAllPanels() {
+    showMentionPanel.value = false;
+    showCommandPanel.value = false;
+    showHashTagPanel.value = false;
+    hashTagLevel.value = 'category';
+    hashTagSelectedCategory.value = null;
+}
 
 function handleInput() {
     const textarea = document.querySelector('textarea.chat-textarea') as HTMLTextAreaElement;
@@ -887,18 +1024,76 @@ function handleInput() {
 
     const cursorPos = textarea.selectionStart;
     const text = textarea.value;
+    const textBeforeCursor = text.substring(0, cursorPos);
 
     // Check for @ mention
-    const textBeforeCursor = text.substring(0, cursorPos);
     const atMatch = textBeforeCursor.match(/@([^\s@]*)$/);
     if (atMatch) {
         mentionStartPos = cursorPos - atMatch[1].length - 1;
         mentionQuery.value = atMatch[1];
         mentionActiveIndex.value = 0;
         showCommandPanel.value = false;
+        showHashTagPanel.value = false;
         updatePanelPosition();
         searchMembers(atMatch[1]);
         return;
+    }
+
+    // Check for # tag (when VortFlow/VortGit plugins are enabled)
+    if (availableHashTagCategories.value.length > 0) {
+        const hashMatch = textBeforeCursor.match(/#([^\s#]*)$/);
+        if (hashMatch) {
+            hashTagStartPos = cursorPos - hashMatch[1].length - 1;
+            showMentionPanel.value = false;
+            showCommandPanel.value = false;
+
+            const rawQuery = hashMatch[1];
+            // Check if query matches a category prefix (e.g., "bug" or "bug/keyword")
+            const slashIdx = rawQuery.indexOf('/');
+            if (slashIdx >= 0) {
+                // Two-level: category selected, now filtering items
+                const catKey = rawQuery.substring(0, slashIdx);
+                const itemQuery = rawQuery.substring(slashIdx + 1);
+                const cat = availableHashTagCategories.value.find(c => c.key === catKey);
+                if (cat) {
+                    if (hashTagSelectedCategory.value?.key !== cat.key) {
+                        hashTagSelectedCategory.value = cat;
+                        hashTagLevel.value = 'items';
+                        loadHashTagItems(cat.key);
+                    }
+                    hashTagQuery.value = itemQuery;
+                    hashTagActiveIndex.value = 0;
+                    showHashTagPanel.value = true;
+                    updatePanelPosition();
+                    return;
+                }
+            }
+
+            // Check if the full query exactly matches a category
+            const exactCat = availableHashTagCategories.value.find(c => c.key === rawQuery);
+            if (exactCat && hashTagLevel.value === 'category') {
+                // User typed "#bug" exactly - show items level
+                hashTagSelectedCategory.value = exactCat;
+                hashTagLevel.value = 'items';
+                hashTagQuery.value = '';
+                hashTagActiveIndex.value = 0;
+                showHashTagPanel.value = true;
+                updatePanelPosition();
+                loadHashTagItems(exactCat.key);
+                return;
+            }
+
+            // First level: filtering categories
+            if (hashTagLevel.value !== 'items') {
+                hashTagLevel.value = 'category';
+                hashTagSelectedCategory.value = null;
+            }
+            hashTagQuery.value = rawQuery;
+            hashTagActiveIndex.value = 0;
+            showHashTagPanel.value = hashTagDisplayList.value.length > 0 || hashTagLevel.value === 'items';
+            updatePanelPosition();
+            return;
+        }
     }
 
     // Check for / command (only at start of input)
@@ -907,14 +1102,14 @@ function handleInput() {
         commandQuery.value = slashMatch[1];
         commandActiveIndex.value = 0;
         showMentionPanel.value = false;
+        showHashTagPanel.value = false;
         updatePanelPosition();
         filterCommands(slashMatch[1]);
         return;
     }
 
     // Close panels
-    showMentionPanel.value = false;
-    showCommandPanel.value = false;
+    closeAllPanels();
 }
 
 function filterCommands(keyword: string) {
@@ -954,10 +1149,84 @@ function selectCommand(cmd: SlashCommand) {
     });
 }
 
-function scrollActiveItemIntoView(type: 'mention' | 'command') {
+// ---- #tag: load items for a category ----
+async function loadHashTagItems(categoryKey: string) {
+    hashTagItemsLoading.value = true;
+    hashTagItems.value = [];
+    try {
+        let res: any;
+        switch (categoryKey) {
+            case 'bug':
+                res = await getVortflowBugs({ page: 1, page_size: 20 });
+                hashTagItems.value = (res?.items || res?.bugs || []).map((b: any) => ({
+                    id: b.id || b.bug_id, title: b.title, state: b.state, priority: b.severity, category: 'bug'
+                }));
+                break;
+            case 'task':
+                res = await getVortflowTasks({ page: 1, page_size: 20 });
+                hashTagItems.value = (res?.items || res?.tasks || []).map((t: any) => ({
+                    id: t.id || t.task_id, title: t.title, state: t.state, category: 'task'
+                }));
+                break;
+            case 'story':
+                res = await getVortflowStories({ page: 1, page_size: 20 });
+                hashTagItems.value = (res?.items || res?.stories || []).map((s: any) => ({
+                    id: s.id || s.story_id, title: s.title, state: s.state, priority: s.priority, category: 'story'
+                }));
+                break;
+            case 'milestone':
+                res = await getVortflowMilestones({ page: 1, page_size: 20 });
+                hashTagItems.value = (res?.items || res?.milestones || []).map((m: any) => ({
+                    id: m.id || m.milestone_id, title: m.name || m.title, state: m.status, category: 'milestone'
+                }));
+                break;
+        }
+    } catch { /* ignore */ }
+    hashTagItemsLoading.value = false;
+}
+
+function selectHashTagCategory(cat: HashTagCategory) {
+    const textarea = document.querySelector('textarea.chat-textarea') as HTMLTextAreaElement;
+    if (!textarea) return;
+
+    // Replace the # query with #category/
+    const before = inputText.value.substring(0, hashTagStartPos);
+    const after = inputText.value.substring(textarea.selectionStart);
+    inputText.value = before + `#${cat.key}/` + after;
+    hashTagSelectedCategory.value = cat;
+    hashTagLevel.value = 'items';
+    hashTagQuery.value = '';
+    hashTagActiveIndex.value = 0;
+    loadHashTagItems(cat.key);
+
     nextTick(() => {
-        const attr = type === 'mention' ? 'data-mention-index' : 'data-command-index';
-        const idx = type === 'mention' ? mentionActiveIndex.value : commandActiveIndex.value;
+        const newPos = hashTagStartPos + cat.key.length + 2; // # + key + /
+        textarea.selectionStart = textarea.selectionEnd = newPos;
+        textarea.focus();
+    });
+}
+
+function selectHashTagItem(item: HashTagItem) {
+    const textarea = document.querySelector('textarea.chat-textarea') as HTMLTextAreaElement;
+    if (!textarea) return;
+
+    const before = inputText.value.substring(0, hashTagStartPos);
+    const after = inputText.value.substring(textarea.selectionStart);
+    const tag = `#${item.category}/${item.id} `;
+    inputText.value = before + tag + after;
+    closeAllPanels();
+
+    nextTick(() => {
+        const newPos = hashTagStartPos + tag.length;
+        textarea.selectionStart = textarea.selectionEnd = newPos;
+        textarea.focus();
+    });
+}
+
+function scrollActiveItemIntoView(type: 'mention' | 'command' | 'hashtag') {
+    nextTick(() => {
+        const attr = type === 'mention' ? 'data-mention-index' : type === 'command' ? 'data-command-index' : 'data-hashtag-index';
+        const idx = type === 'mention' ? mentionActiveIndex.value : type === 'command' ? commandActiveIndex.value : hashTagActiveIndex.value;
         const el = document.querySelector(`[${attr}="${idx}"]`) as HTMLElement;
         if (el) el.scrollIntoView({ block: 'nearest' });
     });
@@ -1004,14 +1273,73 @@ function handlePanelKeydown(e: KeyboardEvent) {
         }
         return true;
     }
+    if (showHashTagPanel.value) {
+        const list = hashTagDisplayList.value;
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            hashTagActiveIndex.value = (hashTagActiveIndex.value + 1) % (list.length || 1);
+            scrollActiveItemIntoView('hashtag');
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            hashTagActiveIndex.value = (hashTagActiveIndex.value - 1 + (list.length || 1)) % (list.length || 1);
+            scrollActiveItemIntoView('hashtag');
+        } else if (e.key === 'Enter' || e.key === 'Tab') {
+            e.preventDefault();
+            e.stopPropagation();
+            if (hashTagLevel.value === 'category') {
+                const cat = filteredHashTagCategories.value[hashTagActiveIndex.value];
+                if (cat) selectHashTagCategory(cat as HashTagCategory);
+            } else {
+                const item = filteredHashTagItems.value[hashTagActiveIndex.value];
+                if (item) selectHashTagItem(item as HashTagItem);
+            }
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            if (hashTagLevel.value === 'items') {
+                // Go back to category level
+                hashTagLevel.value = 'category';
+                hashTagSelectedCategory.value = null;
+                hashTagQuery.value = '';
+                hashTagActiveIndex.value = 0;
+                // Reset input to just #
+                const textarea = document.querySelector('textarea.chat-textarea') as HTMLTextAreaElement;
+                if (textarea) {
+                    const before = inputText.value.substring(0, hashTagStartPos);
+                    const after = inputText.value.substring(textarea.selectionStart);
+                    inputText.value = before + '#' + after;
+                    nextTick(() => {
+                        textarea.selectionStart = textarea.selectionEnd = hashTagStartPos + 1;
+                        textarea.focus();
+                    });
+                }
+            } else {
+                showHashTagPanel.value = false;
+            }
+        } else if (e.key === 'Backspace' && hashTagLevel.value === 'items' && !hashTagQuery.value) {
+            // If at items level with empty query, go back to category
+            e.preventDefault();
+            hashTagLevel.value = 'category';
+            hashTagSelectedCategory.value = null;
+            const textarea = document.querySelector('textarea.chat-textarea') as HTMLTextAreaElement;
+            if (textarea) {
+                const before = inputText.value.substring(0, hashTagStartPos);
+                const after = inputText.value.substring(textarea.selectionStart);
+                inputText.value = before + '#' + after;
+                nextTick(() => {
+                    textarea.selectionStart = textarea.selectionEnd = hashTagStartPos + 1;
+                    textarea.focus();
+                });
+            }
+        }
+        return true;
+    }
     return false;
 }
 
 function handleClickOutsidePanel(e: MouseEvent) {
     const target = e.target as HTMLElement;
-    if (!target.closest('.mention-popover') && !target.closest('.chat-textarea')) {
-        showMentionPanel.value = false;
-        showCommandPanel.value = false;
+    if (!target.closest('.mention-panel') && !target.closest('.chat-textarea')) {
+        closeAllPanels();
     }
 }
 
@@ -1036,13 +1364,13 @@ onMounted(async () => {
     document.addEventListener("paste", handlePaste);
     document.addEventListener("click", handleClickOutsidePanel);
 
-    // Bind native keydown on textarea for arrow keys interception
+    // Bind native keydown on textarea for panel keyboard interception (arrows, ESC, Tab, Backspace)
     nextTick(() => {
         const textarea = document.querySelector('textarea.chat-textarea') as HTMLTextAreaElement;
         if (textarea) {
             textarea.addEventListener('keydown', (e: KeyboardEvent) => {
-                if (showMentionPanel.value || showCommandPanel.value) {
-                    if (['ArrowUp', 'ArrowDown'].includes(e.key)) {
+                if (isAnyPanelOpen.value) {
+                    if (['ArrowUp', 'ArrowDown', 'Escape', 'Tab', 'Backspace'].includes(e.key)) {
                         handlePanelKeydown(e);
                     }
                 }
@@ -1201,8 +1529,8 @@ onUnmounted(() => {
             </div>
 
             <!-- 消息列表 -->
-            <div ref="chatContainer" class="flex-1 overflow-y-auto px-6 py-4">
-                <VortImagePreviewGroup class="space-y-6">
+            <VortScrollbar ref="chatScrollbar" class="flex-1" wrap-class="px-6 py-4" view-class="min-h-full">
+                <VortImagePreviewGroup class="space-y-6 min-h-full">
                     <!-- 无会话状态 -->
                     <div v-if="!currentSessionId && isAiMode" class="flex flex-col items-center justify-center h-full text-gray-400">
                         <Bot :size="48" class="mb-4 text-gray-300" />
@@ -1235,16 +1563,15 @@ onUnmounted(() => {
                                         width="80" height="80" fit="cover"
                                         class="rounded-lg border border-white/30" />
                                 </div>
-                            <div v-if="msg.toolCalls?.length" class="mb-2 space-y-1">
-                                <div v-for="(tool, i) in msg.toolCalls" :key="i" class="block">
-                                    <div class="inline-flex items-center px-2 py-1 rounded text-xs mr-2"
-                                        :class="tool.status === 'running' ? 'bg-yellow-50 text-yellow-700' : 'bg-green-50 text-green-700'">
-                                        <Wrench :size="12" class="mr-1" />
+                            <!-- 运行中的工具调用（流式时显示在气泡上方）-->
+                            <div v-if="msg.toolCalls?.some(t => t.status === 'running')" class="mb-2 space-y-1">
+                                <div v-for="(tool, i) in msg.toolCalls.filter(t => t.status === 'running')" :key="'run-' + i" class="block">
+                                    <div class="inline-flex items-center px-2 py-1 rounded text-xs bg-yellow-50 text-yellow-700">
+                                        <Wrench :size="12" class="mr-1 flex-shrink-0" />
                                         {{ tool.name }}
-                                        <template v-if="tool.status === 'running'">
-                                            <Loader2 :size="12" class="ml-1 animate-spin" />
-                                            <span v-if="tool.elapsed" class="ml-1 text-yellow-500">{{ formatToolElapsed(tool.elapsed) }}</span>
-                                        </template>
+                                        <span v-if="(tool.count || 1) > 1" class="ml-1 opacity-70">&times;{{ tool.count }}</span>
+                                        <Loader2 :size="12" class="ml-1 animate-spin" />
+                                        <span v-if="tool.elapsed" class="ml-1 text-yellow-500">{{ formatToolElapsed(tool.elapsed) }}</span>
                                     </div>
                                     <div v-if="tool.output"
                                         :ref="(el: any) => { if (el) el.scrollTop = el.scrollHeight }"
@@ -1269,11 +1596,34 @@ onUnmounted(() => {
                                 </span>
                                 <template v-else>{{ msg.content }}</template>
                             </div>
+                            <!-- 已完成的工具调用（气泡下方，可展开）-->
+                            <div v-if="msg.toolCalls?.some(t => t.status === 'done')" class="mt-1.5">
+                                <button
+                                    class="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer select-none"
+                                    @click="toggleToolsExpanded(msg)">
+                                    <component :is="msg.toolsExpanded ? ChevronDown : ChevronRight" :size="14" />
+                                    <Wrench :size="12" />
+                                    <span>工具调用 ({{ msg.toolCalls.filter(t => t.status === 'done').reduce((s, t) => s + (t.count || 1), 0) }})</span>
+                                </button>
+                                <div v-if="msg.toolsExpanded" class="mt-1.5 space-y-1.5 pl-1">
+                                    <div v-for="(tool, i) in msg.toolCalls.filter(t => t.status === 'done')" :key="'done-' + i" class="block">
+                                        <div class="inline-flex items-center px-2 py-1 rounded text-xs bg-green-50 text-green-700 cursor-pointer select-none hover:bg-green-100"
+                                            @click="tool.output && toggleToolCollapsed(tool)">
+                                            <component :is="tool.collapsed ? ChevronRight : ChevronDown" v-if="tool.output" :size="12" class="mr-0.5 flex-shrink-0" />
+                                            <Wrench :size="12" class="mr-1 flex-shrink-0" />
+                                            {{ tool.name }}
+                                            <span v-if="(tool.count || 1) > 1" class="ml-1 opacity-70">&times;{{ tool.count }}</span>
+                                        </div>
+                                        <div v-if="tool.output && !tool.collapsed"
+                                            class="mt-1 ml-1 max-h-60 overflow-y-auto rounded-lg bg-gray-900 text-green-400 text-xs font-mono px-3 py-2 whitespace-pre-wrap break-words leading-5 border border-gray-700/50 shadow-inner">{{ tool.output }}</div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
                 </VortImagePreviewGroup>
-            </div>
+            </VortScrollbar>
 
             <!-- 输入区域 -->
             <div class="relative px-6 py-4" ref="inputArea"
@@ -1285,76 +1635,136 @@ onUnmounted(() => {
                     </div>
                 </div>
 
-                <!-- @mention / /command 弹出面板锚点 -->
-                <div class="absolute pointer-events-none" :style="{ left: panelStyle.left, bottom: '100%' }" style="width: 1px; height: 1px;">
-                    <VortPopover
-                        v-model:open="showMentionPanel"
-                        trigger="manual"
-                        placement="topLeft"
-                        :arrow="false"
-                        overlay-class="mention-popover"
-                    >
-                        <span class="inline-block w-px h-px" />
-                        <template #content>
-                            <div class="w-[280px] -m-3">
-                                <div class="px-3 py-2 text-xs text-gray-400 border-b border-gray-100">提及成员</div>
-                                <VortScrollbar max-height="240px">
-                                    <div class="py-1">
-                                        <div v-for="(member, i) in mentionMembers" :key="member.id"
-                                            :data-mention-index="i"
-                                            class="flex items-center gap-2.5 px-3 py-2 cursor-pointer transition-colors"
-                                            :class="i === mentionActiveIndex ? 'bg-blue-50' : 'hover:bg-gray-50'"
-                                            @click="selectMention(member)"
-                                            @mouseenter="mentionActiveIndex = i">
-                                            <div class="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0 text-xs font-medium text-blue-600">
-                                                {{ member.name.charAt(0) }}
-                                            </div>
-                                            <div class="min-w-0 flex-1">
-                                                <div class="text-sm text-gray-800 truncate">{{ member.name }}</div>
-                                                <div v-if="member.email" class="text-xs text-gray-400 truncate">{{ member.email }}</div>
-                                            </div>
+                <!-- @mention 弹出面板 (directly positioned, bottom-aligned) -->
+                <Transition name="vort-popover">
+                    <div v-if="showMentionPanel"
+                        class="mention-panel absolute z-50 bottom-full mb-2"
+                        :style="{ left: panelStyle.left }">
+                        <div class="w-[280px] bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
+                            <div class="px-3 py-2 text-xs text-gray-400 border-b border-gray-100">提及成员</div>
+                            <VortScrollbar max-height="240px">
+                                <div class="py-1">
+                                    <div v-for="(member, i) in mentionMembers" :key="member.id"
+                                        :data-mention-index="i"
+                                        class="flex items-center gap-2.5 px-3 py-2 cursor-pointer transition-colors"
+                                        :class="i === mentionActiveIndex ? 'bg-blue-50' : 'hover:bg-gray-50'"
+                                        @click="selectMention(member)"
+                                        @mouseenter="mentionActiveIndex = i">
+                                        <div class="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0 text-xs font-medium text-blue-600">
+                                            {{ member.name.charAt(0) }}
+                                        </div>
+                                        <div class="min-w-0 flex-1">
+                                            <div class="text-sm text-gray-800 truncate">{{ member.name }}</div>
+                                            <div v-if="member.email" class="text-xs text-gray-400 truncate">{{ member.email }}</div>
                                         </div>
                                     </div>
-                                </VortScrollbar>
-                            </div>
-                        </template>
-                    </VortPopover>
-                </div>
+                                </div>
+                            </VortScrollbar>
+                        </div>
+                    </div>
+                </Transition>
 
-                <div class="absolute pointer-events-none" :style="{ left: panelStyle.left, bottom: '100%' }" style="width: 1px; height: 1px;">
-                    <VortPopover
-                        v-model:open="showCommandPanel"
-                        trigger="manual"
-                        placement="topLeft"
-                        :arrow="false"
-                        overlay-class="mention-popover"
-                    >
-                        <span class="inline-block w-px h-px" />
-                        <template #content>
-                            <div class="w-[320px] -m-3">
-                                <div class="px-3 py-2 text-xs text-gray-400 border-b border-gray-100">快捷命令</div>
-                                <VortScrollbar max-height="240px">
-                                    <div class="py-1">
-                                        <div v-for="(cmd, i) in filteredCommands" :key="cmd.name"
-                                            :data-command-index="i"
+                <!-- /command 弹出面板 -->
+                <Transition name="vort-popover">
+                    <div v-if="showCommandPanel"
+                        class="mention-panel absolute z-50 bottom-full mb-2"
+                        :style="{ left: panelStyle.left }">
+                        <div class="w-[320px] bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
+                            <div class="px-3 py-2 text-xs text-gray-400 border-b border-gray-100">快捷命令</div>
+                            <VortScrollbar max-height="240px">
+                                <div class="py-1">
+                                    <div v-for="(cmd, i) in filteredCommands" :key="cmd.name"
+                                        :data-command-index="i"
+                                        class="flex items-center gap-2.5 px-3 py-2 cursor-pointer transition-colors"
+                                        :class="i === commandActiveIndex ? 'bg-blue-50' : 'hover:bg-gray-50'"
+                                        @click="selectCommand(cmd)"
+                                        @mouseenter="commandActiveIndex = i">
+                                        <div class="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
+                                            <Zap :size="14" class="text-gray-500" />
+                                        </div>
+                                        <div class="min-w-0 flex-1">
+                                            <div class="text-sm text-gray-800 font-mono">{{ cmd.label }}</div>
+                                            <div class="text-xs text-gray-400">{{ cmd.description }}</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </VortScrollbar>
+                        </div>
+                    </div>
+                </Transition>
+
+                <!-- #tag 弹出面板 -->
+                <Transition name="vort-popover">
+                    <div v-if="showHashTagPanel"
+                        class="mention-panel absolute z-50 bottom-full mb-2"
+                        :style="{ left: panelStyle.left }">
+                        <div class="w-[340px] bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
+                            <div class="px-3 py-2 text-xs text-gray-400 border-b border-gray-100 flex items-center gap-1">
+                                <Hash :size="12" />
+                                <template v-if="hashTagLevel === 'category'">引用工作项</template>
+                                <template v-else>
+                                    <span class="cursor-pointer hover:text-blue-500" @click="hashTagLevel = 'category'; hashTagSelectedCategory = null; hashTagQuery = ''">引用工作项</span>
+                                    <span class="mx-0.5">/</span>
+                                    <span class="text-gray-600">{{ hashTagSelectedCategory?.description }}</span>
+                                </template>
+                            </div>
+                            <!-- Category level -->
+                            <template v-if="hashTagLevel === 'category'">
+                                <div class="py-1">
+                                    <div v-for="(cat, i) in filteredHashTagCategories" :key="cat.key"
+                                        :data-hashtag-index="i"
+                                        class="flex items-center gap-2.5 px-3 py-2.5 cursor-pointer transition-colors"
+                                        :class="i === hashTagActiveIndex ? 'bg-blue-50' : 'hover:bg-gray-50'"
+                                        @click="selectHashTagCategory(cat)"
+                                        @mouseenter="hashTagActiveIndex = i">
+                                        <div class="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
+                                            :class="cat.key === 'bug' ? 'bg-red-50 text-red-500' : cat.key === 'task' ? 'bg-blue-50 text-blue-500' : cat.key === 'story' ? 'bg-green-50 text-green-500' : 'bg-purple-50 text-purple-500'">
+                                            <Bug v-if="cat.key === 'bug'" :size="14" />
+                                            <ListTodo v-else-if="cat.key === 'task'" :size="14" />
+                                            <BookOpen v-else-if="cat.key === 'story'" :size="14" />
+                                            <Milestone v-else :size="14" />
+                                        </div>
+                                        <div class="min-w-0 flex-1">
+                                            <div class="text-sm text-gray-800 font-medium">{{ cat.label }}</div>
+                                            <div class="text-xs text-gray-400">{{ cat.description }}</div>
+                                        </div>
+                                    </div>
+                                    <div v-if="filteredHashTagCategories.length === 0" class="px-3 py-4 text-xs text-gray-400 text-center">
+                                        无匹配的分类
+                                    </div>
+                                </div>
+                            </template>
+                            <!-- Items level -->
+                            <template v-else>
+                                <VortScrollbar max-height="280px">
+                                    <div v-if="hashTagItemsLoading" class="flex items-center justify-center py-6">
+                                        <Loader2 :size="16" class="animate-spin text-gray-400" />
+                                        <span class="ml-2 text-xs text-gray-400">加载中...</span>
+                                    </div>
+                                    <div v-else-if="filteredHashTagItems.length === 0" class="px-3 py-4 text-xs text-gray-400 text-center">
+                                        暂无数据，可输入 ID 或名称筛选
+                                    </div>
+                                    <div v-else class="py-1">
+                                        <div v-for="(item, i) in filteredHashTagItems" :key="item.id"
+                                            :data-hashtag-index="i"
                                             class="flex items-center gap-2.5 px-3 py-2 cursor-pointer transition-colors"
-                                            :class="i === commandActiveIndex ? 'bg-blue-50' : 'hover:bg-gray-50'"
-                                            @click="selectCommand(cmd)"
-                                            @mouseenter="commandActiveIndex = i">
-                                            <div class="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
-                                                <Zap :size="14" class="text-gray-500" />
-                                            </div>
+                                            :class="i === hashTagActiveIndex ? 'bg-blue-50' : 'hover:bg-gray-50'"
+                                            @click="selectHashTagItem(item)"
+                                            @mouseenter="hashTagActiveIndex = i">
                                             <div class="min-w-0 flex-1">
-                                                <div class="text-sm text-gray-800 font-mono">{{ cmd.label }}</div>
-                                                <div class="text-xs text-gray-400">{{ cmd.description }}</div>
+                                                <div class="text-sm text-gray-800 truncate">
+                                                    <span class="text-gray-400 font-mono text-xs mr-1.5">#{{ item.id }}</span>
+                                                    {{ item.title }}
+                                                </div>
+                                                <div v-if="item.state" class="text-xs text-gray-400 mt-0.5">{{ item.state }}</div>
                                             </div>
                                         </div>
                                     </div>
                                 </VortScrollbar>
-                            </div>
-                        </template>
-                    </VortPopover>
-                </div>
+                            </template>
+                        </div>
+                    </div>
+                </Transition>
 
                 <div class="chat-input-box bg-white rounded-xl border border-gray-200 overflow-hidden relative">
                     <div v-if="pendingImages.length" class="flex flex-wrap gap-2 px-4 pt-3">
@@ -1369,13 +1779,11 @@ onUnmounted(() => {
                     </div>
                     <VortTextarea
                         v-model="inputText"
-                        placeholder="请描述您问题，支持 Ctrl+V 粘贴图片。输入 @ 提及成员，/ 使用命令。"
+                        placeholder="请描述您问题，支持 Ctrl+V 粘贴图片。输入 @ 提及成员，/ 使用命令，# 引用工作项。"
                         :auto-size="{ minRows: 3, maxRows: 6 }"
                         :bordered="false"
                         class="chat-textarea"
                         @press-enter="handlePressEnter"
-                        @keydown.tab="(e: KeyboardEvent) => { if (showMentionPanel || showCommandPanel) { handlePanelKeydown(e); } }"
-                        @keydown.escape="showMentionPanel = false; showCommandPanel = false"
                     />
                     <div class="flex items-center justify-between px-4 py-2">
                         <div class="flex items-center gap-1">
@@ -1441,7 +1849,7 @@ onUnmounted(() => {
                                 class="w-20 h-9 rounded-lg flex items-center justify-center transition-colors send-btn"
                                 :class="aborting ? 'send-btn-disabled' : 'send-btn-stop'"
                             >
-                                <X :size="16" class="text-white" />
+                                <Square :size="14" fill="currentColor" class="text-white" />
                             </button>
                             <button
                                 v-else
@@ -1503,11 +1911,11 @@ onUnmounted(() => {
     background-color: var(--vort-primary-hover, #3372f7);
 }
 .send-btn-stop {
-    background-color: #ef4444;
+    background-color: var(--vort-primary, #1456f0);
     cursor: pointer;
 }
 .send-btn-stop:hover {
-    background-color: #dc2626;
+    background-color: var(--vort-primary-hover, #3372f7);
 }
 .send-btn-disabled {
     background-color: var(--vort-primary, #1456f0);
@@ -1540,10 +1948,23 @@ onUnmounted(() => {
 }
 
 .mention-panel {
+    box-shadow: 0 6px 16px 0 rgba(0, 0, 0, 0.08), 0 3px 6px -4px rgba(0, 0, 0, 0.12), 0 9px 28px 8px rgba(0, 0, 0, 0.05);
+    border-radius: 12px;
+}
+
+/* Vue Transition for popup panels */
+.vort-popover-enter-active {
     animation: mention-slide-up 0.15s ease-out;
+}
+.vort-popover-leave-active {
+    animation: mention-slide-down 0.1s ease-in;
 }
 @keyframes mention-slide-up {
     from { opacity: 0; transform: translateY(4px); }
     to { opacity: 1; transform: translateY(0); }
+}
+@keyframes mention-slide-down {
+    from { opacity: 1; transform: translateY(0); }
+    to { opacity: 0; transform: translateY(4px); }
 }
 </style>

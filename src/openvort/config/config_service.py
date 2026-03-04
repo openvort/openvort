@@ -276,6 +276,7 @@ class ConfigService:
             settings.llm.model = primary["model"]
             settings.llm.max_tokens = int(primary["max_tokens"])
             settings.llm.timeout = int(primary["timeout"])
+            settings.llm.api_format = primary.get("api_format", "auto")
             settings.llm.fallback_models = json.dumps(chain[1:], ensure_ascii=False)
             applied = True
         else:
@@ -299,17 +300,33 @@ class ConfigService:
     # ---- CLI coding model config ----
 
     async def get_cli_config(self) -> dict[str, Any]:
-        """Get CLI coding tool + model configuration."""
+        """Get CLI coding tool + model configuration.
+
+        Returns dict with:
+          - cli_default_tool: str
+          - cli_primary_model_id: str
+          - cli_fallbacks: list[{tool: str, model_id: str}]
+          - cli_fallback_model_ids: list[str]  (legacy compat)
+        """
         await self._ensure_llm_model_library()
         default_tool = await self.get(_CLI_DEFAULT_TOOL_KEY, "claude-code")
         primary_id = await self.get(_CLI_PRIMARY_MODEL_ID_KEY, "")
         fallback_raw = await self.get(_CLI_FALLBACK_MODEL_IDS_KEY, "")
-        fallback_ids: list[str] = []
+
+        # Parse fallbacks – supports both new [{tool, model_id}] and legacy [model_id] formats
+        fallbacks: list[dict[str, str]] = []
         if fallback_raw:
             try:
                 parsed = json.loads(fallback_raw)
                 if isinstance(parsed, list):
-                    fallback_ids = [str(v) for v in parsed if str(v)]
+                    for item in parsed:
+                        if isinstance(item, dict) and "model_id" in item:
+                            fallbacks.append({
+                                "tool": item.get("tool", default_tool),
+                                "model_id": str(item["model_id"]),
+                            })
+                        elif isinstance(item, str) and item:
+                            fallbacks.append({"tool": default_tool, "model_id": item})
             except (json.JSONDecodeError, Exception):
                 pass
 
@@ -317,43 +334,59 @@ class ConfigService:
         model_ids = {m["id"] for m in models if m.get("enabled", True)}
         if primary_id and primary_id not in model_ids:
             primary_id = ""
-        fallback_ids = [mid for mid in fallback_ids if mid in model_ids and mid != primary_id]
+        fallbacks = [fb for fb in fallbacks if fb["model_id"] in model_ids]
 
         return {
             "cli_default_tool": default_tool,
             "cli_primary_model_id": primary_id,
-            "cli_fallback_model_ids": fallback_ids,
+            "cli_fallbacks": fallbacks,
+            "cli_fallback_model_ids": [fb["model_id"] for fb in fallbacks],
         }
 
     async def save_cli_config(
         self, default_tool: str | None = None,
         primary_model_id: str | None = None,
+        fallbacks: list[dict[str, str]] | None = None,
         fallback_model_ids: list[str] | None = None,
     ) -> None:
-        """Save CLI coding tool + model configuration."""
+        """Save CLI coding tool + model configuration.
+
+        Accepts either `fallbacks` (new format: [{tool, model_id}])
+        or `fallback_model_ids` (legacy format: [model_id]).
+        """
         items: dict[str, str] = {}
         if default_tool is not None:
             items[_CLI_DEFAULT_TOOL_KEY] = default_tool
         if primary_model_id is not None:
             items[_CLI_PRIMARY_MODEL_ID_KEY] = primary_model_id
-        if fallback_model_ids is not None:
+
+        fb_list: list[dict[str, str]] | None = None
+        if fallbacks is not None:
+            fb_list = fallbacks
+        elif fallback_model_ids is not None:
+            effective_tool = default_tool or "claude-code"
+            fb_list = [{"tool": effective_tool, "model_id": mid} for mid in fallback_model_ids]
+
+        if fb_list is not None:
             models = await self.get_llm_models()
-            model_ids = {m["id"] for m in models}
-            cleaned = []
-            seen = set()
-            for mid in fallback_model_ids:
-                if mid in seen or mid not in model_ids:
-                    continue
-                if primary_model_id and mid == primary_model_id:
+            model_id_set = {m["id"] for m in models}
+            cleaned: list[dict[str, str]] = []
+            seen: set[str] = set()
+            for fb in fb_list:
+                mid = fb.get("model_id", "")
+                if not mid or mid in seen or mid not in model_id_set:
                     continue
                 seen.add(mid)
-                cleaned.append(mid)
+                cleaned.append({"tool": fb.get("tool", "claude-code"), "model_id": mid})
             items[_CLI_FALLBACK_MODEL_IDS_KEY] = json.dumps(cleaned, ensure_ascii=False)
         if items:
             await self.set_many(items)
 
     async def get_cli_model_chain(self) -> list[dict[str, Any]]:
-        """Get CLI model chain (primary + fallbacks) with full model details."""
+        """Get CLI model chain (primary + fallbacks) with full model details.
+
+        Returns list of {tool: str, model: dict} items.
+        """
         cfg = await self.get_cli_config()
         models = await self.get_llm_models()
         model_map = {m["id"]: m for m in models if m.get("enabled", True)}
@@ -361,11 +394,11 @@ class ConfigService:
         chain: list[dict[str, Any]] = []
         primary = model_map.get(cfg["cli_primary_model_id"])
         if primary:
-            chain.append(primary)
-        for fid in cfg["cli_fallback_model_ids"]:
-            m = model_map.get(fid)
+            chain.append({"tool": cfg["cli_default_tool"], "model": primary})
+        for fb in cfg["cli_fallbacks"]:
+            m = model_map.get(fb["model_id"])
             if m:
-                chain.append(m)
+                chain.append({"tool": fb["tool"], "model": m})
         return chain
 
     async def save_llm_settings(self, data: dict[str, Any]) -> None:

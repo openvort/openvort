@@ -125,6 +125,63 @@ def _extract_stream_text(line: str) -> str:
     return ""
 
 
+def _extract_codex_text(line: str) -> str:
+    """Extract human-readable text from a Codex CLI --json line.
+
+    Codex CLI with --json emits newline-delimited JSON events.
+    We extract message content and tool/command information.
+    """
+    line = line.strip()
+    if not line:
+        return ""
+    try:
+        obj = json.loads(line)
+    except (json.JSONDecodeError, ValueError):
+        return line
+
+    event_type = obj.get("type", "")
+
+    if event_type == "message":
+        content = obj.get("content", "")
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts = []
+            for block in content:
+                if isinstance(block, dict):
+                    if block.get("type") == "text":
+                        parts.append(block.get("text", ""))
+                    elif block.get("type") == "tool_use":
+                        parts.append(f"[调用工具: {block.get('name', '?')}]")
+                elif isinstance(block, str):
+                    parts.append(block)
+            return "".join(parts)
+        return ""
+
+    if event_type in ("command", "shell"):
+        cmd = obj.get("command", "") or obj.get("shell", "")
+        if cmd:
+            return f"$ {cmd}"
+        return ""
+
+    if event_type == "command_output":
+        output = obj.get("output", "")
+        if output and len(output) > 300:
+            output = output[:300] + "..."
+        return output
+
+    if event_type in ("completed", "done", "result"):
+        return ""
+
+    # Fallback: try common content fields
+    for key in ("content", "text", "message"):
+        val = obj.get(key, "")
+        if isinstance(val, str) and val:
+            return val
+
+    return ""
+
+
 def _get_coding_env():
     """Create CodingEnvironment from VortGit settings."""
     from openvort.core.coding_env import CodingEnvironment
@@ -154,7 +211,8 @@ class CodeTaskTool(BaseTool):
     description = (
         "AI 自动编码：让 AI 直接读代码、改代码、写代码。"
         "支持修 Bug、实现新功能、重构优化、补测试、改配置等任何代码修改任务。"
-        "底层调用 Claude Code / Aider 等专业 CLI 编码工具，具备完整代码理解能力。\n"
+        "底层调用 Claude Code / Aider / Codex CLI 等专业 CLI 编码工具，具备完整代码理解能力。"
+        "cli_tool 参数不传时将自动使用系统设置中配置的默认 CLI 工具。\n"
         "【工作流程】自动创建分支 → AI 读取仓库代码 → 理解上下文 → 修改/新建文件 → 提交 → 推送 → 创建 PR，全程自动化。\n"
         "【实时反馈】执行过程中会实时输出 AI 的思考过程和操作（读了哪些文件、改了什么），可在聊天界面看到。\n"
         "【关联能力】可关联 VortFlow 的 Bug/任务/需求 ID，自动获取详情作为编码上下文，commit message 自动关联。\n"
@@ -201,9 +259,9 @@ class CodeTaskTool(BaseTool):
                 },
                 "cli_tool": {
                     "type": "string",
-                    "enum": ["claude-code", "aider"],
-                    "description": "使用的 CLI 编码工具（默认 claude-code）",
-                    "default": "claude-code",
+                    "enum": ["", "claude-code", "aider", "codex"],
+                    "description": "使用的 CLI 编码工具（可选，留空则使用系统设置中配置的默认工具）",
+                    "default": "",
                 },
                 "auto_pr": {
                     "type": "boolean",
@@ -328,6 +386,8 @@ class CodeTaskTool(BaseTool):
                 return
             if cli_tool == "claude-code":
                 text = _extract_stream_text(line)
+            elif cli_tool == "codex":
+                text = _extract_codex_text(line)
             else:
                 text = line.rstrip("\n\r")
             if text:
@@ -454,8 +514,9 @@ class CodeTaskTool(BaseTool):
     async def _load_cli_config(override_tool: str = "") -> tuple[str, list[dict]]:
         """Load CLI tool name and model chain from DB config.
 
-        Returns (cli_tool, model_chain). model_chain may be empty if
-        no CLI model is configured (falls back to legacy env vars).
+        Returns (cli_tool, model_chain).
+        model_chain items: {tool: str, model: dict} (each fallback carries its own tool).
+        model_chain may be empty if no CLI model is configured (falls back to legacy env vars).
         """
         try:
             from openvort.db.engine import get_session_factory
@@ -467,6 +528,9 @@ class CodeTaskTool(BaseTool):
             cfg = await cs.get_cli_config()
             tool = override_tool or cfg["cli_default_tool"] or "claude-code"
             chain = await cs.get_cli_model_chain()
+            if override_tool:
+                for entry in chain:
+                    entry["tool"] = override_tool
             return tool, chain
         except Exception as e:
             log.debug(f"Failed to load CLI config from DB, using defaults: {e}")
@@ -486,8 +550,9 @@ class CodeTaskTool(BaseTool):
     ):
         """Run CLI with model chain failover.
 
-        Tries primary model first, then each fallback in order.
-        If model_chain is empty, runs without model config (legacy).
+        Each model_chain item may have {tool, model} (new format)
+        or be a plain model dict (legacy). Falls back to cli_tool if
+        item has no 'tool' key.
         """
         from openvort.plugins.vortgit.cli_runner import CLIResult
 
@@ -497,13 +562,20 @@ class CodeTaskTool(BaseTool):
             )
 
         last_result: CLIResult | None = None
-        for i, model_cfg in enumerate(model_chain):
+        for i, entry in enumerate(model_chain):
+            if "model" in entry and isinstance(entry["model"], dict):
+                tool = entry.get("tool", cli_tool)
+                model_cfg = entry["model"]
+            else:
+                tool = cli_tool
+                model_cfg = entry
+
             model_name = model_cfg.get("model", "?")
             label = "primary" if i == 0 else f"fallback#{i}"
-            log.info(f"CLI model {label}: {model_cfg.get('provider')}/{model_name}")
+            log.info(f"CLI {label}: {tool} / {model_cfg.get('provider')}/{model_name}")
 
             result = await runner.run(
-                cli_tool, ws_path, prompt,
+                tool, ws_path, prompt,
                 model_config=model_cfg,
                 on_output=on_output,
             )
@@ -513,7 +585,7 @@ class CodeTaskTool(BaseTool):
             last_result = result
             if i < len(model_chain) - 1:
                 log.warning(
-                    f"CLI {label} model {model_name} failed, "
+                    f"CLI {label} ({tool}/{model_name}) failed, "
                     f"trying next fallback..."
                 )
 

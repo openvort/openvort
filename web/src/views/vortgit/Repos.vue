@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onActivated } from "vue";
+import { z } from "zod";
 import { useCrudPage } from "@/hooks";
 import {
     getVortgitRepos, updateVortgitRepo, deleteVortgitRepo,
@@ -143,7 +144,15 @@ const drawerVisible = ref(false);
 const drawerTitle = ref("");
 const drawerMode = ref<"view" | "edit" | "add">("view");
 const currentRow = ref<Partial<RepoItem>>({});
+const formRef = ref();
 const saving = ref(false);
+
+const repoValidationSchema = z.object({
+    name: z.string().min(1, '仓库名不能为空'),
+    description: z.string().optional().or(z.literal('')),
+    repo_type: z.string().optional().or(z.literal('')),
+    project_id: z.string().optional().or(z.literal('')).nullable(),
+});
 const commits = ref<CommitItem[]>([]);
 const branches = ref<BranchItem[]>([]);
 const commitsLoading = ref(false);
@@ -215,6 +224,7 @@ const shortSha = (sha: string) => sha ? sha.slice(0, 8) : "";
 const commitFirstLine = (msg: string) => msg ? msg.split("\n")[0].slice(0, 80) : "";
 
 const handleSave = async () => {
+    try { await formRef.value?.validate(); } catch { return; }
     const data = currentRow.value;
     saving.value = true;
     try {
@@ -515,19 +525,19 @@ onActivated(() => {
                 </div>
             </div>
             <template v-else>
-                <vort-form label-width="100px">
-                    <vort-form-item label="仓库名">
+                <vort-form ref="formRef" :model="currentRow" :rules="repoValidationSchema" label-width="100px">
+                    <vort-form-item label="仓库名" name="name" required has-feedback>
                         <vort-input v-model="currentRow.name" />
                     </vort-form-item>
-                    <vort-form-item label="描述">
+                    <vort-form-item label="描述" name="description">
                         <vort-textarea v-model="currentRow.description" :rows="3" />
                     </vort-form-item>
-                    <vort-form-item label="仓库类型">
+                    <vort-form-item label="仓库类型" name="repo_type">
                         <vort-select v-model="currentRow.repo_type">
                             <vort-select-option v-for="opt in repoTypeOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</vort-select-option>
                         </vort-select>
                     </vort-form-item>
-                    <vort-form-item label="关联项目">
+                    <vort-form-item label="关联项目" name="project_id">
                         <vort-select v-model="currentRow.project_id" placeholder="选择项目" allow-clear>
                             <vort-select-option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name }}</vort-select-option>
                         </vort-select>

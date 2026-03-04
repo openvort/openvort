@@ -4,9 +4,11 @@ import os
 import sys
 import json
 import asyncio
+import subprocess
 import threading
 
 from fastapi import APIRouter
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from openvort.config.settings import get_settings
@@ -44,8 +46,10 @@ async def get_current_settings():
         for item in models
     ]
 
-    # CLI tool compatibility info
     cli_tools_info = _get_cli_tools_info()
+
+    from openvort.plugins.vortgit.cli_runner import CLIRunner
+    cli_tools_status = CLIRunner.get_tools_status()
 
     return {
         "llm_primary_model_id": primary_model_id,
@@ -54,8 +58,10 @@ async def get_current_settings():
         # CLI coding config
         "cli_default_tool": cli_config["cli_default_tool"],
         "cli_primary_model_id": cli_config["cli_primary_model_id"],
+        "cli_fallbacks": cli_config["cli_fallbacks"],
         "cli_fallback_model_ids": cli_config["cli_fallback_model_ids"],
         "cli_tools": cli_tools_info,
+        "cli_tools_status": cli_tools_status,
         # 兼容旧前端字段
         "llm_provider": settings.llm.provider,
         "llm_api_key": _mask_key(settings.llm.api_key),
@@ -98,7 +104,8 @@ class UpdateSettingsRequest(BaseModel):
     # CLI coding config
     cli_default_tool: str | None = None
     cli_primary_model_id: str | None = None
-    cli_fallback_model_ids: list[str] | None = None
+    cli_fallbacks: list[dict] | None = None
+    cli_fallback_model_ids: list[str] | None = None  # legacy compat
 
     # 兼容旧请求字段
     llm_provider: str | None = None
@@ -146,11 +153,12 @@ async def update_settings(req: UpdateSettingsRequest):
         await config_service.save_llm_model_selection(primary_id, fallback_ids)
 
     # CLI coding config
-    if any(v is not None for v in [req.cli_default_tool, req.cli_primary_model_id, req.cli_fallback_model_ids]):
+    if any(v is not None for v in [req.cli_default_tool, req.cli_primary_model_id, req.cli_fallbacks, req.cli_fallback_model_ids]):
         await config_service.save_cli_config(
             default_tool=req.cli_default_tool,
             primary_model_id=req.cli_primary_model_id,
-            fallback_model_ids=req.cli_fallback_model_ids,
+            fallbacks=req.cli_fallbacks,
+            fallback_model_ids=req.cli_fallback_model_ids if req.cli_fallbacks is None else None,
         )
 
     data: dict = {}
@@ -186,12 +194,76 @@ async def restart_service():
 
     def _do_restart():
         import time
-        time.sleep(1)  # 等待响应返回给前端
-        # 清理 PID 文件
+        time.sleep(1)
         from openvort.cli import _cleanup_pid
         _cleanup_pid()
-        # 用 os.execv 替换当前进程，实现原地重启
         os.execv(sys.executable, [sys.executable] + sys.argv)
 
     threading.Thread(target=_do_restart, daemon=True).start()
     return {"success": True, "message": "服务即将重启"}
+
+
+# ---- CLI 工具管理 API ----
+
+
+@router.get("/cli-tools")
+async def list_cli_tools():
+    """Return install status of all built-in CLI tools."""
+    from openvort.plugins.vortgit.cli_runner import CLIRunner
+    return CLIRunner.get_tools_status()
+
+
+@router.post("/cli-tools/{tool_name}/install")
+async def install_cli_tool(tool_name: str):
+    """Install a CLI tool via SSE stream."""
+    from openvort.plugins.vortgit.cli_runner import BUILTIN_CLI_TOOLS
+    spec = BUILTIN_CLI_TOOLS.get(tool_name)
+    if not spec:
+        return {"success": False, "error": f"Unknown tool: {tool_name}"}
+
+    async def _stream():
+        yield f"data: {json.dumps({'type': 'start', 'cmd': spec.install_cmd})}\n\n"
+        try:
+            proc = await asyncio.create_subprocess_shell(
+                spec.install_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            async for line in proc.stdout:
+                text = line.decode(errors="replace").rstrip()
+                yield f"data: {json.dumps({'type': 'output', 'text': text})}\n\n"
+            await proc.wait()
+            success = proc.returncode == 0
+            yield f"data: {json.dumps({'type': 'done', 'success': success, 'exit_code': proc.returncode})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'text': str(e)})}\n\n"
+
+    return StreamingResponse(_stream(), media_type="text/event-stream")
+
+
+@router.post("/cli-tools/{tool_name}/uninstall")
+async def uninstall_cli_tool(tool_name: str):
+    """Uninstall a CLI tool via SSE stream."""
+    from openvort.plugins.vortgit.cli_runner import BUILTIN_CLI_TOOLS
+    spec = BUILTIN_CLI_TOOLS.get(tool_name)
+    if not spec or not spec.uninstall_cmd:
+        return {"success": False, "error": f"No uninstall command for: {tool_name}"}
+
+    async def _stream():
+        yield f"data: {json.dumps({'type': 'start', 'cmd': spec.uninstall_cmd})}\n\n"
+        try:
+            proc = await asyncio.create_subprocess_shell(
+                spec.uninstall_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            async for line in proc.stdout:
+                text = line.decode(errors="replace").rstrip()
+                yield f"data: {json.dumps({'type': 'output', 'text': text})}\n\n"
+            await proc.wait()
+            success = proc.returncode == 0
+            yield f"data: {json.dumps({'type': 'done', 'success': success, 'exit_code': proc.returncode})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'text': str(e)})}\n\n"
+
+    return StreamingResponse(_stream(), media_type="text/event-stream")

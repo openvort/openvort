@@ -13,6 +13,7 @@ declare module 'vue' {
   export interface GlobalComponents {
     AiAssistButton: typeof import('@/components/vort-biz/ai-assist-button')['AiAssistButton']
     DeleteRecord: typeof import('@/components/vort-biz/delete-record')['DeleteRecord']
+    MarkdownView: typeof import('@/components/vort-biz/editor')['MarkdownView']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     TableActions: typeof import('@/components/vort-biz/table-actions')['TableActions']
@@ -29,6 +30,7 @@ declare module 'vue' {
     VortDropdown: typeof import('@/components/vort/dropdown')['Dropdown']
     VortDropdownMenuItem: typeof import('@/components/vort/dropdown')['DropdownMenuItem']
     VortDropdownMenuSeparator: typeof import('@/components/vort/dropdown')['DropdownMenuSeparator']
+    VortEditor: typeof import('@/components/vort-biz/editor')['VortEditor']
     VortForm: typeof import('@/components/vort/form')['Form']
     VortFormItem: typeof import('@/components/vort/form')['FormItem']
     VortInput: typeof import('@/components/vort/input')['Input']

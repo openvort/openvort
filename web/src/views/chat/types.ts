@@ -3,7 +3,8 @@ export interface ChatMessage {
     role: "user" | "assistant";
     content: string;
     images?: string[];
-    toolCalls?: { name: string; status: string; elapsed?: number; output?: string }[];
+    toolCalls?: ToolCall[];
+    toolsExpanded?: boolean;
     timestamp: number;
     streaming?: boolean;
 }
@@ -16,6 +17,15 @@ export interface ChatSession {
     target_type?: string;
     target_id?: string;
     pinned?: boolean;
+}
+
+export interface ToolCall {
+    name: string;
+    status: string;
+    elapsed?: number;
+    output?: string;
+    collapsed?: boolean;
+    count?: number;
 }
 
 export interface PendingImage {
@@ -57,4 +67,20 @@ export interface SlashCommand {
 export interface Draft {
     text: string;
     images: PendingImage[];
+}
+
+export interface HashTagCategory {
+    key: string;       // e.g. "bug", "task", "story", "milestone"
+    label: string;     // e.g. "#bug"
+    description: string;
+    icon?: string;
+    plugin: "vortflow" | "vortgit";
+}
+
+export interface HashTagItem {
+    id: string;
+    title: string;
+    state?: string;
+    priority?: number;
+    category: string;  // back-ref to HashTagCategory.key
 }

@@ -206,7 +206,11 @@ const componentMap: Record<string, { from: string; name: string }> = {
     BatchActions: { from: "@/components/vort-biz/batch-actions", name: "BatchActions" },
 
     // AiAssistButton
-    AiAssistButton: { from: "@/components/vort-biz/ai-assist-button", name: "AiAssistButton" }
+    AiAssistButton: { from: "@/components/vort-biz/ai-assist-button", name: "AiAssistButton" },
+
+    // Editor
+    VortEditor: { from: "@/components/vort-biz/editor", name: "VortEditor" },
+    MarkdownView: { from: "@/components/vort-biz/editor", name: "MarkdownView" }
 };
 
 /**

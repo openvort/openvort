@@ -540,7 +540,7 @@ export function testModel(modelId: string) {
 }
 
 /** 获取可用模型列表（通过 API Key 和 URL 自动识别） */
-export function fetchAvailableModels(data: { provider: string; api_key: string; api_base: string }) {
+export function fetchAvailableModels(data: { provider: string; api_key: string; api_base: string; model_id?: string }) {
     return request.post("/admin/models/fetch-available", data);
 }
 
@@ -562,6 +562,21 @@ export function updateSettings(data: Record<string, any>) {
 /** 重启后端服务 */
 export function restartService() {
     return request.post("/admin/settings/restart");
+}
+
+/** 获取 CLI 工具状态 */
+export function getCliTools() {
+    return request.get("/admin/settings/cli-tools");
+}
+
+/** 安装 CLI 工具（返回 SSE 流 URL） */
+export function getCliToolInstallUrl(toolName: string, token: string) {
+    return `/api/admin/settings/cli-tools/${toolName}/install?token=${encodeURIComponent(token)}`;
+}
+
+/** 卸载 CLI 工具（返回 SSE 流 URL） */
+export function getCliToolUninstallUrl(toolName: string, token: string) {
+    return `/api/admin/settings/cli-tools/${toolName}/uninstall?token=${encodeURIComponent(token)}`;
 }
 
 // ---- 定时任务（个人）----

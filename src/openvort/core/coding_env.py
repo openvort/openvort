@@ -84,6 +84,7 @@ class EnvStatus:
 _CLI_BINARIES = {
     "claude-code": "claude",
     "aider": "aider",
+    "codex": "codex",
 }
 
 

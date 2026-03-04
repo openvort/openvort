@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive } from "vue";
+import { z } from "zod";
 import { useRouter } from "vue-router";
 import { useUserStore } from "@/stores";
 import { User, Lock } from "lucide-vue-next";
@@ -10,30 +11,22 @@ const router = useRouter();
 const userStore = useUserStore();
 
 const loading = ref(false);
-const userId = ref("");
-const password = ref("");
-const errors = reactive<Record<string, string>>({});
+const formRef = ref();
+const formData = reactive({
+    userId: "",
+    password: "",
+});
 
-const validate = (): boolean => {
-    errors.userId = "";
-    errors.password = "";
-    let valid = true;
-    if (!userId.value.trim()) {
-        errors.userId = "用户 ID 不能为空";
-        valid = false;
-    }
-    if (!password.value) {
-        errors.password = "密码不能为空";
-        valid = false;
-    }
-    return valid;
-};
+const loginValidationSchema = z.object({
+    userId: z.string().min(1, '用户 ID 不能为空'),
+    password: z.string().min(1, '密码不能为空'),
+});
 
 const handleLogin = async () => {
-    if (!validate()) return;
+    try { await formRef.value?.validate(); } catch { return; }
     loading.value = true;
     try {
-        const res: any = await login(userId.value, password.value);
+        const res: any = await login(formData.userId, formData.password);
         userStore.setToken(res.token);
         userStore.setUserInfo({
             member_id: res.user.member_id,
@@ -72,15 +65,15 @@ const handleLogin = async () => {
                 <h2 class="text-2xl font-semibold text-gray-800 mb-2">欢迎回来</h2>
                 <p class="text-sm text-gray-400">请输入您的账号密码进行登录</p>
             </div>
-            <VortForm layout="vertical" @keyup.enter="handleLogin" class="login-form">
+            <VortForm ref="formRef" :model="formData" :rules="loginValidationSchema" layout="vertical" @keyup.enter="handleLogin" class="login-form">
                 <VortFormItem
+                    name="userId"
                     :required="true"
-                    :validateStatus="errors.userId ? 'error' : ''"
-                    :help="errors.userId"
+                    has-feedback
                     class="login-form-item"
                 >
                     <VortInput
-                        v-model="userId"
+                        v-model="formData.userId"
                         placeholder="用户 ID / 姓名"
                         size="large"
                     >
@@ -90,13 +83,13 @@ const handleLogin = async () => {
                     </VortInput>
                 </VortFormItem>
                 <VortFormItem
+                    name="password"
                     :required="true"
-                    :validateStatus="errors.password ? 'error' : ''"
-                    :help="errors.password"
+                    has-feedback
                     class="login-form-item"
                 >
                     <VortInputPassword
-                        v-model="password"
+                        v-model="formData.password"
                         placeholder="密码"
                         size="large"
                     >

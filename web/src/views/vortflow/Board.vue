@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
+import { z } from "zod";
 import { useRouter } from "vue-router";
 import { FolderKanban, ListChecks, CheckSquare, Bug, Plus, Settings, Trash2 } from "lucide-vue-next";
+import { useDirtyCheck } from "@/hooks";
 import {
     getVortflowStats, getVortflowProjects, createVortflowProject,
     updateVortflowProject, deleteVortflowProject,
@@ -93,13 +95,26 @@ const drawerVisible = ref(false);
 const drawerTitle = ref("");
 const drawerMode = ref<"view" | "edit" | "add">("view");
 const currentProject = ref<Partial<ProjectItem>>({});
+const formRef = ref();
 const formLoading = ref(false);
+const { takeSnapshot, confirmClose } = useDirtyCheck(currentProject);
+
+const projectValidationSchema = z.object({
+    name: z.string().min(1, '项目名称不能为空'),
+    product: z.string().optional().or(z.literal('')),
+    iteration: z.string().optional().or(z.literal('')),
+    version: z.string().optional().or(z.literal('')),
+    start_date: z.string().optional().or(z.literal('')),
+    end_date: z.string().optional().or(z.literal('')),
+    description: z.string().optional().or(z.literal('')),
+});
 
 const handleAddProject = () => {
     drawerMode.value = "add";
     drawerTitle.value = "新增项目";
     currentProject.value = {};
     drawerVisible.value = true;
+    takeSnapshot();
 };
 
 const handleEditProject = (p: ProjectItem) => {
@@ -111,6 +126,7 @@ const handleEditProject = (p: ProjectItem) => {
         end_date: p.end_date ? p.end_date.split("T")[0] : "",
     };
     drawerVisible.value = true;
+    takeSnapshot();
 };
 
 const handleViewProject = (p: ProjectItem) => {
@@ -118,8 +134,8 @@ const handleViewProject = (p: ProjectItem) => {
 };
 
 const handleSaveProject = async () => {
+    try { await formRef.value?.validate(); } catch { return; }
     const r = currentProject.value;
-    if (!r.name?.trim()) return;
     formLoading.value = true;
     try {
         if (drawerMode.value === "add") {
@@ -277,32 +293,32 @@ onMounted(loadData);
         </vort-spin>
 
         <!-- Project Drawer -->
-        <vort-drawer v-model:open="drawerVisible" :title="drawerTitle" :width="600">
-            <vort-form label-width="80px">
-                <vort-form-item label="项目名称" required>
+        <vort-drawer :open="drawerVisible" :title="drawerTitle" :width="900" @update:open="(val: boolean) => { if (!val) { confirmClose(() => { drawerVisible = false }) } else { drawerVisible = val } }">
+            <vort-form ref="formRef" :model="currentProject" :rules="projectValidationSchema" label-width="80px">
+                <vort-form-item label="项目名称" name="name" required has-feedback>
                     <vort-input v-model="currentProject.name" placeholder="请输入项目名称" />
                 </vort-form-item>
-                <vort-form-item label="产品">
+                <vort-form-item label="产品" name="product">
                     <vort-input v-model="currentProject.product" placeholder="产品名称（可选）" />
                 </vort-form-item>
-                <vort-form-item label="迭代">
+                <vort-form-item label="迭代" name="iteration">
                     <vort-input v-model="currentProject.iteration" placeholder="迭代名称（可选）" />
                 </vort-form-item>
-                <vort-form-item label="版本">
+                <vort-form-item label="版本" name="version">
                     <vort-input v-model="currentProject.version" placeholder="版本号（可选）" />
                 </vort-form-item>
-                <vort-form-item label="开始日期">
+                <vort-form-item label="开始日期" name="start_date">
                     <vort-date-picker v-model="currentProject.start_date" value-format="YYYY-MM-DD" placeholder="请选择开始日期" class="w-full" />
                 </vort-form-item>
-                <vort-form-item label="结束日期">
+                <vort-form-item label="结束日期" name="end_date">
                     <vort-date-picker v-model="currentProject.end_date" value-format="YYYY-MM-DD" placeholder="请选择结束日期" class="w-full" />
                 </vort-form-item>
-                <vort-form-item label="描述">
-                    <vort-textarea v-model="currentProject.description" placeholder="请输入项目描述" :rows="4" />
+                <vort-form-item label="描述" name="description">
+                    <VortEditor v-model="currentProject.description" placeholder="请输入项目描述" min-height="160px" />
                 </vort-form-item>
             </vort-form>
             <div class="flex justify-end gap-3 mt-6">
-                <vort-button @click="drawerVisible = false">取消</vort-button>
+                <vort-button @click="confirmClose(() => { drawerVisible = false })">取消</vort-button>
                 <vort-button variant="primary" :loading="formLoading" @click="handleSaveProject">确定</vort-button>
             </div>
         </vort-drawer>
