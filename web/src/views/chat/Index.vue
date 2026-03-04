@@ -550,6 +550,7 @@ async function handleSend() {
                 const calls = streamState.assistantMsg.toolCalls;
                 const call = calls && [...calls].reverse().find(t => t.name === data.name && t.status === "running");
                 if (call) {
+                    call.hasLiveOutput = true;
                     call.output = call.output ? call.output + "\n" + data.output : data.output;
                     if (currentSessionId.value === sendSessionId) scrollToBottom();
                 }
@@ -577,7 +578,7 @@ async function handleSend() {
                             ? call.output + "\n---\n" + data.result
                             : data.result;
                     }
-                    call.collapsed = !!call.output;
+                    call.collapsed = call.hasLiveOutput ? false : !!call.output;
                 }
                 if (currentSessionId.value === sendSessionId) scrollToBottom();
             } catch { /* ignore */ }
@@ -1563,11 +1564,13 @@ onUnmounted(() => {
                                         width="80" height="80" fit="cover"
                                         class="rounded-lg border border-white/30" />
                                 </div>
-                            <!-- 流式进行中：所有工具调用显示在气泡上方（实时输出）-->
+                            <!-- 流式进行中：所有工具调用显示在气泡上方 -->
                             <div v-if="msg.streaming && msg.toolCalls?.length" class="mb-2 space-y-1">
                                 <div v-for="(tool, i) in msg.toolCalls" :key="'live-' + i" class="block">
-                                    <div class="inline-flex items-center px-2 py-1 rounded text-xs"
-                                        :class="tool.status === 'running' ? 'bg-yellow-50 text-yellow-700' : 'bg-green-50 text-green-700'">
+                                    <div class="inline-flex items-center px-2 py-1 rounded text-xs cursor-pointer select-none"
+                                        :class="tool.status === 'running' ? 'bg-yellow-50 text-yellow-700' : 'bg-green-50 text-green-700'"
+                                        @click="tool.output && !tool.hasLiveOutput && toggleToolCollapsed(tool)">
+                                        <component :is="tool.collapsed ? ChevronRight : ChevronDown" v-if="tool.output && !tool.hasLiveOutput" :size="12" class="mr-0.5 flex-shrink-0" />
                                         <Wrench :size="12" class="mr-1 flex-shrink-0" />
                                         {{ tool.name }}
                                         <span v-if="(tool.count || 1) > 1" class="ml-1 opacity-70">&times;{{ tool.count }}</span>
@@ -1576,7 +1579,7 @@ onUnmounted(() => {
                                             <span v-if="tool.elapsed" class="ml-1 text-yellow-500">{{ formatToolElapsed(tool.elapsed) }}</span>
                                         </template>
                                     </div>
-                                    <div v-if="tool.output"
+                                    <div v-if="tool.output && (tool.hasLiveOutput ? true : !tool.collapsed)"
                                         :ref="(el: any) => { if (el) el.scrollTop = el.scrollHeight }"
                                         class="mt-1 ml-1 max-h-60 overflow-y-auto rounded-lg bg-gray-900 text-green-400 text-xs font-mono px-3 py-2 whitespace-pre-wrap break-words leading-5 border border-gray-700/50 shadow-inner">{{ tool.output }}</div>
                                 </div>

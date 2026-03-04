@@ -26,6 +26,7 @@ export interface ToolCall {
     output?: string;
     collapsed?: boolean;
     count?: number;
+    hasLiveOutput?: boolean;
 }
 
 export interface PendingImage {

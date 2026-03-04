@@ -194,6 +194,10 @@ class ScheduleService:
 
             count = 0
             for job in jobs:
+                # Skip once-type tasks that already ran
+                if job.schedule_type == "once" and job.last_run_at is not None:
+                    log.debug(f"跳过已执行的一次性任务: {job.job_id}")
+                    continue
                 try:
                     self._register_job(job)
                     count += 1
@@ -218,18 +222,34 @@ class ScheduleService:
             if member and member.is_virtual and member.virtual_system_prompt:
                 prompt = f"{member.virtual_system_prompt}\n\n{prompt}"
 
+        # Resolve owner name for context
+        owner_name = ""
+        try:
+            owner = await self._contacts_service.get_member(job.owner_id)
+            if owner:
+                owner_name = owner.name
+        except Exception:
+            pass
+
+        sched_context = (
+            f"[系统] 你正在执行定时任务「{job.name}」，任务创建者是{owner_name or job.owner_id}。"
+            f"请根据任务要求执行操作，如需发送消息请通过 wecom_send_message 等工具发送给创建者。\n\n"
+            f"任务要求：{prompt}"
+        )
+
         result_text = ""
         status = "success"
 
         try:
             if self._agent and job.action_type == "agent_chat":
                 from openvort.core.context import RequestContext
+                exec_id = f"{job.job_id}_{uuid.uuid4().hex[:8]}"
                 ctx = RequestContext(
                     channel="scheduler",
-                    user_id=job.owner_id,
+                    user_id=exec_id,
                     member=None,
                 )
-                result_text = await self._agent.process(ctx, prompt)
+                result_text = await self._agent.process(ctx, sched_context)
             else:
                 result_text = "Agent 未初始化或不支持的 action_type"
                 status = "failed"
@@ -248,13 +268,6 @@ class ScheduleService:
                 db_job.last_status = status
                 db_job.last_result = result_text[:2000]
                 await session.commit()
-
-        # Deliver result to the job owner
-        if result_text and self._notify_fn:
-            try:
-                await self._notify_fn(job.owner_id, job.name, result_text)
-            except Exception as e:
-                log.error(f"推送任务 {job.job_id} 结果失败: {e}")
 
         return result_text
 

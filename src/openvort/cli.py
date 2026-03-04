@@ -482,7 +482,7 @@ async def _start_service(relay_url: str | None, poll_db_json: str | None, web_fl
                 if ch and ch.is_configured():
                     try:
                         await ch.send(platform_user_id, _Msg(
-                            content=f"⏰ 定时任务「{job_name}」执行完成：\n\n{result_text}",
+                            content=result_text,
                             channel=platform,
                         ))
                         log.info(f"定时任务结果已推送: {owner_id} via {platform}")
