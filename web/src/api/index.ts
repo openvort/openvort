@@ -162,7 +162,7 @@ export function hideChatContact(sessionId: string) {
 
 /** 健康检查（版本号 + LLM 状态） */
 export function getHealthStatus(force?: boolean) {
-    return request.get("/health", { params: force ? { force: true } : undefined });
+    return request.get("/health", { params: force ? { force: true } : undefined, skipErrorMessage: true });
 }
 
 /** 仪表盘数据 */
@@ -1246,4 +1246,46 @@ export function reviewReport(id: string, data: { status: string; comment?: strin
 /** 汇报统计 */
 export function getReportStats(params?: { reviewer_id?: string; since?: string; until?: string }) {
     return request.get("/reports/stats", { params });
+}
+
+// ==================== 系统升级 & 备份 ====================
+
+/** 检查更新 */
+export function checkUpgrade(force?: boolean) {
+    return request.get("/admin/upgrade/check", { params: force ? { force: true } : undefined });
+}
+
+/** 历史版本列表 */
+export function getReleases(perPage = 20) {
+    return request.get("/admin/upgrade/releases", { params: { per_page: perPage } });
+}
+
+/** 升级/降级 SSE 流地址 */
+export function getUpgradeStreamUrl(version: string, token: string) {
+    return `/api/admin/upgrade/apply?token=${encodeURIComponent(token)}`;
+}
+
+/** 备份列表 */
+export function getBackups() {
+    return request.get("/admin/upgrade/backups");
+}
+
+/** 手动创建备份 */
+export function createBackup() {
+    return request.post("/admin/upgrade/backups");
+}
+
+/** 下载备份文件 URL */
+export function getBackupDownloadUrl(filename: string, token: string) {
+    return `/api/admin/upgrade/backups/${encodeURIComponent(filename)}?token=${encodeURIComponent(token)}`;
+}
+
+/** 删除备份 */
+export function deleteBackup(filename: string) {
+    return request.delete(`/admin/upgrade/backups/${encodeURIComponent(filename)}`);
+}
+
+/** 恢复备份 SSE 流地址 */
+export function getRestoreStreamUrl(filename: string, token: string) {
+    return `/api/admin/upgrade/backups/${encodeURIComponent(filename)}/restore?token=${encodeURIComponent(token)}`;
 }

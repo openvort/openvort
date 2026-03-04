@@ -177,3 +177,21 @@ class RoleSkill(Base):
     role: Mapped[str] = mapped_column(String(32), index=True)  # developer/pm/qa/designer/assistant
     skill_id: Mapped[str] = mapped_column(String(32), ForeignKey("skills.id"), index=True)
     priority: Mapped[int] = mapped_column(Integer, default=0)  # 越小越优先
+
+
+class VirtualRole(Base):
+    """虚拟员工角色元数据表"""
+
+    __tablename__ = "virtual_roles"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    key: Mapped[str] = mapped_column(String(32), unique=True, index=True)  # developer/pm/qa/designer/assistant
+    name: Mapped[str] = mapped_column(String(64))  # 开发工程师
+    description: Mapped[str] = mapped_column(String(256), default="")  # 一句话描述
+    icon: Mapped[str] = mapped_column(String(32), default="")  # 前端图标 key，如 Code/ClipboardList
+    default_persona: Mapped[str] = mapped_column(Text, default="")  # 默认人设
+    default_auto_report: Mapped[bool] = mapped_column(Boolean, default=False)
+    default_report_frequency: Mapped[str] = mapped_column(String(16), default="daily")  # daily/weekly
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())

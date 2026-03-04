@@ -227,6 +227,42 @@ class SkillLoader:
                 await db.rollback()
                 log.warning(f"Migration update skill_type: {e}")
 
+            # 7. 创建 virtual_roles 表
+            try:
+                await db.execute(text("""
+                    CREATE TABLE IF NOT EXISTS virtual_roles (
+                        id VARCHAR(32) PRIMARY KEY,
+                        key VARCHAR(32) UNIQUE NOT NULL,
+                        name VARCHAR(64) NOT NULL,
+                        description VARCHAR(256) DEFAULT '',
+                        icon VARCHAR(32) DEFAULT '',
+                        default_persona TEXT DEFAULT '',
+                        default_auto_report BOOLEAN DEFAULT FALSE,
+                        default_report_frequency VARCHAR(16) DEFAULT 'daily',
+                        enabled BOOLEAN DEFAULT TRUE,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+                await db.commit()
+                log.info("Migration: created virtual_roles table")
+            except Exception as e:
+                await db.rollback()
+                if "already exists" not in str(e).lower():
+                    log.warning(f"Migration virtual_roles: {e}")
+
+            # 8. 创建索引
+            try:
+                await db.execute(text(
+                    "CREATE INDEX IF NOT EXISTS ix_virtual_roles_key ON virtual_roles(key)"
+                ))
+                await db.commit()
+                log.info("Migration: created virtual_roles index")
+            except Exception as e:
+                await db.rollback()
+                if "already exists" not in str(e).lower():
+                    log.warning(f"Migration virtual_roles index: {e}")
+
     def load_all_sync(self) -> None:
         """Legacy sync loader for CLI commands without DB.
         Scans files only, registers to PluginRegistry.
@@ -332,6 +368,90 @@ class SkillLoader:
 
             await db.commit()
         log.info("角色-技能映射已同步")
+
+    async def _sync_virtual_roles_to_db(self) -> None:
+        """同步虚拟角色元数据到数据库"""
+        from openvort.db.models import VirtualRole as VirtualRoleModel
+
+        # 默认角色配置
+        DEFAULT_VIRTUAL_ROLES = [
+            {
+                "key": "developer",
+                "name": "开发工程师",
+                "description": "代码、Git、Debug 专家",
+                "icon": "Code",
+                "default_persona": "你是一位经验丰富的开发工程师，擅长代码编写、调试和优化。",
+                "default_auto_report": False,
+                "default_report_frequency": "daily",
+            },
+            {
+                "key": "pm",
+                "name": "产品经理",
+                "description": "需求、任务、需求评审",
+                "icon": "ClipboardList",
+                "default_persona": "你是一位专业的产品经理，擅长需求分析、产品规划和团队协作。",
+                "default_auto_report": True,
+                "default_report_frequency": "weekly",
+            },
+            {
+                "key": "qa",
+                "name": "测试工程师",
+                "description": "用例、测试、质量把控",
+                "icon": "TestTube",
+                "default_persona": "你是一位细致的测试工程师，擅长用例设计、缺陷追踪和质量把控。",
+                "default_auto_report": False,
+                "default_report_frequency": "daily",
+            },
+            {
+                "key": "designer",
+                "name": "设计师",
+                "description": "UI/UX、设计稿规范",
+                "icon": "Palette",
+                "default_persona": "你是一位创意的设计师，擅长 UI/UX 设计和用户体验优化。",
+                "default_auto_report": False,
+                "default_report_frequency": "weekly",
+            },
+            {
+                "key": "assistant",
+                "name": "通用助手",
+                "description": "处理日常事务的 AI 助手",
+                "icon": "Bot",
+                "default_persona": "你是一位乐于助人的 AI 助手，擅长回答问题、提供建议和协助完成各种任务。",
+                "default_auto_report": False,
+                "default_report_frequency": "daily",
+            },
+        ]
+
+        async with self._session_factory() as db:
+            # 获取所有已存在的角色
+            result = await db.execute(select(VirtualRoleModel))
+            existing = {row.key: row for row in result.scalars().all()}
+
+            for config in DEFAULT_VIRTUAL_ROLES:
+                if config["key"] in existing:
+                    # 更新已有角色
+                    row = existing[config["key"]]
+                    row.name = config["name"]
+                    row.description = config["description"]
+                    row.icon = config["icon"]
+                    row.default_persona = config["default_persona"]
+                    row.default_auto_report = config["default_auto_report"]
+                    row.default_report_frequency = config["default_report_frequency"]
+                else:
+                    # 创建新角色
+                    db.add(VirtualRoleModel(
+                        id=uuid.uuid4().hex,
+                        key=config["key"],
+                        name=config["name"],
+                        description=config["description"],
+                        icon=config["icon"],
+                        default_persona=config["default_persona"],
+                        default_auto_report=config["default_auto_report"],
+                        default_report_frequency=config["default_report_frequency"],
+                    ))
+
+            await db.commit()
+        log.info("虚拟角色元数据已同步")
 
     async def get_member_skills_content(self, member_id: str) -> list[str]:
         """Return content list of ALL member skills: role-based + subscribed + personal."""

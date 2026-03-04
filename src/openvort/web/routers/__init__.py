@@ -21,6 +21,7 @@ from openvort.web.routers.schedules import schedules_router, admin_schedules_rou
 from openvort.web.routers.webhooks import router as webhooks_admin_router
 from openvort.web.routers.agents import router as agents_router
 from openvort.web.routers.models import router as models_router
+from openvort.web.routers.upgrade import router as upgrade_router
 
 __all__ = [
     "auth_router",
@@ -43,4 +44,5 @@ __all__ = [
     "agents_router",
     "models_router",
     "member_skills_router",
+    "upgrade_router",
 ]
