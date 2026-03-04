@@ -1529,16 +1529,16 @@ onUnmounted(() => {
             </div>
 
             <!-- 消息列表 -->
-            <VortScrollbar ref="chatScrollbar" class="flex-1" wrap-class="px-6 py-4" view-class="min-h-full">
-                <VortImagePreviewGroup class="space-y-6 min-h-full">
+            <VortScrollbar ref="chatScrollbar" class="flex-1" wrap-class="px-6 py-4" view-class="flex flex-col min-h-full">
+                <VortImagePreviewGroup class="space-y-6">
                     <!-- 无会话状态 -->
-                    <div v-if="!currentSessionId && isAiMode" class="flex flex-col items-center justify-center h-full text-gray-400">
+                    <div v-if="!currentSessionId && isAiMode" class="flex flex-col items-center justify-center flex-1 text-gray-400">
                         <Bot :size="48" class="mb-4 text-gray-300" />
                         <p class="text-sm">你好，我是 OpenVort AI 助手</p>
                         <p class="text-xs mt-1">开始新的对话吧</p>
                     </div>
                     <!-- 空消息状态 -->
-                    <div v-else-if="messages.length === 0 && !loading" class="flex flex-col items-center justify-center h-full text-gray-400">
+                    <div v-else-if="messages.length === 0 && !loading" class="flex flex-col items-center justify-center flex-1 text-gray-400">
                         <Bot v-if="isAiMode" :size="48" class="mb-4 text-gray-300" />
                         <div v-else class="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mb-4">
                             <span class="text-lg font-medium text-gray-400">{{ (activeContact?.name || '?')[0] }}</span>
