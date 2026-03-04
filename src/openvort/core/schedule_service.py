@@ -6,7 +6,7 @@
 
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import partial
 
 from sqlalchemy import select, delete
@@ -22,11 +22,17 @@ log = get_logger("core.schedule_service")
 class ScheduleService:
     """定时任务管理服务"""
 
-    def __init__(self, session_factory, scheduler: Scheduler, agent_runtime=None):
+    def __init__(self, session_factory, scheduler: Scheduler, agent_runtime=None, notify_fn=None):
+        """
+        Args:
+            notify_fn: async (owner_id, job_name, result_text) -> None
+                       Callback to deliver execution result to the job owner.
+        """
         self._session_factory = session_factory
         self._scheduler = scheduler
         self._agent = agent_runtime
         self._contacts_service = ContactService(session_factory)
+        self._notify_fn = notify_fn
 
     # ---- CRUD ----
 
@@ -217,7 +223,13 @@ class ScheduleService:
 
         try:
             if self._agent and job.action_type == "agent_chat":
-                result_text = await self._agent.chat(prompt)
+                from openvort.core.context import RequestContext
+                ctx = RequestContext(
+                    channel="scheduler",
+                    user_id=job.owner_id,
+                    member=None,
+                )
+                result_text = await self._agent.process(ctx, prompt)
             else:
                 result_text = "Agent 未初始化或不支持的 action_type"
                 status = "failed"
@@ -234,8 +246,15 @@ class ScheduleService:
             if db_job:
                 db_job.last_run_at = datetime.now()
                 db_job.last_status = status
-                db_job.last_result = result_text[:2000]  # 截断保存
+                db_job.last_result = result_text[:2000]
                 await session.commit()
+
+        # Deliver result to the job owner
+        if result_text and self._notify_fn:
+            try:
+                await self._notify_fn(job.owner_id, job.name, result_text)
+            except Exception as e:
+                log.error(f"推送任务 {job.job_id} 结果失败: {e}")
 
         return result_text
 
@@ -248,7 +267,11 @@ class ScheduleService:
         elif job.schedule_type == "interval":
             self._scheduler.add_interval(job.job_id, callback, int(job.schedule))
         elif job.schedule_type == "once":
-            run_at = datetime.fromisoformat(job.schedule)
+            schedule_val = job.schedule.strip()
+            if schedule_val.isdigit():
+                run_at = datetime.now() + timedelta(seconds=int(schedule_val))
+            else:
+                run_at = datetime.fromisoformat(schedule_val)
             self._scheduler.add_once(job.job_id, callback, run_at)
 
     async def _job_callback(self, job_id: str) -> None:

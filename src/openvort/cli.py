@@ -448,9 +448,53 @@ async def _start_service(relay_url: str | None, poll_db_json: str | None, web_fl
     from openvort.core.scheduler import Scheduler as _Scheduler
     from openvort.core.schedule_service import ScheduleService as _ScheduleService
 
+    async def _schedule_notify(owner_id: str, job_name: str, result_text: str):
+        """Push scheduled task result to the job owner via WebSocket and IM channels."""
+        from openvort.plugin.base import Message as _Msg
+
+        # 1. WebSocket push (web UI)
+        try:
+            from openvort.web.ws import manager as ws_manager
+            await ws_manager.send_to(owner_id, {
+                "type": "schedule_result",
+                "job_name": job_name,
+                "result": result_text[:2000],
+            })
+        except Exception as e:
+            log.debug(f"WebSocket 推送失败（用户可能不在线）: {e}")
+
+        # 2. IM channel push (wecom/dingtalk/feishu/openclaw)
+        try:
+            from sqlalchemy import select as _sel
+            from openvort.contacts.models import PlatformIdentity
+
+            async with session_factory() as _s:
+                stmt = _sel(PlatformIdentity.platform, PlatformIdentity.platform_user_id).where(
+                    PlatformIdentity.member_id == owner_id,
+                )
+                rows = (await _s.execute(stmt)).all()
+
+            im_platforms = {"wecom", "dingtalk", "feishu", "openclaw"}
+            for platform, platform_user_id in rows:
+                if platform not in im_platforms:
+                    continue
+                ch = registry.get_channel(platform)
+                if ch and ch.is_configured():
+                    try:
+                        await ch.send(platform_user_id, _Msg(
+                            content=f"⏰ 定时任务「{job_name}」执行完成：\n\n{result_text}",
+                            channel=platform,
+                        ))
+                        log.info(f"定时任务结果已推送: {owner_id} via {platform}")
+                        break  # one IM channel is enough
+                    except Exception as e:
+                        log.warning(f"通过 {platform} 推送定时任务结果失败: {e}")
+        except Exception as e:
+            log.warning(f"IM 推送定时任务结果失败: {e}")
+
     _scheduler = _Scheduler()
     _scheduler.start()
-    schedule_service = _ScheduleService(session_factory, _scheduler, agent)
+    schedule_service = _ScheduleService(session_factory, _scheduler, agent, notify_fn=_schedule_notify)
     try:
         count = await schedule_service.sync_to_scheduler()
         if count:

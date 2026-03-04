@@ -51,7 +51,7 @@ class ScheduleManageTool(BaseTool):
                 },
                 "schedule": {
                     "type": "string",
-                    "description": "调度规则。cron: '分 时 日 月 周'（如 '0 9 * * 1-5' 表示工作日9点）；interval: 秒数（如 '3600'）；once: ISO 时间（如 '2025-06-01T09:00:00'）",
+                    "description": "调度规则。cron: '分 时 日 月 周'（如 '0 9 * * 1-5'）；interval: 秒数表示重复间隔（如 '3600' 每小时）；once: 秒数表示延迟（如 '10' 10秒后）或 ISO 时间（如 '2025-06-01T09:00:00'）。注意：'X秒后做某事'用 once，'每X秒做一次'用 interval",
                 },
                 "prompt": {
                     "type": "string",
