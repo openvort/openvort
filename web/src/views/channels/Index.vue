@@ -2,7 +2,7 @@
 import { ref, onMounted } from "vue";
 import { getChannels, getChannelDetail, updateChannel, toggleChannel, testChannel } from "@/api";
 import { message } from "@/components/vort/message";
-import { Radio, CheckCircle, XCircle, Settings, Zap, Download } from "lucide-vue-next";
+import { CheckCircle, XCircle, Settings, Zap, Download } from "lucide-vue-next";
 import { useUserStore } from "@/stores";
 import AiAssistButton from "@/components/vort-biz/ai-assist-button/AiAssistButton.vue";
 
@@ -150,6 +150,19 @@ const modeLabels: Record<string, string> = {
     unknown: "未知",
 };
 
+// Channel icons: local SVG in /icons/ (public folder)
+const CHANNEL_ICON_PATHS: Record<string, string> = {
+    dingtalk: "/icons/dingtalk.svg",
+    feishu: "/icons/feishu.svg",
+    wecom: "/icons/wecom.svg",
+    openclaw: "/icons/openclaw.svg",
+};
+
+function getChannelIconUrl(name: string): string | null {
+    const path = CHANNEL_ICON_PATHS[name?.toLowerCase()];
+    return path ?? null;
+}
+
 onMounted(loadChannels);
 </script>
 
@@ -169,7 +182,20 @@ onMounted(loadChannels);
                 <VortTableColumn label="通道名称" prop="display_name">
                     <template #default="{ row }">
                         <div class="flex items-center">
-                            <Radio :size="16" class="text-blue-600 mr-2" />
+                            <span class="w-5 h-5 shrink-0 mr-2 flex items-center justify-center">
+                                <img
+                                    v-if="getChannelIconUrl(row.name)"
+                                    :src="getChannelIconUrl(row.name)!"
+                                    :alt="row.display_name"
+                                    class="w-full h-full object-contain"
+                                />
+                                <img
+                                    v-else
+                                    src="/icons/openclaw.svg"
+                                    :alt="row.display_name"
+                                    class="w-full h-full object-contain"
+                                />
+                            </span>
                             <div>
                                 <span class="font-medium">{{ row.display_name }}</span>
                                 <p v-if="row.description" class="text-xs text-gray-400 mt-0.5">{{ row.description }}</p>

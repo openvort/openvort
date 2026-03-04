@@ -237,6 +237,7 @@ class OpenAICompatibleProvider(LLMProvider): ...
 | Web | 管理面板（Vue 3 + FastAPI + JWT + SSE + WebSocket + Webhook） | ✅ |
 | 安全 | RBAC + DM 配对 + Docker 沙箱 + Token 加密 | ✅ |
 | 基础设施 | CLI + Relay + Pydantic Settings + 异步全栈 | ✅ |
+| 虚拟员工 | Member 扩展 + 角色模板 Skills + Agent 人设注入 + 定时汇报 | ✅ |
 
 ## 设计决策记录
 

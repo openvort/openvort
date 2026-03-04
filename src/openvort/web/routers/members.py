@@ -1,5 +1,6 @@
 """成员管理路由"""
 
+import json
 from fastapi import APIRouter
 from pydantic import BaseModel
 from sqlalchemy import select, func as sa_func
@@ -17,6 +18,11 @@ class CreateMemberRequest(BaseModel):
     phone: str = ""
     position: str = ""
     is_account: bool = False
+    is_virtual: bool = False
+    virtual_role: str = ""
+    skills: list[str] = []
+    auto_report: bool = False
+    report_frequency: str = "daily"
 
 
 class UpdateMemberRequest(BaseModel):
@@ -26,6 +32,11 @@ class UpdateMemberRequest(BaseModel):
     position: str | None = None
     status: str | None = None
     is_account: bool | None = None
+    is_virtual: bool | None = None
+    virtual_role: str | None = None
+    skills: list[str] | None = None
+    auto_report: bool | None = None
+    report_frequency: str | None = None
 
 
 class ResetPasswordRequest(BaseModel):
@@ -114,9 +125,22 @@ async def delete_role(role_id: int):
 @router.post("")
 async def create_member(req: CreateMemberRequest):
     """手动新增成员"""
+    import json as _json
+    from pathlib import Path
     from openvort.contacts.models import Member
+    from openvort.skill.loader import _parse_skill_file
 
     session_factory = get_db_session_factory()
+
+    # 如果选择虚拟员工，加载对应的角色模板
+    virtual_system_prompt = ""
+    if req.is_virtual and req.virtual_role:
+        builtin_dir = Path(__file__).parent.parent.parent / "skills"
+        skill_file = builtin_dir / req.virtual_role / "SKILL.md"
+        if skill_file.exists():
+            parsed = _parse_skill_file(skill_file)
+            if parsed:
+                virtual_system_prompt = parsed.get("content", "")
 
     async with session_factory() as session:
         member = Member(
@@ -125,6 +149,12 @@ async def create_member(req: CreateMemberRequest):
             phone=req.phone,
             position=req.position,
             is_account=req.is_account,
+            is_virtual=req.is_virtual,
+            virtual_role=req.virtual_role,
+            virtual_system_prompt=virtual_system_prompt,
+            skills=_json.dumps(req.skills) if req.skills else "[]",
+            auto_report=req.auto_report,
+            report_frequency=req.report_frequency,
         )
         session.add(member)
         await session.commit()
@@ -282,7 +312,10 @@ async def get_member(member_id: str):
 @router.put("/{member_id}")
 async def update_member(member_id: str, req: UpdateMemberRequest):
     """编辑成员基本信息"""
+    import json as _json
+    from pathlib import Path
     from openvort.contacts.models import Member
+    from openvort.skill.loader import _parse_skill_file
 
     session_factory = get_db_session_factory()
 
@@ -305,6 +338,24 @@ async def update_member(member_id: str, req: UpdateMemberRequest):
             member.status = req.status
         if req.is_account is not None:
             member.is_account = req.is_account
+        if req.is_virtual is not None:
+            member.is_virtual = req.is_virtual
+        if req.virtual_role is not None:
+            member.virtual_role = req.virtual_role
+            # 重新加载角色模板
+            if req.virtual_role:
+                builtin_dir = Path(__file__).parent.parent.parent / "skills"
+                skill_file = builtin_dir / req.virtual_role / "SKILL.md"
+                if skill_file.exists():
+                    parsed = _parse_skill_file(skill_file)
+                    if parsed:
+                        member.virtual_system_prompt = parsed.get("content", "")
+        if req.skills is not None:
+            member.skills = _json.dumps(req.skills)
+        if req.auto_report is not None:
+            member.auto_report = req.auto_report
+        if req.report_frequency is not None:
+            member.report_frequency = req.report_frequency
 
         await session.commit()
         return {"success": True}

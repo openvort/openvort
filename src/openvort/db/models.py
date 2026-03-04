@@ -116,6 +116,9 @@ class ScheduleJob(Base):
     action_type: Mapped[str] = mapped_column(String(32), default="agent_chat")  # agent_chat
     action_config: Mapped[str] = mapped_column(Text, default="{}")  # JSON: {"prompt": "..."}
 
+    # 虚拟员工绑定（用于定时汇报）
+    target_member_id: Mapped[str] = mapped_column(String(32), default="", nullable=True)  # 绑定的虚拟员工 ID
+
     # 可见性（团队任务是否对成员展示）
     visible: Mapped[bool] = mapped_column(Boolean, default=True)
 

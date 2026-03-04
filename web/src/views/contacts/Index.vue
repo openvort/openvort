@@ -223,11 +223,35 @@ const addMemberLoading = ref(false);
 
 // 新增成员弹窗
 const createMemberDialogOpen = ref(false);
-const createMemberForm = ref({ name: "", email: "", phone: "", position: "", is_account: false });
+const createMemberForm = ref({
+    name: "", email: "", phone: "", position: "", is_account: false,
+    is_virtual: false, virtual_role: "", skills: [], auto_report: false, report_frequency: "daily"
+});
 const savingCreateMember = ref(false);
 
+const virtualRoleOptions = [
+    { value: "developer", label: "开发工程师" },
+    { value: "designer", label: "设计师" },
+    { value: "pm", label: "产品经理" },
+    { value: "qa", label: "测试工程师" },
+    { value: "assistant", label: "通用助手" },
+];
+
+const skillOptions = [
+    { value: "code-review", label: "代码审查" },
+    { value: "daily-report", label: "日报生成" },
+];
+
+const reportFrequencyOptions = [
+    { value: "daily", label: "每日" },
+    { value: "weekly", label: "每周" },
+];
+
 function openCreateMemberDialog() {
-    createMemberForm.value = { name: "", email: "", phone: "", position: "", is_account: false };
+    createMemberForm.value = {
+        name: "", email: "", phone: "", position: "", is_account: false,
+        is_virtual: false, virtual_role: "", skills: [], auto_report: false, report_frequency: "daily"
+    };
     createMemberDialogOpen.value = true;
 }
 
@@ -1313,7 +1337,7 @@ onMounted(() => {
                                 </VortTableColumn>
                                 <VortTableColumn label="角色" prop="roles" :width="160">
                                     <template #default="{ row }">
-                                        <VortTag v-for="role in (row.roles || [])" :key="role" class="mr-1"
+                                        <VortTag v-for="role in (row.roles || [])" :key="role" class="mr-1" :bordered="false"
                                             :color="role === 'admin' ? 'red' : role === 'manager' ? 'orange' : 'default'">
                                             {{ role }}
                                         </VortTag>
@@ -1323,7 +1347,7 @@ onMounted(() => {
                                 <VortTableColumn label="平台绑定" :width="160">
                                     <template #default="{ row }">
                                         <template v-if="row.platform_accounts && Object.keys(row.platform_accounts).length">
-                                            <VortTag v-for="(_account, platform) in row.platform_accounts" :key="platform" color="blue" class="mr-1">
+                                            <VortTag v-for="(_account, platform) in row.platform_accounts" :key="platform" color="blue" class="mr-1" :bordered="false">
                                                 <Link :size="12" class="mr-1 inline" /> {{ platform }}
                                             </VortTag>
                                         </template>
@@ -1332,8 +1356,8 @@ onMounted(() => {
                                 </VortTableColumn>
                                 <VortTableColumn label="账号状态" :width="90">
                                     <template #default="{ row }">
-                                        <VortTag v-if="row.is_account" color="green">可登录</VortTag>
-                                        <VortTag v-else>纯联系人</VortTag>
+                                        <VortTag v-if="row.is_account" color="green" :bordered="false">可登录</VortTag>
+                                        <VortTag v-else :bordered="false">纯联系人</VortTag>
                                     </template>
                                 </VortTableColumn>
                                 <VortTableColumn label="操作" :width="220" fixed="right">
@@ -1553,19 +1577,43 @@ onMounted(() => {
                             </div>
                             <div>
                                 <label class="block text-xs text-gray-500 mb-1">上班时间</label>
-                                <VortInput v-model="workSettingsForm.work_start" placeholder="如 09:00" />
+                                <VortTimePicker
+                                    v-model="workSettingsForm.work_start"
+                                    format="HH:mm"
+                                    value-format="HH:mm"
+                                    :show-second="false"
+                                    placeholder="如 09:00"
+                                />
                             </div>
                             <div>
                                 <label class="block text-xs text-gray-500 mb-1">下班时间</label>
-                                <VortInput v-model="workSettingsForm.work_end" placeholder="如 18:00" />
+                                <VortTimePicker
+                                    v-model="workSettingsForm.work_end"
+                                    format="HH:mm"
+                                    value-format="HH:mm"
+                                    :show-second="false"
+                                    placeholder="如 18:00"
+                                />
                             </div>
                             <div>
                                 <label class="block text-xs text-gray-500 mb-1">午休开始</label>
-                                <VortInput v-model="workSettingsForm.lunch_start" placeholder="如 12:00" />
+                                <VortTimePicker
+                                    v-model="workSettingsForm.lunch_start"
+                                    format="HH:mm"
+                                    value-format="HH:mm"
+                                    :show-second="false"
+                                    placeholder="如 12:00"
+                                />
                             </div>
                             <div>
                                 <label class="block text-xs text-gray-500 mb-1">午休结束</label>
-                                <VortInput v-model="workSettingsForm.lunch_end" placeholder="如 13:30" />
+                                <VortTimePicker
+                                    v-model="workSettingsForm.lunch_end"
+                                    format="HH:mm"
+                                    value-format="HH:mm"
+                                    :show-second="false"
+                                    placeholder="如 13:30"
+                                />
                             </div>
                             <div>
                                 <label class="block text-xs text-gray-500 mb-1">工作日</label>
@@ -1696,6 +1744,7 @@ onMounted(() => {
                         <div class="flex flex-wrap gap-2">
                             <VortTag
                                 v-for="role in currentMember.roles" :key="role"
+                                :bordered="false"
                                 :color="role === 'admin' ? 'red' : role === 'manager' ? 'orange' : 'default'"
                                 closable
                                 @close="handleRemoveRole(currentMember!.id, role)"
@@ -1720,10 +1769,10 @@ onMounted(() => {
                     <div>
                         <h4 class="text-sm font-medium text-gray-600 mb-3">账号</h4>
                         <div class="flex items-center gap-3">
-                            <VortTag v-if="currentMember.is_account" color="green">
+                            <VortTag v-if="currentMember.is_account" color="green" :bordered="false">
                                 <UserCheck :size="12" class="mr-1" /> 可登录
                             </VortTag>
-                            <VortTag v-else>
+                            <VortTag v-else :bordered="false">
                                 <UserX :size="12" class="mr-1" /> 纯联系人
                             </VortTag>
                             <VortButton size="small" @click="handleToggleAccount(currentMember as any)">
@@ -1746,7 +1795,7 @@ onMounted(() => {
                             <div v-for="ident in currentMember.identities" :key="ident.id"
                                 class="bg-gray-50 rounded-lg px-4 py-3 text-sm">
                                 <div class="flex items-center gap-2 mb-1">
-                                    <VortTag color="blue" size="small">{{ ident.platform }}</VortTag>
+                                    <VortTag color="blue" size="small" :bordered="false">{{ ident.platform }}</VortTag>
                                     <span class="font-medium">{{ ident.platform_display_name || ident.platform_username }}</span>
                                 </div>
                                 <div class="text-xs text-gray-400 space-y-0.5">
@@ -2052,6 +2101,28 @@ onMounted(() => {
                     <VortSwitch v-model:checked="createMemberForm.is_account" />
                     <span class="text-sm text-gray-600">允许登录系统</span>
                 </div>
+                <div class="flex items-center gap-2">
+                    <VortSwitch v-model:checked="createMemberForm.is_virtual" />
+                    <span class="text-sm text-gray-600">虚拟员工</span>
+                </div>
+                <template v-if="createMemberForm.is_virtual">
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">角色模板</label>
+                        <VortSelect v-model="createMemberForm.virtual_role" :options="virtualRoleOptions" placeholder="请选择角色模板" />
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">绑定技能</label>
+                        <VortSelect v-model="createMemberForm.skills" :options="skillOptions" mode="multiple" placeholder="请选择技能" />
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <VortSwitch v-model:checked="createMemberForm.auto_report" />
+                        <span class="text-sm text-gray-600">自动汇报</span>
+                    </div>
+                    <div v-if="createMemberForm.auto_report">
+                        <label class="block text-xs text-gray-500 mb-1">汇报频率</label>
+                        <VortSelect v-model="createMemberForm.report_frequency" :options="reportFrequencyOptions" />
+                    </div>
+                </template>
             </div>
         </VortDialog>
     </div>

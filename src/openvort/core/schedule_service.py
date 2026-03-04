@@ -11,6 +11,7 @@ from functools import partial
 
 from sqlalchemy import select, delete
 
+from openvort.contacts.service import ContactService
 from openvort.core.scheduler import Scheduler
 from openvort.db.models import ScheduleJob
 from openvort.utils.logging import get_logger
@@ -25,6 +26,7 @@ class ScheduleService:
         self._session_factory = session_factory
         self._scheduler = scheduler
         self._agent = agent_runtime
+        self._contacts_service = ContactService(session_factory)
 
     # ---- CRUD ----
 
@@ -41,6 +43,7 @@ class ScheduleService:
         action_config: dict | None = None,
         enabled: bool = True,
         visible: bool = True,
+        target_member_id: str = "",
     ) -> dict:
         job_id = f"sched_{uuid.uuid4().hex[:12]}"
         job = ScheduleJob(
@@ -56,6 +59,7 @@ class ScheduleService:
             action_config=json.dumps(action_config or {}),
             enabled=enabled,
             visible=visible,
+            target_member_id=target_member_id,
         )
         async with self._session_factory() as session:
             session.add(job)
@@ -84,7 +88,7 @@ class ScheduleService:
             if not is_admin and job.owner_id != owner_id:
                 return None
 
-            for key in ("name", "description", "schedule_type", "schedule", "timezone", "action_type", "enabled", "visible"):
+            for key in ("name", "description", "schedule_type", "schedule", "timezone", "action_type", "enabled", "visible", "target_member_id"):
                 if key in fields:
                     setattr(job, key, fields[key])
             if "action_config" in fields:
@@ -202,6 +206,12 @@ class ScheduleService:
         if not prompt:
             raise ValueError("action_config 缺少 prompt")
 
+        # 如果绑定了虚拟员工，注入人设
+        if job.target_member_id:
+            member = await self._contacts_service.get_member(job.target_member_id)
+            if member and member.is_virtual and member.virtual_system_prompt:
+                prompt = f"{member.virtual_system_prompt}\n\n{prompt}"
+
         result_text = ""
         status = "success"
 
@@ -272,6 +282,7 @@ class ScheduleService:
             "timezone": job.timezone or "Asia/Shanghai",
             "action_type": job.action_type,
             "action_config": config,
+            "target_member_id": job.target_member_id or "",
             "enabled": job.enabled,
             "visible": job.visible,
             "last_run_at": job.last_run_at.isoformat() if job.last_run_at else None,

@@ -1581,26 +1581,8 @@ onUnmounted(() => {
                                         class="mt-1 ml-1 max-h-60 overflow-y-auto rounded-lg bg-gray-900 text-green-400 text-xs font-mono px-3 py-2 whitespace-pre-wrap break-words leading-5 border border-gray-700/50 shadow-inner">{{ tool.output }}</div>
                                 </div>
                             </div>
-                            <div
-                                v-if="msg.role === 'assistant' || msg.content"
-                                class="rounded-2xl px-4 py-3 text-sm leading-relaxed"
-                                :class="msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800'">
-                                <div v-if="msg.role === 'assistant' && msg.content"
-                                    class="prose prose-sm max-w-none prose-p:my-1 prose-pre:my-2">
-                                    <div v-html="renderMarkdown(msg.content)" />
-                                    <span v-if="msg.streaming" class="streaming-cursor" />
-                                </div>
-                                <span v-else-if="msg.role === 'assistant' && !msg.content && loading" class="flex items-center">
-                                    <span class="flex space-x-1">
-                                        <span class="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0ms" />
-                                        <span class="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 150ms" />
-                                        <span class="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 300ms" />
-                                    </span>
-                                </span>
-                                <template v-else>{{ msg.content }}</template>
-                            </div>
-                            <!-- 已完成的工具调用（历史加载时，气泡下方可展开）-->
-                            <div v-if="!msg.streaming && msg.toolCalls?.length" class="mt-1.5">
+                            <!-- 已完成的工具调用（历史加载时，显示在气泡上方可展开）-->
+                            <div v-if="!msg.streaming && msg.toolCalls?.length" class="mb-2">
                                 <button
                                     class="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer select-none"
                                     @click="toggleToolsExpanded(msg)">
@@ -1621,6 +1603,24 @@ onUnmounted(() => {
                                             class="mt-1 ml-1 max-h-60 overflow-y-auto rounded-lg bg-gray-900 text-green-400 text-xs font-mono px-3 py-2 whitespace-pre-wrap break-words leading-5 border border-gray-700/50 shadow-inner">{{ tool.output }}</div>
                                     </div>
                                 </div>
+                            </div>
+                            <div
+                                v-if="msg.role === 'assistant' || msg.content"
+                                class="rounded-2xl px-4 py-3 text-sm leading-relaxed"
+                                :class="msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800'">
+                                <div v-if="msg.role === 'assistant' && msg.content"
+                                    class="prose prose-sm max-w-none prose-p:my-1 prose-pre:my-2">
+                                    <div v-html="renderMarkdown(msg.content)" />
+                                    <span v-if="msg.streaming" class="streaming-cursor" />
+                                </div>
+                                <span v-else-if="msg.role === 'assistant' && !msg.content && loading" class="flex items-center">
+                                    <span class="flex space-x-1">
+                                        <span class="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0ms" />
+                                        <span class="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 150ms" />
+                                        <span class="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 300ms" />
+                                    </span>
+                                </span>
+                                <template v-else>{{ msg.content }}</template>
                             </div>
                         </div>
                     </div>
