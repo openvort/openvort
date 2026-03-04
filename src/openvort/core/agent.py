@@ -26,7 +26,54 @@ SYSTEM_PROMPT = """你是 OpenVort 助手，一个智能研发工作流引擎。
 - 用中文回复，语气友好专业，简洁明了
 - 如果没有合适的工具，直接用知识回答
 
-回复规则：
+## ⚠️ 最重要的规则：必须调用工具才能执行操作
+
+当用户要求你执行任何操作（创建文件、修改代码、查询数据、管理任务等）时：
+1. 你**必须**通过调用工具来完成，绝不能只回复文字假装已完成
+2. 在工具调用返回结果之前，不允许说"已完成"、"已创建"、"已添加"等
+3. 操作结果必须来自工具的实际返回值，不允许编造
+
+**绝对禁止的行为（违反即为严重错误）：**
+- ❌ 不调用工具就说"已完成"、"已创建"、"已添加"、"搞定了"
+- ❌ 用户要求执行操作时只回复确认文字而不实际调用工具
+- ❌ 编造操作结果（文件路径、ID、链接等）
+- ❌ 说"我来帮你做"但不调用任何工具
+
+**正确行为：**
+- ✅ 收到明确的操作请求 → 直接调用对应工具 → 根据工具返回报告结果
+- ✅ 请求有歧义 → 简要确认关键参数 → 立即调用工具执行
+- ✅ 没有合适的工具 → 明确告知用户"目前无法执行该操作"，说明原因
+- ✅ 工具调用失败 → 如实报告错误，不要编造成功结果
+
+## 行动偏向：少确认，多执行
+
+- 用户指令明确时，直接调用工具执行，不要反复问"确定吗？"、"要开始吗？"
+- 只在关键参数缺失或有歧义时才简要确认，确认后**立即调用工具**
+- 不要把确认和执行分成两个回合——确认完就执行，同一次回复中完成
+
+## 工具路由指南
+
+根据用户意图快速匹配合适的工具：
+
+| 用户意图 | 应使用的工具 |
+|---------|------------|
+| 写代码、改文件、建文件、修 Bug、加功能 | `git_code_task` |
+| 查看有哪些仓库 | `git_list_repos` |
+| 查看仓库详情、分支、最近提交 | `git_repo_info` |
+| 查某人/某仓库的提交记录 | `git_query_commits` |
+| 生成工作日报/周报/月报 | `git_work_summary` |
+| 配置 Git 平台（Gitee/GitHub 等） | `git_manage_provider` |
+| 提交推送代码 | `git_commit_push` |
+| 创建 Pull Request | `git_create_pr` |
+| 创建/查询/管理项目、需求、任务、Bug | VortFlow 相关工具 |
+| 创建/管理定时任务 | Schedule 相关工具 |
+| 配置通道、系统诊断 | System 相关工具 |
+| 纯知识问答，不需要执行操作 | 无需工具，直接回答 |
+
+如果用户的请求涉及某个仓库但你不确定是哪个，先用 `git_list_repos` 查一下。
+
+## 回复规则
+
 - 只输出回复内容，不加多余前缀
 - 提及团队成员时使用中文名
 - 涉及敏感信息不回答，引导找相关负责人
@@ -113,6 +160,8 @@ class AgentRuntime:
         max_rounds = 10
         response = None
         total_usage = Usage()
+        any_tool_called = False
+        correction_injected = False
 
         # 获取 per-session thinking 级别
         thinking_level = self._sessions.get_thinking_level(ctx.channel, ctx.user_id)
@@ -149,10 +198,20 @@ class AgentRuntime:
             # 追加 assistant 回复
             messages.append({"role": "assistant", "content": self._serialize_content(response.content)})
 
-            # 不是 tool_use，说明完成了
+            # 不是 tool_use — 检查是否虚假完成后结束
             if response.stop_reason != "tool_use":
+                if (not any_tool_called and not correction_injected
+                        and self._detect_empty_action(response)):
+                    log.warning("检测到空操作：模型声称已完成但未调用工具，注入纠正提示重试")
+                    correction_injected = True
+                    messages.append({
+                        "role": "user",
+                        "content": self._EMPTY_ACTION_CORRECTION,
+                    })
+                    continue
                 break
 
+            any_tool_called = True
             # 执行工具调用
             tool_results = []
             need_refresh_tools = False
@@ -354,6 +413,8 @@ class AgentRuntime:
         total_usage = Usage()
         completed = False
         interrupted = False
+        any_tool_called = False
+        correction_injected = False
         try:
             for _ in range(max_rounds):
                 if cancel_event and cancel_event.is_set():
@@ -418,8 +479,20 @@ class AgentRuntime:
                 messages.append({"role": "assistant", "content": self._serialize_content(response.content)})
 
                 if response.stop_reason != "tool_use":
+                    if (not any_tool_called and not correction_injected
+                            and self._text_claims_action(current_text)):
+                        log.warning("[web] 检测到空操作：模型声称已完成但未调用工具，注入纠正提示重试")
+                        correction_injected = True
+                        current_text = ""
+                        yield {"type": "text", "text": ""}
+                        messages.append({
+                            "role": "user",
+                            "content": self._EMPTY_ACTION_CORRECTION,
+                        })
+                        continue
                     break
 
+                any_tool_called = True
                 tool_results = []
                 for block in response.content:
                     if getattr(block, "type", None) == "tool_use":
@@ -600,6 +673,34 @@ class AgentRuntime:
         # Generic: truncate to something readable
         short = msg[:120].strip()
         return short if short else "未知错误"
+
+    # Action-claim keywords for empty-action detection
+    _ACTION_CLAIMS = (
+        "已完成", "已创建", "已添加", "已修改", "已删除", "已更新",
+        "已建好", "已加好", "已改好", "已搞定", "已处理", "已配置",
+        "已提交", "已推送", "已部署", "已执行", "已生成", "已写入",
+        "完成了", "创建了", "添加了", "修改了", "删除了", "更新了",
+        "已开始并完成", "已经完成", "已经创建", "已经添加",
+        "操作完成", "执行完毕", "处理完毕",
+    )
+
+    _EMPTY_ACTION_CORRECTION = (
+        "[系统自动检查] 严重错误：你声称已完成操作，但你没有调用任何工具。"
+        "用户要求的操作必须通过工具调用来执行。"
+        "请重新检查用户的请求，从可用工具中选择合适的工具并立即调用。"
+        "如果没有合适的工具，请明确告知用户当前无法执行该操作及原因。"
+    )
+
+    @classmethod
+    def _text_claims_action(cls, text: str) -> bool:
+        """Check if text claims to have completed an action."""
+        if not text:
+            return False
+        return any(claim in text for claim in cls._ACTION_CLAIMS)
+
+    def _detect_empty_action(self, response: LLMResponse) -> bool:
+        """Check if LLM response claims completion without having called tools."""
+        return self._text_claims_action(self._extract_text(response))
 
     @staticmethod
     def _build_thinking_param(level: str) -> dict | None:

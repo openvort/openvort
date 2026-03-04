@@ -25,6 +25,13 @@ log = get_logger("plugins.vortgit.workspace")
 
 _workspace_locks: dict[str, asyncio.Lock] = {}
 
+# CLI tool artifacts that must not be committed (Aider, Codex, Claude Code, etc.)
+_CLI_ARTIFACT_PATTERNS = [
+    ".aider*",
+    ".codex",
+    ".claude",
+]
+
 
 def _get_lock(workspace_key: str) -> asyncio.Lock:
     if workspace_key not in _workspace_locks:
@@ -132,6 +139,10 @@ class WorkspaceManager:
             rc, out, err = await _run_git(["add", "-A"], ws_path)
             if rc != 0:
                 raise RuntimeError(f"git add failed: {err}")
+
+            # Unstage CLI tool artifacts that shouldn't be committed
+            for pattern in _CLI_ARTIFACT_PATTERNS:
+                await _run_git(["rm", "--cached", "-r", "--ignore-unmatch", pattern], ws_path)
 
             cmd = ["commit", "-m", message]
             if author_name and author_email:

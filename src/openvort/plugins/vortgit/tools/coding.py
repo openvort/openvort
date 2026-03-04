@@ -226,7 +226,20 @@ class CodeTaskTool(BaseTool):
             "properties": {
                 "repo_id": {
                     "type": "string",
-                    "description": "目标仓库 ID",
+                    "description": (
+                        "目标仓库 ID（与 repo_name 二选一）。"
+                        "如果不知道 repo_id，可以传 repo_name 让工具自动查找"
+                    ),
+                    "default": "",
+                },
+                "repo_name": {
+                    "type": "string",
+                    "description": (
+                        "仓库名称或路径关键词（与 repo_id 二选一）。"
+                        "例如 'vortmall-frontend'、'vortmall'、'前端'。"
+                        "工具会自动搜索匹配的仓库；若匹配到多个会返回候选列表"
+                    ),
+                    "default": "",
                 },
                 "task_description": {
                     "type": "string",
@@ -260,7 +273,10 @@ class CodeTaskTool(BaseTool):
                 "cli_tool": {
                     "type": "string",
                     "enum": ["", "claude-code", "aider", "codex"],
-                    "description": "使用的 CLI 编码工具（可选，留空则使用系统设置中配置的默认工具）",
+                    "description": (
+                        "使用的 CLI 编码工具（可选，留空则使用系统设置中配置的默认工具）。"
+                        "不要自行指定此参数，除非用户明确要求使用某个特定工具"
+                    ),
                     "default": "",
                 },
                 "auto_pr": {
@@ -278,14 +294,41 @@ class CodeTaskTool(BaseTool):
                     "default": "",
                 },
             },
-            "required": ["repo_id", "task_description"],
+            "required": ["task_description"],
         }
 
     async def execute(self, params: dict) -> str:
         from openvort.core.coding_env import EnvMode
 
-        repo_id = params["repo_id"]
+        repo_id = params.get("repo_id", "")
+        repo_name = params.get("repo_name", "")
         task_desc = params["task_description"]
+
+        if not repo_id and not repo_name:
+            return json.dumps({
+                "ok": False,
+                "error": "repo_required",
+                "message": "请提供 repo_id 或 repo_name。可以告诉我仓库名称，我来帮你查找。",
+            }, ensure_ascii=False)
+
+        if not repo_id:
+            resolve_result = await self._resolve_repo_by_name(repo_name)
+            if resolve_result["status"] == "found":
+                repo_id = resolve_result["repo_id"]
+            elif resolve_result["status"] == "multiple":
+                return json.dumps({
+                    "ok": False,
+                    "error": "multiple_repos",
+                    "message": f"找到 {len(resolve_result['candidates'])} 个匹配的仓库，请确认要操作哪一个：",
+                    "candidates": resolve_result["candidates"],
+                    "hint": "请告诉我仓库名称或序号，我来继续执行任务",
+                }, ensure_ascii=False)
+            else:
+                return json.dumps({
+                    "ok": False,
+                    "error": "repo_not_found",
+                    "message": f"未找到名称包含「{repo_name}」的仓库。请确认仓库名称，或先通过 git_list_repos 查看已注册的仓库。",
+                }, ensure_ascii=False)
         bug_id = params.get("bug_id", "")
         task_id = params.get("task_id", "")
         story_id = params.get("story_id", "")
@@ -509,6 +552,39 @@ class CodeTaskTool(BaseTool):
         }, ensure_ascii=False)
 
     # ---- Helpers ----
+
+    @staticmethod
+    async def _resolve_repo_by_name(keyword: str) -> dict:
+        """Search repos by name/path keyword. Returns match status + candidates."""
+        from openvort.db.engine import get_session_factory
+        from openvort.plugins.vortgit.models import GitRepo
+
+        sf = get_session_factory()
+        async with sf() as session:
+            stmt = select(GitRepo).where(
+                GitRepo.name.contains(keyword) | GitRepo.full_name.contains(keyword)
+            ).limit(10)
+            result = await session.execute(stmt)
+            repos = result.scalars().all()
+
+        if not repos:
+            return {"status": "not_found"}
+
+        if len(repos) == 1:
+            return {"status": "found", "repo_id": repos[0].id}
+
+        candidates = [
+            {
+                "id": r.id,
+                "name": r.name,
+                "full_name": r.full_name,
+                "description": (r.description or "")[:100],
+                "repo_type": r.repo_type,
+                "language": r.language,
+            }
+            for r in repos
+        ]
+        return {"status": "multiple", "candidates": candidates}
 
     @staticmethod
     async def _load_cli_config(override_tool: str = "") -> tuple[str, list[dict]]:

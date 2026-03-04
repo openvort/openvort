@@ -1563,15 +1563,18 @@ onUnmounted(() => {
                                         width="80" height="80" fit="cover"
                                         class="rounded-lg border border-white/30" />
                                 </div>
-                            <!-- 运行中的工具调用（流式时显示在气泡上方）-->
-                            <div v-if="msg.toolCalls?.some(t => t.status === 'running')" class="mb-2 space-y-1">
-                                <div v-for="(tool, i) in msg.toolCalls.filter(t => t.status === 'running')" :key="'run-' + i" class="block">
-                                    <div class="inline-flex items-center px-2 py-1 rounded text-xs bg-yellow-50 text-yellow-700">
+                            <!-- 流式进行中：所有工具调用显示在气泡上方（实时输出）-->
+                            <div v-if="msg.streaming && msg.toolCalls?.length" class="mb-2 space-y-1">
+                                <div v-for="(tool, i) in msg.toolCalls" :key="'live-' + i" class="block">
+                                    <div class="inline-flex items-center px-2 py-1 rounded text-xs"
+                                        :class="tool.status === 'running' ? 'bg-yellow-50 text-yellow-700' : 'bg-green-50 text-green-700'">
                                         <Wrench :size="12" class="mr-1 flex-shrink-0" />
                                         {{ tool.name }}
                                         <span v-if="(tool.count || 1) > 1" class="ml-1 opacity-70">&times;{{ tool.count }}</span>
-                                        <Loader2 :size="12" class="ml-1 animate-spin" />
-                                        <span v-if="tool.elapsed" class="ml-1 text-yellow-500">{{ formatToolElapsed(tool.elapsed) }}</span>
+                                        <template v-if="tool.status === 'running'">
+                                            <Loader2 :size="12" class="ml-1 animate-spin" />
+                                            <span v-if="tool.elapsed" class="ml-1 text-yellow-500">{{ formatToolElapsed(tool.elapsed) }}</span>
+                                        </template>
                                     </div>
                                     <div v-if="tool.output"
                                         :ref="(el: any) => { if (el) el.scrollTop = el.scrollHeight }"
@@ -1596,17 +1599,17 @@ onUnmounted(() => {
                                 </span>
                                 <template v-else>{{ msg.content }}</template>
                             </div>
-                            <!-- 已完成的工具调用（气泡下方，可展开）-->
-                            <div v-if="msg.toolCalls?.some(t => t.status === 'done')" class="mt-1.5">
+                            <!-- 已完成的工具调用（历史加载时，气泡下方可展开）-->
+                            <div v-if="!msg.streaming && msg.toolCalls?.length" class="mt-1.5">
                                 <button
                                     class="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer select-none"
                                     @click="toggleToolsExpanded(msg)">
                                     <component :is="msg.toolsExpanded ? ChevronDown : ChevronRight" :size="14" />
                                     <Wrench :size="12" />
-                                    <span>工具调用 ({{ msg.toolCalls.filter(t => t.status === 'done').reduce((s, t) => s + (t.count || 1), 0) }})</span>
+                                    <span>工具调用 ({{ msg.toolCalls.reduce((s, t) => s + (t.count || 1), 0) }})</span>
                                 </button>
                                 <div v-if="msg.toolsExpanded" class="mt-1.5 space-y-1.5 pl-1">
-                                    <div v-for="(tool, i) in msg.toolCalls.filter(t => t.status === 'done')" :key="'done-' + i" class="block">
+                                    <div v-for="(tool, i) in msg.toolCalls" :key="'done-' + i" class="block">
                                         <div class="inline-flex items-center px-2 py-1 rounded text-xs bg-green-50 text-green-700 cursor-pointer select-none hover:bg-green-100"
                                             @click="tool.output && toggleToolCollapsed(tool)">
                                             <component :is="tool.collapsed ? ChevronRight : ChevronDown" v-if="tool.output" :size="12" class="mr-0.5 flex-shrink-0" />

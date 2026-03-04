@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
 import { Plus, RefreshCw, Search } from "lucide-vue-next";
-import { createModel, deleteModel, getModels, testModel, updateModel, fetchAvailableModels, batchTestModels } from "@/api";
+import { createModel, deleteModel, getModels, testModel, updateModel, fetchAvailableModels, batchTestModels, getSettings } from "@/api";
 import { message } from "@/components/vort/message";
 
 interface ModelItem {
@@ -61,6 +61,27 @@ const defaultForm = (): ModelItem => ({
 
 const form = ref<ModelItem>(defaultForm());
 
+const settings = ref<Record<string, any>>({});
+
+function getModelTags(modelId: string): { label: string; color: string }[] {
+    const tags: { label: string; color: string }[] = [];
+    if (settings.value.llm_primary_model_id === modelId) {
+        tags.push({ label: "主模型", color: "blue" });
+    }
+    const fallbackIds: string[] = settings.value.llm_fallback_model_ids || [];
+    if (fallbackIds.includes(modelId)) {
+        tags.push({ label: "备用模型", color: "cyan" });
+    }
+    if (settings.value.cli_primary_model_id === modelId) {
+        tags.push({ label: "编码模型", color: "purple" });
+    }
+    const cliFallbacks: any[] = settings.value.cli_fallbacks || [];
+    if (cliFallbacks.some((fb: any) => fb.model_id === modelId)) {
+        tags.push({ label: "编码备用", color: "geekblue" });
+    }
+    return tags;
+}
+
 function maskApiKey(apiKey: string): string {
     if (!apiKey) return "未设置";
     if (apiKey.includes("***")) return apiKey;
@@ -71,8 +92,9 @@ function maskApiKey(apiKey: string): string {
 async function loadData() {
     loading.value = true;
     try {
-        const res: any = await getModels();
+        const [res, settingsRes]: any[] = await Promise.all([getModels(), getSettings()]);
         list.value = Array.isArray(res) ? res : [];
+        settings.value = settingsRes || {};
     } catch {
         message.error("加载模型列表失败");
     } finally {
@@ -327,7 +349,19 @@ onMounted(loadData);
         </div>
 
         <VortTable :data-source="list" :loading="loading" row-key="id" :pagination="false">
-            <VortTableColumn label="名称" prop="name" :width="180" />
+            <VortTableColumn label="名称" :min-width="200">
+                <template #default="{ row }">
+                    <span>{{ row.name }}</span>
+                    <VortTag
+                        v-for="tag in getModelTags(row.id)"
+                        :key="tag.label"
+                        :color="tag.color"
+                        :bordered="false"
+                        size="small"
+                        class="ml-1"
+                    >{{ tag.label }}</VortTag>
+                </template>
+            </VortTableColumn>
             <VortTableColumn label="Provider" prop="provider" :width="120" />
             <VortTableColumn label="模型" prop="model" :width="220" />
             <VortTableColumn label="API Key" :width="140">
