@@ -8,7 +8,8 @@ import { Pencil } from "lucide-vue-next";
 import {
     getVortflowStories, getVortflowTasks, getVortflowBugs,
     getVortflowProjects, createVortflowStory, createVortflowTask, createVortflowBug,
-    deleteVortflowStory, deleteVortflowTask, deleteVortflowBug, getMembers
+    deleteVortflowStory, deleteVortflowTask, deleteVortflowBug, getMembers,
+    updateVortflowStory, updateVortflowTask, updateVortflowBug
 } from "@/api";
 
 type Priority = "urgent" | "high" | "medium" | "low" | "none";
@@ -131,6 +132,14 @@ const openOwnerFor = ref<string | null>(null);
 const ownerEditKeyword = ref("");
 const ownerTriggerRefs = ref<Record<string, HTMLElement | null>>({});
 const ownerDropdownStyle = ref<Record<string, string>>({});
+const priorityTriggerRefs = ref<Record<string, HTMLElement | null>>({});
+const priorityDropdownStyle = ref<Record<string, string>>({});
+const tagTriggerRefs = ref<Record<string, HTMLElement | null>>({});
+const tagDropdownStyle = ref<Record<string, string>>({});
+const statusTriggerRefs = ref<Record<string, HTMLElement | null>>({});
+const statusDropdownStyle = ref<Record<string, string>>({});
+const collaboratorTriggerRefs = ref<Record<string, HTMLElement | null>>({});
+const collaboratorDropdownStyle = ref<Record<string, string>>({});
 const openCollaboratorFor = ref<string | null>(null);
 const collaboratorKeyword = ref("");
 const type = ref<WorkType | "">(props.fixedType ?? "");
@@ -590,6 +599,37 @@ const mapBackendStateToStatus = (typeValue: WorkType, stateValue: string, seed: 
     return map[normalized] || pickStableRandomStatus(typeValue, seed);
 };
 
+const getBackendStatesByDisplayStatus = (typeValue: WorkType, statusValue: string): string[] | undefined => {
+    const statusToStateMap: Record<WorkType, Partial<Record<Status, string[]>>> = {
+        需求: {
+            已取消: ["rejected"],
+            意向: ["intake", "review"],
+            暂搁置: ["rejected"],
+            设计中: ["pm_refine", "design"],
+            开发中: ["breakdown", "dev_assign", "in_progress", "bugfix"],
+            开发完成: ["testing"],
+            测试完成: ["testing"],
+            待发布: ["done"],
+            发布完成: ["done"],
+            已完成: ["done"],
+        },
+        任务: {
+            待办的: ["todo"],
+            进行中: ["in_progress", "fixing"],
+            已完成: ["done"],
+            已取消: ["closed"],
+        },
+        缺陷: {
+            待确认: ["open", "confirmed"],
+            修复中: ["fixing"],
+            已修复: ["resolved"],
+            已关闭: ["closed"],
+            再次打开: ["open"],
+        },
+    };
+    return statusToStateMap[typeValue]?.[statusValue as Status];
+};
+
 const mapBackendPriority = (item: any, typeValue: WorkType): Priority => {
     if (typeValue === "需求") {
         const map: Record<number, Priority> = { 1: "urgent", 2: "high", 3: "medium", 4: "low" };
@@ -606,18 +646,126 @@ const mapBackendPriority = (item: any, typeValue: WorkType): Priority => {
     return "low";
 };
 
+const toBackendPriorityLevel = (value: Priority): number => {
+    const map: Record<Priority, number> = {
+        urgent: 1,
+        high: 2,
+        medium: 3,
+        low: 4,
+        none: 4,
+    };
+    return map[value] || 4;
+};
+const toTaskEstimateHours = (value: Priority): number => {
+    const map: Record<Priority, number> = {
+        urgent: 16,
+        high: 8,
+        medium: 4,
+        low: 2,
+        none: 2,
+    };
+    return map[value] || 2;
+};
+
+const getRecordBackendId = (record: RowItem): string => String(record.backendId || "").trim();
+
+const syncRecordUpdateToApi = async (
+    record: RowItem,
+    patch: {
+        title?: string;
+        description?: string;
+        state?: string;
+        priority?: number;
+        severity?: number;
+        assignee_id?: string | null;
+        estimate_hours?: number;
+        tags?: string[];
+        collaborators?: string[];
+        deadline?: string;
+        pm_id?: string | null;
+    }
+) => {
+    if (!props.useApi) return;
+    const id = getRecordBackendId(record);
+    if (!id) return;
+    if (record.type === "需求") {
+        await updateVortflowStory(id, {
+            title: patch.title,
+            description: patch.description,
+            state: patch.state,
+            priority: patch.priority,
+            tags: patch.tags,
+            collaborators: patch.collaborators,
+            deadline: patch.deadline,
+            pm_id: patch.pm_id,
+        });
+        return;
+    }
+    if (record.type === "任务") {
+        await updateVortflowTask(id, {
+            title: patch.title,
+            description: patch.description,
+            state: patch.state,
+            assignee_id: patch.assignee_id === undefined ? undefined : (patch.assignee_id || undefined),
+            estimate_hours: patch.estimate_hours,
+            tags: patch.tags,
+            collaborators: patch.collaborators,
+            deadline: patch.deadline,
+        });
+        return;
+    }
+    await updateVortflowBug(id, {
+        title: patch.title,
+        description: patch.description,
+        severity: patch.severity,
+        state: patch.state,
+        assignee_id: patch.assignee_id === undefined ? undefined : (patch.assignee_id || undefined),
+        tags: patch.tags,
+        collaborators: patch.collaborators,
+    });
+};
+
+const syncRecordStatusToApi = async (record: RowItem, displayStatus: Status) => {
+    if (!props.useApi) return;
+    const targetStates = getBackendStatesByDisplayStatus(record.type, displayStatus) || [];
+    if (!targetStates.length) {
+        throw new Error("当前状态不支持同步到后端");
+    }
+    await syncRecordUpdateToApi(record, { state: targetStates[0] });
+};
+
 const randomPeoplePool = ["张三", "李四", "王五", "赵六", "钱七", "孙八", "周九", "吴十", "郑十一", "王十二", "冯十三", "陈十四"];
 const randomStatusPoolByType: Record<WorkType, Status[]> = {
     需求: demandStatusFilterOptions.map((x) => x.value),
     任务: taskStatusFilterOptions.map((x) => x.value),
     缺陷: bugStatusFilterOptions.map((x) => x.value),
 };
+const getOwnerDropdownPool = (): string[] => {
+    const pool = Array.from(new Set(
+        ownerGroups.value
+            .flatMap((group) => group.members)
+            .map((name) => String(name || "").trim())
+            .filter(Boolean)
+    ));
+    return pool.length ? pool : randomPeoplePool;
+};
+const getMemberIdByName = (name: string): string => {
+    const normalized = String(name || "").trim();
+    if (!normalized) return "";
+    return memberOptions.value.find((m) => m.name === normalized)?.id || "";
+};
+const getMemberNameById = (memberId: string): string => {
+    const normalized = String(memberId || "").trim();
+    if (!normalized) return "";
+    return memberOptions.value.find((m) => m.id === normalized)?.name || "";
+};
 const pickStableRandomPerson = (seed: string): string => {
+    const peoplePool = getOwnerDropdownPool();
     let hash = 0;
     for (let i = 0; i < seed.length; i++) {
         hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
     }
-    return randomPeoplePool[hash % randomPeoplePool.length]!;
+    return peoplePool[hash % peoplePool.length]!;
 };
 const pickStableRandomStatus = (typeValue: WorkType, seed: string): Status => {
     const statusPool = randomStatusPoolByType[typeValue] || bugStatusFilterOptions.map((x) => x.value);
@@ -662,6 +810,10 @@ const loadMemberOptions = async () => {
                 planTimeModel[row.workNo] = [...row.planTime];
             }
             collectTagOptions(allData.value);
+            tableRef.value?.refresh?.();
+        } else {
+            // API mode: trigger one refresh after member mapping is ready,
+            // so assignee IDs can be rendered as member names immediately.
             tableRef.value?.refresh?.();
         }
     } catch {
@@ -715,14 +867,25 @@ const mapBackendItemToRow = (item: any, typeValue: WorkType, index: number): Row
     const deadline = item?.deadline ? String(item.deadline).split("T")[0] : "";
     const backendId = String(item?.id || index + 1);
     const workNo = `#${backendId.replace(/-/g, "").slice(0, 6).toUpperCase().padEnd(6, "X")}`;
-    const ownerSeed = String(item?.assignee_id || item?.developer_id || `${backendId}-owner`);
+    const ownerSourceId = String(item?.assignee_id || item?.pm_id || item?.developer_id || "").trim();
+    const ownerSourceName = getMemberNameById(ownerSourceId);
+    const ownerSeed = ownerSourceId || `${backendId}-owner`;
     const creatorSeed = String(item?.reporter_id || `${backendId}-creator`);
     const collabSeed = String(item?.story_id || item?.task_id || `${backendId}-collab`);
     const statusSeed = `${typeValue}-${backendId}-${String(item?.state || "state")}`;
-    const ownerName = pickStableRandomPerson(ownerSeed);
+    const ownerName = ownerSourceName || pickStableRandomPerson(ownerSeed);
     const creatorName = pickStableRandomPerson(creatorSeed);
-    const collaborators = [pickStableRandomPerson(collabSeed)];
-    const tags: string[] = [];
+    const collaboratorName = pickStableRandomPerson(collabSeed);
+    const fallbackCollaborator = pickStableRandomPerson(`${collabSeed}-alt`);
+    const collaboratorsFromBackend = Array.isArray(item?.collaborators)
+        ? (item.collaborators as any[]).map((x) => String(x || "").trim()).filter(Boolean)
+        : [];
+    const collaborators = collaboratorsFromBackend.length
+        ? collaboratorsFromBackend
+        : [collaboratorName === ownerName ? fallbackCollaborator : collaboratorName];
+    const tags: string[] = Array.isArray(item?.tags)
+        ? (item.tags as any[]).map((x) => String(x || "").trim()).filter(Boolean)
+        : [];
     if (typeValue === "任务" && item?.task_type) tags.push(String(item.task_type));
     if (typeValue === "需求" && item?.project_id) tags.push("需求");
     if (typeValue === "缺陷" && item?.severity) tags.push(`S${item.severity}`);
@@ -754,26 +917,86 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
     const pageSize = Number(params.pageSize || 20);
 
     if (props.useApi && (typeValue === "需求" || typeValue === "任务" || typeValue === "缺陷")) {
-        let res: any = { items: [], total: 0 };
-        if (typeValue === "需求") {
-            res = await getVortflowStories({ keyword: kw, page: current, page_size: pageSize });
-        } else if (typeValue === "任务") {
-            res = await getVortflowTasks({ keyword: kw, page: current, page_size: pageSize });
-        } else {
-            res = await getVortflowBugs({ keyword: kw, page: current, page_size: pageSize });
+        const workType = typeValue as WorkType;
+        const backendStates = statusValue ? getBackendStatesByDisplayStatus(workType, statusValue) : undefined;
+        if (statusValue && (!backendStates || backendStates.length === 0)) {
+            totalCount.value = 0;
+            return { data: [], total: 0, current, pageSize };
         }
-        let rows = ((res as any)?.items || []).map((item: any, idx: number) => mapBackendItemToRow(item, typeValue as WorkType, idx));
+
+        const requestByState = async (state?: string, page = current, size = pageSize) => {
+            if (workType === "需求") return getVortflowStories({ keyword: kw, state, page, page_size: size });
+            if (workType === "任务") return getVortflowTasks({ keyword: kw, state, page, page_size: size });
+            return getVortflowBugs({ keyword: kw, state, page, page_size: size });
+        };
+        const fetchAllItemsByState = async (state?: string): Promise<any[]> => {
+            const batchSize = 200;
+            const firstRes: any = await requestByState(state, 1, batchSize);
+            const allItems: any[] = [...((firstRes as any)?.items || [])];
+            const total = Number((firstRes as any)?.total || allItems.length);
+            const totalPages = Math.max(1, Math.ceil(total / batchSize));
+            for (let page = 2; page <= totalPages; page++) {
+                const pageRes: any = await requestByState(state, page, batchSize);
+                const pageItems = ((pageRes as any)?.items || []);
+                if (!pageItems.length) break;
+                allItems.push(...pageItems);
+            }
+            return allItems;
+        };
+        const buildRowsFromItems = (items: any[]): RowItem[] => {
+            return items.map((item: any, idx: number) => mapBackendItemToRow(item, workType, idx));
+        };
+
+        let rows: RowItem[] = [];
+        let totalFromApi = 0;
+
+        if (backendStates && backendStates.length > 1) {
+            // Multi-state display filters need full merged querying across all pages.
+            const merged = new Map<string, any>();
+            const itemGroups = await Promise.all(backendStates.map((state) => fetchAllItemsByState(state)));
+            for (const items of itemGroups) {
+                for (const item of items) {
+                    const id = String(item?.id || "");
+                    if (!id || merged.has(id)) continue;
+                    merged.set(id, item);
+                }
+            }
+            const mergedItems = [...merged.values()];
+            const allRows = buildRowsFromItems(mergedItems)
+                .filter((x) => !statusValue || x.status === statusValue)
+                .filter((x) => !ownerValue || x.owner === ownerValue);
+            totalFromApi = allRows.length;
+            const start = (current - 1) * pageSize;
+            rows = allRows.slice(start, start + pageSize);
+        } else {
+            const backendState = backendStates?.[0];
+            if (ownerValue) {
+                const allItems = await fetchAllItemsByState(backendState);
+                const allRows = buildRowsFromItems(allItems)
+                    .filter((x) => !statusValue || x.status === statusValue)
+                    .filter((x) => x.owner === ownerValue);
+                totalFromApi = allRows.length;
+                const start = (current - 1) * pageSize;
+                rows = allRows.slice(start, start + pageSize);
+            } else {
+                const res: any = await requestByState(backendState, current, pageSize);
+                rows = buildRowsFromItems((res as any)?.items || []);
+                if (statusValue) rows = rows.filter((x) => x.status === statusValue);
+                totalFromApi = Number((res as any)?.total || rows.length);
+            }
+        }
+
         if (current === 1) {
-            const pinnedRows = pinnedRowsByType[typeValue as WorkType] || [];
+            let pinnedRows = pinnedRowsByType[workType] || [];
+            if (statusValue) pinnedRows = pinnedRows.filter((x) => x.status === statusValue);
+            if (ownerValue) pinnedRows = pinnedRows.filter((x) => x.owner === ownerValue);
             const pinnedIds = new Set(pinnedRows.map((x) => x.backendId || x.workNo));
             rows = [...pinnedRows, ...rows.filter((x) => !pinnedIds.has(x.backendId || x.workNo))];
             rows = rows.slice(0, pageSize);
         }
-        if (ownerValue) rows = rows.filter((x: RowItem) => x.owner === ownerValue);
-        if (statusValue) rows = rows.filter((x: RowItem) => x.status === statusValue);
         collectTagOptions(rows);
-        totalCount.value = Number((res as any)?.total || rows.length);
-        return { data: rows, total: Number((res as any)?.total || rows.length), current, pageSize };
+        totalCount.value = totalFromApi;
+        return { data: rows, total: totalFromApi, current, pageSize };
     }
 
     let list = allData.value.slice();
@@ -930,6 +1153,8 @@ const handleSubmitCreateBug = async () => {
                     title,
                     description: createBugForm.description || defaultBugDescription,
                     priority: createBugForm.priority === "urgent" ? 1 : createBugForm.priority === "high" ? 2 : createBugForm.priority === "medium" ? 3 : 4,
+                    tags: [...createBugForm.tags],
+                    collaborators: [...createBugForm.collaborators],
                     deadline: createBugForm.planTime?.[1] || undefined,
                 });
             } else if (fixedType === "任务") {
@@ -947,7 +1172,9 @@ const handleSubmitCreateBug = async () => {
                     title,
                     description: createBugForm.description || "",
                     task_type: "develop",
-                    assignee_id: createBugForm.owner || undefined,
+                    assignee_id: getMemberIdByName(createBugForm.owner) || undefined,
+                    tags: [...createBugForm.tags],
+                    collaborators: [...createBugForm.collaborators],
                     deadline: createBugForm.planTime?.[1] || undefined,
                 });
             } else {
@@ -955,7 +1182,9 @@ const handleSubmitCreateBug = async () => {
                     title,
                     description: createBugForm.description || defaultBugDescription,
                     severity: createBugForm.priority === "urgent" ? 1 : createBugForm.priority === "high" ? 2 : createBugForm.priority === "medium" ? 3 : 4,
-                    assignee_id: createBugForm.owner || undefined,
+                    assignee_id: getMemberIdByName(createBugForm.owner) || undefined,
+                    tags: [...createBugForm.tags],
+                    collaborators: [...createBugForm.collaborators],
                 });
             }
             if (createdItem) {
@@ -1190,11 +1419,30 @@ const isCreateCollaborator = (member: string): boolean => {
     return createBugForm.collaborators.includes(member);
 };
 
-const setDetailOwner = (member: string) => {
+const setDetailOwner = async (member: string) => {
     if (!detailCurrentRecord.value) return;
+    const record = detailCurrentRecord.value;
     const prev = detailCurrentRecord.value.owner;
-    detailCurrentRecord.value.owner = member || "未指派";
-    if (prev !== detailCurrentRecord.value.owner) {
+    const nextOwner = member || "未指派";
+    detailCurrentRecord.value.owner = nextOwner;
+    if (prev !== nextOwner) {
+        const memberId = member ? getMemberIdByName(member) : "";
+        if (member && !memberId) {
+            detailCurrentRecord.value.owner = prev;
+            message.error("未找到负责人对应的成员ID，无法同步");
+            return;
+        }
+        try {
+            if (record.type === "需求") {
+                await syncRecordUpdateToApi(record, { pm_id: memberId || null });
+            } else {
+                await syncRecordUpdateToApi(record, { assignee_id: memberId || null });
+            }
+        } catch (error: any) {
+            detailCurrentRecord.value.owner = prev;
+            message.error(error?.message || "负责人同步失败");
+            return;
+        }
         appendDetailLog(`将负责人从 ${prev || "未指派"} 修改为 ${detailCurrentRecord.value.owner}`);
     }
 };
@@ -1204,18 +1452,26 @@ const setCreateOwner = (member: string) => {
     createBugForm.collaborators = createBugForm.collaborators.filter((x) => x !== member);
 };
 
-const toggleDetailCollaborator = (member: string) => {
+const toggleDetailCollaborator = async (member: string) => {
     if (!detailCurrentRecord.value) return;
+    const record = detailCurrentRecord.value;
     const list = [...(detailCurrentRecord.value.collaborators || [])];
     const idx = list.indexOf(member);
     if (idx >= 0) {
         list.splice(idx, 1);
-        appendDetailLog(`取消协作者 ${member}`);
     } else {
         list.push(member);
-        appendDetailLog(`添加协作者 ${member}`);
     }
+    const prev = [...(detailCurrentRecord.value.collaborators || [])];
     detailCurrentRecord.value.collaborators = list;
+    try {
+        await syncRecordUpdateToApi(record, { collaborators: list });
+    } catch (error: any) {
+        detailCurrentRecord.value.collaborators = prev;
+        message.error(error?.message || "协作者同步失败");
+        return;
+    }
+    appendDetailLog(`${idx >= 0 ? "取消" : "添加"}协作者 ${member}`);
 };
 
 const toggleCreateCollaborator = (member: string) => {
@@ -1238,9 +1494,19 @@ const cancelDetailDescEditor = () => {
     detailDescDraft.value = "";
 };
 
-const saveDetailDescEditor = () => {
+const saveDetailDescEditor = async () => {
     if (!detailCurrentRecord.value) return;
-    detailCurrentRecord.value.description = detailDescDraft.value || "";
+    const record = detailCurrentRecord.value;
+    const prev = record.description || "";
+    const next = detailDescDraft.value || "";
+    record.description = next;
+    try {
+        await syncRecordUpdateToApi(record, { description: next });
+    } catch (error: any) {
+        record.description = prev;
+        message.error(error?.message || "描述同步失败");
+        return;
+    }
     detailDescEditing.value = false;
     appendDetailLog("更新描述");
     message.success("描述已保存");
@@ -1251,11 +1517,31 @@ const getRowPriority = (record: RowItem, text?: Priority): Priority => {
 };
 
 const togglePriorityMenu = (workNo: string) => {
-    openPriorityFor.value = openPriorityFor.value === workNo ? null : workNo;
+    const willOpen = openPriorityFor.value !== workNo;
+    openPriorityFor.value = willOpen ? workNo : null;
+    if (willOpen) nextTick(() => updatePriorityDropdownPosition(workNo));
 };
 
-const selectPriority = (workNo: string, value: Priority) => {
+const selectPriority = async (record: RowItem, value: Priority) => {
+    const workNo = record.workNo;
+    const prev = getRowPriority(record, record.priority);
     priorityModel[workNo] = value;
+    record.priority = value;
+    try {
+        if (record.type === "缺陷") {
+            await syncRecordUpdateToApi(record, { severity: toBackendPriorityLevel(value) });
+        } else if (record.type === "任务") {
+            await syncRecordUpdateToApi(record, { estimate_hours: toTaskEstimateHours(value) });
+        } else {
+            await syncRecordUpdateToApi(record, { priority: toBackendPriorityLevel(value) });
+        }
+    } catch (error: any) {
+        priorityModel[workNo] = prev;
+        record.priority = prev;
+        message.error(error?.message || "优先级同步失败");
+        openPriorityFor.value = null;
+        return;
+    }
     openPriorityFor.value = null;
 };
 
@@ -1309,6 +1595,7 @@ const toggleRowStatusMenu = (record: RowItem) => {
     rowStatusType.value = record.type || resolveActiveType();
     openStatusFor.value = record.workNo;
     rowStatusKeyword.value = "";
+    nextTick(() => updateStatusDropdownPosition(record.workNo));
 };
 
 const filteredRowStatusOptions = computed(() => {
@@ -1331,18 +1618,41 @@ const filteredDetailStatusOptions = computed(() => {
     return options.filter((x) => x.label.includes(kw));
 });
 
-const selectDetailStatus = (value: Status) => {
+const selectDetailStatus = async (value: Status) => {
     if (detailCurrentRecord.value) {
         const prev = detailCurrentRecord.value.status;
         detailCurrentRecord.value.status = value;
-        if (prev !== value) appendDetailLog(`将状态从 ${prev} 修改为 ${value}`);
+        if (prev !== value) {
+            try {
+                await syncRecordStatusToApi(detailCurrentRecord.value, value);
+            } catch (error: any) {
+                detailCurrentRecord.value.status = prev;
+                message.error(error?.message || "状态同步失败");
+                detailStatusDropdownOpen.value = false;
+                detailStatusKeyword.value = "";
+                return;
+            }
+            appendDetailLog(`将状态从 ${prev} 修改为 ${value}`);
+        }
     }
     detailStatusDropdownOpen.value = false;
     detailStatusKeyword.value = "";
 };
 
-const selectRowStatus = (record: RowItem, value: Status) => {
+const selectRowStatus = async (record: RowItem, value: Status) => {
+    const prev = record.status;
     record.status = value;
+    if (prev !== value) {
+        try {
+            await syncRecordStatusToApi(record, value);
+        } catch (error: any) {
+            record.status = prev;
+            message.error(error?.message || "状态同步失败");
+            openStatusFor.value = null;
+            rowStatusKeyword.value = "";
+            return;
+        }
+    }
     openStatusFor.value = null;
     rowStatusKeyword.value = "";
 };
@@ -1410,8 +1720,31 @@ const toggleRowOwnerMenu = (workNo: string) => {
     }
 };
 
-const selectRowOwner = (record: RowItem, value: string) => {
-    record.owner = value || "未指派";
+const selectRowOwner = async (record: RowItem, value: string) => {
+    const prev = record.owner;
+    const nextOwner = value || "未指派";
+    record.owner = nextOwner;
+    if (prev !== nextOwner) {
+        const memberId = value ? getMemberIdByName(value) : "";
+        if (value && !memberId) {
+            record.owner = prev;
+            message.error("未找到负责人对应的成员ID，无法同步");
+            openOwnerFor.value = null;
+            return;
+        }
+        try {
+            if (record.type === "需求") {
+                await syncRecordUpdateToApi(record, { pm_id: memberId || null });
+            } else {
+                await syncRecordUpdateToApi(record, { assignee_id: memberId || null });
+            }
+        } catch (error: any) {
+            record.owner = prev;
+            message.error(error?.message || "负责人同步失败");
+            openOwnerFor.value = null;
+            return;
+        }
+    }
     openOwnerFor.value = null;
 };
 
@@ -1450,9 +1783,87 @@ const updateOwnerDropdownPosition = (workNo?: string) => {
     };
 };
 
+const buildFloatingDropdownStyle = (trigger: HTMLElement, panelWidth: number, panelHeight: number): Record<string, string> => {
+    const rect = trigger.getBoundingClientRect();
+    const gap = 6;
+    const viewportPadding = 8;
+
+    let left = rect.left;
+    const maxLeft = window.innerWidth - panelWidth - viewportPadding;
+    left = Math.min(Math.max(viewportPadding, left), Math.max(viewportPadding, maxLeft));
+
+    let top = rect.bottom + gap;
+    if (top + panelHeight > window.innerHeight - viewportPadding) {
+        top = rect.top - panelHeight - gap;
+    }
+    if (top < viewportPadding) top = viewportPadding;
+
+    return {
+        position: "fixed",
+        left: `${left}px`,
+        top: `${top}px`,
+        zIndex: "9999"
+    };
+};
+
+const setPriorityTriggerRef = (workNo: string, el: HTMLElement | null) => {
+    if (el) priorityTriggerRefs.value[workNo] = el;
+    else delete priorityTriggerRefs.value[workNo];
+};
+
+const updatePriorityDropdownPosition = (workNo?: string) => {
+    const targetWorkNo = workNo || openPriorityFor.value;
+    if (!targetWorkNo) return;
+    const trigger = priorityTriggerRefs.value[targetWorkNo];
+    if (!trigger) return;
+    priorityDropdownStyle.value = buildFloatingDropdownStyle(trigger, 124, 220);
+};
+
+const setTagTriggerRef = (workNo: string, el: HTMLElement | null) => {
+    if (el) tagTriggerRefs.value[workNo] = el;
+    else delete tagTriggerRefs.value[workNo];
+};
+
+const updateTagDropdownPosition = (workNo?: string) => {
+    const targetWorkNo = workNo || openTagFor.value;
+    if (!targetWorkNo) return;
+    const trigger = tagTriggerRefs.value[targetWorkNo];
+    if (!trigger) return;
+    tagDropdownStyle.value = buildFloatingDropdownStyle(trigger, 240, 320);
+};
+
+const setStatusTriggerRef = (workNo: string, el: HTMLElement | null) => {
+    if (el) statusTriggerRefs.value[workNo] = el;
+    else delete statusTriggerRefs.value[workNo];
+};
+
+const updateStatusDropdownPosition = (workNo?: string) => {
+    const targetWorkNo = workNo || openStatusFor.value;
+    if (!targetWorkNo) return;
+    const trigger = statusTriggerRefs.value[targetWorkNo];
+    if (!trigger) return;
+    statusDropdownStyle.value = buildFloatingDropdownStyle(trigger, 240, 330);
+};
+
+const setCollaboratorTriggerRef = (workNo: string, el: HTMLElement | null) => {
+    if (el) collaboratorTriggerRefs.value[workNo] = el;
+    else delete collaboratorTriggerRefs.value[workNo];
+};
+
+const updateCollaboratorDropdownPosition = (workNo?: string) => {
+    const targetWorkNo = workNo || openCollaboratorFor.value;
+    if (!targetWorkNo) return;
+    const trigger = collaboratorTriggerRefs.value[targetWorkNo];
+    if (!trigger) return;
+    collaboratorDropdownStyle.value = buildFloatingDropdownStyle(trigger, 260, 360);
+};
+
 const onViewportChangeForOwnerDropdown = () => {
-    if (!openOwnerFor.value) return;
-    updateOwnerDropdownPosition();
+    if (openOwnerFor.value) updateOwnerDropdownPosition();
+    if (openPriorityFor.value) updatePriorityDropdownPosition();
+    if (openTagFor.value) updateTagDropdownPosition();
+    if (openStatusFor.value) updateStatusDropdownPosition();
+    if (openCollaboratorFor.value) updateCollaboratorDropdownPosition();
 };
 
 const getRowCollaborators = (record: RowItem, text?: string[]): string[] => {
@@ -1460,16 +1871,27 @@ const getRowCollaborators = (record: RowItem, text?: string[]): string[] => {
 };
 
 const toggleCollaboratorMenu = (workNo: string) => {
-    openCollaboratorFor.value = openCollaboratorFor.value === workNo ? null : workNo;
+    const willOpen = openCollaboratorFor.value !== workNo;
+    openCollaboratorFor.value = willOpen ? workNo : null;
     collaboratorKeyword.value = "";
+    if (willOpen) nextTick(() => updateCollaboratorDropdownPosition(workNo));
 };
 
-const toggleRowCollaborator = (record: RowItem, member: string, text?: string[]) => {
+const toggleRowCollaborator = async (record: RowItem, member: string, text?: string[]) => {
     const current = [...getRowCollaborators(record, text)];
     const idx = current.indexOf(member);
     if (idx >= 0) current.splice(idx, 1);
     else current.push(member);
+    const prev = [...getRowCollaborators(record, text)];
     collaboratorsModel[record.workNo] = current;
+    record.collaborators = current;
+    try {
+        await syncRecordUpdateToApi(record, { collaborators: current });
+    } catch (error: any) {
+        collaboratorsModel[record.workNo] = prev;
+        record.collaborators = prev;
+        message.error(error?.message || "协作者同步失败");
+    }
 };
 
 const finishCollaboratorEdit = () => {
@@ -1496,12 +1918,29 @@ const getRowTags = (record: RowItem, text?: string[]): string[] => {
     return tagsModel[record.workNo] || text || [];
 };
 
-const onPlanTimeChange = (workNo: string, value?: any) => {
+const onPlanTimeChange = async (record: RowItem, value?: any) => {
+    const workNo = record.workNo;
     if (!value || value.length !== 2) return;
     const start = normalizeDateValue(value[0]);
     const end = normalizeDateValue(value[1]);
     if (!start || !end) return;
+    const prev = [...getRowPlanTime(record, record.planTime)] as DateRange;
     planTimeModel[workNo] = [start, end];
+    record.planTime = [start, end];
+    try {
+        if (record.type === "缺陷") {
+            // 缺陷模型无 deadline 字段，保持前端显示，不进行后端同步
+            message.warning("缺陷暂不支持计划时间同步到后端");
+        } else {
+            await syncRecordUpdateToApi(record, { deadline: end });
+        }
+    } catch (error: any) {
+        planTimeModel[workNo] = prev;
+        record.planTime = prev;
+        message.error(error?.message || "计划时间同步失败");
+        openPlanTimeFor.value = null;
+        return;
+    }
     openPlanTimeFor.value = null;
 };
 
@@ -1558,16 +1997,27 @@ const getTagRenderInfo = (record: RowItem, text: string[] | undefined, resolvedW
 };
 
 const toggleTagMenu = (workNo: string) => {
-    openTagFor.value = openTagFor.value === workNo ? null : workNo;
+    const willOpen = openTagFor.value !== workNo;
+    openTagFor.value = willOpen ? workNo : null;
     tagKeyword.value = "";
+    if (willOpen) nextTick(() => updateTagDropdownPosition(workNo));
 };
 
-const toggleTagOption = (record: RowItem, tag: string, text?: string[]) => {
+const toggleTagOption = async (record: RowItem, tag: string, text?: string[]) => {
     const current = [...getRowTags(record, text)];
     const idx = current.indexOf(tag);
     if (idx >= 0) current.splice(idx, 1);
     else current.push(tag);
+    const prev = [...getRowTags(record, text)];
     tagsModel[record.workNo] = current;
+    record.tags = current;
+    try {
+        await syncRecordUpdateToApi(record, { tags: current });
+    } catch (error: any) {
+        tagsModel[record.workNo] = prev;
+        record.tags = prev;
+        message.error(error?.message || "标签同步失败");
+    }
 };
 
 const finishTagEdit = () => {
@@ -1848,34 +2298,39 @@ onBeforeUnmount(() => {
                     <div class="relative inline-block text-left" @click.stop>
                         <button
                             class="priority-cell-trigger"
+                            :ref="(el) => setPriorityTriggerRef(record.workNo, el as HTMLElement | null)"
                             @click.stop="togglePriorityMenu(record.workNo)"
                         >
                             <span class="priority-pill" :class="priorityClassMap[getRowPriority(record, text)]">
                                 {{ priorityLabelMap[getRowPriority(record, text)] }}
                             </span>
                         </button>
-                        <div
-                            v-if="openPriorityFor === record.workNo"
-                            class="priority-cell-menu absolute left-0 top-full mt-1"
-                        >
-                            <button
-                                v-for="opt in priorityOptions"
-                                :key="opt.value"
-                                class="priority-cell-menu-item"
-                                :class="{ 'is-selected': getRowPriority(record, text) === opt.value }"
-                                @click.stop="selectPriority(record.workNo, opt.value)"
+                        <Teleport to="body">
+                            <div
+                                v-if="openPriorityFor === record.workNo"
+                                class="priority-cell-menu"
+                                :style="priorityDropdownStyle"
+                                @click.stop
                             >
-                                <span class="priority-pill" :class="priorityClassMap[opt.value]">
-                                    {{ opt.label }}
-                                </span>
-                            </button>
-                        </div>
+                                <button
+                                    v-for="opt in priorityOptions"
+                                    :key="opt.value"
+                                    class="priority-cell-menu-item"
+                                    :class="{ 'is-selected': getRowPriority(record, text) === opt.value }"
+                                    @click.stop="selectPriority(record, opt.value)"
+                                >
+                                    <span class="priority-pill" :class="priorityClassMap[opt.value]">
+                                        {{ opt.label }}
+                                    </span>
+                                </button>
+                            </div>
+                        </Teleport>
                     </div>
                 </template>
 
                 <template #tags="{ text, record, resolvedWidth }">
                     <div class="relative inline-block w-full" @click.stop>
-                        <button class="w-full text-left" @click.stop="toggleTagMenu(record.workNo)">
+                        <button class="w-full text-left" :ref="(el) => setTagTriggerRef(record.workNo, el as HTMLElement | null)" @click.stop="toggleTagMenu(record.workNo)">
                             <div class="flex items-center gap-1 flex-nowrap whitespace-nowrap overflow-hidden">
                                 <template v-for="tag in getTagRenderInfo(record, text, resolvedWidth).visible" :key="record.workNo + '-' + tag">
                                     <span
@@ -1891,76 +2346,88 @@ onBeforeUnmount(() => {
                             </div>
                         </button>
 
-                        <div
-                            v-if="openTagFor === record.workNo"
-                            class="absolute z-30 mt-1 w-[240px] bg-white border border-gray-200 rounded-lg shadow-md p-3"
-                        >
-                            <div class="mb-2">
-                                <div class="relative">
-                                    <input
-                                        v-model="tagKeyword"
-                                        placeholder="搜索..."
-                                        class="w-full h-9 pl-3 pr-8 border border-gray-300 rounded-md text-sm"
-                                    />
-                                    <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">⌕</span>
+                        <Teleport to="body">
+                            <div
+                                v-if="openTagFor === record.workNo"
+                                class="w-[240px] bg-white border border-gray-200 rounded-lg shadow-md p-3"
+                                :style="tagDropdownStyle"
+                                @click.stop
+                            >
+                                <div class="mb-2">
+                                    <div class="relative">
+                                        <input
+                                            v-model="tagKeyword"
+                                            placeholder="搜索..."
+                                            class="w-full h-9 pl-3 pr-8 border border-gray-300 rounded-md text-sm"
+                                        />
+                                        <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">⌕</span>
+                                    </div>
+                                </div>
+                                <div class="max-h-[200px] overflow-y-auto pr-1">
+                                    <button
+                                        v-for="tag in filteredTagOptions"
+                                        :key="record.workNo + '-opt-' + tag"
+                                        class="w-full h-10 px-2 rounded-md flex items-center gap-2 text-left hover:bg-gray-50"
+                                        @click.stop="toggleTagOption(record, tag, text)"
+                                    >
+                                        <span class="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center text-[12px] text-gray-500">
+                                            <span v-if="getRowTags(record, text).includes(tag)">✓</span>
+                                        </span>
+                                        <span class="w-5 h-5 rounded-full" :style="{ backgroundColor: getTagColor(tag) }" />
+                                        <span class="text-sm text-gray-700">{{ tag }}</span>
+                                    </button>
+                                </div>
+                                <div class="mt-2 flex justify-end">
+                                    <button class="h-8 px-3 text-sm bg-blue-600 text-white rounded hover:bg-blue-700" @click.stop="finishTagEdit">
+                                        完成
+                                    </button>
                                 </div>
                             </div>
-                            <div class="max-h-[200px] overflow-y-auto pr-1">
-                                <button
-                                    v-for="tag in filteredTagOptions"
-                                    :key="record.workNo + '-opt-' + tag"
-                                    class="w-full h-10 px-2 rounded-md flex items-center gap-2 text-left hover:bg-gray-50"
-                                    @click.stop="toggleTagOption(record, tag, text)"
-                                >
-                                    <span class="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center text-[12px] text-gray-500">
-                                        <span v-if="getRowTags(record, text).includes(tag)">✓</span>
-                                    </span>
-                                    <span class="w-5 h-5 rounded-full" :style="{ backgroundColor: getTagColor(tag) }" />
-                                    <span class="text-sm text-gray-700">{{ tag }}</span>
-                                </button>
-                            </div>
-                            <div class="mt-2 flex justify-end">
-                                <button class="h-8 px-3 text-sm bg-blue-600 text-white rounded hover:bg-blue-700" @click.stop="finishTagEdit">
-                                    完成
-                                </button>
-                            </div>
-                        </div>
+                        </Teleport>
                     </div>
                 </template>
 
                 <template #status="{ text, record }">
                     <div class="relative inline-block text-left" @click.stop>
-                        <button class="status-edit-trigger" @click.stop="toggleRowStatusMenu(record)">
+                        <button
+                            class="status-edit-trigger"
+                            :ref="(el) => setStatusTriggerRef(record.workNo, el as HTMLElement | null)"
+                            @click.stop="toggleRowStatusMenu(record)"
+                        >
                             <span class="status-badge table-status-badge" :class="statusClassMap[getRowStatus(record, text)]">
                                 <span>{{ getRowStatus(record, text) }}</span>
                             </span>
                         </button>
-                        <div
-                            v-if="openStatusFor === record.workNo"
-                            class="absolute z-30 mt-1 w-[240px] bg-white border border-gray-200 rounded-lg shadow-md p-3"
-                        >
-                            <div class="mb-2">
-                                <input
-                                    v-model="rowStatusKeyword"
-                                    placeholder="搜索..."
-                                    class="w-full h-9 px-3 border border-gray-300 rounded-md text-sm"
-                                />
+                        <Teleport to="body">
+                            <div
+                                v-if="openStatusFor === record.workNo"
+                                class="w-[240px] bg-white border border-gray-200 rounded-lg shadow-md p-3"
+                                :style="statusDropdownStyle"
+                                @click.stop
+                            >
+                                <div class="mb-2">
+                                    <input
+                                        v-model="rowStatusKeyword"
+                                        placeholder="搜索..."
+                                        class="w-full h-9 px-3 border border-gray-300 rounded-md text-sm"
+                                    />
+                                </div>
+                                <div class="max-h-[220px] overflow-y-auto pr-1">
+                                    <button
+                                        v-for="opt in filteredRowStatusOptions"
+                                        :key="record.workNo + '-status-' + opt.value"
+                                        class="w-full h-10 px-2 rounded-md flex items-center gap-2 text-left hover:bg-gray-50"
+                                        :class="{ 'bg-slate-100': getRowStatus(record, text) === opt.value }"
+                                        @click.stop="selectRowStatus(record, opt.value as Status)"
+                                    >
+                                        <span class="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center text-[12px] text-gray-500">
+                                            <span v-if="getRowStatus(record, text) === opt.value">✓</span>
+                                        </span>
+                                        <span class="text-sm text-gray-700">{{ opt.label }}</span>
+                                    </button>
+                                </div>
                             </div>
-                            <div class="max-h-[220px] overflow-y-auto pr-1">
-                                <button
-                                    v-for="opt in filteredRowStatusOptions"
-                                    :key="record.workNo + '-status-' + opt.value"
-                                    class="w-full h-10 px-2 rounded-md flex items-center gap-2 text-left hover:bg-gray-50"
-                                    :class="{ 'bg-slate-100': getRowStatus(record, text) === opt.value }"
-                                    @click.stop="selectRowStatus(record, opt.value as Status)"
-                                >
-                                    <span class="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center text-[12px] text-gray-500">
-                                        <span v-if="getRowStatus(record, text) === opt.value">✓</span>
-                                    </span>
-                                    <span class="text-sm text-gray-700">{{ opt.label }}</span>
-                                </button>
-                            </div>
-                        </div>
+                        </Teleport>
                     </div>
                 </template>
 
@@ -2053,7 +2520,11 @@ onBeforeUnmount(() => {
 
                 <template #collaborators="{ text, record }">
                     <div class="relative inline-block" @click.stop>
-                        <button class="h-8 px-1 rounded-md bg-transparent flex items-center" @click.stop="toggleCollaboratorMenu(record.workNo)">
+                        <button
+                            class="h-8 px-1 rounded-md bg-transparent flex items-center"
+                            :ref="(el) => setCollaboratorTriggerRef(record.workNo, el as HTMLElement | null)"
+                            @click.stop="toggleCollaboratorMenu(record.workNo)"
+                        >
                             <div class="flex items-center">
                                 <div
                                     v-for="(name, idx) in getRowCollaborators(record, text)"
@@ -2067,54 +2538,58 @@ onBeforeUnmount(() => {
                             </div>
                         </button>
 
-                        <div
-                            v-if="openCollaboratorFor === record.workNo"
-                            class="absolute z-30 mt-1 w-[260px] bg-white border border-gray-200 rounded-lg shadow-md p-3"
-                        >
-                            <div class="mb-2">
-                                <div class="relative">
-                                    <input
-                                        v-model="collaboratorKeyword"
-                                        placeholder="搜索..."
-                                        class="w-full h-9 pl-3 pr-8 border border-gray-300 rounded-md text-sm"
-                                    />
-                                    <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">⌕</span>
+                        <Teleport to="body">
+                            <div
+                                v-if="openCollaboratorFor === record.workNo"
+                                class="w-[260px] bg-white border border-gray-200 rounded-lg shadow-md p-3"
+                                :style="collaboratorDropdownStyle"
+                                @click.stop
+                            >
+                                <div class="mb-2">
+                                    <div class="relative">
+                                        <input
+                                            v-model="collaboratorKeyword"
+                                            placeholder="搜索..."
+                                            class="w-full h-9 pl-3 pr-8 border border-gray-300 rounded-md text-sm"
+                                        />
+                                        <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">⌕</span>
+                                    </div>
                                 </div>
-                            </div>
-                            <div class="max-h-[260px] overflow-y-auto -mx-3">
-                                <div v-for="group in filteredCollaboratorGroups" :key="'collab-' + group.label">
-                                    <button
-                                        class="w-full h-10 px-3 bg-slate-100 flex items-center justify-between text-left"
-                                        @click.stop="toggleCollaboratorGroup(group.label)"
-                                    >
-                                        <span class="text-gray-700 text-sm">{{ group.label }}（{{ group.members.length }}）</span>
-                                        <span class="status-arrow-simple" :class="{ open: collaboratorGroupOpen[group.label] }" />
-                                    </button>
-                                    <button
-                                        v-for="member in (collaboratorGroupOpen[group.label] ? group.members : [])"
-                                        :key="'collab-member-' + group.label + member"
-                                        class="w-full h-10 px-3 flex items-center gap-2 text-left hover:bg-gray-50"
-                                        @click.stop="toggleRowCollaborator(record, member, text)"
-                                    >
-                                        <span class="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center text-[12px] text-gray-500">
-                                            <span v-if="getRowCollaborators(record, text).includes(member)">✓</span>
-                                        </span>
-                                        <span
-                                            class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center"
-                                            :style="{ backgroundColor: getAvatarBg(member) }"
+                                <div class="max-h-[260px] overflow-y-auto -mx-3">
+                                    <div v-for="group in filteredCollaboratorGroups" :key="'collab-' + group.label">
+                                        <button
+                                            class="w-full h-10 px-3 bg-slate-100 flex items-center justify-between text-left"
+                                            @click.stop="toggleCollaboratorGroup(group.label)"
                                         >
-                                            {{ getAvatarLabel(member) }}
-                                        </span>
-                                        <span class="text-sm text-gray-700">{{ member }}</span>
+                                            <span class="text-gray-700 text-sm">{{ group.label }}（{{ group.members.length }}）</span>
+                                            <span class="status-arrow-simple" :class="{ open: collaboratorGroupOpen[group.label] }" />
+                                        </button>
+                                        <button
+                                            v-for="member in (collaboratorGroupOpen[group.label] ? group.members : [])"
+                                            :key="'collab-member-' + group.label + member"
+                                            class="w-full h-10 px-3 flex items-center gap-2 text-left hover:bg-gray-50"
+                                            @click.stop="toggleRowCollaborator(record, member, text)"
+                                        >
+                                            <span class="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center text-[12px] text-gray-500">
+                                                <span v-if="getRowCollaborators(record, text).includes(member)">✓</span>
+                                            </span>
+                                            <span
+                                                class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center"
+                                                :style="{ backgroundColor: getAvatarBg(member) }"
+                                            >
+                                                {{ getAvatarLabel(member) }}
+                                            </span>
+                                            <span class="text-sm text-gray-700">{{ member }}</span>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="mt-2 flex justify-end">
+                                    <button class="h-8 px-3 text-sm bg-blue-600 text-white rounded hover:bg-blue-700" @click.stop="finishCollaboratorEdit">
+                                        完成
                                     </button>
                                 </div>
                             </div>
-                            <div class="mt-2 flex justify-end">
-                                <button class="h-8 px-3 text-sm bg-blue-600 text-white rounded hover:bg-blue-700" @click.stop="finishCollaboratorEdit">
-                                    完成
-                                </button>
-                            </div>
-                        </div>
+                        </Teleport>
                     </div>
                 </template>
 
@@ -2135,7 +2610,7 @@ onBeforeUnmount(() => {
                             separator="~"
                             :placeholder="['开始日期', '结束日期']"
                             class="plan-time-picker"
-                            @change="(value: DateRange) => onPlanTimeChange(record.workNo, value || text)"
+                            @change="(value: DateRange) => onPlanTimeChange(record, value || text)"
                             @click.stop
                         />
                     </div>

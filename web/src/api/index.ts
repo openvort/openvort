@@ -952,12 +952,12 @@ export function getVortflowStory(id: string) {
 }
 
 /** VortFlow 创建需求 */
-export function createVortflowStory(data: { project_id: string; title: string; description?: string; priority?: number; deadline?: string }) {
+export function createVortflowStory(data: { project_id: string; title: string; description?: string; priority?: number; tags?: string[]; collaborators?: string[]; deadline?: string }) {
     return request.post("/vortflow/stories", data);
 }
 
 /** VortFlow 更新需求 */
-export function updateVortflowStory(id: string, data: { title?: string; description?: string; priority?: number; deadline?: string }) {
+export function updateVortflowStory(id: string, data: { title?: string; description?: string; state?: string; priority?: number; tags?: string[]; collaborators?: string[]; deadline?: string; pm_id?: string | null }) {
     return request.put(`/vortflow/stories/${id}`, data);
 }
 
@@ -989,12 +989,12 @@ export function getVortflowTask(id: string) {
 }
 
 /** VortFlow 创建任务 */
-export function createVortflowTask(data: { story_id: string; title: string; description?: string; task_type?: string; assignee_id?: string; estimate_hours?: number; deadline?: string }) {
+export function createVortflowTask(data: { story_id: string; title: string; description?: string; task_type?: string; assignee_id?: string; tags?: string[]; collaborators?: string[]; estimate_hours?: number; deadline?: string }) {
     return request.post("/vortflow/tasks", data);
 }
 
 /** VortFlow 更新任务 */
-export function updateVortflowTask(id: string, data: { title?: string; description?: string; task_type?: string; assignee_id?: string; estimate_hours?: number; actual_hours?: number; deadline?: string }) {
+export function updateVortflowTask(id: string, data: { title?: string; description?: string; task_type?: string; state?: string; assignee_id?: string; tags?: string[]; collaborators?: string[]; estimate_hours?: number; actual_hours?: number; deadline?: string }) {
     return request.put(`/vortflow/tasks/${id}`, data);
 }
 
@@ -1026,12 +1026,12 @@ export function getVortflowBug(id: string) {
 }
 
 /** VortFlow 创建缺陷 */
-export function createVortflowBug(data: { story_id?: string; task_id?: string; title: string; description?: string; severity?: number; assignee_id?: string }) {
+export function createVortflowBug(data: { story_id?: string; task_id?: string; title: string; description?: string; severity?: number; assignee_id?: string; tags?: string[]; collaborators?: string[] }) {
     return request.post("/vortflow/bugs", data);
 }
 
 /** VortFlow 更新缺陷 */
-export function updateVortflowBug(id: string, data: { title?: string; description?: string; severity?: number; assignee_id?: string }) {
+export function updateVortflowBug(id: string, data: { title?: string; description?: string; severity?: number; state?: string; assignee_id?: string; tags?: string[]; collaborators?: string[] }) {
     return request.put(`/vortflow/bugs/${id}`, data);
 }
 

@@ -46,6 +46,8 @@ class FlowStory(Base):
     pm_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("members.id"), nullable=True)
     designer_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("members.id"), nullable=True)
     reviewer_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("members.id"), nullable=True)
+    tags_json: Mapped[str] = mapped_column(Text, default="[]")
+    collaborators_json: Mapped[str] = mapped_column(Text, default="[]")
     deadline: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
@@ -63,6 +65,8 @@ class FlowTask(Base):
     task_type: Mapped[str] = mapped_column(String(32), default="fullstack")  # frontend/backend/fullstack/test
     state: Mapped[str] = mapped_column(String(32), default="todo", index=True)
     assignee_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("members.id"), nullable=True)
+    tags_json: Mapped[str] = mapped_column(Text, default="[]")
+    collaborators_json: Mapped[str] = mapped_column(Text, default="[]")
     estimate_hours: Mapped[float | None] = mapped_column(nullable=True)
     actual_hours: Mapped[float | None] = mapped_column(nullable=True)
     deadline: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -85,6 +89,8 @@ class FlowBug(Base):
     reporter_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("members.id"), nullable=True)
     assignee_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("members.id"), nullable=True)
     developer_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("members.id"), nullable=True)
+    tags_json: Mapped[str] = mapped_column(Text, default="[]")
+    collaborators_json: Mapped[str] = mapped_column(Text, default="[]")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
