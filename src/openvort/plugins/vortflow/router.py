@@ -47,13 +47,19 @@ class StoryCreate(BaseModel):
     title: str
     description: str = ""
     priority: int = 3
+    tags: list[str] = []
+    collaborators: list[str] = []
     deadline: str | None = None
 
 class StoryUpdate(BaseModel):
     title: str | None = None
     description: str | None = None
+    state: str | None = None
     priority: int | None = None
+    tags: list[str] | None = None
+    collaborators: list[str] | None = None
     deadline: str | None = None
+    pm_id: str | None = None
 
 class TaskCreate(BaseModel):
     story_id: str
@@ -61,6 +67,8 @@ class TaskCreate(BaseModel):
     description: str = ""
     task_type: str = "fullstack"
     assignee_id: str | None = None
+    tags: list[str] = []
+    collaborators: list[str] = []
     estimate_hours: float | None = None
     deadline: str | None = None
 
@@ -68,7 +76,10 @@ class TaskUpdate(BaseModel):
     title: str | None = None
     description: str | None = None
     task_type: str | None = None
+    state: str | None = None
     assignee_id: str | None = None
+    tags: list[str] | None = None
+    collaborators: list[str] | None = None
     estimate_hours: float | None = None
     actual_hours: float | None = None
     deadline: str | None = None
@@ -79,13 +90,18 @@ class BugCreate(BaseModel):
     title: str
     description: str = ""
     severity: int = 3
+    tags: list[str] = []
+    collaborators: list[str] = []
     assignee_id: str | None = None
 
 class BugUpdate(BaseModel):
     title: str | None = None
     description: str | None = None
     severity: int | None = None
+    state: str | None = None
     assignee_id: str | None = None
+    tags: list[str] | None = None
+    collaborators: list[str] | None = None
 
 class MilestoneCreate(BaseModel):
     project_id: str
@@ -166,6 +182,23 @@ def _parse_dt(s: str | None) -> datetime | None:
     except ValueError:
         return None
 
+
+def _parse_json_list(raw: str | None) -> list[str]:
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return []
+    if not isinstance(data, list):
+        return []
+    result: list[str] = []
+    for item in data:
+        text = str(item or "").strip()
+        if text:
+            result.append(text)
+    return result
+
 def _project_dict(r: FlowProject) -> dict:
     return {
         "id": r.id, "name": r.name, "description": r.description,
@@ -182,6 +215,8 @@ def _story_dict(r: FlowStory) -> dict:
         "state": r.state, "priority": r.priority,
         "project_id": r.project_id, "submitter_id": r.submitter_id,
         "pm_id": r.pm_id, "designer_id": r.designer_id, "reviewer_id": r.reviewer_id,
+        "tags": _parse_json_list(r.tags_json),
+        "collaborators": _parse_json_list(r.collaborators_json),
         "deadline": r.deadline.isoformat() if r.deadline else None,
         "created_at": r.created_at.isoformat() if r.created_at else None,
     }
@@ -191,6 +226,8 @@ def _task_dict(r: FlowTask) -> dict:
         "id": r.id, "title": r.title, "description": r.description,
         "state": r.state, "task_type": r.task_type,
         "story_id": r.story_id, "assignee_id": r.assignee_id,
+        "tags": _parse_json_list(r.tags_json),
+        "collaborators": _parse_json_list(r.collaborators_json),
         "estimate_hours": r.estimate_hours, "actual_hours": r.actual_hours,
         "deadline": r.deadline.isoformat() if r.deadline else None,
         "created_at": r.created_at.isoformat() if r.created_at else None,
@@ -203,6 +240,8 @@ def _bug_dict(r: FlowBug) -> dict:
         "story_id": r.story_id, "task_id": r.task_id,
         "reporter_id": r.reporter_id, "assignee_id": r.assignee_id,
         "developer_id": r.developer_id,
+        "tags": _parse_json_list(r.tags_json),
+        "collaborators": _parse_json_list(r.collaborators_json),
         "created_at": r.created_at.isoformat() if r.created_at else None,
     }
 
@@ -423,6 +462,8 @@ async def create_story(body: StoryCreate):
         s = FlowStory(
             project_id=body.project_id, title=body.title,
             description=body.description, priority=body.priority,
+            tags_json=json.dumps(body.tags or [], ensure_ascii=False),
+            collaborators_json=json.dumps(body.collaborators or [], ensure_ascii=False),
             deadline=_parse_dt(body.deadline),
         )
         session.add(s)
@@ -440,11 +481,17 @@ async def update_story(story_id: str, body: StoryUpdate):
         if not s:
             return {"error": "需求不存在"}
         changes = {}
-        for field in ["title", "description", "priority"]:
+        for field in ["title", "description", "state", "priority", "pm_id"]:
             val = getattr(body, field)
             if val is not None:
                 changes[field] = val
                 setattr(s, field, val)
+        if body.tags is not None:
+            s.tags_json = json.dumps(body.tags, ensure_ascii=False)
+            changes["tags"] = body.tags
+        if body.collaborators is not None:
+            s.collaborators_json = json.dumps(body.collaborators, ensure_ascii=False)
+            changes["collaborators"] = body.collaborators
         if body.deadline is not None:
             s.deadline = _parse_dt(body.deadline)
             changes["deadline"] = body.deadline
@@ -562,6 +609,8 @@ async def create_task(body: TaskCreate):
             story_id=body.story_id, title=body.title,
             description=body.description, task_type=body.task_type,
             assignee_id=body.assignee_id, estimate_hours=body.estimate_hours,
+            tags_json=json.dumps(body.tags or [], ensure_ascii=False),
+            collaborators_json=json.dumps(body.collaborators or [], ensure_ascii=False),
             deadline=_parse_dt(body.deadline),
         )
         session.add(t)
@@ -579,11 +628,17 @@ async def update_task(task_id: str, body: TaskUpdate):
         if not t:
             return {"error": "任务不存在"}
         changes = {}
-        for field in ["title", "description", "task_type", "assignee_id", "estimate_hours", "actual_hours"]:
+        for field in ["title", "description", "task_type", "state", "assignee_id", "estimate_hours", "actual_hours"]:
             val = getattr(body, field)
             if val is not None:
                 changes[field] = val
                 setattr(t, field, val)
+        if body.tags is not None:
+            t.tags_json = json.dumps(body.tags, ensure_ascii=False)
+            changes["tags"] = body.tags
+        if body.collaborators is not None:
+            t.collaborators_json = json.dumps(body.collaborators, ensure_ascii=False)
+            changes["collaborators"] = body.collaborators
         if body.deadline is not None:
             t.deadline = _parse_dt(body.deadline)
             changes["deadline"] = body.deadline
@@ -696,6 +751,8 @@ async def create_bug(body: BugCreate):
             story_id=body.story_id, task_id=body.task_id,
             title=body.title, description=body.description,
             severity=body.severity, assignee_id=body.assignee_id,
+            tags_json=json.dumps(body.tags or [], ensure_ascii=False),
+            collaborators_json=json.dumps(body.collaborators or [], ensure_ascii=False),
         )
         session.add(b)
         await session.flush()
@@ -712,11 +769,17 @@ async def update_bug(bug_id: str, body: BugUpdate):
         if not b:
             return {"error": "缺陷不存在"}
         changes = {}
-        for field in ["title", "description", "severity", "assignee_id"]:
+        for field in ["title", "description", "severity", "state", "assignee_id"]:
             val = getattr(body, field)
             if val is not None:
                 changes[field] = val
                 setattr(b, field, val)
+        if body.tags is not None:
+            b.tags_json = json.dumps(body.tags, ensure_ascii=False)
+            changes["tags"] = body.tags
+        if body.collaborators is not None:
+            b.collaborators_json = json.dumps(body.collaborators, ensure_ascii=False)
+            changes["collaborators"] = body.collaborators
         if changes:
             await _log_event(session, "bug", bug_id, "updated", changes)
         await session.commit()
@@ -932,7 +995,7 @@ async def dashboard_stats(project_id: str = Query("", description="项目 ID")):
             story_q.where(FlowStory.state == "done")
         )).scalar_one()
         done_tasks = (await session.execute(
-            task_q.where(FlowTask.state.in_(["done", "closed"]))
+            task_q.where(FlowTask.state == "done")
         )).scalar_one()
         closed_bugs = (await session.execute(
             bug_q.where(FlowBug.state == "closed")
