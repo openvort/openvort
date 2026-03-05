@@ -272,9 +272,9 @@ export function getRoleSkills(role?: string) {
     return request.get("/admin/members/roles/skills", { params: { role } });
 }
 
-/** 为角色添加推荐技能 */
-export function addRoleSkill(role: string, skillId: string, priority: number = 0) {
-    return request.post("/admin/members/roles/skills", { role, skill_id: skillId, priority });
+/** 为角色添加推荐技能（支持批量） */
+export function addRoleSkill(role: string, skillIds: string[], priority: number = 0) {
+    return request.post("/admin/members/roles/skills", { role, skill_ids: skillIds, priority });
 }
 
 /** 移除角色的推荐技能 */

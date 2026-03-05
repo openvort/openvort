@@ -205,6 +205,7 @@ class SkillLoader:
                     CREATE TABLE IF NOT EXISTS role_skills (
                         id SERIAL PRIMARY KEY,
                         role VARCHAR(32) NOT NULL,
+                        post VARCHAR(32) DEFAULT NULL,
                         skill_id VARCHAR(32) NOT NULL,
                         priority INTEGER DEFAULT 0
                     )
@@ -227,6 +228,30 @@ class SkillLoader:
                 await db.rollback()
                 if "already exists" not in str(e).lower():
                     log.warning(f"Migration index: {e}")
+
+            # 5.1 添加 role_skills.post 字段
+            try:
+                await db.execute(text(
+                    "ALTER TABLE role_skills ADD COLUMN IF NOT EXISTS post VARCHAR(32) DEFAULT NULL"
+                ))
+                await db.commit()
+                log.info("Migration: added role_skills.post")
+            except Exception as e:
+                await db.rollback()
+                if "already exists" not in str(e).lower():
+                    log.warning(f"Migration role_skills.post: {e}")
+
+            # 5.2 添加 schedule_jobs.target_member_id 字段
+            try:
+                await db.execute(text(
+                    "ALTER TABLE schedule_jobs ADD COLUMN IF NOT EXISTS target_member_id VARCHAR(32) DEFAULT NULL"
+                ))
+                await db.commit()
+                log.info("Migration: added schedule_jobs.target_member_id")
+            except Exception as e:
+                await db.rollback()
+                if "already exists" not in str(e).lower():
+                    log.warning(f"Migration schedule_jobs.target_member_id: {e}")
 
             # 6. 更新已有 builtin skill 的 skill_type
             role_names = ", ".join(f"'{n}'" for n in BUILTIN_SKILL_TYPES if BUILTIN_SKILL_TYPES[n] == "role")
@@ -776,3 +801,4 @@ class SkillLoader:
                     "scope": skill.scope,
                     "skill_type": skill.skill_type,
                 })
+            return skills

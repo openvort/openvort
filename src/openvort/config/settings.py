@@ -12,6 +12,19 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def _resolve_project_root() -> Path:
+    """Resolve project root regardless of current working directory."""
+    current = Path(__file__).resolve()
+    for parent in current.parents:
+        if (parent / "pyproject.toml").exists():
+            return parent
+    # Fallback to historical layout: <root>/src/openvort/config/settings.py
+    return current.parents[3]
+
+
+_ENV_FILE = _resolve_project_root() / ".env"
+
+
 class LLMModelConfig(BaseSettings):
     """单个模型配置"""
 
@@ -40,7 +53,9 @@ class LLMModelConfig(BaseSettings):
 class LLMSettings(BaseSettings):
     """LLM 提供商配置（支持多模型 + failover）"""
 
-    model_config = SettingsConfigDict(env_prefix="OPENVORT_LLM_", env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="OPENVORT_LLM_", env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore",
+    )
 
     # 主模型配置（兼容旧版环境变量）
     provider: str = "anthropic"
@@ -84,7 +99,9 @@ class LLMSettings(BaseSettings):
 class WeComSettings(BaseSettings):
     """企业微信 Channel 配置"""
 
-    model_config = SettingsConfigDict(env_prefix="OPENVORT_WECOM_", env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="OPENVORT_WECOM_", env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore",
+    )
 
     corp_id: str = ""
     app_secret: str = ""
@@ -98,7 +115,9 @@ class WeComSettings(BaseSettings):
 class RelaySettings(BaseSettings):
     """Relay 中继配置"""
 
-    model_config = SettingsConfigDict(env_prefix="OPENVORT_RELAY_", env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="OPENVORT_RELAY_", env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore",
+    )
 
     url: str = ""  # Relay Server 地址，如 https://your-server.com
     secret: str = ""  # 鉴权密钥
@@ -109,7 +128,7 @@ class ContactsSettings(BaseSettings):
     """通讯录配置"""
 
     model_config = SettingsConfigDict(
-        env_prefix="OPENVORT_CONTACTS_", env_file=".env", env_file_encoding="utf-8", extra="ignore",
+        env_prefix="OPENVORT_CONTACTS_", env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore",
     )
 
     auto_match_threshold: float = 0.9  # 自动关联置信度阈值（>= 此值自动关联，< 此值生成建议）
@@ -122,7 +141,7 @@ class OrgSettings(BaseSettings):
     """组织管理配置（工时、时区等）"""
 
     model_config = SettingsConfigDict(
-        env_prefix="OPENVORT_ORG_", env_file=".env", env_file_encoding="utf-8", extra="ignore",
+        env_prefix="OPENVORT_ORG_", env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore",
     )
 
     timezone: str = "Asia/Shanghai"
@@ -137,7 +156,7 @@ class OpenClawSettings(BaseSettings):
     """OpenClaw 集成配置"""
 
     model_config = SettingsConfigDict(
-        env_prefix="OPENVORT_OPENCLAW_", env_file=".env", env_file_encoding="utf-8", extra="ignore",
+        env_prefix="OPENVORT_OPENCLAW_", env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore",
     )
 
     gateway_url: str = ""  # OpenClaw Gateway 地址，如 http://127.0.0.1:18789
@@ -151,7 +170,7 @@ class WebSettings(BaseSettings):
     """Web 管理面板配置"""
 
     model_config = SettingsConfigDict(
-        env_prefix="OPENVORT_WEB_", env_file=".env", env_file_encoding="utf-8", extra="ignore",
+        env_prefix="OPENVORT_WEB_", env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore",
     )
 
     enabled: bool = True  # 是否启用 Web 面板
@@ -166,7 +185,7 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix="OPENVORT_",
-        env_file=".env",
+        env_file=str(_ENV_FILE),
         env_file_encoding="utf-8",
         extra="ignore",
     )

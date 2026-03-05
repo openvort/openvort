@@ -608,8 +608,8 @@ async def _start_service(relay_url: str | None, poll_db_json: str | None, web_fl
 
             asyncio.create_task(_run_web_server())
             log.info(f"Web 管理面板已启动: http://{settings.web.host}:{settings.web.port}")
-        except ImportError:
-            log.warning("未安装 uvicorn/fastapi，Web 面板未启动。运行 pip install uvicorn fastapi 安装。")
+        except ImportError as ie:
+            log.warning(f"未安装 uvicorn/fastapi，Web 面板未启动。运行 pip install uvicorn fastapi 安装。ImportError: {ie}")
         except Exception as e:
             log.warning(f"Web 面板启动失败: {e}")
 
