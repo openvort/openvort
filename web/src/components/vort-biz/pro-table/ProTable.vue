@@ -1,5 +1,5 @@
 <script setup lang="ts" generic="T = any">
-import { ref, computed, watch } from "vue";
+import { ref, computed, watch, onBeforeUnmount } from "vue";
 import { Checkbox, Spin, Pagination } from "@/components/vort";
 import { CaretUpFilled, CaretDownFilled, EmptyOutlined } from "@/components/vort/icons";
 import type {
@@ -63,6 +63,10 @@ const requestParams = ref<ProTableRequestParams>({
   current: 1,
   pageSize: 10,
   ...props.params
+});
+
+const tableData = computed<T[]>(() => {
+  return props.request ? internalDataSource.value : props.dataSource;
 });
 
 // ==================== 排序状态 ====================
@@ -269,10 +273,10 @@ const handlePageSizeChange = (size: number) => {
 
 // ==================== 选择处理 ====================
 const isAllSelected = computed(() => {
-  if (!props.rowSelection || internalDataSource.value.length === 0) return false;
+  if (!props.rowSelection || tableData.value.length === 0) return false;
   let hasEnabled = false;
-  for (let i = 0; i < internalDataSource.value.length; i++) {
-    const record = internalDataSource.value[i];
+  for (let i = 0; i < tableData.value.length; i++) {
+    const record = tableData.value[i];
     const checkboxProps = props.rowSelection?.getCheckboxProps?.(record);
     if (checkboxProps?.disabled) continue;
     hasEnabled = true;
@@ -283,8 +287,8 @@ const isAllSelected = computed(() => {
 });
 
 const isIndeterminate = computed(() => {
-  if (!props.rowSelection || internalDataSource.value.length === 0) return false;
-  const enabledRecords = internalDataSource.value.filter((record) => {
+  if (!props.rowSelection || tableData.value.length === 0) return false;
+  const enabledRecords = tableData.value.filter((record) => {
     const checkboxProps = props.rowSelection?.getCheckboxProps?.(record);
     return !checkboxProps?.disabled;
   });
@@ -297,7 +301,7 @@ const isIndeterminate = computed(() => {
 });
 
 const handleSelectAll = (checked: boolean) => {
-  const enabledRecords = internalDataSource.value.filter((record) => {
+  const enabledRecords = tableData.value.filter((record) => {
     const checkboxProps = props.rowSelection?.getCheckboxProps?.(record);
     return !checkboxProps?.disabled;
   });
@@ -310,7 +314,7 @@ const handleSelectAll = (checked: boolean) => {
     selectedRowKeys.value = selectedRowKeys.value.filter((key) => !currentPageKeys.includes(key));
   }
 
-  const selectedRows = (props.dataSource || internalDataSource.value).filter((r, i) =>
+  const selectedRows = tableData.value.filter((r, i) =>
     selectedRowKeys.value.includes(getRowKey(r, i))
   );
   emit("selectionChange", selectedRowKeys.value, selectedRows);
@@ -330,7 +334,7 @@ const handleSelect = (record: T, checked: boolean, index: number) => {
     }
   }
 
-  const selectedRows = (props.dataSource || internalDataSource.value).filter((r, i) =>
+  const selectedRows = tableData.value.filter((r, i) =>
     selectedRowKeys.value.includes(getRowKey(r, i))
   );
   emit("selectionChange", selectedRowKeys.value, selectedRows);
@@ -353,6 +357,69 @@ const containerClass = computed(() => {
   if (props.bordered) classes.push("vort-pro-table-bordered");
   classes.push(`vort-pro-table-${props.size}`);
   return classes;
+});
+
+// ==================== 列宽拖拽 ====================
+const columnWidths = ref<Record<string, number>>({});
+
+const getColumnKey = (column: TableColumn<T>): string => {
+  return column.key || column.dataIndex || column.title || "";
+};
+
+const getResolvedWidth = (column: TableColumn<T>): string | undefined => {
+  const key = getColumnKey(column);
+  const drag = columnWidths.value[key];
+  if (drag) return `${drag}px`;
+  if (column.width) return typeof column.width === "number" ? `${column.width}px` : column.width;
+  return undefined;
+};
+
+let resizingCol: string | null = null;
+let resizeStartX = 0;
+let resizeStartW = 0;
+const isResizing = ref(false);
+
+const onResizeStart = (e: MouseEvent, column: TableColumn<T>) => {
+  e.preventDefault();
+  e.stopPropagation();
+  const key = getColumnKey(column);
+  resizingCol = key;
+  isResizing.value = true;
+  resizeStartX = e.clientX;
+
+  const existing = columnWidths.value[key];
+  if (existing) {
+    resizeStartW = existing;
+  } else {
+    const th = (e.target as HTMLElement).closest("th");
+    resizeStartW = th ? th.offsetWidth : 120;
+  }
+
+  document.addEventListener("mousemove", onResizeMove);
+  document.addEventListener("mouseup", onResizeEnd);
+  document.body.style.cursor = "col-resize";
+  document.body.style.userSelect = "none";
+};
+
+const onResizeMove = (e: MouseEvent) => {
+  if (!resizingCol) return;
+  const diff = e.clientX - resizeStartX;
+  const newW = Math.max(50, resizeStartW + diff);
+  columnWidths.value = { ...columnWidths.value, [resizingCol]: newW };
+};
+
+const onResizeEnd = () => {
+  resizingCol = null;
+  isResizing.value = false;
+  document.removeEventListener("mousemove", onResizeMove);
+  document.removeEventListener("mouseup", onResizeEnd);
+  document.body.style.cursor = "";
+  document.body.style.userSelect = "";
+};
+
+onBeforeUnmount(() => {
+  document.removeEventListener("mousemove", onResizeMove);
+  document.removeEventListener("mouseup", onResizeEnd);
 });
 
 // ==================== 暴露方法 ====================
@@ -380,18 +447,21 @@ defineExpose({
       </div>
     </div>
 
-    <!-- 加载遮罩 -->
-    <Spin :spinning="internalLoading || loading" class="vort-pro-table-spin" />
+    <div class="vort-pro-table-content">
+      <!-- 加载遮罩（覆盖整个表格区域：表头+表体+分页） -->
+      <div v-if="(internalLoading || loading) && !isResizing" class="vort-pro-table-loading-mask">
+        <Spin :spinning="true" />
+      </div>
 
-    <!-- 表格主体 -->
-    <div class="vort-pro-table-wrapper">
-      <table class="vort-pro-table">
+      <!-- 表格主体 -->
+      <div class="vort-pro-table-wrapper">
+        <table class="vort-pro-table">
         <colgroup>
           <col v-if="rowSelection" :style="{ width: rowSelection.columnWidth || '48px' }" />
           <col
             v-for="column in leafColumns"
             :key="column.key || column.dataIndex || column.title"
-            :style="{ width: column.width ? (typeof column.width === 'number' ? `${column.width}px` : column.width) : undefined }"
+            :style="{ width: getResolvedWidth(column) }"
           />
         </colgroup>
 
@@ -424,7 +494,7 @@ defineExpose({
                 ]"
                 :colspan="cell.colSpan > 1 ? cell.colSpan : undefined"
                 :rowspan="cell.rowSpan > 1 ? cell.rowSpan : undefined"
-                :style="{ width: cell.column.width }"
+                :style="{ width: getResolvedWidth(cell.column) }"
                 @click="cell.column.sorter && !hasChildren(cell.column) ? handleSort(cell.column) : undefined"
               >
                 <div class="vort-pro-table-column-header">
@@ -442,6 +512,12 @@ defineExpose({
                     />
                   </span>
                 </div>
+                    <span
+                      v-if="!hasChildren(cell.column)"
+                      class="vort-pro-table-resize-handle"
+                      @mousedown="onResizeStart($event, cell.column)"
+                      @click.stop
+                    />
               </th>
             </tr>
           </template>
@@ -464,7 +540,7 @@ defineExpose({
                 column.sorter && 'vort-pro-table-cell-sortable',
                 column.headerClassName
               ]"
-              :style="{ width: column.width }"
+              :style="{ width: getResolvedWidth(column) }"
               @click="column.sorter ? handleSort(column) : undefined"
             >
               <div class="vort-pro-table-column-header">
@@ -476,13 +552,14 @@ defineExpose({
                   <CaretDownFilled class="vort-pro-table-sorter-icon" :class="{ active: getColumnSortOrder(column) === 'descend' }" />
                 </span>
               </div>
+              <span class="vort-pro-table-resize-handle" @mousedown="onResizeStart($event, column)" @click.stop />
             </th>
           </tr>
         </thead>
 
         <!-- 表体 -->
         <tbody class="vort-pro-table-tbody">
-          <tr v-if="(dataSource || internalDataSource).length === 0 && !internalLoading" class="vort-pro-table-empty-row">
+          <tr v-if="tableData.length === 0 && !internalLoading" class="vort-pro-table-empty-row">
             <td :colspan="(rowSelection ? 1 : 0) + leafColumns.length" class="vort-pro-table-empty-cell">
               <slot name="empty">
                 <div class="vort-pro-table-empty">
@@ -494,7 +571,7 @@ defineExpose({
           </tr>
 
           <tr
-            v-for="(record, index) in (dataSource || internalDataSource)"
+            v-for="(record, index) in tableData"
             :key="getRowKey(record, index)"
             :class="['vort-pro-table-row', isRowSelected(record, index) && 'vort-pro-table-row-selected']"
           >
@@ -522,24 +599,25 @@ defineExpose({
             </td>
           </tr>
         </tbody>
-      </table>
-    </div>
+        </table>
+      </div>
 
-    <!-- 分页 -->
-    <div
-      v-if="pagination !== false && internalPagination.showPagination && total > 0"
-      class="vort-pro-table-pagination"
-    >
-      <Pagination
-        :current="current"
-        :page-size="pageSize"
-        :total="total"
-        :show-size-changer="pagination?.showSizeChanger ?? false"
-        :show-quick-jumper="pagination?.showQuickJumper ?? false"
-        :page-size-options="pagination?.pageSizeOptions ?? [10, 20, 50, 100]"
-        @update:current="handlePageChange"
-        @update:page-size="handlePageSizeChange"
-      />
+      <!-- 分页 -->
+      <div
+        v-if="pagination !== false && internalPagination.showPagination && total > 0"
+        class="vort-pro-table-pagination"
+      >
+        <Pagination
+          :current="current"
+          :page-size="pageSize"
+          :total="total"
+          :show-size-changer="pagination?.showSizeChanger ?? false"
+          :show-quick-jumper="pagination?.showQuickJumper ?? false"
+          :page-size-options="pagination?.pageSizeOptions ?? [10, 20, 50, 100]"
+          @update:current="handlePageChange"
+          @update:page-size="handlePageSizeChange"
+        />
+      </div>
     </div>
   </div>
 </template>
@@ -553,13 +631,20 @@ defineExpose({
   background: var(--vort-bg-elevated, #fff);
 }
 
-.vort-pro-table-spin {
+.vort-pro-table-content {
+  position: relative;
+}
+
+.vort-pro-table-loading-mask {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 10;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: rgba(255, 255, 255, 0.6);
 }
 
@@ -599,7 +684,7 @@ defineExpose({
 .vort-pro-table {
   width: 100%;
   border-collapse: collapse;
-  table-layout: auto;
+  table-layout: fixed;
 }
 
 .vort-pro-table-thead {
@@ -607,11 +692,42 @@ defineExpose({
 }
 
 .vort-pro-table-thead th {
+  position: relative;
   padding: 16px;
   font-weight: 600;
   text-align: left;
-  border-bottom: 1px solid var(--vort-border-secondary, #f0f0f0);
+  border-bottom: 1px solid #eceff3;
+  border-right: 1px solid #f3f5f8;
   white-space: nowrap;
+}
+
+.vort-pro-table-thead th:last-child {
+  border-right: none;
+}
+
+.vort-pro-table-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: 7px;
+  cursor: col-resize;
+  z-index: 1;
+
+  &::after {
+    content: "";
+    position: absolute;
+    top: 25%;
+    bottom: 25%;
+    right: 3px;
+    width: 1px;
+    background: transparent;
+    transition: background 0.15s;
+  }
+
+  &:hover::after {
+    background: #4096ff;
+  }
 }
 
 .vort-pro-table-cell-sortable {
@@ -651,7 +767,12 @@ defineExpose({
 
 .vort-pro-table-tbody td {
   padding: 16px;
-  border-bottom: 1px solid var(--vort-border-secondary, #f0f0f0);
+  border-bottom: 1px solid #eceff3;
+  border-right: 1px solid #f3f5f8;
+}
+
+.vort-pro-table-tbody td:last-child {
+  border-right: none;
 }
 
 .vort-pro-table-selection-column {
