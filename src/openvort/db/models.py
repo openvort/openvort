@@ -236,3 +236,21 @@ class WorkAssignment(Base):
     last_action_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # 最近一次行动/汇报时间
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class VoiceProvider(Base):
+    """语音服务厂商配置 - 支持 ASR（语音识别）和 TTS（语音合成）"""
+
+    __tablename__ = "voice_providers"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(64))  # 厂商名称（如 "阿里云-TTS"）
+    platform: Mapped[str] = mapped_column(String(32), index=True)  # aliyun/tencent/azure/openai 等
+    service_type: Mapped[str] = mapped_column(String(16), default="tts")  # tts | asr
+    api_key: Mapped[str] = mapped_column(Text, default="")  # API 密钥（Fernet 加密存储）
+    config: Mapped[str] = mapped_column(Text, default="{}")  # 厂商特定配置 JSON
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    owner_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("members.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())

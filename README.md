@@ -70,7 +70,7 @@ npm run dev   # Vite dev server，默认 http://localhost:5173
 | `OPENVORT_LLM_API_KEY` | LLM API Key（必填） | — |
 | `OPENVORT_LLM_MODEL` | 模型名称 | `claude-sonnet-4-20250514` |
 | `OPENVORT_LLM_PROVIDER` | 提供商（anthropic / openai_compatible） | `anthropic` |
-| `OPENVORT_DATABASE_URL` | 数据库连接 | SQLite（本地开发） |
+| `OPENVORT_DATABASE_URL` | 数据库连接 | PostgreSQL（本地开发） |
 | `OPENVORT_LOG_LEVEL` | 日志级别 | `INFO` |
 
 完整配置参考 [`.env.example`](.env.example)。

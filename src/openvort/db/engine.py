@@ -4,6 +4,7 @@
 SQLAlchemy 2.0 异步引擎（PostgreSQL）。
 """
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -29,6 +30,10 @@ async def init_db(database_url: str) -> None:
     import openvort.contacts.models  # noqa: F401
     import openvort.core.setup  # noqa: F401
     import openvort.db.models  # noqa: F401
+    try:
+        import openvort.services.asr.asr_service  # noqa: F401
+    except ImportError:
+        pass
 
     try:
         import openvort.plugins.vortflow.models  # noqa: F401
@@ -52,6 +57,27 @@ async def init_db(database_url: str) -> None:
 
     _engine = create_async_engine(database_url, echo=False)
     _session_factory = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
+
+    # Backward-compatible lightweight migration for VortFlow editable fields.
+    async with _engine.begin() as conn:
+        await conn.execute(
+            text("ALTER TABLE IF EXISTS flow_stories ADD COLUMN IF NOT EXISTS tags_json TEXT DEFAULT '[]'")
+        )
+        await conn.execute(
+            text("ALTER TABLE IF EXISTS flow_stories ADD COLUMN IF NOT EXISTS collaborators_json TEXT DEFAULT '[]'")
+        )
+        await conn.execute(
+            text("ALTER TABLE IF EXISTS flow_tasks ADD COLUMN IF NOT EXISTS tags_json TEXT DEFAULT '[]'")
+        )
+        await conn.execute(
+            text("ALTER TABLE IF EXISTS flow_tasks ADD COLUMN IF NOT EXISTS collaborators_json TEXT DEFAULT '[]'")
+        )
+        await conn.execute(
+            text("ALTER TABLE IF EXISTS flow_bugs ADD COLUMN IF NOT EXISTS tags_json TEXT DEFAULT '[]'")
+        )
+        await conn.execute(
+            text("ALTER TABLE IF EXISTS flow_bugs ADD COLUMN IF NOT EXISTS collaborators_json TEXT DEFAULT '[]'")
+        )
 
     log.info(f"数据库已初始化: {database_url.split('://')[0]}")
 

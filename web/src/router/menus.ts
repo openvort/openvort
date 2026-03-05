@@ -20,6 +20,8 @@ export const menuConfig: MenuConfig[] = [
             { title: "任务管理", icon: "check-square", path: "/vortflow/tasks" },
             { title: "缺陷跟踪", icon: "bug", path: "/vortflow/bugs" },
             { title: "里程碑", icon: "milestone", path: "/vortflow/milestones" },
+            { title: "迭代管理", icon: "repeat", path: "/vortflow/iterations" },
+            { title: "版本管理", icon: "tag", path: "/vortflow/versions" },
         ],
     },
     {
