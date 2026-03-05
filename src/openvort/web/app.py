@@ -7,6 +7,8 @@ from pathlib import Path
 from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
 
 from openvort.web.auth import verify_token
 
@@ -48,6 +50,16 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    class NoCacheAPIMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request: Request, call_next):
+            response: Response = await call_next(request)
+            if request.url.path.startswith("/api/"):
+                response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+                response.headers["Pragma"] = "no-cache"
+            return response
+
+    app.add_middleware(NoCacheAPIMiddleware)
 
     # 注册路由
     from openvort.web.routers import (
