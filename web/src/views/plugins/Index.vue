@@ -2,7 +2,7 @@
 import { ref, onMounted, computed } from "vue";
 import { getPlugins, getPluginDetail, updatePlugin, togglePlugin, installPlugin, uploadPlugin, deletePlugin } from "@/api";
 import { Puzzle, Wrench, CheckCircle, XCircle, Settings, Plus, Upload, Trash2, ChevronDown, ChevronRight } from "lucide-vue-next";
-import { message } from "@/components/vort/message";
+import { message } from "@openvort/vort-ui";
 import { dialog } from "@/components/vort/dialog";
 import { usePluginStore } from "@/stores/modules/plugin";
 

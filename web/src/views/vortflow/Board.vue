@@ -9,7 +9,7 @@ import {
     updateVortflowProject, deleteVortflowProject,
     getVortgitRepos, generateVortflowDescriptionPrompt,
 } from "@/api";
-import { message } from "@/components/vort/message";
+import { message } from "@openvort/vort-ui";
 
 interface ProjectItem {
     id: string;
