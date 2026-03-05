@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, ref, watch, onUnmounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useAppStore, useUserStore, usePluginStore } from "@/stores";
 import { menuConfig, type MenuConfig } from "@/router/menus";
@@ -22,6 +22,32 @@ const SUBMENU_STATE_KEY = "openvort.sidebar.open-submenus";
 const expandedMenus = ref<string[]>([]);
 
 const collapsed = computed(() => props.isMobile ? false : appStore.sidebarCollapsed);
+const collapseProgress = ref(0); // 0 = collapsed, 1 = expanded
+let rafId: number | null = null;
+
+watch(collapsed, (newVal) => {
+    if (rafId) cancelAnimationFrame(rafId);
+    const start = collapseProgress.value;
+    const end = newVal ? 0 : 1;
+    const duration = 300;
+    const startTime = performance.now();
+
+    const animate = (currentTime: number) => {
+        const elapsed = currentTime - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        // Ease out cubic
+        const eased = 1 - Math.pow(1 - progress, 3);
+        collapseProgress.value = start + (end - start) * eased;
+        if (progress < 1) {
+            rafId = requestAnimationFrame(animate);
+        }
+    };
+    rafId = requestAnimationFrame(animate);
+}, { immediate: true });
+
+onUnmounted(() => {
+    if (rafId) cancelAnimationFrame(rafId);
+});
 
 const loadExpandedMenus = () => {
     if (typeof window === "undefined") return;
@@ -141,24 +167,28 @@ const handleMenuToggle = (title: string, event: Event) => {
 
 <template>
     <aside
-        class="flex flex-col h-full bg-white border-r border-gray-100 transition-all duration-300 flex-shrink-0"
-        :class="[
-            isMobile
-                ? 'fixed inset-y-0 left-0 z-50 w-[220px] shadow-xl'
-                : collapsed ? 'w-[64px]' : 'w-[220px]',
-            isMobile && !appStore.mobileSidebarOpen ? '-translate-x-full' : 'translate-x-0'
-        ]"
+        class="flex flex-col h-full bg-white border-r border-gray-100 flex-shrink-0"
+        :style="{
+            '--collapse-progress': collapseProgress,
+            width: props.isMobile ? '220px' : `${64 + 156 * collapseProgress}px`
+        }"
+        :class="props.isMobile && !appStore.mobileSidebarOpen ? '-translate-x-full' : 'translate-x-0'"
     >
         <!-- Logo -->
-        <div class="flex items-center h-[56px] px-4 border-b border-gray-100 flex-shrink-0">
+        <div class="flex items-center h-[56px] px-4 border-b border-gray-100 flex-shrink-0 overflow-hidden">
             <div class="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center flex-shrink-0">
                 <span class="text-white font-bold text-sm">O</span>
             </div>
-            <transition name="fade">
-                <h1 v-if="!collapsed" class="ml-3 text-[16px] font-semibold text-gray-900 whitespace-nowrap">
-                    OpenVort
-                </h1>
-            </transition>
+            <h1
+                class="ml-3 text-[16px] font-semibold text-gray-900 whitespace-nowrap overflow-hidden"
+                :style="{
+                    maxWidth: `${156 * collapseProgress}px`,
+                    opacity: collapseProgress,
+                    transition: 'none'
+                }"
+            >
+                OpenVort
+            </h1>
         </div>
 
         <!-- 菜单 -->
@@ -166,8 +196,26 @@ const handleMenuToggle = (title: string, event: Event) => {
             <nav class="py-2 px-2">
                 <template v-for="item in filteredMenus" :key="item.title">
                     <!-- 分组标签 -->
-                    <div v-if="item.label" class="mt-3 mb-1 first:mt-0" :class="collapsed ? 'border-t border-gray-100 mx-2' : ''">
-                        <span v-if="!collapsed" class="px-3 text-[11px] font-medium text-gray-400 uppercase tracking-wider">{{ item.label }}</span>
+                    <div
+                        v-if="item.label"
+                        class="overflow-hidden"
+                        :style="{
+                            maxHeight: `${20 * collapseProgress}px`,
+                            marginTop: `${12 * collapseProgress}px`,
+                            marginBottom: `${4 * collapseProgress}px`,
+                            opacity: collapseProgress,
+                            transition: 'none'
+                        }"
+                    >
+                        <span
+                            class="px-3 text-[11px] font-medium text-gray-400 uppercase tracking-wider block overflow-hidden"
+                            :style="{
+                                maxWidth: `${200 * collapseProgress}px`,
+                                maxHeight: `${20 * collapseProgress}px`,
+                                opacity: collapseProgress,
+                                transition: 'none'
+                            }"
+                        >{{ item.label }}</span>
                     </div>
 
                     <!-- 无子菜单 -->
@@ -178,7 +226,14 @@ const handleMenuToggle = (title: string, event: Event) => {
                         @click="handleClick(item)"
                     >
                         <component :is="iconMap[item.icon]" v-if="iconMap[item.icon]" :size="18" class="flex-shrink-0" />
-                        <span v-if="!collapsed" class="ml-3 text-[14px] truncate">{{ item.title }}</span>
+                        <span
+                            class="ml-3 text-[14px] truncate overflow-hidden"
+                            :style="{
+                                maxWidth: `${140 * collapseProgress}px`,
+                                opacity: collapseProgress,
+                                transition: 'none'
+                            }"
+                        >{{ item.title }}</span>
                     </div>
 
                     <!-- 有子菜单 -->
@@ -193,11 +248,33 @@ const handleMenuToggle = (title: string, event: Event) => {
                             :class="isActive(item) ? 'text-blue-600' : 'text-gray-600 hover:bg-gray-50'"
                         >
                             <component :is="iconMap[item.icon]" v-if="iconMap[item.icon]" :size="18" class="flex-shrink-0" />
-                            <span v-if="!collapsed" class="ml-3 text-[14px] flex-1 truncate">{{ item.title }}</span>
-                            <ChevronDown v-if="!collapsed" :size="14" class="text-gray-400 transition-transform" />
+                            <span
+                                class="ml-3 text-[14px] flex-1 truncate overflow-hidden"
+                                :style="{
+                                    maxWidth: `${100 * collapseProgress}px`,
+                                    opacity: collapseProgress,
+                                    transition: 'none'
+                                }"
+                            >{{ item.title }}</span>
+                            <ChevronDown
+                                :size="14"
+                                class="text-gray-400 overflow-hidden"
+                                :style="{
+                                    maxWidth: `${14 * collapseProgress}px`,
+                                    opacity: collapseProgress,
+                                    transition: 'none'
+                                }"
+                            />
                         </summary>
 
-                        <div v-if="!collapsed" class="ml-4 pl-4 border-l border-gray-100">
+                        <div
+                            class="ml-4 pl-4 border-l border-gray-100 overflow-hidden"
+                            :style="{
+                                maxHeight: `${500 * collapseProgress}px`,
+                                opacity: collapseProgress,
+                                transition: 'none'
+                            }"
+                        >
                             <div
                                 v-for="child in item.children"
                                 :key="child.title"
@@ -214,7 +291,7 @@ const handleMenuToggle = (title: string, event: Event) => {
         </VortScrollbar>
 
         <!-- 底部固定区域 -->
-        <div class="flex-shrink-0 border-t border-gray-100 px-2 py-2">
+        <div class="flex-shrink-0 border-t border-gray-100 px-2 py-2 overflow-hidden">
             <div
                 v-for="item in bottomMenus"
                 :key="item.title"
@@ -223,7 +300,14 @@ const handleMenuToggle = (title: string, event: Event) => {
                 @click="handleClick(item)"
             >
                 <component :is="iconMap[item.icon]" v-if="iconMap[item.icon]" :size="18" class="flex-shrink-0" />
-                <span v-if="!collapsed" class="ml-3 text-[14px] truncate">{{ item.title }}</span>
+                <span
+                    class="ml-3 text-[14px] truncate overflow-hidden"
+                    :style="{
+                        maxWidth: `${140 * collapseProgress}px`,
+                        opacity: collapseProgress,
+                        transition: 'none'
+                    }"
+                >{{ item.title }}</span>
             </div>
             <!-- 折叠按钮 -->
             <div
@@ -231,17 +315,32 @@ const handleMenuToggle = (title: string, event: Event) => {
                 class="flex items-center h-[40px] px-3 rounded-md cursor-pointer text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors"
                 @click="appStore.toggleSidebar()"
             >
-                <PanelLeftClose v-if="!collapsed" :size="18" class="flex-shrink-0" />
-                <PanelLeftOpen v-else :size="18" class="flex-shrink-0" />
-                <span v-if="!collapsed" class="ml-3 text-[14px] truncate">收起侧栏</span>
+                <div class="relative w-[18px] h-[18px] flex-shrink-0">
+                    <PanelLeftClose
+                        :size="18"
+                        class="absolute inset-0"
+                        :style="{ opacity: collapseProgress, transition: 'none' }"
+                    />
+                    <PanelLeftOpen
+                        :size="18"
+                        class="absolute inset-0"
+                        :style="{ opacity: 1 - collapseProgress, transition: 'none' }"
+                    />
+                </div>
+                <span
+                    class="ml-3 text-[14px] truncate overflow-hidden"
+                    :style="{
+                        maxWidth: `${80 * collapseProgress}px`,
+                        opacity: collapseProgress,
+                        transition: 'none'
+                    }"
+                >收起侧栏</span>
             </div>
         </div>
     </aside>
 </template>
 
 <style scoped>
-.fade-enter-active, .fade-leave-active { transition: opacity 0.2s; }
-.fade-enter-from, .fade-leave-to { opacity: 0; }
 details > summary::-webkit-details-marker { display: none; }
 details[open] > summary .lucide-chevron-down { transform: rotate(180deg); }
 </style>
