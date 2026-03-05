@@ -276,6 +276,7 @@ async def upload_avatar(request: Request, file: UploadFile = File(...)):
         if not member:
             return {"error": "用户不存在"}
         member.avatar_url = avatar_url
+        member.avatar_source = "manual"
         await session.commit()
 
     return {"success": True, "avatar_url": avatar_url}

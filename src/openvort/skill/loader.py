@@ -301,6 +301,18 @@ class SkillLoader:
                 if "already exists" not in str(e).lower():
                     log.warning(f"Migration virtual_roles index: {e}")
 
+            # 9. members 表添加 avatar_source 字段（头像来源优先级）
+            try:
+                await db.execute(text(
+                    "ALTER TABLE members ADD COLUMN IF NOT EXISTS avatar_source VARCHAR(16) DEFAULT ''"
+                ))
+                await db.commit()
+                log.info("Migration: added members.avatar_source")
+            except Exception as e:
+                await db.rollback()
+                if "already exists" not in str(e).lower():
+                    log.warning(f"Migration members.avatar_source: {e}")
+
     def load_all_sync(self) -> None:
         """Legacy sync loader for CLI commands without DB.
         Scans files only, registers to PluginRegistry.

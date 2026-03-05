@@ -18,6 +18,22 @@ from openvort.utils.logging import get_logger
 log = get_logger("contacts.service")
 
 
+# Avatar source priority: higher value wins, "manual" always takes precedence
+AVATAR_SOURCE_PRIORITY: dict[str, int] = {
+    "": 0,
+    "dingtalk": 10,
+    "feishu": 10,
+    "zentao": 10,
+    "gitee": 10,
+    "wecom": 20,
+    "manual": 100,
+}
+
+
+def _avatar_priority(source: str) -> int:
+    return AVATAR_SOURCE_PRIORITY.get(source, 10)
+
+
 class ContactService:
     """通讯录服务 — 统一管理成员、身份映射、同步"""
 
@@ -612,6 +628,8 @@ class ContactService:
             name=contact.display_name or contact.username or contact.user_id,
             email=contact.email,
             phone=contact.phone,
+            avatar_url=contact.avatar_url or "",
+            avatar_source=contact.platform if contact.avatar_url else "",
             position=contact.position or "",
         )
 
@@ -642,7 +660,7 @@ class ContactService:
 
     @staticmethod
     def _backfill_member_info(member: Member, contact: PlatformContact) -> None:
-        """回填 Member 缺失的 email/phone/name/position（从同步的联系人信息补充）"""
+        """回填 Member 缺失的 email/phone/name/position/avatar（从同步的联系人信息补充）"""
         if not member.email and contact.email:
             member.email = contact.email
         if not member.phone and contact.phone:
@@ -651,6 +669,9 @@ class ContactService:
             member.name = contact.display_name
         if not member.position and contact.position:
             member.position = contact.position
+        if contact.avatar_url and _avatar_priority(contact.platform) >= _avatar_priority(member.avatar_source):
+            member.avatar_url = contact.avatar_url
+            member.avatar_source = contact.platform
 
     # ---- 角色映射 ----
 
