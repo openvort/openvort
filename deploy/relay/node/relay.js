@@ -308,13 +308,22 @@ const server = http.createServer(async (req, res) => {
     if (urlPath === "/relay/send" && req.method === "POST") {
       if (!checkAuth(req)) return json(res, { error: "unauthorized" }, 401);
       const body = JSON.parse(await readBody(req));
-      const { touser, content, msg_type = "text" } = body;
-      if (!touser || !content) return json(res, { error: "touser and content required" }, 400);
+      const { touser, content, msg_type = "text", media_id } = body;
+      if (!touser) return json(res, { error: "touser required" }, 400);
+      if (!content && msg_type !== "voice") return json(res, { error: "content required" }, 400);
 
       const token = await getWecomToken();
       const payload = { touser, agentid: CONFIG.WECOM_AGENT_ID, msgtype: msg_type };
-      if (msg_type === "markdown") payload.markdown = { content };
-      else payload.text = { content };
+
+      if (msg_type === "voice") {
+        // 语音消息：需要 media_id
+        if (!media_id) return json(res, { error: "media_id required for voice" }, 400);
+        payload.voice = { media_id };
+      } else if (msg_type === "markdown") {
+        payload.markdown = { content };
+      } else {
+        payload.text = { content };
+      }
 
       const data = await httpsPost(
         `${CONFIG.WECOM_API_BASE}/message/send?access_token=${token}`,
@@ -324,7 +333,7 @@ const server = http.createServer(async (req, res) => {
         console.log(`[Relay] 发送失败: ${JSON.stringify(data)}`);
         return json(res, { error: data.errmsg || "unknown" }, 502);
       }
-      console.log(`[Relay] 已发送消息 -> ${touser}`);
+      console.log(`[Relay] 已发送消息 -> ${touser} (${msg_type})`);
       return json(res, { ok: true });
     }
 

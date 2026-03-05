@@ -153,3 +153,89 @@ class WeComAPI:
         except Exception as e:
             log.error(f"企微 API 连通性检查失败: {e}")
             return False
+
+    # ---- 媒体文件管理 ----
+
+    async def upload_media(self, media_type: str, file_content: bytes, file_name: str) -> dict:
+        """上传临时素材
+
+        Args:
+            media_type: 媒体文件类型 (image, voice, video, file)
+            file_content: 文件二进制内容
+            file_name: 文件名
+
+        Returns:
+            {"media_id": "xxx", "created_at": 1234567890}
+        """
+        from io import BytesIO
+
+        files = {
+            "media": (file_name, BytesIO(file_content), f"audio/{file_name.split('.')[-1]}")
+        }
+        params = {
+            "access_token": await self.get_access_token(),
+            "type": media_type,
+        }
+        resp = await self._http.post(
+            f"{self._api_base}/media/upload",
+            params=params,
+            files=files,
+        )
+        data = resp.json()
+
+        if data.get("errcode", 0) != 0:
+            log.error(f"上传媒体文件失败: {data}")
+            raise RuntimeError(f"上传媒体文件失败: {data}")
+
+        log.info(f"媒体文件上传成功: media_id={data.get('media_id')}")
+        return data
+
+    async def get_media(self, media_id: str) -> bytes:
+        """下载临时素材
+
+        Args:
+            media_id: 媒体文件 ID
+
+        Returns:
+            文件二进制内容
+        """
+        params = {
+            "access_token": await self.get_access_token(),
+            "media_id": media_id,
+        }
+        resp = await self._http.get(
+            f"{self._api_base}/media/get",
+            params=params,
+        )
+
+        # 检查是否返回错误 JSON
+        try:
+            data = resp.json()
+            if data.get("errcode", 0) != 0:
+                log.error(f"下载媒体文件失败: {data}")
+                raise RuntimeError(f"下载媒体文件失败: {data}")
+        except Exception:
+            # 非 JSON 响应，说明是实际的媒体文件内容
+            pass
+
+        return resp.content
+
+    async def send_voice(self, media_id: str, touser: str = "", toparty: str = "", totag: str = "") -> dict:
+        """发送语音消息
+
+        Args:
+            media_id: 语音文件的 media_id
+            touser: 接收成员 ID
+            toparty: 接收部门 ID
+            totag: 接收标签 ID
+
+        Returns:
+            API 响应
+        """
+        payload = {
+            "msgtype": "voice",
+            "agentid": self._agent_id,
+            "voice": {"media_id": media_id},
+        }
+        self._set_recipients(payload, touser, toparty, totag)
+        return await self._request("POST", "/message/send", json=payload)
