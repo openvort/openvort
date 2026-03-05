@@ -1,3 +1,13 @@
+<script setup lang="ts">
+const vortTheme = {
+    token: {
+        colorPrimary: "#0f3eb9"
+    }
+};
+</script>
+
 <template>
-    <router-view />
+    <VortConfigProvider :theme="vortTheme">
+        <router-view />
+    </VortConfigProvider>
 </template>

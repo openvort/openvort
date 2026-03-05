@@ -18,8 +18,8 @@
     --color-blue-300: #7eb4fc;
     --color-blue-400: var(--vort-primary-hover);
     --color-blue-500: var(--vort-primary);
-    --color-blue-600: var(--vort-primary-active);
-    --color-blue-700: #0a3090;
+    --color-blue-600: var(--vort-primary);
+    --color-blue-700: var(--vort-primary-active);
     --color-blue-800: #082468;
     --color-blue-900: #061c44;
     --color-blue-950: #030f22;

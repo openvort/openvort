@@ -1970,15 +1970,18 @@ onMounted(async () => {
             <h3 class="text-base font-medium text-gray-800 mb-3">{{ props.pageTitle }}</h3>
             <div class="flex flex-wrap items-center gap-3 text-sm">
                 <div class="text-gray-600"><span class="text-gray-900 font-medium">共{{ totalCount || allData.length }}项</span></div>
-                <VortInput v-model="keyword" placeholder="输入关键词" class="w-[180px]" size="small" />
+                <div class="w-[180px] shrink-0">
+                    <VortInput v-model="keyword" placeholder="输入关键词" />
+                </div>
                 <Popover v-model:open="ownerDropdownOpen" trigger="click" placement="bottomLeft" :arrow="false">
                     <VortButton
-                        class="h-8 min-w-[130px] px-3 border border-slate-300 rounded-md bg-white flex items-center justify-between text-left hover:border-slate-400"
+                        class="h-8 min-w-[130px] px-3 border border-slate-300 rounded-md bg-white hover:border-slate-400 font-normal"
                         :class="ownerDropdownOpen ? 'border-blue-500 ring-1 ring-blue-200' : ''"
-                        @click.stop
                     >
-                        <span class="text-sm text-gray-700">{{ owner || "负责人" }}</span>
-                        <span class="status-arrow-simple" :class="{ open: ownerDropdownOpen }" />
+                        <div class="flex items-center justify-between w-full gap-2">
+                            <span class="text-sm text-gray-700">{{ owner || "负责人" }}</span>
+                            <span class="status-arrow-simple" :class="{ open: ownerDropdownOpen }" />
+                        </div>
                     </VortButton>
                     <template #content>
                         <div class="w-[260px] p-3">
@@ -1988,7 +1991,6 @@ onMounted(async () => {
                                     v-model="ownerKeyword"
                                     placeholder="搜索..."
                                     class="w-full"
-                                    size="small"
                                 />
                             </div>
                         </div>
@@ -2028,12 +2030,13 @@ onMounted(async () => {
                 </Popover>
                 <Popover v-if="!props.fixedType" v-model:open="typeDropdownOpen" trigger="click" placement="bottomLeft" :arrow="false">
                     <VortButton
-                        class="h-8 min-w-[110px] px-3 border border-slate-300 rounded-md bg-white flex items-center justify-between text-left hover:border-slate-400"
+                        class="h-8 min-w-[110px] px-3 border border-slate-300 rounded-md bg-white hover:border-slate-400 font-normal"
                         :class="typeDropdownOpen ? 'border-blue-500 ring-1 ring-blue-200' : ''"
-                        @click.stop
                     >
-                        <span class="text-sm text-gray-700">{{ type || "类型" }}</span>
-                        <span class="status-arrow-simple" :class="{ open: typeDropdownOpen }" />
+                        <div class="flex items-center justify-between w-full gap-2">
+                            <span class="text-sm text-gray-700">{{ type || "类型" }}</span>
+                            <span class="status-arrow-simple" :class="{ open: typeDropdownOpen }" />
+                        </div>
                     </VortButton>
                     <template #content>
                         <div class="w-[180px] p-3">
@@ -2075,11 +2078,13 @@ onMounted(async () => {
                 </Popover>
                 <Popover v-model:open="statusDropdownOpen" trigger="click" placement="bottomLeft" :arrow="false">
                     <VortButton
-                        class="h-8 min-w-[130px] px-3 border border-slate-300 rounded-md bg-white flex items-center justify-between text-left hover:border-slate-400"
-                        @click.stop
+                        class="h-8 min-w-[130px] px-3 border border-slate-300 rounded-md bg-white hover:border-slate-400 font-normal"
+                        :class="statusDropdownOpen ? 'border-blue-500 ring-1 ring-blue-200' : ''"
                     >
-                        <span class="text-sm text-gray-700">{{ status || "状态" }}</span>
-                        <span class="status-arrow-simple" :class="{ open: statusDropdownOpen }" />
+                        <div class="flex items-center justify-between w-full gap-2">
+                            <span class="text-sm text-gray-700">{{ status || "状态" }}</span>
+                            <span class="status-arrow-simple" :class="{ open: statusDropdownOpen }" />
+                        </div>
                     </VortButton>
                     <template #content>
                         <div class="w-[240px] p-3">
@@ -2109,9 +2114,9 @@ onMounted(async () => {
                     </div>
                     </template>
                 </Popover>
-                <VortButton size="small" variant="primary" @click="tableRef?.refresh?.()">查询</VortButton>
-                <VortButton size="small" @click="onReset">重置</VortButton>
-                <VortButton size="small" variant="primary" class="ml-auto" @click="handleCreateBug">{{ props.createButtonText }}</VortButton>
+                <VortButton  variant="primary" @click="tableRef?.refresh?.()">查询</VortButton>
+                <VortButton  @click="onReset">重置</VortButton>
+                <VortButton  variant="primary" class="ml-auto" @click="handleCreateBug">{{ props.createButtonText }}</VortButton>
             </div>
         </div>
 
@@ -2119,9 +2124,9 @@ onMounted(async () => {
             <div v-if="selectedRows.length > 0" class="mb-3 flex items-center gap-3 text-sm">
                 <span class="text-gray-500">已选 {{ selectedRows.length }} 项</span>
                 <vort-popconfirm title="确认批量删除选中记录？" @confirm="handleBatchDelete">
-                    <VortButton size="small" variant="text" danger>批量删除</VortButton>
+                    <VortButton  variant="text" danger>批量删除</VortButton>
                 </vort-popconfirm>
-                <VortButton size="small" variant="link" @click="clearSelection">取消选择</VortButton>
+                <VortButton  variant="link" @click="clearSelection">取消选择</VortButton>
             </div>
             <ProTable
                 ref="tableRef"

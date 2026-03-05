@@ -23,6 +23,7 @@ declare module 'vue' {
     VortButton: typeof import('@openvort/vort-ui')['Button']
     VortCard: typeof import('@openvort/vort-ui')['Card']
     VortCheckbox: typeof import('@openvort/vort-ui')['Checkbox']
+    VortConfigProvider: typeof import('@openvort/vort-ui')['VortConfigProvider']
     VortDatePicker: typeof import('@openvort/vort-ui')['DatePicker']
     VortDialog: typeof import('@openvort/vort-ui')['Dialog']
     VortDivider: typeof import('@openvort/vort-ui')['Divider']
