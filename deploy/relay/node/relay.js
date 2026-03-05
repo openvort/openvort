@@ -103,11 +103,16 @@ class WeComCrypto {
 // JSON 文件存储（零依赖，不用 SQLite）
 // ============================================================
 
+const PROCESSING_TIMEOUT_MS = 30000; // 处理中状态超时 30 秒
+
 class RelayStore {
   constructor(dbPath) {
     this.dbPath = dbPath;
     this.data = { nextId: 1, messages: [] };
     this._load();
+
+    // 启动超时清理定时器
+    setInterval(() => this._releaseTimeout(), 5000);
   }
 
   _load() {
@@ -124,6 +129,20 @@ class RelayStore {
     fs.writeFileSync(this.dbPath, JSON.stringify(this.data, null, 2));
   }
 
+  // 释放超时的 processing 消息
+  _releaseTimeout() {
+    const now = Date.now();
+    let changed = false;
+    for (const msg of this.data.messages) {
+      if (msg.status === "processing" && now - msg.processing_since > PROCESSING_TIMEOUT_MS) {
+        msg.status = "pending";
+        delete msg.processing_since;
+        changed = true;
+      }
+    }
+    if (changed) this._save();
+  }
+
   save(msg) {
     const id = this.data.nextId++;
     this.data.messages.push({
@@ -133,30 +152,61 @@ class RelayStore {
       msg_type: msg.MsgType || "text",
       content: msg.Content || "",
       raw_data: msg,
-      processed: false,
+      status: "pending", // pending | processing | processed
       created_at: parseFloat(msg.CreateTime) || Date.now() / 1000,
     });
     this._save();
     return id;
   }
 
-  getMessages(sinceId = 0, limit = 50) {
-    return this.data.messages.filter((m) => m.id > sinceId).slice(0, limit);
-  }
+  // 原子性获取并标记消息为处理中（防止多客户端重复消费）
+  getAndMarkProcessing(sinceId = 0, limit = 50) {
+    const now = Date.now();
+    const messages = [];
 
-  markProcessed(msgId) {
-    const msg = this.data.messages.find((m) => m.id === msgId);
-    if (msg) {
-      msg.processed = true;
+    for (const msg of this.data.messages) {
+      if (messages.length >= limit) break;
+      if (msg.id <= sinceId) continue;
+      if (msg.status === "processed") continue;
+      if (msg.status === "pending") {
+        // 原子性标记为 processing
+        msg.status = "processing";
+        msg.processing_since = now;
+        messages.push(msg);
+      } else if (msg.status === "processing") {
+        // 超时的 processing 也视为可用
+        if (now - (msg.processing_since || 0) > PROCESSING_TIMEOUT_MS) {
+          msg.processing_since = now;
+          messages.push(msg);
+        }
+      }
+    }
+
+    if (messages.length > 0) {
       this._save();
     }
+
+    return messages;
+  }
+
+  // 确认处理完成
+  markProcessed(msgId) {
+    const msg = this.data.messages.find((m) => m.id === msgId);
+    // 只有 processing 状态才能确认，防止重复 ack
+    if (msg && msg.status === "processing") {
+      msg.status = "processed";
+      delete msg.processing_since;
+      this._save();
+      return true;
+    }
+    return false;
   }
 
   cleanup(maxAgeHours = 72) {
     const cutoff = Date.now() / 1000 - maxAgeHours * 3600;
     const before = this.data.messages.length;
     this.data.messages = this.data.messages.filter(
-      (m) => !(m.processed && m.created_at < cutoff)
+      (m) => !(m.status === "processed" && m.created_at < cutoff)
     );
     this._save();
     return before - this.data.messages.length;
@@ -291,18 +341,21 @@ const server = http.createServer(async (req, res) => {
 
     // ---- Relay API ----
 
+    // 原子性获取消息并标记为处理中（防止多客户端重复消费）
     if (urlPath === "/relay/messages" && req.method === "GET") {
       if (!checkAuth(req)) return json(res, { error: "unauthorized" }, 401);
       const sinceId = parseInt(query.since_id || "0");
       const limit = parseInt(query.limit || "50");
-      return json(res, { messages: store.getMessages(sinceId, limit) });
+      const messages = store.getAndMarkProcessing(sinceId, limit);
+      return json(res, { messages });
     }
 
+    // 确认消息处理完成
     if (urlPath.match(/^\/relay\/messages\/\d+\/ack$/) && req.method === "POST") {
       if (!checkAuth(req)) return json(res, { error: "unauthorized" }, 401);
       const msgId = parseInt(urlPath.split("/")[3]);
-      store.markProcessed(msgId);
-      return json(res, { ok: true });
+      const ok = store.markProcessed(msgId);
+      return json(res, { ok });
     }
 
     if (urlPath === "/relay/send" && req.method === "POST") {
