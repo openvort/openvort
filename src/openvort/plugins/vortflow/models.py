@@ -145,3 +145,80 @@ class FlowExternalMapping(Base):
     sync_cursor: Mapped[str] = mapped_column(String(128), default="")
     conflict_state: Mapped[str] = mapped_column(String(16), default="ok")  # ok/conflict/pending
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class FlowIteration(Base):
+    """迭代（Sprint）"""
+
+    __tablename__ = "flow_iterations"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    project_id: Mapped[str] = mapped_column(String(32), ForeignKey("flow_projects.id"), index=True)
+    name: Mapped[str] = mapped_column(String(200))  # Sprint 1, Sprint 2
+    goal: Mapped[str] = mapped_column(Text, default="")  # 迭代目标
+    start_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    end_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="planning")  # planning/active/completed
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class FlowVersion(Base):
+    """版本"""
+
+    __tablename__ = "flow_versions"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    project_id: Mapped[str] = mapped_column(String(32), ForeignKey("flow_projects.id"), index=True)
+    name: Mapped[str] = mapped_column(String(64))  # v1.0.0
+    description: Mapped[str] = mapped_column(Text, default="")
+    release_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="planning")  # planning/released/archived
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class FlowVersionStory(Base):
+    """版本-需求关联（多对多）"""
+
+    __tablename__ = "flow_version_stories"
+    __table_args__ = (
+        UniqueConstraint("version_id", "story_id", name="uq_version_story"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    version_id: Mapped[str] = mapped_column(String(32), ForeignKey("flow_versions.id"), index=True)
+    story_id: Mapped[str] = mapped_column(String(32), ForeignKey("flow_stories.id"), index=True)
+    added_reason: Mapped[str] = mapped_column(Text, default="")  # 需求纳入版本的原因
+    story_order: Mapped[int] = mapped_column(Integer, default=0)  # 排序
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class FlowIterationStory(Base):
+    """迭代-需求关联（多对多）"""
+
+    __tablename__ = "flow_iteration_stories"
+    __table_args__ = (
+        UniqueConstraint("iteration_id", "story_id", name="uq_iteration_story"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    iteration_id: Mapped[str] = mapped_column(String(32), ForeignKey("flow_iterations.id"), index=True)
+    story_id: Mapped[str] = mapped_column(String(32), ForeignKey("flow_stories.id"), index=True)
+    story_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class FlowIterationTask(Base):
+    """迭代-任务关联（多对多）"""
+
+    __tablename__ = "flow_iteration_tasks"
+    __table_args__ = (
+        UniqueConstraint("iteration_id", "task_id", name="uq_iteration_task"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    iteration_id: Mapped[str] = mapped_column(String(32), ForeignKey("flow_iterations.id"), index=True)
+    task_id: Mapped[str] = mapped_column(String(32), ForeignKey("flow_tasks.id"), index=True)
+    task_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
