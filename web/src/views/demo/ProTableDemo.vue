@@ -3,15 +3,37 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "v
 import { ProTable, type ProTableColumn, type ProTableRequestParams, type ProTableResponse } from "@/components/vort-biz/pro-table";
 import { message } from "@openvort/vort-ui";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
+import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
 import { Pencil } from "lucide-vue-next";
 import {
     getVortflowStories, getVortflowTasks, getVortflowBugs,
     getVortflowProjects, createVortflowStory, createVortflowTask, createVortflowBug,
-    deleteVortflowStory, deleteVortflowTask, deleteVortflowBug
+    deleteVortflowStory, deleteVortflowTask, deleteVortflowBug, getMembers
 } from "@/api";
 
 type Priority = "urgent" | "high" | "medium" | "low" | "none";
-type Status = "待确认" | "修复中" | "已修复" | "延期处理" | "设计如此" | "再次打开" | "无法复现" | "已关闭" | "暂时搁置";
+type Status =
+    | "待确认"
+    | "修复中"
+    | "已修复"
+    | "延期处理"
+    | "设计如此"
+    | "再次打开"
+    | "无法复现"
+    | "已关闭"
+    | "暂时搁置"
+    | "已取消"
+    | "意向"
+    | "暂搁置"
+    | "设计中"
+    | "开发中"
+    | "开发完成"
+    | "测试完成"
+    | "待发布"
+    | "发布完成"
+    | "已完成"
+    | "待办的"
+    | "进行中";
 type WorkType = "缺陷" | "需求" | "任务";
 type DateRange = [string, string];
 type DemoModeProps = {
@@ -78,6 +100,19 @@ type CreateBugAttachment = {
     size: number;
 };
 
+type MemberOption = {
+    id: string;
+    name: string;
+    avatarUrl: string;
+};
+
+type StatusOption = {
+    label: string;
+    value: Status;
+    icon: string;
+    iconClass: string;
+};
+
 const props = withDefaults(defineProps<DemoModeProps>(), {
     fixedType: undefined,
     pageTitle: "缺陷",
@@ -106,6 +141,7 @@ const statusDropdownOpen = ref(false);
 const statusKeyword = ref("");
 const openStatusFor = ref<string | null>(null);
 const rowStatusKeyword = ref("");
+const rowStatusType = ref<WorkType>(props.fixedType ?? "缺陷");
 const openPlanTimeFor = ref<string | null>(null);
 const totalCount = ref(0);
 const createBugDrawerOpen = ref(false);
@@ -180,12 +216,16 @@ const createBugProjectOptions = ["VortMall", "OpenVort", "VortFlow"];
 const createBugRepoOptions = ["openvort/web", "openvort/core", "openvort/vortflow"];
 const createBugBranchOptions = ["develop", "develop-wzh", "release/1.0"];
 
-const ownerGroups = [
+const defaultOwnerGroups = [
     { label: "项目成员", members: ["代志祥", "陈艳", "陈曦", "祝璞", "刘洋", "甘洋", "邱锐", "熊纲强"] },
     { label: "企业成员", members: ["apollo_Xuuu", "曾春红", "superdargon", "邱锐", "熊纲强"] },
     { label: "离职人员", members: ["金杜森", "熊军", "杨旭"] }
 ] as const;
-const statusFilterOptions = [
+const memberOptions = ref<MemberOption[]>([]);
+const ownerGroups = ref<Array<{ label: string; members: string[] }>>(
+    defaultOwnerGroups.map((g) => ({ label: g.label, members: [...g.members] }))
+);
+const bugStatusFilterOptions: StatusOption[] = [
     { label: "待确认", value: "待确认", icon: "○", iconClass: "text-gray-400" },
     { label: "修复中", value: "修复中", icon: "◔", iconClass: "text-blue-500" },
     { label: "已修复", value: "已修复", icon: "✓", iconClass: "text-blue-500" },
@@ -196,8 +236,40 @@ const statusFilterOptions = [
     { label: "已关闭", value: "已关闭", icon: "✓", iconClass: "text-gray-700" },
     { label: "暂时搁置", value: "暂时搁置", icon: "⌛", iconClass: "text-slate-400" }
 ];
-const getStatusOption = (value: Status) => {
-    return statusFilterOptions.find((x) => x.value === value) || statusFilterOptions[0]!;
+const demandStatusFilterOptions: StatusOption[] = [
+    { label: "已取消", value: "已取消", icon: "✕", iconClass: "text-red-500" },
+    { label: "意向", value: "意向", icon: "○", iconClass: "text-slate-500" },
+    { label: "暂搁置", value: "暂搁置", icon: "⌛", iconClass: "text-slate-400" },
+    { label: "设计中", value: "设计中", icon: "✎", iconClass: "text-indigo-500" },
+    { label: "开发中", value: "开发中", icon: "◔", iconClass: "text-blue-500" },
+    { label: "开发完成", value: "开发完成", icon: "✓", iconClass: "text-cyan-600" },
+    { label: "测试完成", value: "测试完成", icon: "✓", iconClass: "text-violet-600" },
+    { label: "待发布", value: "待发布", icon: "◌", iconClass: "text-amber-600" },
+    { label: "发布完成", value: "发布完成", icon: "✓", iconClass: "text-emerald-600" },
+    { label: "已完成", value: "已完成", icon: "✓", iconClass: "text-emerald-700" },
+];
+const taskStatusFilterOptions: StatusOption[] = [
+    { label: "待办的", value: "待办的", icon: "○", iconClass: "text-slate-500" },
+    { label: "进行中", value: "进行中", icon: "◔", iconClass: "text-blue-500" },
+    { label: "已完成", value: "已完成", icon: "✓", iconClass: "text-emerald-700" },
+    { label: "已取消", value: "已取消", icon: "✕", iconClass: "text-red-500" },
+];
+const statusFilterOptionsByType: Record<WorkType, StatusOption[]> = {
+    需求: demandStatusFilterOptions,
+    任务: taskStatusFilterOptions,
+    缺陷: bugStatusFilterOptions,
+};
+const allStatusFilterOptions: StatusOption[] = Array.from(
+    new Map(
+        [...demandStatusFilterOptions, ...taskStatusFilterOptions, ...bugStatusFilterOptions].map((item) => [item.value, item])
+    ).values()
+);
+const getStatusOptionsByType = (typeValue: WorkType): StatusOption[] => {
+    return statusFilterOptionsByType[typeValue] || bugStatusFilterOptions;
+};
+const getStatusOption = (value: Status, typeValue?: WorkType) => {
+    const options = typeValue ? getStatusOptionsByType(typeValue) : allStatusFilterOptions;
+    return options.find((x) => x.value === value) || options[0] || allStatusFilterOptions[0]!;
 };
 
 const getWorkTypeIconClass = (type: WorkType): string => {
@@ -228,7 +300,19 @@ const statusClassMap: Record<Status, string> = {
     再次打开: "bg-red-100 text-red-600 border-red-200",
     无法复现: "bg-amber-100 text-amber-600 border-amber-200",
     已关闭: "bg-gray-100 text-gray-700 border-gray-200",
-    暂时搁置: "bg-gray-100 text-gray-500 border-gray-200"
+    暂时搁置: "bg-gray-100 text-gray-500 border-gray-200",
+    已取消: "bg-red-100 text-red-600 border-red-200",
+    意向: "bg-slate-100 text-slate-600 border-slate-200",
+    暂搁置: "bg-slate-100 text-slate-500 border-slate-200",
+    设计中: "bg-indigo-100 text-indigo-600 border-indigo-200",
+    开发中: "bg-blue-100 text-blue-600 border-blue-200",
+    开发完成: "bg-cyan-100 text-cyan-700 border-cyan-200",
+    测试完成: "bg-violet-100 text-violet-700 border-violet-200",
+    待发布: "bg-amber-100 text-amber-700 border-amber-200",
+    发布完成: "bg-emerald-100 text-emerald-700 border-emerald-200",
+    已完成: "bg-emerald-100 text-emerald-700 border-emerald-200",
+    待办的: "bg-slate-100 text-slate-600 border-slate-200",
+    进行中: "bg-blue-100 text-blue-600 border-blue-200",
 };
 
 const priorityLabelMap: Record<Priority, string> = {
@@ -288,6 +372,12 @@ const createAssigneeGroupOpen = reactive<Record<string, boolean>>({
     离职人员: true
 });
 const collaboratorsModel = reactive<Record<string, string[]>>({});
+const resolveActiveType = (): WorkType => {
+    if (props.fixedType) return props.fixedType;
+    if (type.value === "需求" || type.value === "任务" || type.value === "缺陷") return type.value;
+    return "缺陷";
+};
+const currentStatusFilterOptions = computed(() => getStatusOptionsByType(resolveActiveType()));
 
 const toWorkNo = (index: number): string => {
     let n = index + 1000;
@@ -344,12 +434,12 @@ const formatFileSize = (size: number): string => {
 };
 
 const buildDataset = (): RowItem[] => {
-    const owners = ["张三", "李四", "王五", "赵六", "钱七", "孙八"];
     const creators = ["周明", "林羽", "陈尧", "方怡"];
-    const types: WorkType[] = ["缺陷", "需求", "任务"];
     const priorities: Priority[] = ["urgent", "high", "medium", "low"];
-    const statuses: Status[] = ["待确认", "修复中", "已修复", "延期处理", "设计如此", "再次打开", "无法复现", "已关闭", "暂时搁置"];
-    const tagPool = ["订单域", "支付域", "库存域", "促销域", "用户域", "网关", "前端H5", "商家后台", "性能", "稳定性"];
+    const memberPool = Array.from(new Set(ownerGroups.value.flatMap((group) => [...group.members])));
+    const tagPool = Array.from(new Set([...baseTagOptions, "订单域", "支付域", "库存域", "促销域", "用户域", "网关", "前端H5", "商家后台"]));
+    const types: WorkType[] = props.fixedType ? [props.fixedType] : ["需求", "任务", "缺陷"];
+    const countPerType = 50;
     const demandTitles = [
         "支持商家后台批量导入 SKU 并自动校验条码重复",
         "订单中心新增按渠道维度的成交额趋势看板",
@@ -358,7 +448,9 @@ const buildDataset = (): RowItem[] => {
         "营销中心新增满减与优惠券叠加规则配置",
         "商品中心支持多规格图片按颜色维度管理",
         "风控中心接入异常下单实时拦截策略",
-        "运费模板支持区域阶梯计价和偏远地区附加费"
+        "运费模板支持区域阶梯计价和偏远地区附加费",
+        "门店自提支持核销码失效时间自定义",
+        "售后工单中心支持按退款原因统计看板"
     ];
     const taskTitles = [
         "拆分订单服务结算逻辑到 settlement-service 并补齐单测",
@@ -368,7 +460,9 @@ const buildDataset = (): RowItem[] => {
         "支付回调处理链路增加签名校验和重放攻击防护",
         "改造搜索接口分页参数，兼容游标与页码双模式",
         "搭建订单超时取消定时任务监控告警面板",
-        "优化购物车合并逻辑，解决登录后重复项累加问题"
+        "优化购物车合并逻辑，解决登录后重复项累加问题",
+        "完善商品上下架事件通知链路，增加重试机制",
+        "重写优惠券核销接口，支持批次并发锁"
     ];
     const bugTitles = [
         "秒杀高并发场景下库存扣减偶发出现负数",
@@ -378,44 +472,50 @@ const buildDataset = (): RowItem[] => {
         "退款成功后积分未回退且会员成长值未修正",
         "购物车跨端同步时商品勾选状态丢失",
         "商品详情页切换规格后价格展示未实时刷新",
-        "商家后台导出订单在大数据量时出现超时失败"
+        "商家后台导出订单在大数据量时出现超时失败",
+        "订单备注包含 emoji 时保存后乱码",
+        "促销活动边界时间判断错误导致提前结束"
     ];
     const list: RowItem[] = [];
 
-    for (let i = 1; i <= 79; i++) {
-        const created = new Date(Date.now() - i * 1000 * 60 * 60 * 5);
-        const planStart = new Date(Date.now() + (i % 12) * 1000 * 60 * 60 * 24);
-        const planEnd = new Date(planStart.getTime() + ((i % 6) + 1) * 1000 * 60 * 60 * 24);
-        const ownerName = owners[i % owners.length]!;
-        const collab = [owners[(i + 1) % owners.length]!, owners[(i + 2) % owners.length]!];
-        const currentType = types[i % types.length]!;
-        const title =
-            currentType === "需求"
-                ? demandTitles[i % demandTitles.length]!
-                : currentType === "任务"
-                  ? taskTitles[i % taskTitles.length]!
-                  : bugTitles[i % bugTitles.length]!;
+    for (let t = 0; t < types.length; t++) {
+        const currentType = types[t]!;
+        const statuses = getStatusOptionsByType(currentType).map((x) => x.value as Status);
+        const typeTitles = currentType === "需求" ? demandTitles : currentType === "任务" ? taskTitles : bugTitles;
 
-        list.push({
-            workNo: toWorkNo(i),
-            backendId: "",
-            title: `【${currentType}】VortMall 微服务商城 - ${title}`,
-            priority: priorities[i % priorities.length]!,
-            tags: [tagPool[i % tagPool.length]!, tagPool[(i + 3) % tagPool.length]!],
-            status: statuses[i % statuses.length]!,
-            createdAt: formatCnTime(created),
-            collaborators: collab,
-            type: currentType,
-            planTime: [formatDate(planStart), formatDate(planEnd)],
-            description: defaultBugDescription,
-            owner: i % 10 === 0 ? "未指派" : ownerName,
-            creator: creators[i % creators.length]!
-        });
+        for (let i = 0; i < countPerType; i++) {
+            const idx = t * countPerType + i + 1;
+            const created = new Date(Date.now() - idx * 1000 * 60 * 60 * 3);
+            const planStart = new Date(Date.now() + ((i + t) % 12) * 1000 * 60 * 60 * 24);
+            const planEnd = new Date(planStart.getTime() + (((i + t) % 5) + 1) * 1000 * 60 * 60 * 24);
+            const ownerName = i % 11 === 0 ? "未指派" : memberPool[(i + t) % memberPool.length]!;
+            const collaboratorA = memberPool[(i + t + 3) % memberPool.length]!;
+            const collaboratorB = memberPool[(i + t + 7) % memberPool.length]!;
+            const collaborators = [collaboratorA, collaboratorB].filter((name, index, arr) => name !== ownerName && arr.indexOf(name) === index);
+            const title = typeTitles[i % typeTitles.length]!;
+
+            list.push({
+                workNo: toWorkNo(idx),
+                backendId: "",
+                title: `【${currentType}】VortMall 微服务商城 - ${title}`,
+                priority: priorities[(i + t) % priorities.length]!,
+                tags: [tagPool[(i * 2 + t) % tagPool.length]!, tagPool[(i * 2 + t + 5) % tagPool.length]!],
+                status: statuses[(i + t) % statuses.length]!,
+                createdAt: formatCnTime(created),
+                collaborators: collaborators.length ? collaborators : [memberPool[(i + t + 1) % memberPool.length]!],
+                type: currentType,
+                planTime: [formatDate(planStart), formatDate(planEnd)],
+                description: defaultBugDescription,
+                owner: ownerName,
+                creator: creators[(i + t) % creators.length]!
+            });
+        }
     }
     return list;
 };
 
 const allData = ref<RowItem[]>(buildDataset());
+collectTagOptions(allData.value);
 for (const row of allData.value) {
     planTimeModel[row.workNo] = [...row.planTime];
 }
@@ -436,7 +536,37 @@ const columns = computed<ProTableColumn<RowItem>[]>(() => [
     { title: "操作", dataIndex: "actions", width: 100, fixed: "right", align: "left", slot: "actions" }
 ]);
 
-const mapBackendStateToStatus = (stateValue: string): Status => {
+const mapBackendStateToStatus = (typeValue: WorkType, stateValue: string, seed: string): Status => {
+    const normalized = String(stateValue || "").toLowerCase();
+    if (typeValue === "需求") {
+        const map: Record<string, Status> = {
+            intake: "意向",
+            review: "意向",
+            rejected: "已取消",
+            pm_refine: "设计中",
+            design: "设计中",
+            breakdown: "开发中",
+            dev_assign: "开发中",
+            in_progress: "开发中",
+            testing: "测试完成",
+            bugfix: "开发中",
+            done: "已完成",
+            closed: "发布完成",
+        };
+        return map[normalized] || pickStableRandomStatus(typeValue, seed);
+    }
+    if (typeValue === "任务") {
+        const map: Record<string, Status> = {
+            todo: "待办的",
+            in_progress: "进行中",
+            done: "已完成",
+            closed: "已取消",
+            fixing: "进行中",
+            resolved: "已完成",
+            verified: "已完成",
+        };
+        return map[normalized] || pickStableRandomStatus(typeValue, seed);
+    }
     const map: Record<string, Status> = {
         intake: "待确认",
         review: "待确认",
@@ -457,7 +587,7 @@ const mapBackendStateToStatus = (stateValue: string): Status => {
         resolved: "已修复",
         verified: "已关闭",
     };
-    return map[stateValue] || "待确认";
+    return map[normalized] || pickStableRandomStatus(typeValue, seed);
 };
 
 const mapBackendPriority = (item: any, typeValue: WorkType): Priority => {
@@ -477,7 +607,11 @@ const mapBackendPriority = (item: any, typeValue: WorkType): Priority => {
 };
 
 const randomPeoplePool = ["张三", "李四", "王五", "赵六", "钱七", "孙八", "周九", "吴十", "郑十一", "王十二", "冯十三", "陈十四"];
-const randomStatusPool: Status[] = ["待确认", "修复中", "已修复", "延期处理", "设计如此", "再次打开", "无法复现", "已关闭", "暂时搁置"];
+const randomStatusPoolByType: Record<WorkType, Status[]> = {
+    需求: demandStatusFilterOptions.map((x) => x.value),
+    任务: taskStatusFilterOptions.map((x) => x.value),
+    缺陷: bugStatusFilterOptions.map((x) => x.value),
+};
 const pickStableRandomPerson = (seed: string): string => {
     let hash = 0;
     for (let i = 0; i < seed.length; i++) {
@@ -485,12 +619,54 @@ const pickStableRandomPerson = (seed: string): string => {
     }
     return randomPeoplePool[hash % randomPeoplePool.length]!;
 };
-const pickStableRandomStatus = (seed: string): Status => {
+const pickStableRandomStatus = (typeValue: WorkType, seed: string): Status => {
+    const statusPool = randomStatusPoolByType[typeValue] || bugStatusFilterOptions.map((x) => x.value);
     let hash = 0;
     for (let i = 0; i < seed.length; i++) {
         hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
     }
-    return randomStatusPool[hash % randomStatusPool.length]!;
+    return statusPool[hash % statusPool.length]!;
+};
+
+const loadMemberOptions = async () => {
+    try {
+        const res: any = await getMembers({ search: "", role: "", page: 1, size: 50 });
+        const members = Array.isArray(res?.members) ? res.members : [];
+        const next: MemberOption[] = [];
+        const seen = new Set<string>();
+        for (const item of members) {
+            const name = String(item?.name || "").trim();
+            if (!name || seen.has(name)) continue;
+            seen.add(name);
+            next.push({
+                id: String(item?.id || name),
+                name,
+                avatarUrl: String(item?.avatar_url || item?.avatar || "")
+            });
+        }
+
+        if (!next.length) return;
+
+        memberOptions.value = next;
+        ownerGroups.value = [{ label: "全部成员", members: next.map((x) => x.name) }];
+        ownerGroupOpen["全部成员"] = true;
+        ownerEditGroupOpen["全部成员"] = true;
+        collaboratorGroupOpen["全部成员"] = true;
+        detailAssigneeGroupOpen["全部成员"] = true;
+        createAssigneeGroupOpen["全部成员"] = true;
+
+        if (!props.useApi) {
+            allData.value = buildDataset();
+            totalCount.value = allData.value.length;
+            for (const row of allData.value) {
+                planTimeModel[row.workNo] = [...row.planTime];
+            }
+            collectTagOptions(allData.value);
+            tableRef.value?.refresh?.();
+        }
+    } catch {
+        // keep fallback groups
+    }
 };
 
 const backendDemandTitles = [
@@ -558,7 +734,7 @@ const mapBackendItemToRow = (item: any, typeValue: WorkType, index: number): Row
         title: getBackendDisplayTitle(String(item?.title || ""), typeValue, index),
         priority: mapBackendPriority(item, typeValue),
         tags,
-        status: pickStableRandomStatus(statusSeed),
+        status: mapBackendStateToStatus(typeValue, String(item?.state || ""), statusSeed),
         createdAt,
         collaborators,
         type: typeValue,
@@ -715,7 +891,8 @@ const resetCreateBugForm = () => {
     createBugAttachments.value = [];
 };
 
-const handleCreateBug = () => {
+const handleCreateBug = async () => {
+    await loadApiMetadata();
     createBugDrawerMode.value = "create";
     resetCreateBugForm();
     createBugForm.type = props.fixedType ?? createBugForm.type;
@@ -747,7 +924,7 @@ const handleSubmitCreateBug = async () => {
         try {
             let createdItem: any = null;
             if (fixedType === "需求") {
-                const defaultProject = apiProjects.value[0]?.id || "";
+                const defaultProject = resolveCreateProjectId();
                 createdItem = await createVortflowStory({
                     project_id: defaultProject,
                     title,
@@ -919,16 +1096,10 @@ const detailLogs = computed<DetailLog[]>(() => {
 
 const ensureDetailPanelsData = (record: RowItem) => {
     if (!detailCommentsMap[record.workNo]) {
-        detailCommentsMap[record.workNo] = [
-            { id: `${record.workNo}-c1`, author: "刘克林", createdAt: "2025年11月21日", content: "已经加了需求 所有商品不可硬删除 全部改为软删除 包括回收站里的" },
-            { id: `${record.workNo}-c2`, author: "祝璞", createdAt: "2025年11月19日", content: "建议商品删除后通过订单进入商详页加个友好提示" }
-        ];
+        detailCommentsMap[record.workNo] = [];
     }
     if (!detailLogsMap[record.workNo]) {
-        detailLogsMap[record.workNo] = [
-            { id: `${record.workNo}-l1`, actor: "万泽豪", createdAt: "11 分钟前", action: "添加协作者 黄薇" },
-            { id: `${record.workNo}-l2`, actor: "刘克林", createdAt: "2025年12月16日", action: `将负责人从 刘克林 修改为 ${record.owner}` }
-        ];
+        detailLogsMap[record.workNo] = [];
     }
 };
 
@@ -965,8 +1136,8 @@ const submitDetailComment = () => {
 
 const filteredDetailAssigneeGroups = computed(() => {
     const kw = detailAssigneeKeyword.value.trim();
-    if (!kw) return ownerGroups;
-    return ownerGroups
+    if (!kw) return ownerGroups.value;
+    return ownerGroups.value
         .map((g) => ({
             ...g,
             members: g.members.filter((m) => m.includes(kw))
@@ -976,8 +1147,8 @@ const filteredDetailAssigneeGroups = computed(() => {
 
 const filteredCreateAssigneeGroups = computed(() => {
     const kw = createAssigneeKeyword.value.trim();
-    if (!kw) return ownerGroups;
-    return ownerGroups
+    if (!kw) return ownerGroups.value;
+    return ownerGroups.value
         .map((g) => ({
             ...g,
             members: g.members.filter((m) => m.includes(kw))
@@ -1116,8 +1287,8 @@ const selectCreateBugPriority = (value: Priority) => {
 
 const filteredStatusOptions = computed(() => {
     const kw = statusKeyword.value.trim();
-    if (!kw) return statusFilterOptions;
-    return statusFilterOptions.filter((x) => x.label.includes(kw));
+    if (!kw) return currentStatusFilterOptions.value;
+    return currentStatusFilterOptions.value.filter((x) => x.label.includes(kw));
 });
 
 const selectStatus = (value: string) => {
@@ -1129,20 +1300,22 @@ const getRowStatus = (record: RowItem, text?: Status): Status => {
     return text || record.status;
 };
 
-const toggleRowStatusMenu = (workNo: string) => {
-    if (openStatusFor.value === workNo) {
+const toggleRowStatusMenu = (record: RowItem) => {
+    if (openStatusFor.value === record.workNo) {
         openStatusFor.value = null;
         rowStatusKeyword.value = "";
         return;
     }
-    openStatusFor.value = workNo;
+    rowStatusType.value = record.type || resolveActiveType();
+    openStatusFor.value = record.workNo;
     rowStatusKeyword.value = "";
 };
 
 const filteredRowStatusOptions = computed(() => {
     const kw = rowStatusKeyword.value.trim();
-    if (!kw) return statusFilterOptions;
-    return statusFilterOptions.filter((x) => x.label.includes(kw));
+    const options = getStatusOptionsByType(rowStatusType.value);
+    if (!kw) return options;
+    return options.filter((x) => x.label.includes(kw));
 });
 
 const toggleDetailStatusMenu = () => {
@@ -1152,8 +1325,10 @@ const toggleDetailStatusMenu = () => {
 
 const filteredDetailStatusOptions = computed(() => {
     const kw = detailStatusKeyword.value.trim();
-    if (!kw) return statusFilterOptions;
-    return statusFilterOptions.filter((x) => x.label.includes(kw));
+    const detailType = detailCurrentRecord.value?.type || resolveActiveType();
+    const options = getStatusOptionsByType(detailType);
+    if (!kw) return options;
+    return options.filter((x) => x.label.includes(kw));
 });
 
 const selectDetailStatus = (value: Status) => {
@@ -1174,8 +1349,8 @@ const selectRowStatus = (record: RowItem, value: Status) => {
 
 const filteredOwnerGroups = computed(() => {
     const kw = ownerKeyword.value.trim();
-    if (!kw) return ownerGroups;
-    return ownerGroups
+    if (!kw) return ownerGroups.value;
+    return ownerGroups.value
         .map((g) => ({
             ...g,
             members: g.members.filter((m) => m.includes(kw))
@@ -1185,8 +1360,8 @@ const filteredOwnerGroups = computed(() => {
 
 const filteredOwnerEditGroups = computed(() => {
     const kw = ownerEditKeyword.value.trim();
-    if (!kw) return ownerGroups;
-    return ownerGroups
+    if (!kw) return ownerGroups.value;
+    return ownerGroups.value
         .map((g) => ({
             ...g,
             members: g.members.filter((m) => m.includes(kw))
@@ -1196,8 +1371,8 @@ const filteredOwnerEditGroups = computed(() => {
 
 const filteredCollaboratorGroups = computed(() => {
     const kw = collaboratorKeyword.value.trim();
-    if (!kw) return ownerGroups;
-    return ownerGroups
+    if (!kw) return ownerGroups.value;
+    return ownerGroups.value
         .map((g) => ({
             ...g,
             members: g.members.filter((m) => m.includes(kw))
@@ -1308,6 +1483,7 @@ const getAvatarBg = (name: string): string => {
     return avatarBgPalette[hash % avatarBgPalette.length]!;
 };
 const getAvatarLabel = (name: string): string => name.slice(0, 1).toUpperCase();
+const getMemberAvatarUrl = (name: string): string => memberOptions.value.find((m) => m.name === name)?.avatarUrl || "";
 
 const tagColorPalette = ["#ef4444", "#d946ef", "#eab308", "#22c55e", "#3b82f6", "#f97316", "#14b8a6", "#8b5cf6"];
 const getTagColor = (name: string): string => {
@@ -1410,6 +1586,21 @@ const createTagOptions = computed(() => {
     return [...merged];
 });
 
+const createProjectOptions = computed(() => {
+    if (props.useApi && apiProjects.value.length > 0) {
+        return apiProjects.value.map((x) => x.name);
+    }
+    return createBugProjectOptions;
+});
+
+const resolveCreateProjectId = (): string => {
+    if (!apiProjects.value.length) return "";
+    const selected = createBugForm.project?.trim();
+    if (!selected) return apiProjects.value[0]?.id || "";
+    const match = apiProjects.value.find((x) => x.name === selected || x.id === selected);
+    return match?.id || apiProjects.value[0]?.id || "";
+};
+
 const filteredCreateTagOptions = computed(() => {
     const kw = createTagKeyword.value.trim();
     if (!kw) return createTagOptions.value;
@@ -1448,6 +1639,9 @@ const toggleTypeGroup = (group: WorkType) => {
 const selectType = (value: WorkType) => {
     if (props.fixedType) return;
     type.value = value;
+    if (status.value && !getStatusOptionsByType(value).some((x) => x.value === status.value)) {
+        status.value = "";
+    }
     typeDropdownOpen.value = false;
 };
 
@@ -1459,6 +1653,12 @@ const loadApiMetadata = async () => {
     ]);
     if (projectsRes.status === "fulfilled") {
         apiProjects.value = ((projectsRes.value as any)?.items || []).map((x: any) => ({ id: String(x.id), name: String(x.name || x.id) }));
+        if (apiProjects.value.length > 0) {
+            const names = new Set(apiProjects.value.map((x) => x.name));
+            if (!createBugForm.project || !names.has(createBugForm.project)) {
+                createBugForm.project = apiProjects.value[0]!.name;
+            }
+        }
     }
     if (storiesRes.status === "fulfilled") {
         apiStories.value = ((storiesRes.value as any)?.items || []).map((x: any) => ({ id: String(x.id), title: String(x.title || x.id) }));
@@ -1469,6 +1669,7 @@ onMounted(async () => {
     document.addEventListener("click", onGlobalClick);
     document.addEventListener("scroll", onViewportChangeForOwnerDropdown, true);
     window.addEventListener("resize", onViewportChangeForOwnerDropdown);
+    await loadMemberOptions();
     await loadApiMetadata();
 });
 
@@ -1525,10 +1726,11 @@ onBeforeUnmount(() => {
                                     @click.stop="selectOwner(member)"
                                 >
                                     <span
-                                        class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center"
+                                        class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center overflow-hidden"
                                         :style="{ backgroundColor: getAvatarBg(member) }"
                                     >
-                                        {{ getAvatarLabel(member) }}
+                                        <img v-if="getMemberAvatarUrl(member)" :src="getMemberAvatarUrl(member)" class="w-full h-full object-cover" />
+                                        <template v-else>{{ getAvatarLabel(member) }}</template>
                                     </span>
                                     <span class="text-sm text-gray-700">{{ member }}</span>
                                 </button>
@@ -1645,23 +1847,25 @@ onBeforeUnmount(() => {
                 <template #priority="{ text, record }">
                     <div class="relative inline-block text-left" @click.stop>
                         <button
-                            class="h-7 px-2 text-xs rounded border leading-none"
-                            :class="priorityClassMap[getRowPriority(record, text)]"
+                            class="priority-cell-trigger"
                             @click.stop="togglePriorityMenu(record.workNo)"
                         >
-                            {{ priorityLabelMap[getRowPriority(record, text)] }}
+                            <span class="priority-pill" :class="priorityClassMap[getRowPriority(record, text)]">
+                                {{ priorityLabelMap[getRowPriority(record, text)] }}
+                            </span>
                         </button>
                         <div
                             v-if="openPriorityFor === record.workNo"
-                            class="absolute z-20 mt-1 w-[112px] bg-white border border-gray-200 rounded-md shadow-sm py-1"
+                            class="priority-cell-menu absolute left-0 top-full mt-1"
                         >
                             <button
                                 v-for="opt in priorityOptions"
                                 :key="opt.value"
-                                class="w-full text-left px-2 py-1 text-xs hover:bg-gray-50"
+                                class="priority-cell-menu-item"
+                                :class="{ 'is-selected': getRowPriority(record, text) === opt.value }"
                                 @click.stop="selectPriority(record.workNo, opt.value)"
                             >
-                                <span class="inline-block px-1.5 py-0.5 rounded border" :class="priorityClassMap[opt.value]">
+                                <span class="priority-pill" :class="priorityClassMap[opt.value]">
                                     {{ opt.label }}
                                 </span>
                             </button>
@@ -1726,7 +1930,7 @@ onBeforeUnmount(() => {
 
                 <template #status="{ text, record }">
                     <div class="relative inline-block text-left" @click.stop>
-                        <button class="status-edit-trigger" @click.stop="toggleRowStatusMenu(record.workNo)">
+                        <button class="status-edit-trigger" @click.stop="toggleRowStatusMenu(record)">
                             <span class="status-badge table-status-badge" :class="statusClassMap[getRowStatus(record, text)]">
                                 <span>{{ getRowStatus(record, text) }}</span>
                             </span>
@@ -1769,10 +1973,11 @@ onBeforeUnmount(() => {
                             @click.stop="toggleRowOwnerMenu(record.workNo)"
                         >
                             <span
-                                class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center shrink-0"
+                                class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center shrink-0 overflow-hidden"
                                 :style="{ backgroundColor: getAvatarBg(getRowOwner(record, text)) }"
                             >
-                                {{ getAvatarLabel(getRowOwner(record, text)) }}
+                                <img v-if="getMemberAvatarUrl(getRowOwner(record, text))" :src="getMemberAvatarUrl(getRowOwner(record, text))" class="w-full h-full object-cover" />
+                                <template v-else>{{ getAvatarLabel(getRowOwner(record, text)) }}</template>
                             </span>
                             <span class="text-sm text-gray-700 truncate">{{ getRowOwner(record, text) }}</span>
                         </button>
@@ -1813,10 +2018,11 @@ onBeforeUnmount(() => {
                                             @click.stop="selectRowOwner(record, member)"
                                         >
                                             <span
-                                                class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center"
+                                                class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center overflow-hidden"
                                                 :style="{ backgroundColor: getAvatarBg(member) }"
                                             >
-                                                {{ getAvatarLabel(member) }}
+                                                <img v-if="getMemberAvatarUrl(member)" :src="getMemberAvatarUrl(member)" class="w-full h-full object-cover" />
+                                                <template v-else>{{ getAvatarLabel(member) }}</template>
                                             </span>
                                             <span class="text-sm text-gray-700">{{ member }}</span>
                                         </button>
@@ -1961,8 +2167,8 @@ onBeforeUnmount(() => {
                             <div class="relative inline-block text-left" @click.stop>
                                 <button class="detail-status-trigger" @click.stop="toggleDetailStatusMenu">
                                     <span class="detail-status-content">
-                                        <span class="detail-status-icon" :class="getStatusOption(detailCurrentRecord.status).iconClass">
-                                            {{ getStatusOption(detailCurrentRecord.status).icon }}
+                                        <span class="detail-status-icon" :class="getStatusOption(detailCurrentRecord.status, detailCurrentRecord.type).iconClass">
+                                            {{ getStatusOption(detailCurrentRecord.status, detailCurrentRecord.type).icon }}
                                         </span>
                                         <span class="detail-status-text">{{ detailCurrentRecord.status }}</span>
                                     </span>
@@ -2025,10 +2231,11 @@ onBeforeUnmount(() => {
                                             <div class="detail-assignee-owner">
                                                 <span
                                                     v-if="detailCurrentRecord.owner && detailCurrentRecord.owner !== '未指派'"
-                                                    class="detail-assignee-avatar"
+                                                    class="detail-assignee-avatar overflow-hidden"
                                                     :style="{ backgroundColor: getAvatarBg(detailCurrentRecord.owner) }"
                                                 >
-                                                    {{ getAvatarLabel(detailCurrentRecord.owner) }}
+                                                    <img v-if="getMemberAvatarUrl(detailCurrentRecord.owner)" :src="getMemberAvatarUrl(detailCurrentRecord.owner)" class="w-full h-full object-cover" />
+                                                    <template v-else>{{ getAvatarLabel(detailCurrentRecord.owner) }}</template>
                                                 </span>
                                                 <span class="detail-assignee-owner-name">
                                                     {{ detailCurrentRecord.owner || "未指派" }}
@@ -2040,11 +2247,12 @@ onBeforeUnmount(() => {
                                                     <span
                                                         v-for="name in detailCurrentRecord.collaborators"
                                                         :key="'detail-collab-' + name"
-                                                        class="detail-assignee-avatar"
+                                                        class="detail-assignee-avatar overflow-hidden"
                                                         :style="{ backgroundColor: getAvatarBg(name) }"
                                                         :title="name"
                                                     >
-                                                        {{ getAvatarLabel(name) }}
+                                                        <img v-if="getMemberAvatarUrl(name)" :src="getMemberAvatarUrl(name)" class="w-full h-full object-cover" />
+                                                        <template v-else>{{ getAvatarLabel(name) }}</template>
                                                     </span>
                                                 </template>
                                                 <span v-else class="detail-assignee-avatar detail-assignee-add">+</span>
@@ -2083,10 +2291,11 @@ onBeforeUnmount(() => {
                                                     >
                                                         <div class="detail-assignee-row-left">
                                                             <span
-                                                                class="detail-assignee-avatar"
+                                                                class="detail-assignee-avatar overflow-hidden"
                                                                 :style="{ backgroundColor: getAvatarBg(member) }"
                                                             >
-                                                                {{ getAvatarLabel(member) }}
+                                                                <img v-if="getMemberAvatarUrl(member)" :src="getMemberAvatarUrl(member)" class="w-full h-full object-cover" />
+                                                                <template v-else>{{ getAvatarLabel(member) }}</template>
                                                             </span>
                                                             <span class="text-sm text-gray-700">{{ member }}</span>
                                                         </div>
@@ -2136,7 +2345,10 @@ onBeforeUnmount(() => {
                                     </div>
                                 </template>
                                 <template v-else>
-                                    <div class="bug-detail-desc-content">{{ detailCurrentRecord.description || "-" }}</div>
+                                    <div v-if="(detailCurrentRecord.description || '').trim()" class="bug-detail-desc-content">
+                                        <MarkdownView :content="detailCurrentRecord.description || ''" />
+                                    </div>
+                                    <div v-else class="bug-detail-desc-content">-</div>
                                 </template>
                             </div>
 
@@ -2235,10 +2447,11 @@ onBeforeUnmount(() => {
                                         <div class="detail-assignee-owner">
                                             <span
                                                 v-if="createBugForm.owner"
-                                                class="detail-assignee-avatar"
+                                                class="detail-assignee-avatar overflow-hidden"
                                                 :style="{ backgroundColor: getAvatarBg(createBugForm.owner) }"
                                             >
-                                                {{ getAvatarLabel(createBugForm.owner) }}
+                                                <img v-if="getMemberAvatarUrl(createBugForm.owner)" :src="getMemberAvatarUrl(createBugForm.owner)" class="w-full h-full object-cover" />
+                                                <template v-else>{{ getAvatarLabel(createBugForm.owner) }}</template>
                                             </span>
                                             <span class="detail-assignee-owner-name">
                                                 {{ createBugForm.owner || "未指派" }}
@@ -2250,11 +2463,12 @@ onBeforeUnmount(() => {
                                                 <span
                                                     v-for="name in createBugForm.collaborators"
                                                     :key="'create-collab-' + name"
-                                                    class="detail-assignee-avatar"
+                                                    class="detail-assignee-avatar overflow-hidden"
                                                     :style="{ backgroundColor: getAvatarBg(name) }"
                                                     :title="name"
                                                 >
-                                                    {{ getAvatarLabel(name) }}
+                                                    <img v-if="getMemberAvatarUrl(name)" :src="getMemberAvatarUrl(name)" class="w-full h-full object-cover" />
+                                                    <template v-else>{{ getAvatarLabel(name) }}</template>
                                                 </span>
                                             </template>
                                             <span v-else class="detail-assignee-avatar detail-assignee-add">+</span>
@@ -2293,10 +2507,11 @@ onBeforeUnmount(() => {
                                                 >
                                                     <div class="detail-assignee-row-left">
                                                         <span
-                                                            class="detail-assignee-avatar"
+                                                            class="detail-assignee-avatar overflow-hidden"
                                                             :style="{ backgroundColor: getAvatarBg(member) }"
                                                         >
-                                                            {{ getAvatarLabel(member) }}
+                                                            <img v-if="getMemberAvatarUrl(member)" :src="getMemberAvatarUrl(member)" class="w-full h-full object-cover" />
+                                                            <template v-else>{{ getAvatarLabel(member) }}</template>
                                                         </span>
                                                         <span class="text-sm text-gray-700">{{ member }}</span>
                                                     </div>
@@ -2347,7 +2562,7 @@ onBeforeUnmount(() => {
                         <div class="create-bug-field">
                             <label class="create-bug-label">关联项目</label>
                             <vort-select v-model="createBugForm.project">
-                                <vort-select-option v-for="item in createBugProjectOptions" :key="item" :value="item">{{ item }}</vort-select-option>
+                                <vort-select-option v-for="item in createProjectOptions" :key="item" :value="item">{{ item }}</vort-select-option>
                             </vort-select>
                         </div>
                     </div>
@@ -2405,7 +2620,7 @@ onBeforeUnmount(() => {
                             >
                                 <span
                                     v-if="createBugForm.priority"
-                                    class="inline-block px-1.5 py-0.5 rounded border text-xs"
+                                    class="priority-pill"
                                     :class="priorityClassMap[createBugForm.priority]"
                                 >
                                     {{ priorityLabelMap[createBugForm.priority] }}
@@ -2415,15 +2630,16 @@ onBeforeUnmount(() => {
                             </button>
                             <div
                                 v-if="createBugPriorityDropdownOpen"
-                                class="absolute z-30 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-sm py-1"
+                                class="create-bug-priority-menu absolute z-30 mt-1 w-full"
                             >
                                 <button
                                     v-for="opt in priorityOptions"
                                     :key="opt.value"
-                                    class="w-full text-left px-2 py-1.5 text-xs hover:bg-gray-50"
+                                    class="create-bug-priority-option"
+                                    :class="{ 'is-selected': createBugForm.priority === opt.value }"
                                     @click.stop="selectCreateBugPriority(opt.value)"
                                 >
-                                    <span class="inline-block px-1.5 py-0.5 rounded border" :class="priorityClassMap[opt.value]">
+                                    <span class="priority-pill" :class="priorityClassMap[opt.value]">
                                         {{ opt.label }}
                                     </span>
                                 </button>
@@ -2571,7 +2787,7 @@ onBeforeUnmount(() => {
 .table-status-badge {
     gap: 3px;
     padding: 2px 8px;
-    border-radius: 5px;
+    border-radius: 3px;
     font-size: 12px;
 }
 
@@ -2589,6 +2805,53 @@ onBeforeUnmount(() => {
     align-items: center;
     gap: 6px;
     cursor: pointer;
+}
+
+.priority-cell-trigger {
+    height: 22px;
+    min-width: 58px;
+    padding: 0 6px;
+    border: none;
+    background: transparent;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+}
+
+.priority-cell-menu {
+    z-index: 1200;
+    width: 124px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+    padding: 8px;
+}
+
+.priority-cell-menu-item {
+    width: 100%;
+    height: 32px;
+    padding: 0 6px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    margin-bottom: 4px;
+}
+
+.priority-cell-menu-item:hover {
+    background: #f8fafc;
+}
+
+.priority-cell-menu-item.is-selected {
+    background: #eef4ff;
+}
+
+.priority-cell-menu-item:last-child {
+    margin-bottom: 0;
 }
 
 .detail-status-trigger {
@@ -2786,6 +3049,52 @@ onBeforeUnmount(() => {
 .create-bug-priority-trigger:hover,
 .create-bug-priority-trigger.active {
     border-color: #3b82f6;
+}
+
+.create-bug-priority-menu {
+    padding: 8px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #ffffff;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+}
+
+.create-bug-priority-option {
+    width: 100%;
+    height: 34px;
+    padding: 0 8px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    display: flex;
+    align-items: center;
+    text-align: left;
+    margin-bottom: 5px;
+}
+
+.create-bug-priority-option:last-child {
+    margin-bottom: 0;
+}
+
+.create-bug-priority-option:hover {
+    background: #f8fafc;
+}
+
+.create-bug-priority-option.is-selected {
+    background: #eef4ff;
+}
+
+.priority-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 18px;
+    padding: 0 9px;
+    border-radius: 3px;
+    border-width: 1px;
+    font-size: 11px;
+    line-height: 1;
+    white-space: nowrap;
 }
 
 .create-bug-attachment {
