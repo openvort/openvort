@@ -231,7 +231,7 @@ onMounted(loadData);
                             v-model="selectedOwnerId"
                             placeholder="负责人"
                             allow-clear
-                            class="w-[220px]"
+                            class="w-[220px] shrink-0 version-owner-filter"
                         >
                             <vort-select-option
                                 v-for="m in memberOptions"
@@ -388,3 +388,10 @@ onMounted(loadData);
         </vort-drawer>
     </div>
 </template>
+
+<style scoped>
+.version-owner-filter :deep(.vort-select-selection-placeholder),
+.version-owner-filter :deep(.vort-select-selection-item) {
+    white-space: nowrap;
+}
+</style>

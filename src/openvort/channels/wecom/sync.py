@@ -35,6 +35,7 @@ class WeComContactSyncProvider(ContactSyncProvider):
                         display_name=u.get("name", ""),
                         email=u.get("email", ""),
                         phone=u.get("mobile", ""),
+                        avatar_url=u.get("avatar", "") or u.get("thumb_avatar", ""),
                         position=u.get("position", ""),
                         department=",".join(str(d) for d in u.get("department", [])),
                         raw_data=u,

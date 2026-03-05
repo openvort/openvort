@@ -4,7 +4,7 @@
 鉴权、角色管理、权限注册、内置种子数据初始化。
 """
 
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, text
 
 from openvort.auth.models import MemberRole, Permission, Role, RolePermission
 from openvort.utils.logging import get_logger
@@ -178,23 +178,42 @@ class AuthService:
                 log.warning(f"角色 '{role_name}' 不存在")
                 return False
 
-            # 独占模式：分配新角色前先移除其他所有角色
             if exclusive:
-                delete_stmt = delete(MemberRole).where(MemberRole.member_id == member_id)
-                await session.execute(delete_stmt)
-                log.info(f"已清除成员 {member_id[:8]} 的所有现有角色")
+                existing_stmt = select(MemberRole).where(MemberRole.member_id == member_id)
+                existing_result = await session.execute(existing_stmt)
+                existing_roles = existing_result.scalars().all()
 
-            # 检查是否已绑定（独占模式下已清除，这里会直接新增）
-            stmt = select(MemberRole).where(
-                MemberRole.member_id == member_id,
-                MemberRole.role_id == role.id,
-            )
-            result = await session.execute(stmt)
-            if result.scalar_one_or_none():
-                return True  # 已有
+                has_target = any(mr.role_id == role.id for mr in existing_roles)
+                if has_target and len(existing_roles) == 1:
+                    return True
 
-            session.add(MemberRole(member_id=member_id, role_id=role.id))
-            await session.commit()
+                for mr in existing_roles:
+                    if mr.role_id != role.id:
+                        await session.delete(mr)
+
+                if has_target:
+                    await session.commit()
+                    self._invalidate(member_id)
+                    return True
+
+                await session.flush()
+            else:
+                stmt = select(MemberRole).where(
+                    MemberRole.member_id == member_id,
+                    MemberRole.role_id == role.id,
+                )
+                result = await session.execute(stmt)
+                if result.scalar_one_or_none():
+                    return True
+
+            try:
+                session.add(MemberRole(member_id=member_id, role_id=role.id))
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                await self._fix_sequence(session, "member_roles")
+                session.add(MemberRole(member_id=member_id, role_id=role.id))
+                await session.commit()
 
         self._invalidate(member_id)
         log.info(f"已分配角色: member={member_id[:8]} role={role_name}")
@@ -395,6 +414,18 @@ class AuthService:
     async def _get_role_by_name(self, session, name: str) -> Role | None:
         result = await session.execute(select(Role).where(Role.name == name))
         return result.scalar_one_or_none()
+
+    async def _fix_sequence(self, session, table_name: str) -> None:
+        """Reset PostgreSQL sequence to max(id)+1 to fix out-of-sync auto-increment."""
+        seq_name = f"{table_name}_id_seq"
+        try:
+            await session.execute(text(
+                f"SELECT setval('{seq_name}', COALESCE((SELECT MAX(id) FROM {table_name}), 0) + 1, false)"
+            ))
+            await session.commit()
+            log.info(f"已修复序列 {seq_name}")
+        except Exception as e:
+            log.warning(f"修复序列 {seq_name} 失败: {e}")
 
     # ---- 缓存 ----
 

@@ -19,6 +19,7 @@ class PlatformContact:
     display_name: str = ""  # 显示名
     email: str = ""
     phone: str = ""
+    avatar_url: str = ""  # 平台头像 URL
     position: str = ""  # 职位
     department: str = ""  # 部门名称
     raw_data: dict = field(default_factory=dict)  # 完整原始数据
