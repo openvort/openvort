@@ -685,12 +685,12 @@ async def add_role_skill(req: AddPostSkillRequest):
             return {"success": False, "error": "技能不存在"}
 
         existing = await db.execute(
-            select(PostSkillModel).where(PostSkillModel.post == req.post, PostSkillModel.skill_id == req.skill_id)
+            select(PostSkillModel).where(PostSkillModel.role == req.post, PostSkillModel.skill_id == req.skill_id)
         )
         if existing.scalar_one_or_none():
             return {"success": False, "error": "该映射已存在"}
 
-        db.add(PostSkillModel(post=req.post, skill_id=req.skill_id, priority=req.priority))
+        db.add(PostSkillModel(role=req.post, skill_id=req.skill_id, priority=req.priority))
         await db.commit()
 
     return {"success": True}
@@ -704,7 +704,7 @@ async def remove_role_skill(req: RemovePostSkillRequest):
     session_factory = get_db_session_factory()
     async with session_factory() as db:
         result = await db.execute(
-            select(PostSkillModel).where(PostSkillModel.post == req.post, PostSkillModel.skill_id == req.skill_id)
+            select(PostSkillModel).where(PostSkillModel.role == req.post, PostSkillModel.skill_id == req.skill_id)
         )
         row = result.scalar_one_or_none()
         if row:

@@ -205,7 +205,7 @@ async def get_post_skills(post_key_or_id: str):
             select(Skill, PostSkill).join(
                 PostSkill, PostSkill.skill_id == Skill.id
             ).where(
-                PostSkill.post == post.key,
+                PostSkill.role == post.key,
                 Skill.enabled == True,  # noqa: E712
             ).order_by(PostSkill.priority)
         )
@@ -244,14 +244,14 @@ async def bind_post_skills(post_key_or_id: str, req: BindSkillsRequest):
 
         # 删除旧的映射
         await db.execute(
-            delete(PostSkill).where(PostSkill.post == post.key)
+            delete(PostSkill).where(PostSkill.role == post.key)
         )
 
         # 添加新的映射
         for skill_id in req.skill_ids:
             priority = req.priorities.get(skill_id, 0)
             db.add(PostSkill(
-                post=post.key,
+                role=post.key,
                 skill_id=skill_id,
                 priority=priority,
             ))
@@ -286,7 +286,7 @@ async def generate_persona_prompt(post_key_or_id: str):
             select(Skill, PostSkill).join(
                 PostSkill, PostSkill.skill_id == Skill.id
             ).where(
-                PostSkill.post == post.key,
+                PostSkill.role == post.key,
                 Skill.enabled == True,  # noqa: E712
             ).order_by(PostSkill.priority)
         )

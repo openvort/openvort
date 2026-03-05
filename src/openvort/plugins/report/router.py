@@ -6,7 +6,7 @@
 
 from datetime import date
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])

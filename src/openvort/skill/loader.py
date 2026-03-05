@@ -388,7 +388,7 @@ class SkillLoader:
         async with self._session_factory() as db:
             # 获取所有已存在的映射
             result = await db.execute(select(PostSkillModel))
-            existing = {(row.post, row.skill_id): row for row in result.scalars().all()}
+            existing = {(row.role, row.skill_id): row for row in result.scalars().all()}
 
             # 遍历默认配置，创建映射
             for post, skill_configs in DEFAULT_POST_SKILLS.items():
@@ -407,7 +407,7 @@ class SkillLoader:
                     key = (post, skill.id)
                     if key not in existing:
                         db.add(PostSkillModel(
-                            post=post,
+                            role=post,
                             skill_id=skill.id,
                             priority=priority,
                         ))
@@ -625,7 +625,7 @@ class SkillLoader:
                 select(SkillModel, RoleSkillModel).join(
                     RoleSkillModel, RoleSkillModel.skill_id == SkillModel.id
                 ).where(
-                    RoleSkillModel.post == role,
+                    RoleSkillModel.role == role,
                 ).order_by(RoleSkillModel.priority)
             )
             rows = result.all()
