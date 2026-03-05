@@ -204,6 +204,63 @@ const leafColumns = computed(() => getLeafColumns(props.columns || []));
 
 const isMultiLevelHeader = computed(() => getHeaderDepth(props.columns || []) > 1);
 
+// ==================== 列宽下限（按最长内容） ====================
+const minColumnWidths = ref<Record<string, number>>({});
+
+const isTitleColumn = (column: TableColumn<T>): boolean => {
+  return column.dataIndex === "title" || column.key === "title" || column.title === "标题";
+};
+
+const toPlainText = (value: unknown): string => {
+  if (value === null || value === undefined) return "";
+  if (Array.isArray(value)) return value.map((v) => String(v ?? "")).join(" / ");
+  if (typeof value === "object") return "";
+  return String(value);
+};
+
+const measureTextWidth = (text: string): number => {
+  if (!text) return 0;
+  if (typeof document === "undefined") return text.length * 14;
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return text.length * 14;
+  ctx.font = "500 14px sans-serif";
+  return ctx.measureText(text).width;
+};
+
+const recalcMinColumnWidths = () => {
+  const result: Record<string, number> = {};
+  const rows = tableData.value || [];
+  const leaves = leafColumns.value || [];
+
+  for (const column of leaves) {
+    const key = getColumnKey(column);
+    if (!key) continue;
+
+    // 标题列允许自由缩窄，最小宽度只保留很小的兜底值
+    if (isTitleColumn(column)) {
+      result[key] = 60;
+      continue;
+    }
+
+    const headerText = toPlainText(column.title);
+    let maxW = measureTextWidth(headerText);
+
+    for (const row of rows) {
+      const cellText = toPlainText(getCellValue(row, column));
+      maxW = Math.max(maxW, measureTextWidth(cellText));
+    }
+
+    // 文本宽度 + 左右内边距 + 排序图标/安全余量
+    const computedMin = Math.ceil(maxW + 40);
+    result[key] = Math.max(80, computedMin);
+  }
+
+  minColumnWidths.value = result;
+};
+
+watch([leafColumns, tableData], recalcMinColumnWidths, { immediate: true, deep: true });
+
 // ==================== 分页 ====================
 const internalPagination = ref({
   current: 1,
@@ -362,21 +419,77 @@ const containerClass = computed(() => {
 // ==================== 列宽拖拽 ====================
 const columnWidths = ref<Record<string, number>>({});
 
-const getColumnKey = (column: TableColumn<T>): string => {
+function getColumnKey(column: TableColumn<T>): string {
   return column.key || column.dataIndex || column.title || "";
-};
+}
 
 const getResolvedWidth = (column: TableColumn<T>): string | undefined => {
   const key = getColumnKey(column);
+  const minW = minColumnWidths.value[key] || 50;
   const drag = columnWidths.value[key];
-  if (drag) return `${drag}px`;
-  if (column.width) return typeof column.width === "number" ? `${column.width}px` : column.width;
+  if (drag) return `${Math.max(minW, drag)}px`;
+  if (column.width) {
+    if (typeof column.width === "number") return `${Math.max(minW, column.width)}px`;
+    return column.width;
+  }
+  if (!isTitleColumn(column)) return `${minW}px`;
   return undefined;
+};
+
+const toPixelWidth = (column: TableColumn<T>): number => {
+  const resolved = getResolvedWidth(column);
+  if (resolved && resolved.endsWith("px")) {
+    const parsed = Number.parseFloat(resolved);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return minColumnWidths.value[getColumnKey(column)] || 120;
+};
+
+const fixedLeftOffsets = computed<Record<string, number>>(() => {
+  const offsets: Record<string, number> = {};
+  let currentLeft = 0;
+  for (const column of leafColumns.value) {
+    const key = getColumnKey(column);
+    if (!key) continue;
+    if (column.fixed === "left") {
+      offsets[key] = currentLeft;
+      currentLeft += toPixelWidth(column);
+    }
+  }
+  return offsets;
+});
+
+const getFixedCellStyle = (column: TableColumn<T>, isHeader = false): Record<string, string> => {
+  const key = getColumnKey(column);
+  if (column.fixed !== "left" || !key) return {};
+  const left = fixedLeftOffsets.value[key] || 0;
+  return {
+    position: "sticky",
+    left: `${left}px`,
+    zIndex: isHeader ? "6" : "3",
+    background: isHeader ? "var(--vort-table-header-bg, #fafafa)" : "#fff",
+  };
+};
+
+const lastFixedLeftKey = computed<string>(() => {
+  let last = "";
+  for (const column of leafColumns.value) {
+    if (column.fixed === "left") {
+      last = getColumnKey(column);
+    }
+  }
+  return last;
+});
+
+const isLastFixedLeft = (column: TableColumn<T>): boolean => {
+  const key = getColumnKey(column);
+  return !!key && key === lastFixedLeftKey.value;
 };
 
 let resizingCol: string | null = null;
 let resizeStartX = 0;
 let resizeStartW = 0;
+let resizingMinW = 50;
 const isResizing = ref(false);
 
 const onResizeStart = (e: MouseEvent, column: TableColumn<T>) => {
@@ -386,6 +499,7 @@ const onResizeStart = (e: MouseEvent, column: TableColumn<T>) => {
   resizingCol = key;
   isResizing.value = true;
   resizeStartX = e.clientX;
+  resizingMinW = isTitleColumn(column) ? 40 : (minColumnWidths.value[key] || 80);
 
   const existing = columnWidths.value[key];
   if (existing) {
@@ -404,7 +518,7 @@ const onResizeStart = (e: MouseEvent, column: TableColumn<T>) => {
 const onResizeMove = (e: MouseEvent) => {
   if (!resizingCol) return;
   const diff = e.clientX - resizeStartX;
-  const newW = Math.max(50, resizeStartW + diff);
+  const newW = Math.max(resizingMinW, resizeStartW + diff);
   columnWidths.value = { ...columnWidths.value, [resizingCol]: newW };
 };
 
@@ -538,9 +652,11 @@ defineExpose({
                 'vort-pro-table-cell',
                 `vort-pro-table-align-${column.align || 'left'}`,
                 column.sorter && 'vort-pro-table-cell-sortable',
-                column.headerClassName
+                column.headerClassName,
+                column.fixed === 'left' && 'vort-pro-table-fixed-left',
+                isLastFixedLeft(column) && 'vort-pro-table-fixed-left-edge'
               ]"
-              :style="{ width: getResolvedWidth(column) }"
+              :style="{ width: getResolvedWidth(column), ...getFixedCellStyle(column, true) }"
               @click="column.sorter ? handleSort(column) : undefined"
             >
               <div class="vort-pro-table-column-header">
@@ -585,7 +701,15 @@ defineExpose({
             <td
               v-for="column in leafColumns"
               :key="column.key || column.dataIndex || column.title"
-              :class="['vort-pro-table-cell', `vort-pro-table-align-${column.align || 'left'}`, column.ellipsis && 'vort-pro-table-cell-ellipsis', column.className]"
+              :class="[
+                'vort-pro-table-cell',
+                `vort-pro-table-align-${column.align || 'left'}`,
+                column.ellipsis && 'vort-pro-table-cell-ellipsis',
+                column.className,
+                column.fixed === 'left' && 'vort-pro-table-fixed-left',
+                isLastFixedLeft(column) && 'vort-pro-table-fixed-left-edge'
+              ]"
+              :style="getFixedCellStyle(column)"
             >
               <slot
                 :name="column.slot || column.dataIndex"
@@ -696,6 +820,7 @@ defineExpose({
   padding: 16px;
   font-weight: 600;
   text-align: left;
+  vertical-align: middle;
   border-bottom: 1px solid #eceff3;
   border-right: 1px solid #f3f5f8;
   white-space: nowrap;
@@ -767,8 +892,12 @@ defineExpose({
 
 .vort-pro-table-tbody td {
   padding: 16px;
+  vertical-align: middle;
   border-bottom: 1px solid #eceff3;
   border-right: 1px solid #f3f5f8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .vort-pro-table-tbody td:last-child {
@@ -797,7 +926,16 @@ defineExpose({
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 200px;
+}
+
+.vort-pro-table-fixed-left {
+  /* 固定列本身不加阴影，避免每列都有分割线 */
+  box-shadow: none;
+}
+
+.vort-pro-table-fixed-left-edge {
+  /* 仅冻结区最右边界显示阴影，贴近截图样式 */
+  box-shadow: 1px 0 0 #e5e7eb, 8px 0 12px -8px rgba(15, 23, 42, 0.28);
 }
 
 .vort-pro-table-row-selected {

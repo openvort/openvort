@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { ProTable, type ProTableColumn, type ProTableRequestParams, type ProTableResponse } from "@/components/vort-biz/pro-table";
 
-type Priority = "urgent" | "high" | "medium" | "low";
-type Status = "todo" | "doing" | "review" | "done";
+type Priority = "urgent" | "high" | "medium" | "low" | "none";
+type Status = "待确认" | "修复中" | "已修复" | "延期处理" | "设计如此" | "再次打开" | "无法复现" | "已关闭" | "暂时搁置";
 type WorkType = "缺陷" | "需求" | "任务";
 
 type RowItem = {
@@ -22,42 +22,91 @@ type RowItem = {
 
 const keyword = ref("");
 const owner = ref("");
+const ownerDropdownOpen = ref(false);
+const ownerKeyword = ref("");
 const type = ref("");
+const typeDropdownOpen = ref(false);
+const typeKeyword = ref("");
 const status = ref("");
+const statusDropdownOpen = ref(false);
+const statusKeyword = ref("");
 const totalCount = ref(0);
 
-const ownerOptions = ["全部", "张三", "李四", "王五", "赵六", "钱七", "孙八"];
-const typeOptions = ["全部", "缺陷", "需求", "任务"];
-const statusOptions = ["全部", "待处理", "进行中", "评审中", "已完成"];
+const ownerGroups = [
+    { label: "项目成员", members: ["代志祥", "陈艳", "陈曦", "祝璞", "刘洋", "甘洋", "邱锐", "熊纲强"] },
+    { label: "企业成员", members: ["apollo_Xuuu", "曾春红", "superdargon", "邱锐", "熊纲强"] },
+    { label: "离职人员", members: ["金杜森", "熊军", "杨旭"] }
+] as const;
+const statusFilterOptions = [
+    { label: "待确认", value: "待确认", icon: "○", iconClass: "text-gray-400" },
+    { label: "修复中", value: "修复中", icon: "◔", iconClass: "text-blue-500" },
+    { label: "已修复", value: "已修复", icon: "✓", iconClass: "text-blue-500" },
+    { label: "延期处理", value: "延期处理", icon: "▷", iconClass: "text-blue-500" },
+    { label: "设计如此", value: "设计如此", icon: "⌛", iconClass: "text-amber-500" },
+    { label: "再次打开", value: "再次打开", icon: "⚡", iconClass: "text-red-500" },
+    { label: "无法复现", value: "无法复现", icon: "!", iconClass: "text-amber-500" },
+    { label: "已关闭", value: "已关闭", icon: "✓", iconClass: "text-gray-700" },
+    { label: "暂时搁置", value: "暂时搁置", icon: "⌛", iconClass: "text-slate-400" }
+];
+const statusIconMap: Record<Status, string> = {
+    待确认: "○",
+    修复中: "◔",
+    已修复: "✓",
+    延期处理: "▷",
+    设计如此: "⌛",
+    再次打开: "⚡",
+    无法复现: "!",
+    已关闭: "✓",
+    暂时搁置: "⌛"
+};
 const priorityOptions: Array<{ label: string; value: Priority }> = [
     { label: "紧急", value: "urgent" },
     { label: "高", value: "high" },
     { label: "中", value: "medium" },
-    { label: "低", value: "low" }
+    { label: "低", value: "low" },
+    { label: "无优先级", value: "none" }
 ];
 
-const statusLabelMap: Record<Status, string> = {
-    todo: "待处理",
-    doing: "进行中",
-    review: "评审中",
-    done: "已完成"
-};
-
 const statusClassMap: Record<Status, string> = {
-    todo: "bg-orange-50 text-orange-700 border-orange-200",
-    doing: "bg-blue-50 text-blue-700 border-blue-200",
-    review: "bg-purple-50 text-purple-700 border-purple-200",
-    done: "bg-green-50 text-green-700 border-green-200"
+    待确认: "bg-gray-100 text-gray-400 border-gray-200",
+    修复中: "bg-blue-50 text-blue-600 border-blue-100",
+    已修复: "bg-blue-50 text-blue-600 border-blue-100",
+    延期处理: "bg-sky-100 text-sky-700 border-sky-200",
+    设计如此: "bg-amber-100 text-amber-600 border-amber-200",
+    再次打开: "bg-red-100 text-red-600 border-red-200",
+    无法复现: "bg-amber-100 text-amber-600 border-amber-200",
+    已关闭: "bg-gray-100 text-gray-700 border-gray-200",
+    暂时搁置: "bg-gray-100 text-gray-500 border-gray-200"
 };
 
 const priorityLabelMap: Record<Priority, string> = {
     urgent: "紧急",
     high: "高",
     medium: "中",
-    low: "低"
+    low: "低",
+    none: "无优先级"
+};
+
+const priorityClassMap: Record<Priority, string> = {
+    urgent: "text-red-500 border-red-500 bg-red-50",
+    high: "text-amber-500 border-amber-500 bg-amber-50",
+    medium: "text-blue-500 border-blue-500 bg-blue-50",
+    low: "text-emerald-500 border-emerald-500 bg-emerald-50",
+    none: "text-gray-400 border-gray-300 bg-gray-50"
 };
 
 const priorityModel = reactive<Record<string, Priority>>({});
+const openPriorityFor = ref<string | null>(null);
+const typeGroupOpen = reactive<Record<WorkType, boolean>>({
+    需求: true,
+    任务: true,
+    缺陷: true
+});
+const ownerGroupOpen = reactive<Record<string, boolean>>({
+    项目成员: true,
+    企业成员: true,
+    离职人员: true
+});
 
 const toWorkNo = (index: number): string => {
     let n = index + 1000;
@@ -82,7 +131,7 @@ const buildDataset = (): RowItem[] => {
     const creators = ["周明", "林羽", "陈尧", "方怡"];
     const types: WorkType[] = ["缺陷", "需求", "任务"];
     const priorities: Priority[] = ["urgent", "high", "medium", "low"];
-    const statuses: Status[] = ["todo", "doing", "review", "done"];
+    const statuses: Status[] = ["待确认", "修复中", "已修复", "延期处理", "设计如此", "再次打开", "无法复现", "已关闭", "暂时搁置"];
     const tagPool = ["后端", "前端", "测试", "性能", "稳定性", "文档", "发布", "核心"];
     const list: RowItem[] = [];
 
@@ -102,7 +151,7 @@ const buildDataset = (): RowItem[] => {
             collaborators: collab,
             type: types[i % types.length]!,
             planTime: formatCnTime(plan),
-            owner: ownerName,
+            owner: i % 10 === 0 ? "未指派" : ownerName,
             creator: creators[i % creators.length]!
         });
     }
@@ -112,11 +161,11 @@ const buildDataset = (): RowItem[] => {
 const allData = buildDataset();
 
 const columns = computed<ProTableColumn<RowItem>[]>(() => [
-    { title: "工作编号", dataIndex: "workNo", width: 130, sorter: true, align: "left" },
-    { title: "标题", dataIndex: "title", width: 380, ellipsis: true, align: "left" },
-    { title: "优先级", dataIndex: "priority", width: 120, slot: "priority", align: "center" },
+    { title: "工作编号", dataIndex: "workNo", width: 130, sorter: true, align: "left", fixed: "left" },
+    { title: "标题", dataIndex: "title", width: 380, ellipsis: true, align: "left", fixed: "left" },
+    { title: "优先级", dataIndex: "priority", width: 120, slot: "priority", align: "left" },
     { title: "标签", dataIndex: "tags", width: 180, slot: "tags", align: "left" },
-    { title: "状态", dataIndex: "status", width: 120, slot: "status", align: "center" },
+    { title: "状态", dataIndex: "status", width: 120, slot: "status", align: "left" },
     { title: "创建时间", dataIndex: "createdAt", width: 150, sorter: true, align: "left" },
     { title: "协作者", dataIndex: "collaborators", width: 140, slot: "collaborators", align: "left" },
     { title: "工作项类型", dataIndex: "type", width: 120, sorter: true, align: "left" },
@@ -143,11 +192,7 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
         list = list.filter((x) => x.type === typeValue);
     }
     if (statusValue) {
-        const map: Record<string, Status> = { 待处理: "todo", 进行中: "doing", 评审中: "review", 已完成: "done" };
-        const target = map[statusValue];
-        if (target) {
-            list = list.filter((x) => x.status === target);
-        }
+        list = list.filter((x) => x.status === statusValue);
     }
 
     const { sortField, sortOrder } = params;
@@ -187,6 +232,89 @@ const onReset = () => {
 };
 
 const getAvatarText = (name: string): string => name.slice(0, 1);
+
+const getRowPriority = (record: RowItem, text?: Priority): Priority => {
+    return priorityModel[record.workNo] || text || record.priority;
+};
+
+const togglePriorityMenu = (workNo: string) => {
+    openPriorityFor.value = openPriorityFor.value === workNo ? null : workNo;
+};
+
+const selectPriority = (workNo: string, value: Priority) => {
+    priorityModel[workNo] = value;
+    openPriorityFor.value = null;
+};
+
+const onGlobalClick = () => {
+    openPriorityFor.value = null;
+    ownerDropdownOpen.value = false;
+    typeDropdownOpen.value = false;
+    statusDropdownOpen.value = false;
+};
+
+const filteredStatusOptions = computed(() => {
+    const kw = statusKeyword.value.trim();
+    if (!kw) return statusFilterOptions;
+    return statusFilterOptions.filter((x) => x.label.includes(kw));
+});
+
+const selectStatus = (value: string) => {
+    status.value = value;
+    statusDropdownOpen.value = false;
+};
+
+const filteredOwnerGroups = computed(() => {
+    const kw = ownerKeyword.value.trim();
+    if (!kw) return ownerGroups;
+    return ownerGroups
+        .map((g) => ({
+            ...g,
+            members: g.members.filter((m) => m.includes(kw))
+        }))
+        .filter((g) => g.members.length > 0);
+});
+
+const toggleOwnerGroup = (group: string) => {
+    ownerGroupOpen[group] = !ownerGroupOpen[group];
+};
+
+const selectOwner = (value: string) => {
+    owner.value = value;
+    ownerDropdownOpen.value = false;
+};
+
+const avatarBgPalette = ["#2f80ed", "#5b8ff9", "#9b59b6", "#27ae60", "#f39c12", "#e67e22", "#16a085", "#8e44ad"];
+const getAvatarBg = (name: string): string => {
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+    return avatarBgPalette[hash % avatarBgPalette.length]!;
+};
+const getAvatarLabel = (name: string): string => name.slice(0, 1).toUpperCase();
+
+const typeGroups = computed<WorkType[]>(() => {
+    const all: WorkType[] = ["需求", "任务", "缺陷"];
+    const kw = typeKeyword.value.trim();
+    if (!kw) return all;
+    return all.filter((x) => x.includes(kw));
+});
+
+const toggleTypeGroup = (group: WorkType) => {
+    typeGroupOpen[group] = !typeGroupOpen[group];
+};
+
+const selectType = (value: WorkType) => {
+    type.value = value;
+    typeDropdownOpen.value = false;
+};
+
+onMounted(() => {
+    document.addEventListener("click", onGlobalClick);
+});
+
+onBeforeUnmount(() => {
+    document.removeEventListener("click", onGlobalClick);
+});
 </script>
 
 <template>
@@ -194,20 +322,134 @@ const getAvatarText = (name: string): string => name.slice(0, 1);
         <div class="bg-white rounded-xl p-4">
             <h3 class="text-base font-medium text-gray-800 mb-3">缺陷</h3>
             <div class="flex flex-wrap items-center gap-3 text-sm">
-                <div class="text-gray-600">项目总数 <span class="text-gray-900 font-medium">共{{ totalCount || allData.length }}项</span></div>
+                <div class="text-gray-600"><span class="text-gray-900 font-medium">共{{ totalCount || allData.length }}项</span></div>
                 <input v-model="keyword" placeholder="输入关键词" class="h-8 px-3 border border-gray-300 rounded w-[180px]" />
-                <select v-model="owner" class="h-8 px-2 border border-gray-300 rounded w-[120px]">
-                    <option value="">负责人</option>
-                    <option v-for="opt in ownerOptions.filter((x) => x !== '全部')" :key="opt" :value="opt">{{ opt }}</option>
-                </select>
-                <select v-model="type" class="h-8 px-2 border border-gray-300 rounded w-[110px]">
-                    <option value="">类型</option>
-                    <option v-for="opt in typeOptions.filter((x) => x !== '全部')" :key="opt" :value="opt">{{ opt }}</option>
-                </select>
-                <select v-model="status" class="h-8 px-2 border border-gray-300 rounded w-[110px]">
-                    <option value="">状态</option>
-                    <option v-for="opt in statusOptions.filter((x) => x !== '全部')" :key="opt" :value="opt">{{ opt }}</option>
-                </select>
+                <div class="relative" @click.stop>
+                    <button
+                        class="h-8 min-w-[130px] px-3 border border-slate-300 rounded-md bg-white flex items-center justify-between text-left hover:border-slate-400"
+                        :class="{ 'border-blue-500 ring-1 ring-blue-200': ownerDropdownOpen }"
+                        @click.stop="ownerDropdownOpen = !ownerDropdownOpen"
+                    >
+                        <span class="text-sm text-gray-700">{{ owner || "负责人" }}</span>
+                        <span class="status-arrow-simple" :class="{ open: ownerDropdownOpen }" />
+                    </button>
+                    <div v-if="ownerDropdownOpen" class="absolute z-30 mt-1 w-[260px] bg-white border border-gray-200 rounded-lg shadow-md p-3">
+                        <div class="mb-2">
+                            <div class="relative">
+                                <input
+                                    v-model="ownerKeyword"
+                                    placeholder="搜索..."
+                                    class="w-full h-9 pl-3 pr-8 border border-gray-300 rounded-md text-sm"
+                                />
+                                <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">⌕</span>
+                            </div>
+                        </div>
+                        <div class="max-h-[460px] overflow-y-auto -mx-3">
+                            <button class="w-full h-10 px-3 text-left text-gray-700 hover:bg-gray-50" @click.stop="selectOwner('')">全部</button>
+                            <button class="w-full h-10 px-3 text-left text-gray-700 hover:bg-gray-50" @click.stop="selectOwner('未指派')">未指派</button>
+
+                            <div v-for="group in filteredOwnerGroups" :key="group.label">
+                                <button
+                                    class="w-full h-10 px-3 bg-slate-100 flex items-center justify-between text-left"
+                                    @click.stop="toggleOwnerGroup(group.label)"
+                                >
+                                    <span class="text-gray-700 text-sm">{{ group.label }}（{{ group.members.length }}）</span>
+                                    <span class="status-arrow-simple" :class="{ open: ownerGroupOpen[group.label] }" />
+                                </button>
+                                <button
+                                    v-for="member in (ownerGroupOpen[group.label] ? group.members : [])"
+                                    :key="group.label + member"
+                                    class="w-full h-10 px-3 flex items-center gap-2 text-left hover:bg-gray-50"
+                                    @click.stop="selectOwner(member)"
+                                >
+                                    <span
+                                        class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center"
+                                        :style="{ backgroundColor: getAvatarBg(member) }"
+                                    >
+                                        {{ getAvatarLabel(member) }}
+                                    </span>
+                                    <span class="text-sm text-gray-700">{{ member }}</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="relative" @click.stop>
+                    <button
+                        class="h-8 min-w-[110px] px-3 border border-slate-300 rounded-md bg-white flex items-center justify-between text-left hover:border-slate-400"
+                        :class="{ 'border-blue-500 ring-1 ring-blue-200': typeDropdownOpen }"
+                        @click.stop="typeDropdownOpen = !typeDropdownOpen"
+                    >
+                        <span class="text-sm text-gray-700">{{ type || "类型" }}</span>
+                        <span class="status-arrow-simple" :class="{ open: typeDropdownOpen }" />
+                    </button>
+                    <div v-if="typeDropdownOpen" class="absolute z-30 mt-1 w-[180px] bg-white border border-gray-200 rounded-lg shadow-md p-3">
+                        <div class="mb-2">
+                            <div class="relative">
+                                <input
+                                    v-model="typeKeyword"
+                                    placeholder="搜索..."
+                                    class="w-full h-9 pl-3 pr-8 border border-gray-300 rounded-md text-sm"
+                                />
+                                <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">⌕</span>
+                            </div>
+                        </div>
+                        <div class="max-h-[260px] overflow-y-auto -mx-3">
+                            <div v-for="group in typeGroups" :key="group">
+                                <button
+                                    class="w-full h-10 px-3 bg-slate-100 flex items-center justify-between text-left"
+                                    @click.stop="toggleTypeGroup(group)"
+                                >
+                                    <span class="text-gray-700 text-sm">{{ group }}</span>
+                                    <span class="status-arrow-simple" :class="{ open: typeGroupOpen[group] }" />
+                                </button>
+                                <button
+                                    v-if="typeGroupOpen[group]"
+                                    class="w-full h-10 px-3 flex items-center gap-3 text-left hover:bg-gray-50"
+                                    @click.stop="selectType(group)"
+                                >
+                                    <span class="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center text-[12px] text-gray-500">
+                                        <span v-if="type === group">✓</span>
+                                    </span>
+                                    <span class="text-gray-700 text-sm">{{ group }}</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="relative" @click.stop>
+                    <button
+                        class="h-8 min-w-[130px] px-3 border border-slate-300 rounded-md bg-white flex items-center justify-between text-left hover:border-slate-400"
+                        @click.stop="statusDropdownOpen = !statusDropdownOpen"
+                    >
+                        <span class="text-sm text-gray-700">{{ status || "状态" }}</span>
+                        <span class="status-arrow-simple" />
+                    </button>
+                    <div v-if="statusDropdownOpen" class="absolute z-30 mt-1 w-[240px] bg-white border border-gray-200 rounded-lg shadow-md p-3">
+                        <div class="mb-2">
+                            <input
+                                v-model="statusKeyword"
+                                placeholder="搜索..."
+                                class="w-full h-9 px-3 border border-gray-300 rounded-md text-sm"
+                            />
+                        </div>
+                        <div class="max-h-[220px] overflow-y-auto pr-1">
+                            <button
+                                v-for="opt in filteredStatusOptions"
+                                :key="opt.value"
+                                class="w-full h-10 px-2 rounded-md flex items-center gap-2 text-left hover:bg-gray-50"
+                                :class="{ 'bg-slate-100': status === opt.value }"
+                                @click.stop="selectStatus(opt.value)"
+                            >
+                                <span class="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center text-[12px] text-gray-500">
+                                    <span v-if="status === opt.value">✓</span>
+                                </span>
+                                <span class="text-[14px] leading-none w-4 text-center" :class="opt.iconClass">{{ opt.icon }}</span>
+                                <span class="text-sm text-gray-700">{{ opt.label }}</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
                 <button class="h-8 px-4 bg-blue-600 text-white rounded hover:bg-blue-700" @click="tableRef?.refresh?.()">查询</button>
                 <button class="h-8 px-4 border border-gray-300 rounded hover:bg-gray-50" @click="onReset">重置</button>
             </div>
@@ -219,19 +461,35 @@ const getAvatarText = (name: string): string => name.slice(0, 1);
                 :columns="columns"
                 :request="request"
                 :params="queryParams"
-                :row-selection="{ type: 'checkbox', columnWidth: 42 }"
                 :pagination="{ showSizeChanger: true, showQuickJumper: true, pageSizeOptions: [10, 20, 50] }"
                 :toolbar="false"
                 bordered
             >
                 <template #priority="{ text, record }">
-                    <select
-                        :value="priorityModel[record.workNo] || text"
-                        class="h-7 px-2 text-xs border border-gray-300 rounded bg-white"
-                        @change="(e) => { priorityModel[record.workNo] = (e.target as HTMLSelectElement).value as Priority; }"
-                    >
-                        <option v-for="opt in priorityOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-                    </select>
+                    <div class="relative inline-block text-left" @click.stop>
+                        <button
+                            class="h-7 px-2 text-xs rounded border leading-none"
+                            :class="priorityClassMap[getRowPriority(record, text)]"
+                            @click.stop="togglePriorityMenu(record.workNo)"
+                        >
+                            {{ priorityLabelMap[getRowPriority(record, text)] }}
+                        </button>
+                        <div
+                            v-if="openPriorityFor === record.workNo"
+                            class="absolute z-20 mt-1 w-[112px] bg-white border border-gray-200 rounded-md shadow-sm py-1"
+                        >
+                            <button
+                                v-for="opt in priorityOptions"
+                                :key="opt.value"
+                                class="w-full text-left px-2 py-1 text-xs hover:bg-gray-50"
+                                @click.stop="selectPriority(record.workNo, opt.value)"
+                            >
+                                <span class="inline-block px-1.5 py-0.5 rounded border" :class="priorityClassMap[opt.value]">
+                                    {{ opt.label }}
+                                </span>
+                            </button>
+                        </div>
+                    </div>
                 </template>
 
                 <template #tags="{ text }">
@@ -243,8 +501,9 @@ const getAvatarText = (name: string): string => name.slice(0, 1);
                 </template>
 
                 <template #status="{ text }">
-                    <span class="inline-flex items-center px-2 py-0.5 rounded border text-xs" :class="statusClassMap[text]">
-                        {{ statusLabelMap[text] }}
+                    <span class="status-badge" :class="statusClassMap[text]">
+                        <span class="status-badge-icon">{{ statusIconMap[text] }}</span>
+                        <span>{{ text }}</span>
                     </span>
                 </template>
 
@@ -268,4 +527,38 @@ const getAvatarText = (name: string): string => name.slice(0, 1);
         </div>
     </div>
 </template>
+
+<style scoped>
+.status-arrow-simple {
+    width: 6px;
+    height: 6px;
+    border-right: 1.5px solid #4b5563;
+    border-bottom: 1.5px solid #4b5563;
+    transform: rotate(45deg);
+    margin-right: 1px;
+    margin-top: -1px;
+    transition: transform 0.15s ease;
+}
+
+.status-arrow-simple.open {
+    transform: rotate(-135deg);
+}
+
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 6px;
+    border-width: 1px;
+    font-size: 13px;
+    line-height: 1.2;
+    font-weight: 500;
+}
+
+.status-badge-icon {
+    font-size: 13px;
+    line-height: 1;
+}
+</style>
 
