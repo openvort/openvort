@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from "vue";
 import { Plus, Save, Trash2, Download, XCircle, CheckCircle, Terminal } from "lucide-vue-next";
 import { getModels, getSettings, updateSettings } from "@/api";
-import { message } from "@/components/vort/message";
+import { message } from "@openvort/vort-ui";
 import { useUserStore } from "@/stores";
 
 interface ModelSummary {

@@ -2,9 +2,7 @@
 import { ref, computed, watch, onMounted, nextTick } from "vue";
 import { Bot, Plus, Search, Loader2, Pin } from "lucide-vue-next";
 import { getChatContacts, getChatMembers, startMemberChat, togglePinContact, hideChatContact, resetChatSession } from "@/api";
-import { message } from "@/components/vort/message";
-import { dialog } from "@/components/vort/dialog";
-import { Popover as VortPopover } from "@/components/vort/popover";
+import { message, dialog, Popover as VortPopover } from "@openvort/vort-ui";
 import { pinyin } from "pinyin-pro";
 import type { Contact, MentionMember } from "./types";
 

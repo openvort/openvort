@@ -5,8 +5,7 @@ import {
     getMemberSkills, createPersonalSkill, updatePersonalSkill, deletePersonalSkill,
     getMembers,
 } from "@/api";
-import { message } from "@/components/vort/message";
-import { dialog } from "@/components/vort/dialog";
+import { message, dialog } from "@openvort/vort-ui";
 import { Plus, Trash2, Save, Package, Globe, User } from "lucide-vue-next";
 
 interface SkillItem {

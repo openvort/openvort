@@ -1,6 +1,6 @@
 import { ref, reactive, computed, unref } from "vue";
 import type { ComputedRef, Ref } from "vue";
-import { message } from "@/components/vort/message";
+import { message } from "@openvort/vort-ui";
 
 // ===================== 类型定义 =====================
 

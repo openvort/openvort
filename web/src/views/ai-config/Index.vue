@@ -2,7 +2,7 @@
 import { ref } from "vue";
 import { RotateCw } from "lucide-vue-next";
 import { restartService } from "@/api";
-import { message } from "@/components/vort/message";
+import { message } from "@openvort/vort-ui";
 import ModelLibrary from "./ModelLibrary.vue";
 import ChatModel from "./ChatModel.vue";
 import CodingTools from "./CodingTools.vue";

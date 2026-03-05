@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
 import { getChannels, getChannelDetail, updateChannel, toggleChannel, testChannel } from "@/api";
-import { message } from "@/components/vort/message";
+import { message } from "@openvort/vort-ui";
 import { Radio, CheckCircle, XCircle, Settings, Zap, Download } from "lucide-vue-next";
 import { useUserStore } from "@/stores";
 import AiAssistButton from "@/components/vort-biz/ai-assist-button/AiAssistButton.vue";

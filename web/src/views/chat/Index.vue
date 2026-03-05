@@ -7,8 +7,7 @@ import {
     Settings, Check, Brain, PackageMinus, RotateCcw, Zap, StopCircle, Square,
     Hash, Bug, ListTodo, BookOpen, Milestone, GitBranch, ChevronDown, ChevronRight
 } from "lucide-vue-next";
-import { Popover as VortPopover } from "@/components/vort/popover";
-import { Image as VortImage, ImagePreviewGroup as VortImagePreviewGroup } from "@/components/vort/image";
+import { Popover as VortPopover, Image as VortImage, ImagePreviewGroup as VortImagePreviewGroup } from "@openvort/vort-ui";
 import {
     sendChatMessage, getChatStreamUrl, getChatHistory, getChatSessionInfo,
     setChatThinking, compactChatSession, resetChatSession,
@@ -16,8 +15,7 @@ import {
     getVortflowBugs, getVortflowTasks, getVortflowStories, getVortflowMilestones
 } from "@/api";
 import { usePluginStore } from "@/stores/modules/plugin";
-import { message } from "@/components/vort/message";
-import { dialog } from "@/components/vort/dialog";
+import { message, dialog } from "@openvort/vort-ui";
 import { marked } from "marked";
 import { pinyin } from "pinyin-pro";
 import ContactList from "./ContactList.vue";
@@ -33,7 +31,8 @@ const messages = ref<ChatMessage[]>([]);
 const inputText = ref("");
 const loading = ref(false);
 const aborting = ref(false);
-const chatScrollbar = ref<InstanceType<typeof import("@/components/vort/scrollbar/Scrollbar.vue").default> | null>(null);
+type ChatScrollbarRef = { wrapRef?: HTMLElement | null };
+const chatScrollbar = ref<ChatScrollbarRef | null>(null);
 const inputArea = ref<HTMLElement>();
 const pendingImages = ref<PendingImage[]>([]);
 const isDragging = ref(false);

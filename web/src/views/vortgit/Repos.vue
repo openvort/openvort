@@ -9,7 +9,7 @@ import {
     getVortflowProjects,
 } from "@/api";
 import { Plus, RefreshCw, Download, GitCommit, GitBranch } from "lucide-vue-next";
-import { message } from "@/components/vort/message";
+import { message } from "@openvort/vort-ui";
 
 interface RepoItem {
     id: string;

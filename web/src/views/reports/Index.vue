@@ -10,7 +10,7 @@ import {
     Plus, FileText, Send, CheckCircle, XCircle, Clock,
     BarChart3, Settings, ChevronLeft, ChevronRight, Eye,
 } from "lucide-vue-next";
-import { message } from "@/components/vort/message";
+import { message } from "@openvort/vort-ui";
 import { useUserStore } from "@/stores";
 
 // ---- Types ----

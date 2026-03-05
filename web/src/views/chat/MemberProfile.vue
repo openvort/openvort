@@ -6,8 +6,7 @@ import {
     getPublicSkills, subscribeMemberSkill, unsubscribeMemberSkill,
     updateMemberBio, generateMemberBioPrompt,
 } from "@/api";
-import { message } from "@/components/vort/message";
-import { dialog } from "@/components/vort/dialog";
+import { message, dialog } from "@openvort/vort-ui";
 import { Bot, Plus, Trash2, Save, User, Globe, BookOpen } from "lucide-vue-next";
 
 const props = defineProps<{

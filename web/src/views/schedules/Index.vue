@@ -7,7 +7,7 @@ import {
     toggleAdminSchedule, runAdminSchedule,
 } from "@/api";
 import { Plus, Play, Users, User, RefreshCw, HelpCircle } from "lucide-vue-next";
-import { message } from "@/components/vort/message";
+import { message } from "@openvort/vort-ui";
 import { useUserStore } from "@/stores";
 
 // ---- 类型 ----

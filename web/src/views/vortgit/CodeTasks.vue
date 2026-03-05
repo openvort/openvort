@@ -9,7 +9,7 @@ import {
     RefreshCw, ExternalLink, TerminalSquare, Clock, FileCode2,
     CheckCircle2, XCircle, Loader2, AlertCircle,
 } from "lucide-vue-next";
-import { message } from "@/components/vort/message";
+import { message } from "@openvort/vort-ui";
 
 interface CodeTask {
     id: string;

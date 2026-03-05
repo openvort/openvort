@@ -21,8 +21,7 @@ import {
     ChevronDown, FolderTree, Plus, Pencil, UserPlus,
     Download, ArrowRight, Calendar, CloudDownload,
 } from "lucide-vue-next";
-import { message } from "@/components/vort/message";
-import { dialog } from "@/components/vort/dialog";
+import { message, dialog } from "@openvort/vort-ui";
 import { DeptTree } from "@/components/vort-biz/dept-tree";
 import type { DeptNode } from "@/components/vort-biz/dept-tree";
 
