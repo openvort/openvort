@@ -24,6 +24,7 @@ const routes: RouteRecordRaw[] = [
             { path: "schedules", name: "schedules", component: () => import("@/views/schedules/Index.vue"), meta: { title: "定时任务" } },
             { path: "reports", name: "reports", component: () => import("@/views/reports/Index.vue"), meta: { title: "汇报中心" } },
             { path: "profile", name: "profile", component: () => import("@/views/profile/Index.vue"), meta: { title: "个人设置" } },
+            { path: "demo/pro-table", name: "demo-pro-table", component: () => import("@/views/demo/ProTableDemo.vue"), meta: { title: "ProTable Demo" } },
             // VortFlow
             { path: "vortflow/board", name: "vortflow-board", component: () => import("@/views/vortflow/Board.vue"), meta: { title: "项目看板" } },
             { path: "vortflow/stories", name: "vortflow-stories", component: () => import("@/views/vortflow/Stories.vue"), meta: { title: "需求列表" } },
@@ -44,6 +45,8 @@ const routes: RouteRecordRaw[] = [
             { path: "webhooks", name: "webhooks", component: () => import("@/views/webhooks/Index.vue"), meta: { title: "Webhook 管理", requiredRole: "admin" } },
             { path: "agents", name: "agents", component: () => import("@/views/agents/Index.vue"), meta: { title: "Agent 路由", requiredRole: "admin" } },
             { path: "ai-config", name: "ai-config", component: () => import("@/views/ai-config/Index.vue"), meta: { title: "AI 配置", requiredRole: "admin" } },
+            { path: "upgrade", name: "upgrade", component: () => import("@/views/upgrade/Index.vue"), meta: { title: "系统升级", requiredRole: "admin" } },
+            { path: "admin/posts", name: "posts", component: () => import("@/views/admin/Posts.vue"), meta: { title: "AI 员工岗位", requiredRole: "admin" } },
             { path: "models", redirect: "/ai-config" },
             { path: "settings", redirect: "/ai-config" },
             // 异常页
@@ -59,7 +62,13 @@ const routes: RouteRecordRaw[] = [
 
 const router = createRouter({
     history: createWebHistory(),
-    routes
+    routes,
+    scrollBehavior(_to, _from, savedPosition) {
+        if (savedPosition) {
+            return savedPosition;
+        }
+        return { top: 0 };
+    }
 });
 
 // 路由守卫

@@ -335,7 +335,18 @@ defineExpose({ refreshContacts, loadContacts });
                         <!-- Name + last message -->
                         <div class="flex-1 min-w-0 overflow-hidden">
                             <div class="flex items-center justify-between gap-2">
-                                <span class="text-sm font-medium text-gray-800 truncate min-w-0">{{ c.name }}</span>
+                                <div class="flex items-center gap-1 min-w-0">
+                                    <span class="text-sm font-medium text-gray-800 truncate">{{ c.name }}</span>
+                                    <vort-tag
+                                        v-if="c.is_virtual"
+                                        size="small"
+                                        color="blue"
+                                        :bordered="false"
+                                        class="flex-shrink-0"
+                                    >
+                                        AI 员工
+                                    </vort-tag>
+                                </div>
                                 <span class="text-[11px] text-gray-400 flex-shrink-0 whitespace-nowrap">{{ formatTime(c.last_message_time) }}</span>
                             </div>
                             <div class="flex items-center justify-between mt-0.5 gap-2">

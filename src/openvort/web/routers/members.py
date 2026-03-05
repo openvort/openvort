@@ -1,5 +1,6 @@
 """成员管理路由"""
 
+import json
 from fastapi import APIRouter
 from pydantic import BaseModel
 from sqlalchemy import select, func as sa_func
@@ -17,6 +18,11 @@ class CreateMemberRequest(BaseModel):
     phone: str = ""
     position: str = ""
     is_account: bool = False
+    is_virtual: bool = False
+    virtual_role: str = ""
+    skills: list[str] = []
+    auto_report: bool = False
+    report_frequency: str = "daily"
 
 
 class UpdateMemberRequest(BaseModel):
@@ -26,6 +32,11 @@ class UpdateMemberRequest(BaseModel):
     position: str | None = None
     status: str | None = None
     is_account: bool | None = None
+    is_virtual: bool | None = None
+    virtual_role: str | None = None
+    skills: list[str] | None = None
+    auto_report: bool | None = None
+    report_frequency: str | None = None
 
 
 class ResetPasswordRequest(BaseModel):
@@ -114,9 +125,24 @@ async def delete_role(role_id: int):
 @router.post("")
 async def create_member(req: CreateMemberRequest):
     """手动新增成员"""
+    import json as _json
+    from pathlib import Path
     from openvort.contacts.models import Member
+    from openvort.skill.loader import _parse_skill_file, DEFAULT_ROLE_SKILLS
+    from openvort.db.models import MemberSkill, Skill
+    from openvort.web.deps import get_skill_loader
 
     session_factory = get_db_session_factory()
+
+    # 获取 AI 员工的 persona
+    virtual_system_prompt = ""
+    if req.is_virtual and req.virtual_role:
+        builtin_dir = Path(__file__).parent.parent.parent / "skills"
+        skill_file = builtin_dir / req.virtual_role / "SKILL.md"
+        if skill_file.exists():
+            parsed = _parse_skill_file(skill_file)
+            if parsed:
+                virtual_system_prompt = parsed.get("content", "")
 
     async with session_factory() as session:
         member = Member(
@@ -125,15 +151,45 @@ async def create_member(req: CreateMemberRequest):
             phone=req.phone,
             position=req.position,
             is_account=req.is_account,
+            is_virtual=req.is_virtual,
+            virtual_role=req.virtual_role,
+            virtual_system_prompt=virtual_system_prompt,
+            skills=_json.dumps(req.skills) if req.skills else "[]",
+            auto_report=req.auto_report,
+            report_frequency=req.report_frequency,
         )
         session.add(member)
         await session.commit()
         await session.refresh(member)
+
+        # 如果是 AI 员工且有角色，添加角色推荐的技能
+        if req.is_virtual and req.virtual_role:
+            loader = get_skill_loader()
+            if loader:
+                role_skills = await loader.get_role_skills(req.virtual_role)
+                for skill in role_skills:
+                    # 检查是否已存在
+                    result = await session.execute(
+                        select(MemberSkill).where(
+                            MemberSkill.member_id == member.id,
+                            MemberSkill.skill_id == skill["id"],
+                        )
+                    )
+                    if not result.scalar_one_or_none():
+                        member_skill = MemberSkill(
+                            member_id=member.id,
+                            skill_id=skill["id"],
+                            source=f"role:{req.virtual_role}",
+                            enabled=True,
+                        )
+                        session.add(member_skill)
+                await session.commit()
+
         return {"success": True, "id": member.id}
 
 
 @router.get("")
-async def list_members(search: str = "", role: str = "", department_id: int | None = None, page: int = 1, size: int = 50):
+async def list_members(search: str = "", role: str = "", department_id: int | None = None, page: int = 1, size: int = 50, is_virtual: bool | None = None):
     """成员列表（支持搜索、角色筛选、部门筛选、分页）"""
     from openvort.contacts.models import Member, PlatformIdentity, MemberDepartment
     from openvort.auth.models import MemberRole, Role
@@ -164,6 +220,10 @@ async def list_members(search: str = "", role: str = "", department_id: int | No
         if department_id is not None:
             stmt = stmt.join(MemberDepartment, MemberDepartment.member_id == Member.id)
             stmt = stmt.where(MemberDepartment.department_id == department_id)
+
+        # AI 员工筛选
+        if is_virtual is not None:
+            stmt = stmt.where(Member.is_virtual == is_virtual)
 
         # 总数
         count_stmt = select(sa_func.count()).select_from(stmt.subquery())
@@ -206,6 +266,8 @@ async def list_members(search: str = "", role: str = "", department_id: int | No
                 "avatar_url": m.avatar_url or "",
                 "status": m.status,
                 "is_account": m.is_account,
+                "is_virtual": m.is_virtual,
+                "virtual_role": m.post or "",
                 "has_password": bool(m.password_hash),
                 "roles": roles or [],
                 "platform_accounts": platform_accounts,
@@ -282,7 +344,10 @@ async def get_member(member_id: str):
 @router.put("/{member_id}")
 async def update_member(member_id: str, req: UpdateMemberRequest):
     """编辑成员基本信息"""
+    import json as _json
+    from pathlib import Path
     from openvort.contacts.models import Member
+    from openvort.skill.loader import _parse_skill_file
 
     session_factory = get_db_session_factory()
 
@@ -305,6 +370,24 @@ async def update_member(member_id: str, req: UpdateMemberRequest):
             member.status = req.status
         if req.is_account is not None:
             member.is_account = req.is_account
+        if req.is_virtual is not None:
+            member.is_virtual = req.is_virtual
+        if req.virtual_role is not None:
+            member.virtual_role = req.virtual_role
+            # 重新加载角色模板
+            if req.virtual_role:
+                builtin_dir = Path(__file__).parent.parent.parent / "skills"
+                skill_file = builtin_dir / req.virtual_role / "SKILL.md"
+                if skill_file.exists():
+                    parsed = _parse_skill_file(skill_file)
+                    if parsed:
+                        member.virtual_system_prompt = parsed.get("content", "")
+        if req.skills is not None:
+            member.skills = _json.dumps(req.skills)
+        if req.auto_report is not None:
+            member.auto_report = req.auto_report
+        if req.report_frequency is not None:
+            member.report_frequency = req.report_frequency
 
         await session.commit()
         return {"success": True}
@@ -542,3 +625,203 @@ async def remove_role(member_id: str, role_name: str):
     if ok:
         auth_service.clear_cache()
     return {"success": ok}
+
+
+# ---- 角色技能映射 API ----
+
+@router.get("/roles/skills")
+async def get_role_skills(role: str = ""):
+    """获取角色对应的推荐技能（可选按角色筛选）"""
+    from openvort.web.deps import get_skill_loader, get_db_session_factory
+    from openvort.db.models import VirtualRole
+    from sqlalchemy import select
+
+    loader = get_skill_loader()
+    if not loader:
+        return {"skills": []}
+
+    # 获取所有启用的虚拟角色
+    factory = get_db_session_factory()
+    async with factory() as db:
+        stmt = select(VirtualRole).where(VirtualRole.enabled == True)  # noqa: E712
+        result = await db.execute(stmt)
+        all_roles = {r.key: r for r in result.scalars().all()}
+
+    if role:
+        if role not in all_roles:
+            return {"skills": []}
+        skills = await loader.get_role_skills(role)
+        return {"skills": skills}
+
+    # 返回所有角色的推荐技能
+    all_role_skills = {}
+    for r in all_roles.keys():
+        all_role_skills[r] = await loader.get_role_skills(r)
+    return {"roles": all_role_skills}
+
+
+class AddPostSkillRequest(BaseModel):
+    """添加岗位技能请求"""
+    post: str
+    skill_id: str
+    priority: int = 0
+
+
+class RemovePostSkillRequest(BaseModel):
+    """移除岗位技能请求"""
+    post: str
+    skill_id: str
+
+
+@router.post("/roles/skills")
+async def add_role_skill(req: AddPostSkillRequest):
+    """为岗位添加推荐技能"""
+    from openvort.db.models import PostSkill as PostSkillModel, Skill
+
+    session_factory = get_db_session_factory()
+    async with session_factory() as db:
+        skill = await db.get(Skill, req.skill_id)
+        if not skill:
+            return {"success": False, "error": "技能不存在"}
+
+        existing = await db.execute(
+            select(PostSkillModel).where(PostSkillModel.post == req.post, PostSkillModel.skill_id == req.skill_id)
+        )
+        if existing.scalar_one_or_none():
+            return {"success": False, "error": "该映射已存在"}
+
+        db.add(PostSkillModel(post=req.post, skill_id=req.skill_id, priority=req.priority))
+        await db.commit()
+
+    return {"success": True}
+
+
+@router.delete("/roles/skills")
+async def remove_role_skill(req: RemovePostSkillRequest):
+    """移除岗位的推荐技能"""
+    from openvort.db.models import PostSkill as PostSkillModel
+
+    session_factory = get_db_session_factory()
+    async with session_factory() as db:
+        result = await db.execute(
+            select(PostSkillModel).where(PostSkillModel.post == req.post, PostSkillModel.skill_id == req.skill_id)
+        )
+        row = result.scalar_one_or_none()
+        if row:
+            await db.delete(row)
+            await db.commit()
+
+    return {"success": True}
+
+
+# ---- 成员技能 API ----
+
+class AddMemberSkillRequest(BaseModel):
+    skill_id: str
+    source: str = "public"  # role:developer / personal / public
+
+
+class UpdateMemberSkillRequest(BaseModel):
+    enabled: bool | None = None
+    custom_content: str | None = None
+
+
+@router.get("/{member_id}/skills")
+async def get_member_skills(member_id: str):
+    """获取成员技能列表（含来源信息）"""
+    from openvort.web.deps import get_skill_loader
+
+    loader = get_skill_loader()
+    if not loader:
+        return {"skills": []}
+
+    skills = await loader.get_member_skills_with_source(member_id)
+    return {"skills": skills}
+
+
+@router.post("/{member_id}/skills")
+async def add_member_skill(member_id: str, req: AddMemberSkillRequest):
+    """为成员添加技能订阅"""
+    from openvort.db.models import MemberSkill, Skill
+    from openvort.web.deps import get_db_session_factory
+
+    session_factory = get_db_session_factory()
+    async with session_factory() as db:
+        # 检查技能是否存在
+        result = await db.execute(select(Skill).where(Skill.id == req.skill_id))
+        skill = result.scalar_one_or_none()
+        if not skill:
+            return {"success": False, "error": "技能不存在"}
+
+        # 检查是否已存在
+        result = await db.execute(
+            select(MemberSkill).where(
+                MemberSkill.member_id == member_id,
+                MemberSkill.skill_id == req.skill_id,
+            )
+        )
+        existing = result.scalar_one_or_none()
+        if existing:
+            return {"success": False, "error": "该技能已订阅"}
+
+        # 创建订阅
+        member_skill = MemberSkill(
+            member_id=member_id,
+            skill_id=req.skill_id,
+            source=req.source,
+            enabled=True,
+        )
+        db.add(member_skill)
+        await db.commit()
+
+    return {"success": True}
+
+
+@router.put("/{member_id}/skills/{skill_id}")
+async def update_member_skill(member_id: str, skill_id: str, req: UpdateMemberSkillRequest):
+    """更新成员技能（启用/禁用/自定义内容）"""
+    from openvort.db.models import MemberSkill
+    from openvort.web.deps import get_db_session_factory
+
+    session_factory = get_db_session_factory()
+    async with session_factory() as db:
+        result = await db.execute(
+            select(MemberSkill).where(
+                MemberSkill.member_id == member_id,
+                MemberSkill.skill_id == skill_id,
+            )
+        )
+        member_skill = result.scalar_one_or_none()
+        if not member_skill:
+            return {"success": False, "error": "订阅不存在"}
+
+        if req.enabled is not None:
+            member_skill.enabled = req.enabled
+        if req.custom_content is not None:
+            member_skill.custom_content = req.custom_content
+
+        await db.commit()
+
+    return {"success": True}
+
+
+@router.delete("/{member_id}/skills/{skill_id}")
+async def remove_member_skill(member_id: str, skill_id: str):
+    """取消成员技能订阅"""
+    from openvort.db.models import MemberSkill
+    from openvort.web.deps import get_db_session_factory
+
+    session_factory = get_db_session_factory()
+    async with session_factory() as db:
+        result = await db.execute(
+            select(MemberSkill).where(
+                MemberSkill.member_id == member_id,
+                MemberSkill.skill_id == skill_id,
+            )
+        )
+        member_skill = result.scalar_one_or_none()
+        if member_skill:
+            await db.delete(member_skill)
+            await db.commit()
+
+    return {"success": True}

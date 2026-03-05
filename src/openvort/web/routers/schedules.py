@@ -29,6 +29,7 @@ class CreateJobRequest(BaseModel):
     action_config: dict | None = None
     enabled: bool = True
     visible: bool = True  # 团队任务是否对成员展示
+    target_member_id: str = ""  # 执行人（AI 员工 ID）
 
 
 class UpdateJobRequest(BaseModel):
@@ -41,6 +42,7 @@ class UpdateJobRequest(BaseModel):
     action_config: dict | None = None
     enabled: bool | None = None
     visible: bool | None = None
+    target_member_id: str | None = None  # 执行人（AI 员工 ID）
 
 
 _scheduler_instance = None
@@ -113,6 +115,7 @@ async def create_my_job(request: Request, req: CreateJobRequest):
         action_config=req.action_config,
         enabled=req.enabled,
         visible=req.visible,
+        target_member_id=req.target_member_id or "",
     )
     return {"success": True, "job": job}
 
@@ -229,3 +232,34 @@ async def run_any_job(job_id: str):
     service = _get_service()
     result = await service.run_now(job_id)
     return result
+
+
+# ---- 获取 AI 员工列表（用于任务执行人选择）----
+
+@schedules_router.get("/executors")
+async def list_executors(request: Request):
+    """获取可作为执行人的 AI 员工列表"""
+    from sqlalchemy import select
+    from openvort.contacts.models import Member
+
+    from openvort.web.deps import get_db_session_factory
+
+    session_factory = get_db_session_factory()
+    async with session_factory() as db:
+        stmt = select(Member).where(
+            Member.is_virtual == True,  # noqa: E712
+            Member.status == "active",
+        )
+        result = await db.execute(stmt)
+        members = result.scalars().all()
+
+    return {
+        "executors": [
+            {
+                "id": m.id,
+                "name": m.name,
+                "virtual_role": m.virtual_role or "",
+            }
+            for m in members
+        ]
+    }

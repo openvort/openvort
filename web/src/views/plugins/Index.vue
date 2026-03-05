@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, onMounted, computed } from "vue";
 import { getPlugins, getPluginDetail, updatePlugin, togglePlugin, installPlugin, uploadPlugin, deletePlugin } from "@/api";
-import { Puzzle, Wrench, CheckCircle, XCircle, Settings, Plus, Upload, Trash2 } from "lucide-vue-next";
+import { Puzzle, Wrench, CheckCircle, XCircle, Settings, Plus, Upload, Trash2, Search, ChevronDown, ChevronRight } from "lucide-vue-next";
 import { message, dialog } from "@openvort/vort-ui";
 import { usePluginStore } from "@/stores/modules/plugin";
 
@@ -36,6 +36,42 @@ interface PluginInfo {
 const plugins = ref<PluginInfo[]>([]);
 const loading = ref(false);
 
+// 搜索和筛选
+const searchQuery = ref("");
+const filterSource = ref<"all" | "builtin" | "pip" | "local">("all");
+const filterStatus = ref<"all" | "enabled" | "disabled">("all");
+
+// 筛选后的插件列表
+const filteredPlugins = computed(() => {
+    return plugins.value.filter((plugin) => {
+        // 搜索过滤
+        const query = searchQuery.value.toLowerCase().trim();
+        if (query) {
+            const matchName = plugin.name.toLowerCase().includes(query);
+            const matchDisplay = plugin.display_name.toLowerCase().includes(query);
+            const matchDesc = plugin.description?.toLowerCase().includes(query);
+            const matchTool = plugin.tools.some(
+                (t) => t.name.toLowerCase().includes(query) || t.description?.toLowerCase().includes(query)
+            );
+            if (!matchName && !matchDisplay && !matchDesc && !matchTool) {
+                return false;
+            }
+        }
+        // 来源筛选
+        if (filterSource.value !== "all" && plugin.source !== filterSource.value) {
+            return false;
+        }
+        // 状态筛选
+        if (filterStatus.value === "enabled" && !plugin.enabled) {
+            return false;
+        }
+        if (filterStatus.value === "disabled" && plugin.enabled) {
+            return false;
+        }
+        return true;
+    });
+});
+
 // 配置抽屉
 const drawerOpen = ref(false);
 const drawerLoading = ref(false);
@@ -43,6 +79,12 @@ const saving = ref(false);
 const currentPlugin = ref<string>("");
 const configSchema = ref<ConfigField[]>([]);
 const configForm = ref<Record<string, string>>({});
+
+// 工具列表折叠状态
+const collapsedTools = ref<Record<string, boolean>>({});
+const toggleTools = (pluginName: string) => {
+    collapsedTools.value[pluginName] = !collapsedTools.value[pluginName];
+};
 
 // 加载插件列表
 const loadPlugins = async () => {
@@ -180,6 +222,33 @@ onMounted(loadPlugins);
             </VortButton>
         </div>
 
+        <!-- 搜索和筛选 -->
+        <div class="flex flex-wrap items-center gap-3">
+            <div class="relative flex-1 min-w-[200px] max-w-md">
+                <Search :size="14" class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                    v-model="searchQuery"
+                    type="text"
+                    placeholder="搜索插件名称、描述、工具..."
+                    class="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-blue-400"
+                />
+            </div>
+            <VortSelect v-model="filterSource" class="w-28">
+                <VortSelectOption value="all">全部来源</VortSelectOption>
+                <VortSelectOption value="builtin">内置</VortSelectOption>
+                <VortSelectOption value="pip">pip</VortSelectOption>
+                <VortSelectOption value="local">本地</VortSelectOption>
+            </VortSelect>
+            <VortSelect v-model="filterStatus" class="w-28">
+                <VortSelectOption value="all">全部状态</VortSelectOption>
+                <VortSelectOption value="enabled">已启用</VortSelectOption>
+                <VortSelectOption value="disabled">已禁用</VortSelectOption>
+            </VortSelect>
+            <span v-if="filteredPlugins.length !== plugins.length" class="text-xs text-gray-400">
+                {{ filteredPlugins.length }} / {{ plugins.length }}
+            </span>
+        </div>
+
         <VortAlert
             v-if="needRestart"
             type="warning"
@@ -194,8 +263,11 @@ onMounted(loadPlugins);
             <div v-if="plugins.length === 0 && !loading" class="text-center py-12 text-gray-400 text-sm">
                 暂无已加载的插件
             </div>
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <vort-card v-for="plugin in plugins" :key="plugin.name" :shadow="false" padding="small">
+            <div v-else-if="filteredPlugins.length === 0" class="text-center py-12 text-gray-400 text-sm">
+                没有匹配的插件
+            </div>
+            <div v-else class="masonry-grid">
+                <vort-card v-for="plugin in filteredPlugins" :key="plugin.name" class="masonry-item" :shadow="false" padding="small">
                     <div class="flex items-center justify-between mb-4">
                         <div class="flex items-center">
                             <div class="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center mr-3">
@@ -228,14 +300,22 @@ onMounted(loadPlugins);
 
                     <p v-if="plugin.description" class="text-xs text-gray-500 mb-3">{{ plugin.description }}</p>
 
-                    <div v-if="plugin.tools.length" class="space-y-2">
-                        <p class="text-xs text-gray-500 font-medium">工具列表 ({{ plugin.tools.length }})</p>
-                        <div v-for="tool in plugin.tools" :key="tool.name"
-                            class="flex items-start gap-2 p-2 rounded bg-gray-50 text-xs">
-                            <Wrench :size="12" class="text-gray-400 mt-0.5 flex-shrink-0" />
-                            <div>
-                                <span class="font-medium text-gray-700">{{ tool.name }}</span>
-                                <p class="text-gray-400 mt-0.5">{{ tool.description }}</p>
+                    <div v-if="plugin.tools.length" class="mt-3 pt-3 border-t border-gray-100">
+                        <button
+                            class="flex items-center gap-1 text-xs text-gray-500 font-medium hover:text-blue-600 transition-colors"
+                            @click="toggleTools(plugin.name)"
+                        >
+                            <component :is="collapsedTools[plugin.name] ? ChevronRight : ChevronDown" :size="12" />
+                            工具列表 ({{ plugin.tools.length }})
+                        </button>
+                        <div v-show="!collapsedTools[plugin.name]" class="mt-2 space-y-2">
+                            <div v-for="tool in plugin.tools" :key="tool.name"
+                                class="flex items-start gap-2 p-2 rounded bg-gray-50 text-xs">
+                                <Wrench :size="12" class="text-gray-400 mt-0.5 flex-shrink-0" />
+                                <div>
+                                    <span class="font-medium text-gray-700">{{ tool.name }}</span>
+                                    <p class="text-gray-400 mt-0.5">{{ tool.description }}</p>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -328,3 +408,24 @@ onMounted(loadPlugins);
         </VortDialog>
     </div>
 </template>
+
+<style scoped>
+.masonry-grid {
+    column-count: 1;
+    column-gap: 16px;
+}
+.masonry-item {
+    break-inside: avoid;
+    margin-bottom: 16px;
+}
+@media (min-width: 640px) {
+    .masonry-grid {
+        column-count: 2;
+    }
+}
+@media (min-width: 1280px) {
+    .masonry-grid {
+        column-count: 3;
+    }
+}
+</style>

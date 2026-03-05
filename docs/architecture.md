@@ -237,6 +237,7 @@ class OpenAICompatibleProvider(LLMProvider): ...
 | Web | 管理面板（Vue 3 + FastAPI + JWT + SSE + WebSocket + Webhook） | ✅ |
 | 安全 | RBAC + DM 配对 + Docker 沙箱 + Token 加密 | ✅ |
 | 基础设施 | CLI + Relay + Pydantic Settings + 异步全栈 | ✅ |
+| AI 员工 | Member 扩展 + 角色模板 Skills + Agent 人设注入 + 定时汇报 | ✅ |
 
 ## 设计决策记录
 
@@ -264,3 +265,45 @@ Python entry_points 是标准的插件发现机制：
 ### 为什么需要 Relay Server？
 
 本地开发时没有公网 IP，无法接收企微 Webhook 回调。Relay 部署在公网，只做消息中转，不跑 AI，资源占用极低（128MB 内存即可）。
+
+### AI 员工任务归属与通知机制
+
+#### 核心概念
+
+- **Owner（任务拥有者/汇报接收人）**：真实成员，负责创建任务、接收结果通知。
+- **Executor（执行人）**：可以是 AI 员工（虚拟 Member）或系统默认 Agent。
+- **Channel（通知通道）**：Web Chat 会话、企业微信/钉钉/飞书等。
+
+#### ScheduleJob 字段语义
+
+| 字段 | 语义 | 说明 |
+|------|------|------|
+| `owner_id` | 任务拥有者 | 谁创建任务、谁会收到通知 |
+| `target_member_id` | 执行人 | 绑定的 AI 员工 ID，为空则由系统默认 Agent 执行 |
+
+#### 执行流程
+
+```mermaid
+sequenceDiagram
+    participant Human as HumanOwner
+    participant Scheduler as ScheduleService
+    participant Agent as AgentRuntime
+    participant AIEmp as AIVirtualMember
+    participant Web as WebChat
+    participant IM as IMChannels
+
+    Human->>Scheduler: 创建任务(owner_id=Human, target_member_id=AIEmp)
+    Scheduler-->>Agent: 触发执行(上下文=张三 persona)
+    Agent-->>Scheduler: result_text
+    Scheduler-->>Web: notify_owner_via_web(Human, 张三, result)
+    Scheduler-->>IM: notify_owner_via_im(Human, 张三, result)
+    Web-->>Human: 聊天窗口收到"张三"的消息
+    IM-->>Human: 企微/飞书等收到通知
+```
+
+#### 关键实现
+
+1. **执行上下文构建**：基于 `target_member_id` 查询 Member，构建完整的 RequestContext，让 AgentRuntime 自动注入 AI 员工人设。
+2. **统一通知接口**：`notify_fn(owner_id, job_name, result_text)` 负责将执行结果推送给任务拥有者，支持 Web Chat 和 IM 通道。
+3. **Web Chat 通知**：通过 SSE/WebSocket 向 owner 的聊天会话推送以 AI 员工身份发送的消息。
+4. **IM 通知**：基于 PlatformIdentity 映射找到 owner 在各平台的账号，调用对应 Channel 的单聊消息接口。

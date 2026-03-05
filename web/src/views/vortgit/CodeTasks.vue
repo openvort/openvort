@@ -3,13 +3,14 @@ import { ref, onMounted, computed } from "vue";
 import { useRouter } from "vue-router";
 import {
     getVortgitCodeTasks, getVortgitCodeTask, getVortgitCodeTaskStats,
-    getVortgitRepos, getMembers,
+    getVortgitRepos, getMembers, batchDeleteVortgitCodeTasks,
 } from "@/api";
 import {
     RefreshCw, ExternalLink, TerminalSquare, Clock, FileCode2,
     CheckCircle2, XCircle, Loader2, AlertCircle,
 } from "lucide-vue-next";
 import { message } from "@openvort/vort-ui";
+import { useUserStore } from "@/stores";
 
 interface CodeTask {
     id: string;
@@ -42,6 +43,7 @@ interface Stats {
 }
 
 const router = useRouter();
+const userStore = useUserStore();
 
 const tasks = ref<CodeTask[]>([]);
 const total = ref(0);
@@ -56,6 +58,8 @@ const pageSize = ref(20);
 
 const repos = ref<{ id: string; name: string; full_name: string }[]>([]);
 const members = ref<{ id: string; name: string }[]>([]);
+
+const selectedRowKeys = ref<string[]>([]);
 
 const drawerOpen = ref(false);
 const drawerTask = ref<CodeTask | null>(null);
@@ -93,6 +97,17 @@ const memberMap = computed(() => {
     return m;
 });
 
+const isAdmin = computed(() => userStore.isAdmin);
+
+const rowSelection = computed(() => ({
+    selectedRowKeys: selectedRowKeys.value,
+    onChange: (keys: (string | number)[]) => {
+        selectedRowKeys.value = (keys as string[]);
+    },
+}));
+
+const hasSelection = computed(() => selectedRowKeys.value.length > 0);
+
 async function loadTasks() {
     loading.value = true;
     try {
@@ -105,6 +120,7 @@ async function loadTasks() {
         });
         tasks.value = res.items || [];
         total.value = res.total || 0;
+        selectedRowKeys.value = [];
     } catch {
         tasks.value = [];
     }
@@ -191,9 +207,27 @@ function truncate(s: string | null | undefined, len: number): string {
     return s.length > len ? s.slice(0, len) + "..." : s;
 }
 
+function memberLabel(id: string): string {
+    const name = memberMap.value[id];
+    if (name) return name;
+    if (!id) return "-";
+    return id.length > 12 ? `${id.slice(0, 6)}...${id.slice(-4)}` : id;
+}
+
 function refresh() {
     loadTasks();
     loadStats();
+}
+
+async function handleBatchDelete() {
+    if (!selectedRowKeys.value.length) return;
+    try {
+        await batchDeleteVortgitCodeTasks(selectedRowKeys.value);
+        message.success("已删除选中的任务");
+        await refresh();
+    } catch (e: any) {
+        message.error(e?.response?.data?.detail || "删除失败");
+    }
 }
 
 onMounted(() => {
@@ -205,7 +239,7 @@ onMounted(() => {
 <template>
     <div class="space-y-4">
         <!-- Stats cards -->
-        <div v-if="stats" class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div v-if="stats" class="grid grid-cols-2 md:grid-cols-5 gap-4">
             <div class="bg-white rounded-xl p-4 flex items-center gap-3">
                 <div class="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center">
                     <TerminalSquare :size="20" class="text-blue-500" />
@@ -242,6 +276,15 @@ onMounted(() => {
                     <div class="text-xs text-gray-400">本周任务</div>
                 </div>
             </div>
+            <div class="bg-white rounded-xl p-4 flex items-center gap-3">
+                <div class="w-10 h-10 rounded-lg bg-yellow-50 flex items-center justify-center">
+                    <Loader2 :size="20" class="text-yellow-500" />
+                </div>
+                <div>
+                    <div class="text-2xl font-semibold text-gray-800">{{ stats.running }}</div>
+                    <div class="text-xs text-gray-400">执行中任务</div>
+                </div>
+            </div>
         </div>
 
         <!-- List -->
@@ -257,10 +300,26 @@ onMounted(() => {
                 </VortButton>
             </div>
 
-            <VortTable :data-source="tasks" :loading="loading" row-key="id" :pagination="false">
+            <div v-if="isAdmin && hasSelection" class="flex items-center gap-3 mb-4">
+                <span class="text-sm text-gray-500">已选 {{ selectedRowKeys.length }} 项</span>
+                <VortPopconfirm title="确认批量删除选中的任务？" @confirm="handleBatchDelete">
+                    <VortButton size="small">
+                        批量删除
+                    </VortButton>
+                </VortPopconfirm>
+                <VortButton size="small" @click="selectedRowKeys = []">取消选择</VortButton>
+            </div>
+
+            <VortTable
+                :data-source="tasks"
+                :loading="loading"
+                row-key="id"
+                :pagination="false"
+                :row-selection="isAdmin ? rowSelection : undefined"
+            >
                 <VortTableColumn label="触发人" :width="100">
                     <template #default="{ row }">
-                        <span class="text-sm text-gray-700">{{ memberMap[row.member_id] || row.member_id }}</span>
+                        <span class="text-sm text-gray-700">{{ memberLabel(row.member_id) }}</span>
                     </template>
                 </VortTableColumn>
                 <VortTableColumn label="仓库" :min-width="140">
@@ -318,11 +377,13 @@ onMounted(() => {
                 </VortTableColumn>
             </VortTable>
 
-            <div v-if="total > pageSize" class="mt-4 flex justify-end">
+            <div v-if="total > 0" class="mt-4 flex justify-end">
                 <VortPagination
-                    :current="page"
-                    :page-size="pageSize"
+                    v-model:current="page"
+                    v-model:page-size="pageSize"
                     :total="total"
+                    show-total-info
+                    show-size-changer
                     @change="handlePageChange"
                 />
             </div>

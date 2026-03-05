@@ -5,9 +5,10 @@ import {
     getMemberSkills, createPersonalSkill, updatePersonalSkill, deletePersonalSkill,
     getPublicSkills, subscribeMemberSkill, unsubscribeMemberSkill,
     updateMemberBio, generateMemberBioPrompt,
+    getWorkAssignments, updateWorkAssignmentStatus,
 } from "@/api";
 import { message, dialog } from "@openvort/vort-ui";
-import { Bot, Plus, Trash2, Save, User, Globe, BookOpen } from "lucide-vue-next";
+import { Bot, Plus, Trash2, Save, User, Globe, BookOpen, ClipboardList, Clock } from "lucide-vue-next";
 
 const props = defineProps<{
     open: boolean;
@@ -27,6 +28,26 @@ const personalSkills = ref<any[]>([]);
 const subscribedSkillIds = ref<Set<string>>(new Set());
 const publicSkills = ref<any[]>([]);
 const savingBio = ref(false);
+
+// 工作安排
+const activeTab = ref<"profile" | "work">("profile");
+const workAssignments = ref<any[]>([]);
+const loadingWork = ref(false);
+
+const tabs = [
+    { key: "profile", label: "个人档案", icon: User },
+    { key: "work", label: "工作安排", icon: ClipboardList },
+];
+
+async function loadWorkAssignments() {
+    if (!props.memberId) return;
+    loadingWork.value = true;
+    try {
+        const res: any = await getWorkAssignments({ assignee_member_id: props.memberId });
+        workAssignments.value = res?.assignments || [];
+    } catch { /* ignore */ }
+    finally { loadingWork.value = false; }
+}
 
 async function loadData() {
     if (!props.memberId) return;
@@ -50,7 +71,18 @@ async function loadData() {
 }
 
 watch(() => props.open, (val) => {
-    if (val && props.memberId) loadData();
+    if (val && props.memberId) {
+        loadData();
+        if (activeTab.value === "work") {
+            loadWorkAssignments();
+        }
+    }
+});
+
+watch(activeTab, (tab) => {
+    if (tab === "work") {
+        loadWorkAssignments();
+    }
 });
 
 // ---- Bio ----
@@ -162,11 +194,64 @@ async function toggleSubscribe(skill: any) {
         message.error(e?.response?.data?.detail || "操作失败");
     }
 }
+
+// ---- Work assignment actions ----
+const statusOptions = [
+    { value: "pending", label: "待处理" },
+    { value: "in_progress", label: "进行中" },
+    { value: "completed", label: "已完成" },
+    { value: "ongoing", label: "持续进行" },
+];
+
+async function handleUpdateStatus(assignment: any, newStatus: string) {
+    try {
+        await updateWorkAssignmentStatus(assignment.id, newStatus);
+        assignment.status = newStatus;
+        message.success("状态已更新");
+    } catch (e: any) {
+        message.error(e?.response?.data?.detail || "更新失败");
+    }
+}
+
+const priorityColors: Record<string, string> = {
+    low: "bg-gray-100 text-gray-500",
+    normal: "bg-blue-100 text-blue-600",
+    high: "bg-orange-100 text-orange-600",
+    urgent: "bg-red-100 text-red-600",
+};
+
+const statusColors: Record<string, string> = {
+    pending: "bg-gray-100 text-gray-600",
+    in_progress: "bg-blue-100 text-blue-600",
+    completed: "bg-green-100 text-green-600",
+    ongoing: "bg-purple-100 text-purple-600",
+};
+
+const sourceTypeLabels: Record<string, string> = {
+    manual: "手动创建",
+    chat: "聊天安排",
+    code_task: "代码任务",
+    schedule: "定时任务",
+};
 </script>
 
 <template>
     <VortDrawer :open="open" :title="`${memberName} · 成员档案`" :width="520" @update:open="emit('update:open', $event)">
-        <VortSpin :spinning="loading">
+        <!-- Tabs -->
+        <div class="flex border-b border-gray-200 mb-4 -mx-6 px-6">
+            <button v-for="tab in tabs" :key="tab.key"
+                class="flex items-center gap-1.5 px-4 py-2.5 text-sm border-b-2 transition-colors -mb-px"
+                :class="activeTab === tab.key
+                    ? 'border-blue-500 text-blue-600 font-medium'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'"
+                @click="activeTab = tab.key as any">
+                <component :is="tab.icon" :size="14" />
+                {{ tab.label }}
+            </button>
+        </div>
+
+        <!-- Tab: 个人档案 -->
+        <VortSpin :spinning="loading" v-show="activeTab === 'profile'">
             <div class="space-y-6">
                 <!-- Avatar + name -->
                 <div class="flex items-center gap-3">
@@ -239,6 +324,56 @@ async function toggleSubscribe(skill: any) {
                                 </div>
                             </div>
                             <VortSwitch :checked="subscribedSkillIds.has(skill.id)" size="small" @change="toggleSubscribe(skill)" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </VortSpin>
+
+        <!-- Tab: 工作安排 -->
+        <VortSpin :spinning="loadingWork" v-show="activeTab === 'work'">
+            <div class="space-y-4">
+                <div v-if="workAssignments.length === 0" class="text-xs text-gray-400 py-8 text-center bg-gray-50 rounded-lg">
+                    暂无工作安排
+                </div>
+                <div v-else class="space-y-3">
+                    <div v-for="assignment in workAssignments" :key="assignment.id"
+                        class="p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                        <div class="flex items-start justify-between gap-2 mb-2">
+                            <div class="min-w-0 flex-1">
+                                <div class="text-sm font-medium text-gray-800 truncate">{{ assignment.title }}</div>
+                                <div v-if="assignment.summary" class="text-xs text-gray-500 mt-0.5 line-clamp-2">{{ assignment.summary }}</div>
+                            </div>
+                            <div class="flex-shrink-0 flex items-center gap-1.5">
+                                <span class="text-[10px] px-1.5 py-0.5 rounded" :class="priorityColors[assignment.priority] || priorityColors.normal">
+                                    {{ assignment.priority === 'urgent' ? '紧急' : assignment.priority === 'high' ? '高' : assignment.priority === 'low' ? '低' : '普通' }}
+                                </span>
+                                <span class="text-[10px] px-1.5 py-0.5 rounded" :class="statusColors[assignment.status] || statusColors.pending">
+                                    {{ statusOptions.find(s => s.value === assignment.status)?.label || assignment.status }}
+                                </span>
+                            </div>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-3 text-[10px] text-gray-400">
+                                <span v-if="assignment.source_type" class="flex items-center gap-0.5">
+                                    <Clock :size="10" />
+                                    {{ sourceTypeLabels[assignment.source_type] || assignment.source_type }}
+                                </span>
+                                <span v-if="assignment.last_action_at">
+                                    最近行动: {{ new Date(assignment.last_action_at).toLocaleDateString() }}
+                                </span>
+                            </div>
+                            <VortSelect
+                                :value="assignment.status"
+                                size="small"
+                                style="width: 90px"
+                                @change="handleUpdateStatus(assignment, $event)">
+                                <VortOption v-for="opt in statusOptions" :key="opt.value" :value="opt.value" :label="opt.label" />
+                            </VortSelect>
+                        </div>
+                        <div v-if="assignment.plan" class="mt-2 pt-2 border-t border-gray-200">
+                            <div class="text-[10px] text-gray-400 mb-1">执行计划:</div>
+                            <div class="text-xs text-gray-600 whitespace-pre-line">{{ assignment.plan }}</div>
                         </div>
                     </div>
                 </div>

@@ -4,6 +4,9 @@ Jenkins build tools.
 
 from __future__ import annotations
 
+import json
+
+from openvort.plugins.jenkins.confirm import get_confirm_manager
 from openvort.plugins.jenkins.tools.base import JenkinsToolBase
 
 
@@ -38,6 +41,85 @@ class TriggerBuildTool(JenkinsToolBase):
         }
 
     async def execute(self, params: dict) -> str:
+        # 获取调用者 ID
+        caller_id = params.get("_caller_id", "")
+        job_name = str(params.get("job_name", "") or "").strip()
+        
+        # 先检查必要参数是否提供
+        if not job_name:
+            return json.dumps({
+                "ok": False,
+                "error": "missing_params",
+                "message": "触发构建需要提供 job_name（Job 名称），请提供后再操作。",
+                "missing_params": ["job_name"],
+            }, ensure_ascii=False)
+        
+        # 检查是否有待确认操作需要处理
+        if caller_id:
+            confirm_mgr = get_confirm_manager()
+            pending = confirm_mgr.get_pending(caller_id)
+            
+            if pending and pending.tool == self.name:
+                # 用户之前发起过触发构建，检查是否确认
+                user_input = params.get("_user_input", "")
+                is_confirmed, _ = confirm_mgr.check_confirm(caller_id, user_input)
+                
+                if is_confirmed:
+                    # 用户确认了，执行实际操作
+                    return await self._do_trigger_build(pending.params)
+                
+                # 用户没确认，返回待确认提示
+                return json.dumps({
+                    "ok": False,
+                    "error": "pending_confirm",
+                    "message": f"请回复「确认」以执行触发构建操作（其他内容无效）。",
+                    "pending_action": "trigger_build",
+                    "job_name": pending.params.get("job_name", ""),
+                }, ensure_ascii=False)
+        
+        # 没有 caller_id 或没有待确认操作，正常流程
+        return await self._confirm_and_execute(caller_id, job_name, params)
+
+    async def _confirm_and_execute(self, caller_id: str, job_name: str, params: dict) -> str:
+        """处理需要确认的触发构建操作"""
+        # 如果没有 caller_id（无会话上下文），直接执行
+        if not caller_id:
+            return await self._do_trigger_build(params)
+        
+        # 检查是否已获取过参数定义
+        # 如果 parameters 未传入，先返回提示让用户确认参数
+        provided_params = params.get("parameters")
+        if provided_params is None:
+            # 返回特殊错误，让 AI 先获取 Job 参数定义
+            return json.dumps({
+                "ok": False,
+                "error": "need_job_info",
+                "message": f"在触发构建「{job_name}」之前，需要先获取该 Job 的参数定义。请调用 jenkins_job_info 获取参数后再次尝试。",
+                "pending_action": "trigger_build",
+                "job_name": job_name,
+            }, ensure_ascii=False)
+        
+        # 设置待确认状态
+        confirm_mgr = get_confirm_manager()
+        confirm_mgr.set_pending(
+            caller_id=caller_id,
+            action="trigger_build",
+            tool=self.name,
+            params=params,
+            instance_name=job_name,
+        )
+        
+        return json.dumps({
+            "ok": False,
+            "error": "pending_confirm",
+            "message": f"即将触发 Jenkins 构建「{job_name}」，请回复「确认」以执行（其他内容无效）。",
+            "pending_action": "trigger_build",
+            "job_name": job_name,
+            "parameters": provided_params,
+        }, ensure_ascii=False)
+
+    async def _do_trigger_build(self, params: dict) -> str:
+        """实际执行触发构建"""
         async def _handle(client):
             job_name = str(params.get("job_name", "") or "").strip()
             if not job_name:

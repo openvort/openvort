@@ -76,7 +76,7 @@ class PluginLoader:
                 # 注册 Plugin 的领域知识 Prompts
                 prompts = plugin.get_prompts()
                 for prompt in prompts:
-                    self.registry.register_prompt(prompt)
+                    self.registry.register_prompt(prompt, source=f"plugin:{plugin.name}")
 
                 log.info(
                     f"已加载 Plugin: {plugin.name} ({plugin.display_name}) "
@@ -137,7 +137,7 @@ class PluginLoader:
 
                 prompts = plugin.get_prompts()
                 for prompt in prompts:
-                    self.registry.register_prompt(prompt)
+                    self.registry.register_prompt(prompt, source=f"plugin:{plugin.name}")
 
                 log.info(
                     f"已加载本地 Plugin: {plugin.name} ({plugin.display_name}) "

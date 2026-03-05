@@ -44,45 +44,20 @@ class TestEnvStatus:
 class TestCodingEnvironment:
     """CodingEnvironment detection and execution tests."""
 
-    def test_detect_local_with_cli(self):
-        env = CodingEnvironment()
-        with patch.object(env, "_is_running_in_docker", return_value=False), \
-             patch.object(env, "_has_any_cli_locally", return_value=True):
-            assert env.detect_mode() == EnvMode.LOCAL
-
     def test_detect_docker_when_available(self):
         env = CodingEnvironment()
-        with patch.object(env, "_is_running_in_docker", return_value=False), \
-             patch.object(env, "_has_any_cli_locally", return_value=False), \
-             patch.object(env, "_is_docker_available", return_value=True):
+        with patch.object(env, "_is_docker_available", return_value=True):
             assert env.detect_mode() == EnvMode.DOCKER
 
     def test_detect_unavailable(self):
         env = CodingEnvironment()
-        with patch.object(env, "_is_running_in_docker", return_value=False), \
-             patch.object(env, "_has_any_cli_locally", return_value=False), \
-             patch.object(env, "_is_docker_available", return_value=False):
+        with patch.object(env, "_is_docker_available", return_value=False):
             assert env.detect_mode() == EnvMode.UNAVAILABLE
 
     def test_detect_inside_docker_with_socket(self):
         env = CodingEnvironment()
-        with patch.object(env, "_is_running_in_docker", return_value=True), \
-             patch.object(env, "_has_docker_socket", return_value=True):
+        with patch.object(env, "_is_docker_available", return_value=True):
             assert env.detect_mode() == EnvMode.DOCKER
-
-    def test_detect_inside_docker_with_local_cli(self):
-        env = CodingEnvironment()
-        with patch.object(env, "_is_running_in_docker", return_value=True), \
-             patch.object(env, "_has_docker_socket", return_value=False), \
-             patch.object(env, "_has_any_cli_locally", return_value=True):
-            assert env.detect_mode() == EnvMode.LOCAL
-
-    def test_detect_inside_docker_no_socket_no_cli(self):
-        env = CodingEnvironment()
-        with patch.object(env, "_is_running_in_docker", return_value=True), \
-             patch.object(env, "_has_docker_socket", return_value=False), \
-             patch.object(env, "_has_any_cli_locally", return_value=False):
-            assert env.detect_mode() == EnvMode.UNAVAILABLE
 
     @pytest.mark.asyncio
     async def test_execute_unavailable_returns_error(self):

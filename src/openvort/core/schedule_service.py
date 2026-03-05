@@ -6,11 +6,12 @@
 
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import partial
 
 from sqlalchemy import select, delete
 
+from openvort.contacts.service import ContactService
 from openvort.core.scheduler import Scheduler
 from openvort.db.models import ScheduleJob
 from openvort.utils.logging import get_logger
@@ -21,10 +22,17 @@ log = get_logger("core.schedule_service")
 class ScheduleService:
     """定时任务管理服务"""
 
-    def __init__(self, session_factory, scheduler: Scheduler, agent_runtime=None):
+    def __init__(self, session_factory, scheduler: Scheduler, agent_runtime=None, notify_fn=None):
+        """
+        Args:
+            notify_fn: async (owner_id, job_name, result_text) -> None
+                       Callback to deliver execution result to the job owner.
+        """
         self._session_factory = session_factory
         self._scheduler = scheduler
         self._agent = agent_runtime
+        self._contacts_service = ContactService(session_factory)
+        self._notify_fn = notify_fn
 
     # ---- CRUD ----
 
@@ -41,6 +49,7 @@ class ScheduleService:
         action_config: dict | None = None,
         enabled: bool = True,
         visible: bool = True,
+        target_member_id: str = "",
     ) -> dict:
         job_id = f"sched_{uuid.uuid4().hex[:12]}"
         job = ScheduleJob(
@@ -56,6 +65,7 @@ class ScheduleService:
             action_config=json.dumps(action_config or {}),
             enabled=enabled,
             visible=visible,
+            target_member_id=target_member_id,
         )
         async with self._session_factory() as session:
             session.add(job)
@@ -84,7 +94,7 @@ class ScheduleService:
             if not is_admin and job.owner_id != owner_id:
                 return None
 
-            for key in ("name", "description", "schedule_type", "schedule", "timezone", "action_type", "enabled", "visible"):
+            for key in ("name", "description", "schedule_type", "schedule", "timezone", "action_type", "enabled", "visible", "target_member_id"):
                 if key in fields:
                     setattr(job, key, fields[key])
             if "action_config" in fields:
@@ -184,6 +194,10 @@ class ScheduleService:
 
             count = 0
             for job in jobs:
+                # Skip once-type tasks that already ran
+                if job.schedule_type == "once" and job.last_run_at is not None:
+                    log.debug(f"跳过已执行的一次性任务: {job.job_id}")
+                    continue
                 try:
                     self._register_job(job)
                     count += 1
@@ -195,6 +209,43 @@ class ScheduleService:
 
     # ---- 内部方法 ----
 
+    async def _build_executor_context(self, job: ScheduleJob) -> "RequestContext":
+        """构建执行人上下文（AI 员工或系统默认）"""
+        from openvort.core.context import RequestContext
+        from openvort.auth.service import AuthService
+
+        exec_id = f"{job.job_id}_{uuid.uuid4().hex[:8]}"
+
+        # 如果绑定了 AI 员工，使用完整的成员上下文
+        if job.target_member_id:
+            member = await self._contacts_service.get_member(job.target_member_id)
+            if member:
+                # 获取成员的角色和权限
+                roles = []
+                permissions = set()
+                try:
+                    auth_service = AuthService(self._session_factory)
+                    roles = await auth_service.get_member_roles(member.id)
+                    permissions = await auth_service.get_member_permissions(member.id)
+                except Exception as e:
+                    log.warning(f"获取成员角色权限失败: {e}")
+
+                ctx = RequestContext(
+                    channel="scheduler",
+                    user_id=exec_id,
+                    member=member,
+                    roles=roles,
+                    permissions=permissions,
+                )
+                return ctx
+
+        # 否则使用默认上下文（系统助手）
+        return RequestContext(
+            channel="scheduler",
+            user_id=exec_id,
+            member=None,
+        )
+
     async def _execute_job(self, job: ScheduleJob) -> str:
         """执行任务 — 目前只支持 agent_chat"""
         config = json.loads(job.action_config) if job.action_config else {}
@@ -202,12 +253,39 @@ class ScheduleService:
         if not prompt:
             raise ValueError("action_config 缺少 prompt")
 
+        # Resolve owner name for context
+        owner_name = ""
+        try:
+            owner = await self._contacts_service.get_member(job.owner_id)
+            if owner:
+                owner_name = owner.name
+        except Exception:
+            pass
+
+        # 构建执行人上下文（自动注入 AI 员工人设）
+        ctx = await self._build_executor_context(job)
+
+        # 根据执行人类型生成上下文提示
+        executor_name = ""
+        if ctx.member and ctx.member.is_virtual:
+            executor_name = ctx.member.name or "AI 员工"
+        else:
+            executor_name = "系统助手"
+
+        sched_context = (
+            f"[系统] 你正在执行定时任务「{job.name}」，任务创建者是{owner_name or job.owner_id}。"
+            f"当前执行人是{executor_name}。"
+            f"请根据任务要求执行操作，如需发送消息请通过 wecom_send_message 等工具发送给创建者。\n\n"
+            f"任务要求：{prompt}"
+        )
+
         result_text = ""
         status = "success"
 
         try:
             if self._agent and job.action_type == "agent_chat":
-                result_text = await self._agent.chat(prompt)
+                # AgentRuntime.process 会自动根据 ctx.member.is_virtual 注入人设
+                result_text = await self._agent.process(ctx, sched_context)
             else:
                 result_text = "Agent 未初始化或不支持的 action_type"
                 status = "failed"
@@ -224,8 +302,21 @@ class ScheduleService:
             if db_job:
                 db_job.last_run_at = datetime.now()
                 db_job.last_status = status
-                db_job.last_result = result_text[:2000]  # 截断保存
+                db_job.last_result = result_text[:2000]
                 await session.commit()
+
+        # 调用通知回调（如果有）
+        if self._notify_fn:
+            try:
+                await self._notify_fn(
+                    owner_id=job.owner_id,
+                    job_name=job.name,
+                    result_text=result_text,
+                    executor_member=ctx.member,
+                    job_id=job.job_id,
+                )
+            except Exception as e:
+                log.error(f"通知任务结果失败: {e}")
 
         return result_text
 
@@ -238,7 +329,11 @@ class ScheduleService:
         elif job.schedule_type == "interval":
             self._scheduler.add_interval(job.job_id, callback, int(job.schedule))
         elif job.schedule_type == "once":
-            run_at = datetime.fromisoformat(job.schedule)
+            schedule_val = job.schedule.strip()
+            if schedule_val.isdigit():
+                run_at = datetime.now() + timedelta(seconds=int(schedule_val))
+            else:
+                run_at = datetime.fromisoformat(schedule_val)
             self._scheduler.add_once(job.job_id, callback, run_at)
 
     async def _job_callback(self, job_id: str) -> None:
@@ -272,6 +367,7 @@ class ScheduleService:
             "timezone": job.timezone or "Asia/Shanghai",
             "action_type": job.action_type,
             "action_config": config,
+            "target_member_id": job.target_member_id or "",
             "enabled": job.enabled,
             "visible": job.visible,
             "last_run_at": job.last_run_at.isoformat() if job.last_run_at else None,

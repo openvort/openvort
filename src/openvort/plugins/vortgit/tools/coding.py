@@ -141,6 +141,43 @@ def _extract_codex_text(line: str) -> str:
 
     event_type = obj.get("type", "")
 
+    # New Codex CLI --json format: thread/turn/item events
+    # See https://developers.openai.com/codex/noninteractive
+    if event_type.startswith("thread.") or event_type.startswith("turn."):
+        return ""
+
+    if event_type.startswith("item."):
+        item = obj.get("item") or {}
+        item_type = item.get("type", "")
+
+        # Agent message from Codex (what we want to show in chat)
+        if item_type == "agent_message":
+            text = item.get("text", "")
+            if isinstance(text, str):
+                return text
+            if isinstance(text, list):
+                return "".join(str(t) for t in text)
+            return ""
+
+        # Commands / shell executions initiated by Codex
+        if item_type in ("command_execution", "tool_call", "shell_command"):
+            cmd = item.get("command") or item.get("command_line") or item.get("name", "")
+            if cmd:
+                return f"$ {cmd}"
+            return ""
+
+        # Command or tool output (log lines)
+        if item_type in ("command_output", "tool_output", "shell_output"):
+            output = item.get("output") or item.get("text", "")
+            if isinstance(output, str):
+                if output and len(output) > 300:
+                    output = output[:300] + "..."
+                return output
+            return ""
+
+        return ""
+
+    # Legacy / fallback schema (early Codex CLI builds or custom wrappers)
     if event_type == "message":
         content = obj.get("content", "")
         if isinstance(content, str):
@@ -346,7 +383,7 @@ class CodeTaskTool(BaseTool):
 
         # 2. Check coding environment
         env = _get_coding_env()
-        mode = env.detect_mode()
+        mode = await env.detect_mode()
         if mode == EnvMode.UNAVAILABLE:
             status = await env.get_status()
             return json.dumps({
@@ -694,6 +731,17 @@ class CodeTaskTool(BaseTool):
     ) -> str:
         parts = []
 
+        # 1. Inject global coding skills (loaded from DB config)
+        skills = await CodeTaskTool._get_global_coding_skills()
+        if skills:
+            skills_text = "\n".join(f"- {s['content']}" for s in skills if s.get("enabled", True))
+            if skills_text:
+                parts.append(
+                    f"## Global Coding Guidelines\n"
+                    "You MUST follow these guidelines in all your thinking and responses:\n"
+                    f"{skills_text}"
+                )
+
         if previous_context:
             parts.append(
                 f"## Previous Changes (same branch)\n{previous_context}\n"
@@ -723,6 +771,22 @@ class CodeTaskTool(BaseTool):
         )
 
         return "\n\n".join(parts)
+
+    @staticmethod
+    async def _get_global_coding_skills() -> list[dict]:
+        """Load global coding skills from DB config."""
+        try:
+            from openvort.db.engine import get_session_factory
+            from openvort.config.config_service import ConfigService
+
+            sf = get_session_factory()
+            cs = ConfigService(sf)
+            await cs.load_all()
+            cfg = await cs.get_cli_config()
+            return cfg.get("cli_global_skills", [])
+        except Exception as e:
+            log.debug(f"Failed to load global coding skills: {e}")
+            return []
 
     @staticmethod
     async def _fetch_vortflow_context(bug_id: str, task_id: str, story_id: str) -> str:
