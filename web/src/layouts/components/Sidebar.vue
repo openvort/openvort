@@ -22,7 +22,7 @@ const SUBMENU_STATE_KEY = "openvort.sidebar.open-submenus";
 const expandedMenus = ref<string[]>([]);
 
 const collapsed = computed(() => props.isMobile ? false : appStore.sidebarCollapsed);
-const collapseProgress = ref(0); // 0 = collapsed, 1 = expanded
+const collapseProgress = ref(collapsed.value ? 0 : 1);
 let rafId: number | null = null;
 
 watch(collapsed, (newVal) => {
@@ -43,7 +43,7 @@ watch(collapsed, (newVal) => {
         }
     };
     rafId = requestAnimationFrame(animate);
-}, { immediate: true });
+});
 
 onUnmounted(() => {
     if (rafId) cancelAnimationFrame(rafId);

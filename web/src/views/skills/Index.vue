@@ -234,20 +234,20 @@ async function loadRoleSkills() {
 // Role skill mapping: add/remove
 const roleSkillDialogOpen = ref(false);
 const roleSkillDialogRole = ref("");
-const roleSkillDialogSkillId = ref("");
+const roleSkillDialogSkillIds = ref<string[]>([]);
 
 function openAddRoleSkillDialog(role: string) {
     roleSkillDialogRole.value = role;
-    roleSkillDialogSkillId.value = "";
+    roleSkillDialogSkillIds.value = [];
     roleSkillDialogOpen.value = true;
 }
 
 async function handleAddRoleSkill() {
-    if (!roleSkillDialogSkillId.value) { message.warning("请选择技能"); return; }
+    if (!roleSkillDialogSkillIds.value.length) { message.warning("请选择技能"); return; }
     try {
-        const res: any = await addRoleSkill(roleSkillDialogRole.value, roleSkillDialogSkillId.value);
+        const res: any = await addRoleSkill(roleSkillDialogRole.value, roleSkillDialogSkillIds.value);
         if (res?.success) {
-            message.success("已添加");
+            message.success(`已添加 ${res.added} 个技能`);
             roleSkillDialogOpen.value = false;
             loadRoleSkills();
         } else {
@@ -476,7 +476,7 @@ function openImportDialog() {
             </div>
 
             <VortSpin :spinning="roleLoading">
-                <div v-if="!roleCollapsed" class="space-y-3">
+                <div v-if="!roleCollapsed" class="grid grid-cols-1 lg:grid-cols-2 gap-3">
                     <div v-for="role in ROLE_OPTIONS" :key="role.value"
                         class="border border-gray-100 rounded-lg px-4 py-3">
                         <div class="flex items-center justify-between">
@@ -725,7 +725,7 @@ function openImportDialog() {
                 </div>
                 <div>
                     <label class="block text-sm text-gray-600 mb-1">选择技能</label>
-                    <VortSelect v-model="roleSkillDialogSkillId" placeholder="请选择技能" class="w-full">
+                    <VortSelect v-model="roleSkillDialogSkillIds" mode="multiple" placeholder="请选择技能（可多选）" class="w-full">
                         <VortSelectOption v-for="s in availableSkillsForRole" :key="s.id" :value="s.id">
                             {{ s.name }} <span class="text-gray-400">({{ SKILL_TYPE_MAP[s.skill_type]?.label || s.skill_type }})</span>
                         </VortSelectOption>

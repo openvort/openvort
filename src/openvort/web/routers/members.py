@@ -661,39 +661,45 @@ async def get_role_skills(role: str = ""):
 
 
 class AddPostSkillRequest(BaseModel):
-    """添加岗位技能请求"""
-    post: str
-    skill_id: str
+    """添加岗位技能请求（支持单个或批量）"""
+    role: str
+    skill_id: str | None = None
+    skill_ids: list[str] | None = None
     priority: int = 0
 
 
 class RemovePostSkillRequest(BaseModel):
     """移除岗位技能请求"""
-    post: str
+    role: str
     skill_id: str
 
 
 @router.post("/roles/skills")
 async def add_role_skill(req: AddPostSkillRequest):
-    """为岗位添加推荐技能"""
+    """为岗位添加推荐技能（支持单个或批量）"""
     from openvort.db.models import PostSkill as PostSkillModel, Skill
 
+    ids = req.skill_ids or ([req.skill_id] if req.skill_id else [])
+    if not ids:
+        return {"success": False, "error": "请提供 skill_id 或 skill_ids"}
+
     session_factory = get_db_session_factory()
+    added = 0
     async with session_factory() as db:
-        skill = await db.get(Skill, req.skill_id)
-        if not skill:
-            return {"success": False, "error": "技能不存在"}
-
-        existing = await db.execute(
-            select(PostSkillModel).where(PostSkillModel.role == req.post, PostSkillModel.skill_id == req.skill_id)
-        )
-        if existing.scalar_one_or_none():
-            return {"success": False, "error": "该映射已存在"}
-
-        db.add(PostSkillModel(role=req.post, skill_id=req.skill_id, priority=req.priority))
+        for sid in ids:
+            skill = await db.get(Skill, sid)
+            if not skill:
+                continue
+            existing = await db.execute(
+                select(PostSkillModel).where(PostSkillModel.role == req.role, PostSkillModel.skill_id == sid)
+            )
+            if existing.scalar_one_or_none():
+                continue
+            db.add(PostSkillModel(role=req.role, skill_id=sid, priority=req.priority))
+            added += 1
         await db.commit()
 
-    return {"success": True}
+    return {"success": True, "added": added}
 
 
 @router.delete("/roles/skills")
@@ -704,7 +710,7 @@ async def remove_role_skill(req: RemovePostSkillRequest):
     session_factory = get_db_session_factory()
     async with session_factory() as db:
         result = await db.execute(
-            select(PostSkillModel).where(PostSkillModel.role == req.post, PostSkillModel.skill_id == req.skill_id)
+            select(PostSkillModel).where(PostSkillModel.role == req.role, PostSkillModel.skill_id == req.skill_id)
         )
         row = result.scalar_one_or_none()
         if row:

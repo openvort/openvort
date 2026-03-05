@@ -801,3 +801,4 @@ class SkillLoader:
                     "scope": skill.scope,
                     "skill_type": skill.skill_type,
                 })
+            return skills
