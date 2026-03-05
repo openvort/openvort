@@ -159,17 +159,6 @@ const statusFilterOptions = [
     { label: "已关闭", value: "已关闭", icon: "✓", iconClass: "text-gray-700" },
     { label: "暂时搁置", value: "暂时搁置", icon: "⌛", iconClass: "text-slate-400" }
 ];
-const statusIconMap: Record<Status, string> = {
-    待确认: "○",
-    修复中: "◔",
-    已修复: "✓",
-    延期处理: "▷",
-    设计如此: "⌛",
-    再次打开: "⚡",
-    无法复现: "!",
-    已关闭: "✓",
-    暂时搁置: "⌛"
-};
 const getStatusOption = (value: Status) => {
     return statusFilterOptions.find((x) => x.value === value) || statusFilterOptions[0]!;
 };
@@ -1137,7 +1126,6 @@ onBeforeUnmount(() => {
                                 <span class="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center text-[12px] text-gray-500">
                                     <span v-if="status === opt.value">✓</span>
                                 </span>
-                                <span class="text-[14px] leading-none w-4 text-center" :class="opt.iconClass">{{ opt.icon }}</span>
                                 <span class="text-sm text-gray-700">{{ opt.label }}</span>
                             </button>
                         </div>
@@ -1161,23 +1149,6 @@ onBeforeUnmount(() => {
             >
                 <template #title="{ text, record }">
                     <button class="title-link-cell" :title="text" @click.stop="handleOpenBugDetail(record)">
-                        <span class="work-type-icon" :class="getWorkTypeIconClass(record.type)">
-                            <svg
-                                v-if="record.type === '缺陷'"
-                                class="work-type-icon-svg"
-                                viewBox="0 0 24 24"
-                                aria-hidden="true"
-                            >
-                                <circle cx="12" cy="7.5" r="3.2" fill="white" />
-                                <rect x="8" y="10.5" width="8" height="9" rx="3.8" fill="white" />
-                                <rect x="11.2" y="10.8" width="1.6" height="8.6" rx="0.8" fill="#ef4444" />
-                                <path d="M8.3 12.3H5.2M8.1 15.1H4.8M15.9 12.3H18.8M16.1 15.1H19.2" stroke="white" stroke-width="1.5" stroke-linecap="round" />
-                                <path d="M10.2 4.8 8.7 3.3M13.8 4.8 15.3 3.3" stroke="white" stroke-width="1.5" stroke-linecap="round" />
-                            </svg>
-                            <template v-else>
-                                {{ getWorkTypeIconSymbol(record.type) }}
-                            </template>
-                        </span>
                         <span class="title-link-text">{{ text }}</span>
                     </button>
                 </template>
@@ -1268,7 +1239,6 @@ onBeforeUnmount(() => {
                     <div class="relative inline-block text-left" @click.stop>
                         <button class="status-edit-trigger" @click.stop="toggleRowStatusMenu(record.workNo)">
                             <span class="status-badge table-status-badge" :class="statusClassMap[getRowStatus(record, text)]">
-                                <span class="status-badge-icon">{{ statusIconMap[getRowStatus(record, text)] }}</span>
                                 <span>{{ getRowStatus(record, text) }}</span>
                             </span>
                         </button>
@@ -1294,7 +1264,6 @@ onBeforeUnmount(() => {
                                     <span class="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center text-[12px] text-gray-500">
                                         <span v-if="getRowStatus(record, text) === opt.value">✓</span>
                                     </span>
-                                    <span class="text-[14px] leading-none w-4 text-center" :class="opt.iconClass">{{ opt.icon }}</span>
                                     <span class="text-sm text-gray-700">{{ opt.label }}</span>
                                 </button>
                             </div>
