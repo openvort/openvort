@@ -55,7 +55,7 @@ src/openvort/
 ├── contacts/                # 通讯录（Member 中心，多平台身份映射）
 ├── skill/                   # Skill 知识注入系统
 ├── auth/                    # RBAC（admin/manager/member/guest）
-├── relay/                   # 公网中继服务（轻量 FastAPI + SQLite）
+├── relay/                   # 公网中继服务（轻量 FastAPI + PostgreSQL）
 ├── web/                     # Web 管理面板后端（FastAPI + JWT + WebSocket）
 │   ├── app.py               # FastAPI 应用工厂
 │   ├── ws.py                # WebSocket 实时通信（presence/typing）
