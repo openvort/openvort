@@ -128,6 +128,24 @@ const createAttachmentInputRef = ref<HTMLInputElement | null>(null);
 const createAssigneeDropdownOpen = ref(false);
 const createAssigneeKeyword = ref("");
 
+const defaultDescriptionTemplate = [
+    "环境：请填写",
+    "",
+    "账号：请填写",
+    "",
+    "密码：请填写",
+    "",
+    "前置条件：请填写",
+    "",
+    "操作步骤：",
+    "步骤1：",
+    "步骤2：",
+    "",
+    "实际结果：请填写",
+    "",
+    "预期结果：请填写",
+].join("\n");
+
 const createInitialBugForm = (): NewBugForm => ({
     title: "",
     owner: "",
@@ -144,13 +162,18 @@ const createInitialBugForm = (): NewBugForm => ({
     startAt: "",
     endAt: "",
     remark: "",
-    description: "环境：-\n账号：-\n密码：-\n前置条件：-\n操作步骤：-\n实际结果：-\n预期结果：-"
+    description: defaultDescriptionTemplate
 });
 const createBugForm = reactive<NewBugForm>(createInitialBugForm());
 const apiProjects = ref<Array<{ id: string; name: string }>>([]);
 const apiStories = ref<Array<{ id: string; title: string }>>([]);
 const selectedRowKeys = ref<Array<string | number>>([]);
 const selectedRows = ref<RowItem[]>([]);
+const pinnedRowsByType = reactive<Record<WorkType, RowItem[]>>({
+    需求: [],
+    任务: [],
+    缺陷: [],
+});
 
 const createBugTagOptions = ["客户需求", "演示站", "运营需求", "待开会确认", "已发布", "高优先", "稳定性", "UI优化"];
 const createBugProjectOptions = ["VortMall", "OpenVort", "VortFlow"];
@@ -228,6 +251,8 @@ const priorityModel = reactive<Record<string, Priority>>({});
 const openPriorityFor = ref<string | null>(null);
 const openTagFor = ref<string | null>(null);
 const tagKeyword = ref("");
+const createTagDropdownOpen = ref(false);
+const createTagKeyword = ref("");
 const tagsModel = reactive<Record<string, string[]>>({});
 const baseTagOptions = ["客户需求", "演示站", "运营需求", "待开会确认", "已发布", "高优先", "稳定性", "UI优化", "S1", "S2", "S3", "S4", "develop", "test"];
 const dynamicTagOptions = ref<string[]>([]);
@@ -310,7 +335,7 @@ const collectTagOptions = (rows: RowItem[]) => {
     dynamicTagOptions.value = [...set];
 };
 
-const defaultBugDescription = "环境：-\n账号：-\n密码：-\n前置条件：门店分销设置\n操作步骤：按照截图流程进行测试，复现异常行为。\n实际结果：门店与供应商的结算金额未增加或增加错误。\n预期结果：正确扣除手续费后，结算金额应实时更新。";
+const defaultBugDescription = defaultDescriptionTemplate;
 const detailCurrentUser = "当前用户";
 const formatFileSize = (size: number): string => {
     if (size < 1024) return `${size} B`;
@@ -499,10 +524,13 @@ const getBackendDisplayTitle = (rawTitle: string, typeValue: WorkType, index: nu
               ? backendTaskTitles[index % backendTaskTitles.length]!
               : backendBugTitles[index % backendBugTitles.length]!;
     const normalized = source && source !== "-" ? source : fallback;
-    if (normalized.includes("VortMall 微服务商城")) {
-        return normalized;
-    }
-    return `【${typeValue}】VortMall 微服务商城 - ${normalized}`;
+    return normalized;
+};
+
+const prependPinnedRow = (typeValue: WorkType, row: RowItem) => {
+    const list = pinnedRowsByType[typeValue] || [];
+    const rowId = row.backendId || row.workNo;
+    pinnedRowsByType[typeValue] = [row, ...list.filter((x) => (x.backendId || x.workNo) !== rowId)];
 };
 
 const mapBackendItemToRow = (item: any, typeValue: WorkType, index: number): RowItem => {
@@ -559,6 +587,12 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
             res = await getVortflowBugs({ keyword: kw, page: current, page_size: pageSize });
         }
         let rows = ((res as any)?.items || []).map((item: any, idx: number) => mapBackendItemToRow(item, typeValue as WorkType, idx));
+        if (current === 1) {
+            const pinnedRows = pinnedRowsByType[typeValue as WorkType] || [];
+            const pinnedIds = new Set(pinnedRows.map((x) => x.backendId || x.workNo));
+            rows = [...pinnedRows, ...rows.filter((x) => !pinnedIds.has(x.backendId || x.workNo))];
+            rows = rows.slice(0, pageSize);
+        }
         if (ownerValue) rows = rows.filter((x: RowItem) => x.owner === ownerValue);
         if (statusValue) rows = rows.filter((x: RowItem) => x.status === statusValue);
         collectTagOptions(rows);
@@ -675,7 +709,9 @@ const resetCreateBugForm = () => {
     Object.assign(createBugForm, createInitialBugForm());
     createBugPriorityDropdownOpen.value = false;
     createAssigneeDropdownOpen.value = false;
+    createTagDropdownOpen.value = false;
     createAssigneeKeyword.value = "";
+    createTagKeyword.value = "";
     createBugAttachments.value = [];
 };
 
@@ -690,6 +726,7 @@ const handleCancelCreateBug = () => {
     createBugDrawerOpen.value = false;
     createBugPriorityDropdownOpen.value = false;
     createAssigneeDropdownOpen.value = false;
+    createTagDropdownOpen.value = false;
 };
 
 const handleSubmitCreateBug = async () => {
@@ -708,9 +745,10 @@ const handleSubmitCreateBug = async () => {
     if (props.useApi) {
         const fixedType = (props.fixedType || createBugForm.type || "缺陷") as WorkType;
         try {
+            let createdItem: any = null;
             if (fixedType === "需求") {
                 const defaultProject = apiProjects.value[0]?.id || "";
-                await createVortflowStory({
+                createdItem = await createVortflowStory({
                     project_id: defaultProject,
                     title,
                     description: createBugForm.description || defaultBugDescription,
@@ -727,7 +765,7 @@ const handleSubmitCreateBug = async () => {
                     }
                 }
                 const selectedStoryId = apiStories.value[0]?.id || "";
-                await createVortflowTask({
+                createdItem = await createVortflowTask({
                     story_id: selectedStoryId,
                     title,
                     description: createBugForm.description || "",
@@ -736,12 +774,16 @@ const handleSubmitCreateBug = async () => {
                     deadline: createBugForm.planTime?.[1] || undefined,
                 });
             } else {
-                await createVortflowBug({
+                createdItem = await createVortflowBug({
                     title,
                     description: createBugForm.description || defaultBugDescription,
                     severity: createBugForm.priority === "urgent" ? 1 : createBugForm.priority === "high" ? 2 : createBugForm.priority === "medium" ? 3 : 4,
                     assignee_id: createBugForm.owner || undefined,
                 });
+            }
+            if (createdItem) {
+                const pinnedRow = mapBackendItemToRow(createdItem, fixedType, 0);
+                prependPinnedRow(fixedType, pinnedRow);
             }
             tableRef.value?.refresh?.();
             message.success("新建成功");
@@ -1060,6 +1102,7 @@ const onGlobalClick = () => {
     typeDropdownOpen.value = false;
     statusDropdownOpen.value = false;
     createBugPriorityDropdownOpen.value = false;
+    createTagDropdownOpen.value = false;
 };
 
 const toggleCreateBugPriorityMenu = () => {
@@ -1297,8 +1340,17 @@ const getRowPlanTimeText = (record: RowItem, text?: DateRange): string => {
     return `${start} ~ ${end}`;
 };
 
-const togglePlanTimeMenu = (workNo: string) => {
-    openPlanTimeFor.value = openPlanTimeFor.value === workNo ? null : workNo;
+const togglePlanTimeMenu = (workNo: string, record?: RowItem, text?: DateRange) => {
+    const willOpen = openPlanTimeFor.value !== workNo;
+    if (willOpen) {
+        const value = record ? getRowPlanTime(record, text) : undefined;
+        const start = normalizeDateValue(value?.[0]);
+        const end = normalizeDateValue(value?.[1]);
+        if (start && end) {
+            planTimeModel[workNo] = [start, end];
+        }
+    }
+    openPlanTimeFor.value = willOpen ? workNo : null;
 };
 
 const getCollapsedTags = (tags: string[], resolvedWidth?: string | number): { visible: string[]; hidden: number } => {
@@ -1352,6 +1404,35 @@ const filteredTagOptions = computed(() => {
     if (!kw) return options;
     return options.filter((x) => x.includes(kw));
 });
+
+const createTagOptions = computed(() => {
+    const merged = new Set<string>([...createBugTagOptions, ...baseTagOptions, ...dynamicTagOptions.value]);
+    return [...merged];
+});
+
+const filteredCreateTagOptions = computed(() => {
+    const kw = createTagKeyword.value.trim();
+    if (!kw) return createTagOptions.value;
+    return createTagOptions.value.filter((x) => x.includes(kw));
+});
+
+const toggleCreateTagMenu = () => {
+    createTagDropdownOpen.value = !createTagDropdownOpen.value;
+    if (!createTagDropdownOpen.value) createTagKeyword.value = "";
+};
+
+const toggleCreateTagOption = (tag: string) => {
+    const list = [...createBugForm.tags];
+    const idx = list.indexOf(tag);
+    if (idx >= 0) list.splice(idx, 1);
+    else list.push(tag);
+    createBugForm.tags = list;
+};
+
+const finishCreateTagEdit = () => {
+    createTagDropdownOpen.value = false;
+    createTagKeyword.value = "";
+};
 
 const typeGroups = computed<WorkType[]>(() => {
     const all: WorkType[] = ["需求", "任务", "缺陷"];
@@ -1836,7 +1917,7 @@ onBeforeUnmount(() => {
                         <button
                             v-if="openPlanTimeFor !== record.workNo"
                             class="plan-time-display"
-                            @click.stop="togglePlanTimeMenu(record.workNo)"
+                            @click.stop="togglePlanTimeMenu(record.workNo, record, text)"
                         >
                             {{ getRowPlanTimeText(record, text) }}
                         </button>
@@ -2351,9 +2432,57 @@ onBeforeUnmount(() => {
                     </div>
                     <div class="create-bug-field">
                         <label class="create-bug-label">标签</label>
-                        <vort-select v-model="createBugForm.tags" placeholder="选择标签" allow-clear multiple>
-                            <vort-select-option v-for="item in createBugTagOptions" :key="item" :value="item">{{ item }}</vort-select-option>
-                        </vort-select>
+                        <div class="relative inline-block w-full" @click.stop>
+                            <button class="create-tag-trigger" :class="{ active: createTagDropdownOpen }" @click.stop="toggleCreateTagMenu">
+                                <div class="create-tag-preview">
+                                    <template v-if="createBugForm.tags.length > 0">
+                                        <span
+                                            v-for="tag in createBugForm.tags.slice(0, 3)"
+                                            :key="'create-tag-chip-' + tag"
+                                            class="px-1.5 py-0.5 rounded text-xs text-white inline-block"
+                                            :style="{ backgroundColor: getTagColor(tag) }"
+                                        >
+                                            {{ tag }}
+                                        </span>
+                                        <span v-if="createBugForm.tags.length > 3" class="text-gray-400 text-xs">+{{ createBugForm.tags.length - 3 }}</span>
+                                    </template>
+                                    <span v-else class="text-gray-400">选择标签</span>
+                                </div>
+                                <span class="status-arrow-simple" :class="{ open: createTagDropdownOpen }" />
+                            </button>
+
+                            <div v-if="createTagDropdownOpen" class="absolute z-30 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-md p-3">
+                                <div class="mb-2">
+                                    <div class="relative">
+                                        <input
+                                            v-model="createTagKeyword"
+                                            placeholder="搜索..."
+                                            class="w-full h-9 pl-3 pr-8 border border-gray-300 rounded-md text-sm"
+                                        />
+                                        <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">⌕</span>
+                                    </div>
+                                </div>
+                                <div class="max-h-[220px] overflow-y-auto pr-1">
+                                    <button
+                                        v-for="tag in filteredCreateTagOptions"
+                                        :key="'create-tag-opt-' + tag"
+                                        class="w-full h-10 px-2 rounded-md flex items-center gap-2 text-left hover:bg-gray-50"
+                                        @click.stop="toggleCreateTagOption(tag)"
+                                    >
+                                        <span class="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center text-[12px] text-gray-500">
+                                            <span v-if="createBugForm.tags.includes(tag)">✓</span>
+                                        </span>
+                                        <span class="w-5 h-5 rounded-full" :style="{ backgroundColor: getTagColor(tag) }" />
+                                        <span class="text-sm text-gray-700">{{ tag }}</span>
+                                    </button>
+                                </div>
+                                <div class="mt-2 flex justify-end">
+                                    <button class="h-8 px-3 text-sm bg-blue-600 text-white rounded hover:bg-blue-700" @click.stop="finishCreateTagEdit">
+                                        完成
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     <div class="create-bug-field">
                         <label class="create-bug-label">关联仓库</label>
@@ -2598,6 +2727,31 @@ onBeforeUnmount(() => {
     display: flex;
     flex-direction: column;
     gap: 6px;
+}
+
+.create-tag-trigger {
+    width: 100%;
+    min-height: 32px;
+    padding: 4px 10px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    background: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.create-tag-trigger.active {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 1px #bfdbfe;
+}
+
+.create-tag-preview {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+    min-height: 20px;
 }
 
 .create-bug-label {
