@@ -1,5 +1,5 @@
 <script setup lang="ts" generic="T = any">
-import { ref, computed, watch, onBeforeUnmount } from "vue";
+import { ref, computed, watch, onBeforeUnmount, onMounted, nextTick } from "vue";
 import { Checkbox, Spin, Pagination } from "@/components/vort";
 import { CaretUpFilled, CaretDownFilled, EmptyOutlined } from "@/components/vort/icons";
 import type {
@@ -39,7 +39,7 @@ const props = withDefaults(defineProps<Props<T>>(), {
   bordered: false,
   size: "middle",
   loading: false,
-  pagination: () => ({ current: 1, pageSize: 10, total: 0, showPagination: true }),
+  pagination: () => ({ current: 1, pageSize: 20, total: 0, showPagination: true }),
   toolbar: () => ({ refresh: true, columnSetting: true })
 });
 
@@ -56,12 +56,12 @@ const emit = defineEmits<{
 const internalDataSource = ref<T[]>([]);
 const total = ref(0);
 const current = ref(1);
-const pageSize = ref(10);
+const pageSize = ref(20);
 const internalLoading = ref(false);
 
 const requestParams = ref<ProTableRequestParams>({
   current: 1,
-  pageSize: 10,
+  pageSize: 20,
   ...props.params
 });
 
@@ -131,10 +131,79 @@ const getCellValue = (record: T, column: TableColumn<T>): any => {
   return value;
 };
 
-// ==================== 多级表头支持 ====================
-const hasChildren = (column: TableColumn<T>): boolean => {
-  return Array.isArray(column.children) && column.children.length > 0;
+function getColumnKey(column: TableColumn<T>): string {
+  return column.key || column.dataIndex || column.title || "";
+}
+
+// ==================== 列可见性（前向兼容） ====================
+const isColumnVisible = (column: TableColumn<T>): boolean => {
+  const col = column as TableColumn<T> & { defaultShow?: boolean; hideInTable?: boolean };
+  if (typeof col.visible === "boolean") return col.visible;
+  if (typeof col.defaultShow === "boolean") return col.defaultShow;
+  if (typeof col.hideInTable === "boolean") return !col.hideInTable;
+  return true;
 };
+
+const getVisibleColumnsTree = (columns: TableColumn<T>[]): TableColumn<T>[] => {
+  const result: TableColumn<T>[] = [];
+  for (const column of columns) {
+    if (!isColumnVisible(column)) continue;
+    if (hasChildren(column)) {
+      const visibleChildren = getVisibleColumnsTree(column.children || []);
+      if (visibleChildren.length === 0) continue;
+      result.push({ ...column, children: visibleChildren });
+    } else {
+      result.push(column);
+    }
+  }
+  return result;
+};
+
+const baseVisibleColumns = computed<TableColumn<T>[]>(() => getVisibleColumnsTree(props.columns || []));
+const columnOrderKeys = ref<string[]>([]);
+
+const syncColumnOrder = () => {
+  const columns = baseVisibleColumns.value || [];
+  const isSingleLevel = columns.every((column) => !Array.isArray(column.children) || column.children.length === 0);
+  if (!isSingleLevel) {
+    columnOrderKeys.value = [];
+    return;
+  }
+  const latestKeys = columns.map((column) => getColumnKey(column)).filter(Boolean);
+  const existing = columnOrderKeys.value.filter((key) => latestKeys.includes(key));
+  const appended = latestKeys.filter((key) => !existing.includes(key));
+  columnOrderKeys.value = [...existing, ...appended];
+};
+
+watch(baseVisibleColumns, syncColumnOrder, { immediate: true, deep: true });
+
+const visibleColumns = computed<TableColumn<T>[]>(() => {
+  const columns = baseVisibleColumns.value || [];
+  const isSingleLevel = columns.every((column) => !Array.isArray(column.children) || column.children.length === 0);
+  if (!isSingleLevel) return columns;
+  if (!columnOrderKeys.value.length) return columns;
+
+  const columnMap = new Map(columns.map((column) => [getColumnKey(column), column] as const));
+  const ordered: TableColumn<T>[] = [];
+
+  for (const key of columnOrderKeys.value) {
+    const column = columnMap.get(key);
+    if (!column) continue;
+    ordered.push(column);
+    columnMap.delete(key);
+  }
+
+  for (const column of columns) {
+    const key = getColumnKey(column);
+    if (columnMap.has(key)) ordered.push(column);
+  }
+  return ordered;
+});
+
+// ==================== 多级表头支持 ====================
+function hasChildren(column: TableColumn<T>): boolean {
+  return Array.isArray(column.children) && column.children.length > 0;
+}
 
 const getHeaderDepth = (columns: TableColumn<T>[]): number => {
   let maxDepth = 1;
@@ -159,7 +228,7 @@ interface HeaderCell {
 }
 
 const getHeaderRows = computed<HeaderCell[][]>(() => {
-  const columns = props.columns || [];
+  const columns = visibleColumns.value || [];
   const maxDepth = getHeaderDepth(columns);
   const rows: HeaderCell[][] = [];
 
@@ -200,9 +269,9 @@ const getLeafColumns = (columns: TableColumn<T>[]): TableColumn<T>[] => {
   return leaves;
 };
 
-const leafColumns = computed(() => getLeafColumns(props.columns || []));
+const leafColumns = computed(() => getLeafColumns(visibleColumns.value || []));
 
-const isMultiLevelHeader = computed(() => getHeaderDepth(props.columns || []) > 1);
+const isMultiLevelHeader = computed(() => getHeaderDepth(visibleColumns.value || []) > 1);
 
 // ==================== 列宽下限（按最长内容） ====================
 const minColumnWidths = ref<Record<string, number>>({});
@@ -264,7 +333,7 @@ watch([leafColumns, tableData], recalcMinColumnWidths, { immediate: true, deep: 
 // ==================== 分页 ====================
 const internalPagination = ref({
   current: 1,
-  pageSize: 10,
+  pageSize: 20,
   total: 0,
   showPagination: true
 });
@@ -277,6 +346,9 @@ watch(
       if (val.pageSize !== undefined) internalPagination.value.pageSize = val.pageSize;
       if (val.total !== undefined) internalPagination.value.total = val.total;
       if (val.showPagination !== undefined) internalPagination.value.showPagination = val.showPagination;
+
+      if (val.current !== undefined) current.value = val.current;
+      if (val.pageSize !== undefined) pageSize.value = val.pageSize;
     }
   },
   { immediate: true, deep: true }
@@ -408,6 +480,46 @@ const handleRefresh = () => {
   fetchData();
 };
 
+// ==================== 列顺序设置 ====================
+const columnSettingOpen = ref(false);
+const columnSettingRef = ref<HTMLElement | null>(null);
+
+const canManualOrder = computed(() => {
+  const columns = baseVisibleColumns.value || [];
+  return columns.length > 1 && columns.every((column) => !hasChildren(column));
+});
+
+const orderedColumnSettingItems = computed(() => {
+  if (!canManualOrder.value) return [];
+  return (visibleColumns.value || []).map((column) => ({
+    key: getColumnKey(column),
+    title: String(column.title || column.dataIndex || column.key || "未命名列")
+  }));
+});
+
+const toggleColumnSetting = () => {
+  columnSettingOpen.value = !columnSettingOpen.value;
+};
+
+const moveColumn = (columnKey: string, direction: -1 | 1) => {
+  const nextOrder = [...columnOrderKeys.value];
+  const currentIndex = nextOrder.indexOf(columnKey);
+  if (currentIndex < 0) return;
+  const targetIndex = currentIndex + direction;
+  if (targetIndex < 0 || targetIndex >= nextOrder.length) return;
+  const temp = nextOrder[targetIndex]!;
+  nextOrder[targetIndex] = nextOrder[currentIndex]!;
+  nextOrder[currentIndex] = temp;
+  columnOrderKeys.value = nextOrder;
+};
+
+const onGlobalMouseDown = (event: MouseEvent) => {
+  if (!columnSettingOpen.value) return;
+  const panel = columnSettingRef.value;
+  if (panel && panel.contains(event.target as Node)) return;
+  columnSettingOpen.value = false;
+};
+
 // ==================== 样式 ====================
 const containerClass = computed(() => {
   const classes = ["vort-pro-table-container"];
@@ -418,10 +530,6 @@ const containerClass = computed(() => {
 
 // ==================== 列宽拖拽 ====================
 const columnWidths = ref<Record<string, number>>({});
-
-function getColumnKey(column: TableColumn<T>): string {
-  return column.key || column.dataIndex || column.title || "";
-}
 
 const getResolvedWidth = (column: TableColumn<T>): string | undefined => {
   const key = getColumnKey(column);
@@ -486,6 +594,35 @@ const isLastFixedLeft = (column: TableColumn<T>): boolean => {
   return !!key && key === lastFixedLeftKey.value;
 };
 
+const tableWrapperRef = ref<HTMLElement | null>(null);
+const showFixedLeftEdgeShadow = ref(false);
+
+const updateFixedLeftEdgeShadow = () => {
+  const wrapper = tableWrapperRef.value;
+  if (!wrapper) {
+    showFixedLeftEdgeShadow.value = false;
+    return;
+  }
+  showFixedLeftEdgeShadow.value = wrapper.scrollLeft > 0;
+};
+
+const handleTableWrapperScroll = () => {
+  updateFixedLeftEdgeShadow();
+};
+
+onMounted(() => {
+  document.addEventListener("mousedown", onGlobalMouseDown);
+  nextTick(() => {
+    updateFixedLeftEdgeShadow();
+  });
+});
+
+watch([leafColumns, tableData], () => {
+  nextTick(() => {
+    updateFixedLeftEdgeShadow();
+  });
+}, { deep: true });
+
 let resizingCol: string | null = null;
 let resizeStartX = 0;
 let resizeStartW = 0;
@@ -534,6 +671,7 @@ const onResizeEnd = () => {
 onBeforeUnmount(() => {
   document.removeEventListener("mousemove", onResizeMove);
   document.removeEventListener("mouseup", onResizeEnd);
+  document.removeEventListener("mousedown", onGlobalMouseDown);
 });
 
 // ==================== 暴露方法 ====================
@@ -555,6 +693,40 @@ defineExpose({
       </div>
       <div class="vort-pro-table-toolbar-right">
         <slot name="toolbar-right" />
+        <div v-if="toolbar?.columnSetting !== false" ref="columnSettingRef" class="vort-pro-table-column-setting">
+          <button class="vort-pro-table-toolbar-btn" title="列设置" @click.stop="toggleColumnSetting">
+            列设置
+          </button>
+          <div v-if="columnSettingOpen" class="vort-pro-table-column-setting-panel">
+            <div class="vort-pro-table-column-setting-title">手动移动列</div>
+            <div v-if="canManualOrder" class="vort-pro-table-column-setting-list">
+              <div
+                v-for="(item, index) in orderedColumnSettingItems"
+                :key="item.key"
+                class="vort-pro-table-column-setting-item"
+              >
+                <span class="vort-pro-table-column-setting-name" :title="item.title">{{ item.title }}</span>
+                <div class="vort-pro-table-column-setting-actions">
+                  <button
+                    class="vort-pro-table-column-action-btn"
+                    :disabled="index === 0"
+                    @click.stop="moveColumn(item.key, -1)"
+                  >
+                    上移
+                  </button>
+                  <button
+                    class="vort-pro-table-column-action-btn"
+                    :disabled="index === orderedColumnSettingItems.length - 1"
+                    @click.stop="moveColumn(item.key, 1)"
+                  >
+                    下移
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div v-else class="vort-pro-table-column-setting-tip">当前表头结构不支持手动排序</div>
+          </div>
+        </div>
         <button v-if="toolbar?.refresh !== false" class="vort-pro-table-toolbar-btn" title="刷新" @click="handleRefresh">
           刷新
         </button>
@@ -568,7 +740,7 @@ defineExpose({
       </div>
 
       <!-- 表格主体 -->
-      <div class="vort-pro-table-wrapper">
+      <div ref="tableWrapperRef" class="vort-pro-table-wrapper" @scroll="handleTableWrapperScroll">
         <table class="vort-pro-table">
         <colgroup>
           <col v-if="rowSelection" :style="{ width: rowSelection.columnWidth || '48px' }" />
@@ -646,7 +818,7 @@ defineExpose({
               />
             </th>
             <th
-              v-for="column in (columns || [])"
+              v-for="column in visibleColumns"
               :key="column.key || column.dataIndex || column.title"
               :class="[
                 'vort-pro-table-cell',
@@ -654,7 +826,7 @@ defineExpose({
                 column.sorter && 'vort-pro-table-cell-sortable',
                 column.headerClassName,
                 column.fixed === 'left' && 'vort-pro-table-fixed-left',
-                isLastFixedLeft(column) && 'vort-pro-table-fixed-left-edge'
+                isLastFixedLeft(column) && showFixedLeftEdgeShadow && 'vort-pro-table-fixed-left-edge'
               ]"
               :style="{ width: getResolvedWidth(column), ...getFixedCellStyle(column, true) }"
               @click="column.sorter ? handleSort(column) : undefined"
@@ -707,7 +879,7 @@ defineExpose({
                 column.ellipsis && 'vort-pro-table-cell-ellipsis',
                 column.className,
                 column.fixed === 'left' && 'vort-pro-table-fixed-left',
-                isLastFixedLeft(column) && 'vort-pro-table-fixed-left-edge'
+                isLastFixedLeft(column) && showFixedLeftEdgeShadow && 'vort-pro-table-fixed-left-edge'
               ]"
               :style="getFixedCellStyle(column)"
             >
@@ -717,6 +889,7 @@ defineExpose({
                 :record="record"
                 :index="index"
                 :column="column"
+                :resolved-width="getResolvedWidth(column)"
               >
                 {{ getCellValue(record, column) }}
               </slot>
@@ -799,6 +972,81 @@ defineExpose({
     color: #4096ff;
     border-color: #4096ff;
   }
+}
+
+.vort-pro-table-column-setting {
+  position: relative;
+}
+
+.vort-pro-table-column-setting-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  width: 280px;
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  padding: 10px;
+}
+
+.vort-pro-table-column-setting-title {
+  font-size: 13px;
+  color: #475569;
+  margin-bottom: 8px;
+}
+
+.vort-pro-table-column-setting-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.vort-pro-table-column-setting-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid #eef2f7;
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.vort-pro-table-column-setting-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #334155;
+}
+
+.vort-pro-table-column-setting-actions {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.vort-pro-table-column-action-btn {
+  border: 1px solid #dbe2ea;
+  border-radius: 4px;
+  background: #fff;
+  color: #334155;
+  font-size: 12px;
+  line-height: 1;
+  padding: 5px 7px;
+  cursor: pointer;
+}
+
+.vort-pro-table-column-action-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.vort-pro-table-column-setting-tip {
+  font-size: 12px;
+  color: #94a3b8;
 }
 
 .vort-pro-table-wrapper {
@@ -896,8 +1144,6 @@ defineExpose({
   border-bottom: 1px solid #eceff3;
   border-right: 1px solid #f3f5f8;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .vort-pro-table-tbody td:last-child {

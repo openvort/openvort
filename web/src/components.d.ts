@@ -41,6 +41,7 @@ declare module 'vue' {
     VortPopconfirm: typeof import('@/components/vort/popconfirm')['Popconfirm']
     VortRadioButton: typeof import('@/components/vort/radio')['RadioButton']
     VortRadioGroup: typeof import('@/components/vort/radio')['RadioGroup']
+    VortRangePicker: typeof import('@/components/vort/date-picker')['RangePicker']
     VortScrollbar: typeof import('@/components/vort/scrollbar')['Scrollbar']
     VortSelect: typeof import('@/components/vort/select')['Select']
     VortSelectOption: typeof import('@/components/vort/select')['SelectOption']

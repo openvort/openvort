@@ -28,7 +28,7 @@ const routes: RouteRecordRaw[] = [
             // VortFlow
             { path: "vortflow/board", name: "vortflow-board", component: () => import("@/views/vortflow/Board.vue"), meta: { title: "项目看板" } },
             { path: "vortflow/stories", name: "vortflow-stories", component: () => import("@/views/vortflow/Stories.vue"), meta: { title: "需求列表" } },
-            { path: "vortflow/tasks", name: "vortflow-tasks", component: () => import("@/views/vortflow/Tasks.vue"), meta: { title: "任务管理" } },
+            { path: "vortflow/tasks", name: "vortflow-tasks", component: () => import("@/views/vortflow/TaskTracking.vue"), meta: { title: "任务管理" } },
             { path: "vortflow/bugs", name: "vortflow-bugs", component: () => import("@/views/vortflow/Bugs.vue"), meta: { title: "缺陷跟踪" } },
             { path: "vortflow/milestones", name: "vortflow-milestones", component: () => import("@/views/vortflow/Milestones.vue"), meta: { title: "里程碑" } },
             { path: "vortflow/projects/:id", name: "vortflow-project-detail", component: () => import("@/views/vortflow/ProjectDetail.vue"), meta: { title: "项目详情" } },

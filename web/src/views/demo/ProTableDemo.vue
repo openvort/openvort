@@ -1,10 +1,40 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { ProTable, type ProTableColumn, type ProTableRequestParams, type ProTableResponse } from "@/components/vort-biz/pro-table";
+import { message } from "@/components/vort/message";
+import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
+import { Pencil } from "lucide-vue-next";
 
 type Priority = "urgent" | "high" | "medium" | "low" | "none";
 type Status = "待确认" | "修复中" | "已修复" | "延期处理" | "设计如此" | "再次打开" | "无法复现" | "已关闭" | "暂时搁置";
 type WorkType = "缺陷" | "需求" | "任务";
+type DateRange = [string, string];
+type DemoModeProps = {
+    fixedType?: WorkType;
+    pageTitle?: string;
+    createButtonText?: string;
+    createDrawerTitle?: string;
+    detailDrawerTitle?: string;
+    descriptionPlaceholder?: string;
+};
+type NewBugForm = {
+    title: string;
+    owner: string;
+    collaborators: string[];
+    type: WorkType;
+    planTime: DateRange | [];
+    project: string;
+    iteration: string;
+    version: string;
+    priority: Priority | "";
+    tags: string[];
+    repo: string;
+    branch: string;
+    startAt: string;
+    endAt: string;
+    remark: string;
+    description: string;
+};
 
 type RowItem = {
     workNo: string;
@@ -15,22 +45,103 @@ type RowItem = {
     createdAt: string;
     collaborators: string[];
     type: WorkType;
-    planTime: string;
+    planTime: DateRange;
+    description: string;
     owner: string;
     creator: string;
 };
+
+type DetailComment = {
+    id: string;
+    author: string;
+    createdAt: string;
+    content: string;
+};
+
+type DetailLog = {
+    id: string;
+    actor: string;
+    createdAt: string;
+    action: string;
+};
+
+type CreateBugAttachment = {
+    id: string;
+    name: string;
+    size: number;
+};
+
+const props = withDefaults(defineProps<DemoModeProps>(), {
+    fixedType: undefined,
+    pageTitle: "缺陷",
+    createButtonText: "+ 新建缺陷",
+    createDrawerTitle: "新建缺陷",
+    detailDrawerTitle: "缺陷详情",
+    descriptionPlaceholder: "请填写缺陷描述"
+});
 
 const keyword = ref("");
 const owner = ref("");
 const ownerDropdownOpen = ref(false);
 const ownerKeyword = ref("");
-const type = ref("");
+const openOwnerFor = ref<string | null>(null);
+const ownerEditKeyword = ref("");
+const openCollaboratorFor = ref<string | null>(null);
+const collaboratorKeyword = ref("");
+const type = ref<WorkType | "">(props.fixedType ?? "");
 const typeDropdownOpen = ref(false);
 const typeKeyword = ref("");
 const status = ref("");
 const statusDropdownOpen = ref(false);
 const statusKeyword = ref("");
+const openStatusFor = ref<string | null>(null);
+const rowStatusKeyword = ref("");
+const openPlanTimeFor = ref<string | null>(null);
 const totalCount = ref(0);
+const createBugDrawerOpen = ref(false);
+const createBugPriorityDropdownOpen = ref(false);
+const createBugDrawerMode = ref<"create" | "detail">("create");
+const detailActiveTab = ref("detail");
+const detailSelectedWorkNo = ref("");
+const detailStatusDropdownOpen = ref(false);
+const detailStatusKeyword = ref("");
+const detailAssigneeDropdownOpen = ref(false);
+const detailAssigneeKeyword = ref("");
+const detailDescEditing = ref(false);
+const detailDescDraft = ref("");
+const detailBottomTab = ref<"comments" | "logs">("comments");
+const detailCommentDraft = ref("");
+const detailCommentsMap = reactive<Record<string, DetailComment[]>>({});
+const detailLogsMap = reactive<Record<string, DetailLog[]>>({});
+const createBugAttachments = ref<CreateBugAttachment[]>([]);
+const createAttachmentInputRef = ref<HTMLInputElement | null>(null);
+const createAssigneeDropdownOpen = ref(false);
+const createAssigneeKeyword = ref("");
+
+const createInitialBugForm = (): NewBugForm => ({
+    title: "",
+    owner: "",
+    collaborators: [],
+    type: props.fixedType ?? "缺陷",
+    planTime: [],
+    project: "VortMall",
+    iteration: "",
+    version: "",
+    priority: "",
+    tags: [],
+    repo: "",
+    branch: "",
+    startAt: "",
+    endAt: "",
+    remark: "",
+    description: "环境：-\n账号：-\n密码：-\n前置条件：-\n操作步骤：-\n实际结果：-\n预期结果：-"
+});
+const createBugForm = reactive<NewBugForm>(createInitialBugForm());
+
+const createBugTagOptions = ["客户需求", "演示站", "运营需求", "待开会确认", "已发布", "高优先", "稳定性", "UI优化"];
+const createBugProjectOptions = ["VortMall", "OpenVort", "VortFlow"];
+const createBugRepoOptions = ["openvort/web", "openvort/core", "openvort/vortflow"];
+const createBugBranchOptions = ["develop", "develop-wzh", "release/1.0"];
 
 const ownerGroups = [
     { label: "项目成员", members: ["代志祥", "陈艳", "陈曦", "祝璞", "刘洋", "甘洋", "邱锐", "熊纲强"] },
@@ -58,6 +169,21 @@ const statusIconMap: Record<Status, string> = {
     无法复现: "!",
     已关闭: "✓",
     暂时搁置: "⌛"
+};
+const getStatusOption = (value: Status) => {
+    return statusFilterOptions.find((x) => x.value === value) || statusFilterOptions[0]!;
+};
+
+const getWorkTypeIconClass = (type: WorkType): string => {
+    if (type === "需求") return "work-type-icon-demand";
+    if (type === "任务") return "work-type-icon-task";
+    return "work-type-icon-bug";
+};
+
+const getWorkTypeIconSymbol = (type: WorkType): string => {
+    if (type === "需求") return "≡";
+    if (type === "任务") return "☑";
+    return "✹";
 };
 const priorityOptions: Array<{ label: string; value: Priority }> = [
     { label: "紧急", value: "urgent" },
@@ -97,6 +223,11 @@ const priorityClassMap: Record<Priority, string> = {
 
 const priorityModel = reactive<Record<string, Priority>>({});
 const openPriorityFor = ref<string | null>(null);
+const openTagFor = ref<string | null>(null);
+const tagKeyword = ref("");
+const tagsModel = reactive<Record<string, string[]>>({});
+const tagOptions = ["客户需求", "演示站", "运营需求", "待开会确认", "已发布", "高优先", "稳定性", "UI优化"];
+const planTimeModel = reactive<Record<string, DateRange>>({});
 const typeGroupOpen = reactive<Record<WorkType, boolean>>({
     需求: true,
     任务: true,
@@ -107,6 +238,27 @@ const ownerGroupOpen = reactive<Record<string, boolean>>({
     企业成员: true,
     离职人员: true
 });
+const ownerEditGroupOpen = reactive<Record<string, boolean>>({
+    项目成员: true,
+    企业成员: true,
+    离职人员: true
+});
+const collaboratorGroupOpen = reactive<Record<string, boolean>>({
+    项目成员: true,
+    企业成员: true,
+    离职人员: true
+});
+const detailAssigneeGroupOpen = reactive<Record<string, boolean>>({
+    项目成员: true,
+    企业成员: true,
+    离职人员: true
+});
+const createAssigneeGroupOpen = reactive<Record<string, boolean>>({
+    项目成员: true,
+    企业成员: true,
+    离职人员: true
+});
+const collaboratorsModel = reactive<Record<string, string[]>>({});
 
 const toWorkNo = (index: number): string => {
     let n = index + 1000;
@@ -126,6 +278,21 @@ const formatCnTime = (d: Date): string => {
     return `${month}月${day}号 ${hh}:${mm}`;
 };
 
+const formatDate = (d: Date): string => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+};
+
+const defaultBugDescription = "环境：-\n账号：-\n密码：-\n前置条件：门店分销设置\n操作步骤：按照截图流程进行测试，复现异常行为。\n实际结果：门店与供应商的结算金额未增加或增加错误。\n预期结果：正确扣除手续费后，结算金额应实时更新。";
+const detailCurrentUser = "当前用户";
+const formatFileSize = (size: number): string => {
+    if (size < 1024) return `${size} B`;
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+};
+
 const buildDataset = (): RowItem[] => {
     const owners = ["张三", "李四", "王五", "赵六", "钱七", "孙八"];
     const creators = ["周明", "林羽", "陈尧", "方怡"];
@@ -137,7 +304,8 @@ const buildDataset = (): RowItem[] => {
 
     for (let i = 1; i <= 79; i++) {
         const created = new Date(Date.now() - i * 1000 * 60 * 60 * 5);
-        const plan = new Date(Date.now() + (i % 9) * 1000 * 60 * 60 * 12);
+        const planStart = new Date(Date.now() + (i % 12) * 1000 * 60 * 60 * 24);
+        const planEnd = new Date(planStart.getTime() + ((i % 6) + 1) * 1000 * 60 * 60 * 24);
         const ownerName = owners[i % owners.length]!;
         const collab = [owners[(i + 1) % owners.length]!, owners[(i + 2) % owners.length]!];
 
@@ -150,7 +318,8 @@ const buildDataset = (): RowItem[] => {
             createdAt: formatCnTime(created),
             collaborators: collab,
             type: types[i % types.length]!,
-            planTime: formatCnTime(plan),
+            planTime: [formatDate(planStart), formatDate(planEnd)],
+            description: defaultBugDescription,
             owner: i % 10 === 0 ? "未指派" : ownerName,
             creator: creators[i % creators.length]!
         });
@@ -158,30 +327,34 @@ const buildDataset = (): RowItem[] => {
     return list;
 };
 
-const allData = buildDataset();
+const allData = ref<RowItem[]>(buildDataset());
+for (const row of allData.value) {
+    planTimeModel[row.workNo] = [...row.planTime];
+}
+const nextWorkNoIndex = ref(allData.value.length + 1);
 
 const columns = computed<ProTableColumn<RowItem>[]>(() => [
     { title: "工作编号", dataIndex: "workNo", width: 130, sorter: true, align: "left", fixed: "left" },
-    { title: "标题", dataIndex: "title", width: 380, ellipsis: true, align: "left", fixed: "left" },
+    { title: "标题", dataIndex: "title", width: 380, ellipsis: true, align: "left", fixed: "left", slot: "title" },
+    { title: "状态", dataIndex: "status", width: 120, slot: "status", align: "left" },
     { title: "优先级", dataIndex: "priority", width: 120, slot: "priority", align: "left" },
     { title: "标签", dataIndex: "tags", width: 180, slot: "tags", align: "left" },
-    { title: "状态", dataIndex: "status", width: 120, slot: "status", align: "left" },
     { title: "创建时间", dataIndex: "createdAt", width: 150, sorter: true, align: "left" },
     { title: "协作者", dataIndex: "collaborators", width: 140, slot: "collaborators", align: "left" },
     { title: "工作项类型", dataIndex: "type", width: 120, sorter: true, align: "left" },
-    { title: "计划时间", dataIndex: "planTime", width: 150, sorter: true, align: "left", slot: "planTime" },
-    { title: "负责人", dataIndex: "owner", width: 120, sorter: true, align: "left" },
-    { title: "创建人", dataIndex: "creator", width: 120, sorter: true, align: "left" }
+    { title: "计划时间", dataIndex: "planTime", width: 260, sorter: true, align: "left", slot: "planTime" },
+    { title: "负责人", dataIndex: "owner", width: 160, sorter: true, align: "left", slot: "owner" },
+    { title: "创建人", dataIndex: "creator", width: 160, sorter: true, align: "left", slot: "creator" }
 ]);
 
 const request = async (params: ProTableRequestParams): Promise<ProTableResponse<RowItem>> => {
     await new Promise((r) => setTimeout(r, 180));
     const kw = String(params.keyword ?? "").trim().toLowerCase();
     const ownerValue = String(params.owner ?? "").trim();
-    const typeValue = String(params.type ?? "").trim();
+    const typeValue = String(props.fixedType ?? params.type ?? "").trim();
     const statusValue = String(params.status ?? "").trim();
 
-    let list = allData.slice();
+    let list = allData.value.slice();
     if (kw) {
         list = list.filter((x) => x.workNo.toLowerCase().includes(kw) || x.title.toLowerCase().includes(kw) || x.owner.toLowerCase().includes(kw));
     }
@@ -198,13 +371,17 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
     const { sortField, sortOrder } = params;
     if (sortField && sortOrder) {
         const dir = sortOrder === "ascend" ? 1 : -1;
-        list.sort((a: any, b: any) => (a[sortField] > b[sortField] ? dir : -dir));
+        const getSortValue = (item: RowItem, field: string): string => {
+            if (field === "planTime") return item.planTime?.[0] || "";
+            return String((item as any)[field] ?? "");
+        };
+        list.sort((a, b) => (getSortValue(a, sortField) > getSortValue(b, sortField) ? dir : -dir));
     }
 
     const total = list.length;
     totalCount.value = total;
     const current = Number(params.current || 1);
-    const pageSize = Number(params.pageSize || 10);
+    const pageSize = Number(params.pageSize || 20);
     const start = (current - 1) * pageSize;
     return {
         data: list.slice(start, start + pageSize),
@@ -219,19 +396,323 @@ const tableRef = ref<InstanceType<typeof ProTable> | null>(null);
 const queryParams = computed(() => ({
     keyword: keyword.value,
     owner: owner.value,
-    type: type.value,
+    type: props.fixedType || type.value,
     status: status.value
 }));
 
 const onReset = () => {
     keyword.value = "";
     owner.value = "";
-    type.value = "";
+    type.value = props.fixedType ?? "";
     status.value = "";
     tableRef.value?.refresh?.();
 };
 
-const getAvatarText = (name: string): string => name.slice(0, 1);
+const resetCreateBugForm = () => {
+    Object.assign(createBugForm, createInitialBugForm());
+    createBugPriorityDropdownOpen.value = false;
+    createAssigneeDropdownOpen.value = false;
+    createAssigneeKeyword.value = "";
+    createBugAttachments.value = [];
+};
+
+const handleCreateBug = () => {
+    createBugDrawerMode.value = "create";
+    resetCreateBugForm();
+    createBugForm.type = props.fixedType ?? createBugForm.type;
+    createBugDrawerOpen.value = true;
+};
+
+const handleCancelCreateBug = () => {
+    createBugDrawerOpen.value = false;
+    createBugPriorityDropdownOpen.value = false;
+    createAssigneeDropdownOpen.value = false;
+};
+
+const handleSubmitCreateBug = () => {
+    if (createBugDrawerMode.value !== "create") {
+        createBugDrawerOpen.value = false;
+        createBugPriorityDropdownOpen.value = false;
+        return;
+    }
+
+    const title = createBugForm.title.trim();
+    if (!title) {
+        message.warning("请填写标题");
+        return;
+    }
+
+    const now = new Date();
+    const workNo = toWorkNo(nextWorkNoIndex.value++);
+    const fallbackPlanDate = formatDate(now);
+    const planTime: DateRange = (createBugForm.planTime as DateRange)?.length === 2
+        ? [...(createBugForm.planTime as DateRange)]
+        : [fallbackPlanDate, fallbackPlanDate];
+    const newPriority: Priority = createBugForm.priority || "none";
+    const ownerName = createBugForm.owner || "未指派";
+    const collaborators = [...createBugForm.collaborators];
+
+    const newRow: RowItem = {
+        workNo,
+        title,
+        priority: newPriority,
+        tags: [...createBugForm.tags],
+        status: "待确认",
+        createdAt: formatCnTime(now),
+        collaborators,
+        type: createBugForm.type || props.fixedType || "缺陷",
+        planTime,
+        description: createBugForm.description || defaultBugDescription,
+        owner: ownerName,
+        creator: "当前用户"
+    };
+
+    allData.value.unshift(newRow);
+    planTimeModel[workNo] = [...planTime];
+    priorityModel[workNo] = newPriority;
+    totalCount.value = allData.value.length;
+    tableRef.value?.refresh?.();
+    message.success("新建成功");
+    createBugDrawerOpen.value = false;
+    createBugPriorityDropdownOpen.value = false;
+    createAssigneeDropdownOpen.value = false;
+};
+
+const openCreateAttachmentDialog = () => {
+    createAttachmentInputRef.value?.click();
+};
+
+const onCreateAttachmentChange = (event: Event) => {
+    const target = event.target as HTMLInputElement;
+    const files = target.files;
+    if (!files || files.length === 0) return;
+
+    const next = [...createBugAttachments.value];
+    for (const file of Array.from(files)) {
+        const exists = next.some((x) => x.name === file.name && x.size === file.size);
+        if (exists) continue;
+        next.push({
+            id: `${file.name}-${file.size}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            name: file.name,
+            size: file.size
+        });
+    }
+    createBugAttachments.value = next;
+    target.value = "";
+};
+
+const removeCreateAttachment = (id: string) => {
+    createBugAttachments.value = createBugAttachments.value.filter((x) => x.id !== id);
+};
+
+const handleOpenBugDetail = (record: RowItem) => {
+    detailSelectedWorkNo.value = record.workNo;
+    detailActiveTab.value = "detail";
+    detailBottomTab.value = "comments";
+    detailCommentDraft.value = "";
+    detailStatusDropdownOpen.value = false;
+    detailStatusKeyword.value = "";
+    detailAssigneeDropdownOpen.value = false;
+    detailAssigneeKeyword.value = "";
+    detailDescEditing.value = false;
+    detailDescDraft.value = "";
+    ensureDetailPanelsData(record);
+
+    const currentPriority = getRowPriority(record, record.priority);
+    const currentTags = getRowTags(record, record.tags);
+    const currentPlanTime = planTimeModel[record.workNo] || record.planTime;
+    const base = createInitialBugForm();
+
+    createBugDrawerMode.value = "detail";
+    Object.assign(createBugForm, {
+        ...base,
+        title: record.title,
+        owner: record.owner === "未指派" ? "" : record.owner,
+        type: record.type,
+        planTime: [...currentPlanTime],
+        priority: currentPriority,
+        tags: [...currentTags],
+        description: record.description || base.description
+    });
+
+    createBugPriorityDropdownOpen.value = false;
+    createBugDrawerOpen.value = true;
+};
+
+const detailCurrentRecord = computed<RowItem | null>(() => {
+    if (!detailSelectedWorkNo.value) return null;
+    return allData.value.find((x) => x.workNo === detailSelectedWorkNo.value) || null;
+});
+
+const detailComments = computed<DetailComment[]>(() => {
+    const workNo = detailSelectedWorkNo.value;
+    if (!workNo) return [];
+    return detailCommentsMap[workNo] || [];
+});
+
+const detailLogs = computed<DetailLog[]>(() => {
+    const workNo = detailSelectedWorkNo.value;
+    if (!workNo) return [];
+    return detailLogsMap[workNo] || [];
+});
+
+const ensureDetailPanelsData = (record: RowItem) => {
+    if (!detailCommentsMap[record.workNo]) {
+        detailCommentsMap[record.workNo] = [
+            { id: `${record.workNo}-c1`, author: "刘克林", createdAt: "2025年11月21日", content: "已经加了需求 所有商品不可硬删除 全部改为软删除 包括回收站里的" },
+            { id: `${record.workNo}-c2`, author: "祝璞", createdAt: "2025年11月19日", content: "建议商品删除后通过订单进入商详页加个友好提示" }
+        ];
+    }
+    if (!detailLogsMap[record.workNo]) {
+        detailLogsMap[record.workNo] = [
+            { id: `${record.workNo}-l1`, actor: "万泽豪", createdAt: "11 分钟前", action: "添加协作者 黄薇" },
+            { id: `${record.workNo}-l2`, actor: "刘克林", createdAt: "2025年12月16日", action: `将负责人从 刘克林 修改为 ${record.owner}` }
+        ];
+    }
+};
+
+const appendDetailLog = (action: string) => {
+    const workNo = detailSelectedWorkNo.value;
+    if (!workNo) return;
+    if (!detailLogsMap[workNo]) detailLogsMap[workNo] = [];
+    detailLogsMap[workNo].unshift({
+        id: `${workNo}-l-${Date.now()}`,
+        actor: detailCurrentUser,
+        createdAt: "刚刚",
+        action
+    });
+};
+
+const submitDetailComment = () => {
+    const workNo = detailSelectedWorkNo.value;
+    const content = detailCommentDraft.value.trim();
+    if (!workNo || !content) {
+        message.warning("请先输入评论内容");
+        return;
+    }
+    if (!detailCommentsMap[workNo]) detailCommentsMap[workNo] = [];
+    detailCommentsMap[workNo].unshift({
+        id: `${workNo}-c-${Date.now()}`,
+        author: detailCurrentUser,
+        createdAt: "刚刚",
+        content
+    });
+    detailCommentDraft.value = "";
+    appendDetailLog("发布评论");
+    message.success("评论已发布");
+};
+
+const filteredDetailAssigneeGroups = computed(() => {
+    const kw = detailAssigneeKeyword.value.trim();
+    if (!kw) return ownerGroups;
+    return ownerGroups
+        .map((g) => ({
+            ...g,
+            members: g.members.filter((m) => m.includes(kw))
+        }))
+        .filter((g) => g.members.length > 0);
+});
+
+const filteredCreateAssigneeGroups = computed(() => {
+    const kw = createAssigneeKeyword.value.trim();
+    if (!kw) return ownerGroups;
+    return ownerGroups
+        .map((g) => ({
+            ...g,
+            members: g.members.filter((m) => m.includes(kw))
+        }))
+        .filter((g) => g.members.length > 0);
+});
+
+const toggleDetailAssigneeMenu = () => {
+    detailAssigneeDropdownOpen.value = !detailAssigneeDropdownOpen.value;
+    if (!detailAssigneeDropdownOpen.value) detailAssigneeKeyword.value = "";
+};
+
+const toggleCreateAssigneeMenu = () => {
+    createAssigneeDropdownOpen.value = !createAssigneeDropdownOpen.value;
+    if (!createAssigneeDropdownOpen.value) createAssigneeKeyword.value = "";
+};
+
+const toggleDetailAssigneeGroup = (group: string) => {
+    detailAssigneeGroupOpen[group] = !detailAssigneeGroupOpen[group];
+};
+
+const toggleCreateAssigneeGroup = (group: string) => {
+    createAssigneeGroupOpen[group] = !createAssigneeGroupOpen[group];
+};
+
+const isDetailOwner = (member: string): boolean => {
+    return detailCurrentRecord.value?.owner === member;
+};
+
+const isDetailCollaborator = (member: string): boolean => {
+    return (detailCurrentRecord.value?.collaborators || []).includes(member);
+};
+
+const isCreateOwner = (member: string): boolean => {
+    return createBugForm.owner === member;
+};
+
+const isCreateCollaborator = (member: string): boolean => {
+    return createBugForm.collaborators.includes(member);
+};
+
+const setDetailOwner = (member: string) => {
+    if (!detailCurrentRecord.value) return;
+    const prev = detailCurrentRecord.value.owner;
+    detailCurrentRecord.value.owner = member || "未指派";
+    if (prev !== detailCurrentRecord.value.owner) {
+        appendDetailLog(`将负责人从 ${prev || "未指派"} 修改为 ${detailCurrentRecord.value.owner}`);
+    }
+};
+
+const setCreateOwner = (member: string) => {
+    createBugForm.owner = member || "";
+    createBugForm.collaborators = createBugForm.collaborators.filter((x) => x !== member);
+};
+
+const toggleDetailCollaborator = (member: string) => {
+    if (!detailCurrentRecord.value) return;
+    const list = [...(detailCurrentRecord.value.collaborators || [])];
+    const idx = list.indexOf(member);
+    if (idx >= 0) {
+        list.splice(idx, 1);
+        appendDetailLog(`取消协作者 ${member}`);
+    } else {
+        list.push(member);
+        appendDetailLog(`添加协作者 ${member}`);
+    }
+    detailCurrentRecord.value.collaborators = list;
+};
+
+const toggleCreateCollaborator = (member: string) => {
+    if (createBugForm.owner === member) return;
+    const list = [...createBugForm.collaborators];
+    const idx = list.indexOf(member);
+    if (idx >= 0) list.splice(idx, 1);
+    else list.push(member);
+    createBugForm.collaborators = list;
+};
+
+const openDetailDescEditor = () => {
+    if (!detailCurrentRecord.value) return;
+    detailDescDraft.value = detailCurrentRecord.value.description || "";
+    detailDescEditing.value = true;
+};
+
+const cancelDetailDescEditor = () => {
+    detailDescEditing.value = false;
+    detailDescDraft.value = "";
+};
+
+const saveDetailDescEditor = () => {
+    if (!detailCurrentRecord.value) return;
+    detailCurrentRecord.value.description = detailDescDraft.value || "";
+    detailDescEditing.value = false;
+    appendDetailLog("更新描述");
+    message.success("描述已保存");
+};
 
 const getRowPriority = (record: RowItem, text?: Priority): Priority => {
     return priorityModel[record.workNo] || text || record.priority;
@@ -248,9 +729,27 @@ const selectPriority = (workNo: string, value: Priority) => {
 
 const onGlobalClick = () => {
     openPriorityFor.value = null;
+    openTagFor.value = null;
+    openOwnerFor.value = null;
+    openCollaboratorFor.value = null;
+    openStatusFor.value = null;
+    openPlanTimeFor.value = null;
+    detailStatusDropdownOpen.value = false;
+    detailAssigneeDropdownOpen.value = false;
+    createAssigneeDropdownOpen.value = false;
     ownerDropdownOpen.value = false;
     typeDropdownOpen.value = false;
     statusDropdownOpen.value = false;
+    createBugPriorityDropdownOpen.value = false;
+};
+
+const toggleCreateBugPriorityMenu = () => {
+    createBugPriorityDropdownOpen.value = !createBugPriorityDropdownOpen.value;
+};
+
+const selectCreateBugPriority = (value: Priority) => {
+    createBugForm.priority = value;
+    createBugPriorityDropdownOpen.value = false;
 };
 
 const filteredStatusOptions = computed(() => {
@@ -264,8 +763,77 @@ const selectStatus = (value: string) => {
     statusDropdownOpen.value = false;
 };
 
+const getRowStatus = (record: RowItem, text?: Status): Status => {
+    return text || record.status;
+};
+
+const toggleRowStatusMenu = (workNo: string) => {
+    if (openStatusFor.value === workNo) {
+        openStatusFor.value = null;
+        rowStatusKeyword.value = "";
+        return;
+    }
+    openStatusFor.value = workNo;
+    rowStatusKeyword.value = "";
+};
+
+const filteredRowStatusOptions = computed(() => {
+    const kw = rowStatusKeyword.value.trim();
+    if (!kw) return statusFilterOptions;
+    return statusFilterOptions.filter((x) => x.label.includes(kw));
+});
+
+const toggleDetailStatusMenu = () => {
+    detailStatusDropdownOpen.value = !detailStatusDropdownOpen.value;
+    if (!detailStatusDropdownOpen.value) detailStatusKeyword.value = "";
+};
+
+const filteredDetailStatusOptions = computed(() => {
+    const kw = detailStatusKeyword.value.trim();
+    if (!kw) return statusFilterOptions;
+    return statusFilterOptions.filter((x) => x.label.includes(kw));
+});
+
+const selectDetailStatus = (value: Status) => {
+    if (detailCurrentRecord.value) {
+        const prev = detailCurrentRecord.value.status;
+        detailCurrentRecord.value.status = value;
+        if (prev !== value) appendDetailLog(`将状态从 ${prev} 修改为 ${value}`);
+    }
+    detailStatusDropdownOpen.value = false;
+    detailStatusKeyword.value = "";
+};
+
+const selectRowStatus = (record: RowItem, value: Status) => {
+    record.status = value;
+    openStatusFor.value = null;
+    rowStatusKeyword.value = "";
+};
+
 const filteredOwnerGroups = computed(() => {
     const kw = ownerKeyword.value.trim();
+    if (!kw) return ownerGroups;
+    return ownerGroups
+        .map((g) => ({
+            ...g,
+            members: g.members.filter((m) => m.includes(kw))
+        }))
+        .filter((g) => g.members.length > 0);
+});
+
+const filteredOwnerEditGroups = computed(() => {
+    const kw = ownerEditKeyword.value.trim();
+    if (!kw) return ownerGroups;
+    return ownerGroups
+        .map((g) => ({
+            ...g,
+            members: g.members.filter((m) => m.includes(kw))
+        }))
+        .filter((g) => g.members.length > 0);
+});
+
+const filteredCollaboratorGroups = computed(() => {
+    const kw = collaboratorKeyword.value.trim();
     if (!kw) return ownerGroups;
     return ownerGroups
         .map((g) => ({
@@ -279,9 +847,52 @@ const toggleOwnerGroup = (group: string) => {
     ownerGroupOpen[group] = !ownerGroupOpen[group];
 };
 
+const toggleOwnerEditGroup = (group: string) => {
+    ownerEditGroupOpen[group] = !ownerEditGroupOpen[group];
+};
+
+const toggleCollaboratorGroup = (group: string) => {
+    collaboratorGroupOpen[group] = !collaboratorGroupOpen[group];
+};
+
 const selectOwner = (value: string) => {
     owner.value = value;
     ownerDropdownOpen.value = false;
+};
+
+const getRowOwner = (record: RowItem, text?: string): string => {
+    return text || record.owner || "未指派";
+};
+
+const toggleRowOwnerMenu = (workNo: string) => {
+    openOwnerFor.value = openOwnerFor.value === workNo ? null : workNo;
+    ownerEditKeyword.value = "";
+};
+
+const selectRowOwner = (record: RowItem, value: string) => {
+    record.owner = value || "未指派";
+    openOwnerFor.value = null;
+};
+
+const getRowCollaborators = (record: RowItem, text?: string[]): string[] => {
+    return collaboratorsModel[record.workNo] || text || record.collaborators || [];
+};
+
+const toggleCollaboratorMenu = (workNo: string) => {
+    openCollaboratorFor.value = openCollaboratorFor.value === workNo ? null : workNo;
+    collaboratorKeyword.value = "";
+};
+
+const toggleRowCollaborator = (record: RowItem, member: string, text?: string[]) => {
+    const current = [...getRowCollaborators(record, text)];
+    const idx = current.indexOf(member);
+    if (idx >= 0) current.splice(idx, 1);
+    else current.push(member);
+    collaboratorsModel[record.workNo] = current;
+};
+
+const finishCollaboratorEdit = () => {
+    openCollaboratorFor.value = null;
 };
 
 const avatarBgPalette = ["#2f80ed", "#5b8ff9", "#9b59b6", "#27ae60", "#f39c12", "#e67e22", "#16a085", "#8e44ad"];
@@ -291,6 +902,87 @@ const getAvatarBg = (name: string): string => {
     return avatarBgPalette[hash % avatarBgPalette.length]!;
 };
 const getAvatarLabel = (name: string): string => name.slice(0, 1).toUpperCase();
+
+const tagColorPalette = ["#ef4444", "#d946ef", "#eab308", "#22c55e", "#3b82f6", "#f97316", "#14b8a6", "#8b5cf6"];
+const getTagColor = (name: string): string => {
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+    return tagColorPalette[hash % tagColorPalette.length]!;
+};
+
+const getRowTags = (record: RowItem, text?: string[]): string[] => {
+    return tagsModel[record.workNo] || text || [];
+};
+
+const onPlanTimeChange = (workNo: string, value?: DateRange) => {
+    if (!value || value.length !== 2) return;
+    planTimeModel[workNo] = value;
+    openPlanTimeFor.value = null;
+};
+
+const getRowPlanTime = (record: RowItem, text?: DateRange): DateRange => {
+    return planTimeModel[record.workNo] || text || record.planTime;
+};
+
+const getRowPlanTimeText = (record: RowItem, text?: DateRange): string => {
+    const value = getRowPlanTime(record, text);
+    return `${value[0]} ~ ${value[1]}`;
+};
+
+const togglePlanTimeMenu = (workNo: string) => {
+    openPlanTimeFor.value = openPlanTimeFor.value === workNo ? null : workNo;
+};
+
+const getCollapsedTags = (tags: string[], resolvedWidth?: string | number): { visible: string[]; hidden: number } => {
+    const width = typeof resolvedWidth === "number"
+        ? resolvedWidth
+        : (typeof resolvedWidth === "string" ? Number.parseFloat(resolvedWidth) : 180);
+    const cellWidth = Number.isFinite(width) ? width : 180;
+    const available = Math.max(48, cellWidth - 14);
+    const moreReserve = 34;
+    const gap = 4;
+    let used = 0;
+    const visible: string[] = [];
+    const chipWidth = (text: string) => Math.max(36, text.length * 13 + 14);
+
+    for (let i = 0; i < tags.length; i++) {
+        const w = chipWidth(tags[i]!);
+        const remaining = tags.length - i - 1;
+        const nextUsed = used + (visible.length > 0 ? gap : 0) + w;
+        const limit = remaining > 0 ? available - moreReserve : available;
+        if (nextUsed > limit) break;
+        visible.push(tags[i]!);
+        used = nextUsed;
+    }
+    return { visible, hidden: Math.max(0, tags.length - visible.length) };
+};
+
+const getTagRenderInfo = (record: RowItem, text: string[] | undefined, resolvedWidth?: string | number) => {
+    return getCollapsedTags(getRowTags(record, text), resolvedWidth);
+};
+
+const toggleTagMenu = (workNo: string) => {
+    openTagFor.value = openTagFor.value === workNo ? null : workNo;
+    tagKeyword.value = "";
+};
+
+const toggleTagOption = (record: RowItem, tag: string, text?: string[]) => {
+    const current = [...getRowTags(record, text)];
+    const idx = current.indexOf(tag);
+    if (idx >= 0) current.splice(idx, 1);
+    else current.push(tag);
+    tagsModel[record.workNo] = current;
+};
+
+const finishTagEdit = () => {
+    openTagFor.value = null;
+};
+
+const filteredTagOptions = computed(() => {
+    const kw = tagKeyword.value.trim();
+    if (!kw) return tagOptions;
+    return tagOptions.filter((x) => x.includes(kw));
+});
 
 const typeGroups = computed<WorkType[]>(() => {
     const all: WorkType[] = ["需求", "任务", "缺陷"];
@@ -304,6 +996,7 @@ const toggleTypeGroup = (group: WorkType) => {
 };
 
 const selectType = (value: WorkType) => {
+    if (props.fixedType) return;
     type.value = value;
     typeDropdownOpen.value = false;
 };
@@ -320,7 +1013,7 @@ onBeforeUnmount(() => {
 <template>
     <div class="p-6 space-y-4">
         <div class="bg-white rounded-xl p-4">
-            <h3 class="text-base font-medium text-gray-800 mb-3">缺陷</h3>
+            <h3 class="text-base font-medium text-gray-800 mb-3">{{ props.pageTitle }}</h3>
             <div class="flex flex-wrap items-center gap-3 text-sm">
                 <div class="text-gray-600"><span class="text-gray-900 font-medium">共{{ totalCount || allData.length }}项</span></div>
                 <input v-model="keyword" placeholder="输入关键词" class="h-8 px-3 border border-gray-300 rounded w-[180px]" />
@@ -374,7 +1067,7 @@ onBeforeUnmount(() => {
                         </div>
                     </div>
                 </div>
-                <div class="relative" @click.stop>
+                <div v-if="!props.fixedType" class="relative" @click.stop>
                     <button
                         class="h-8 min-w-[110px] px-3 border border-slate-300 rounded-md bg-white flex items-center justify-between text-left hover:border-slate-400"
                         :class="{ 'border-blue-500 ring-1 ring-blue-200': typeDropdownOpen }"
@@ -452,6 +1145,7 @@ onBeforeUnmount(() => {
                 </div>
                 <button class="h-8 px-4 bg-blue-600 text-white rounded hover:bg-blue-700" @click="tableRef?.refresh?.()">查询</button>
                 <button class="h-8 px-4 border border-gray-300 rounded hover:bg-gray-50" @click="onReset">重置</button>
+                <button class="h-8 px-4 bg-blue-600 text-white rounded hover:bg-blue-700 ml-auto" @click="handleCreateBug">{{ props.createButtonText }}</button>
             </div>
         </div>
 
@@ -461,10 +1155,33 @@ onBeforeUnmount(() => {
                 :columns="columns"
                 :request="request"
                 :params="queryParams"
-                :pagination="{ showSizeChanger: true, showQuickJumper: true, pageSizeOptions: [10, 20, 50] }"
+                :pagination="{ pageSize: 20, showSizeChanger: true, showQuickJumper: true, pageSizeOptions: [10, 20, 50] }"
                 :toolbar="false"
                 bordered
             >
+                <template #title="{ text, record }">
+                    <button class="title-link-cell" :title="text" @click.stop="handleOpenBugDetail(record)">
+                        <span class="work-type-icon" :class="getWorkTypeIconClass(record.type)">
+                            <svg
+                                v-if="record.type === '缺陷'"
+                                class="work-type-icon-svg"
+                                viewBox="0 0 24 24"
+                                aria-hidden="true"
+                            >
+                                <circle cx="12" cy="7.5" r="3.2" fill="white" />
+                                <rect x="8" y="10.5" width="8" height="9" rx="3.8" fill="white" />
+                                <rect x="11.2" y="10.8" width="1.6" height="8.6" rx="0.8" fill="#ef4444" />
+                                <path d="M8.3 12.3H5.2M8.1 15.1H4.8M15.9 12.3H18.8M16.1 15.1H19.2" stroke="white" stroke-width="1.5" stroke-linecap="round" />
+                                <path d="M10.2 4.8 8.7 3.3M13.8 4.8 15.3 3.3" stroke="white" stroke-width="1.5" stroke-linecap="round" />
+                            </svg>
+                            <template v-else>
+                                {{ getWorkTypeIconSymbol(record.type) }}
+                            </template>
+                        </span>
+                        <span class="title-link-text">{{ text }}</span>
+                    </button>
+                </template>
+
                 <template #priority="{ text, record }">
                     <div class="relative inline-block text-left" @click.stop>
                         <button
@@ -492,39 +1209,812 @@ onBeforeUnmount(() => {
                     </div>
                 </template>
 
-                <template #tags="{ text }">
-                    <div class="flex items-center gap-1 flex-wrap">
-                        <span v-for="tag in text" :key="tag" class="px-1.5 py-0.5 rounded text-xs bg-sky-50 text-sky-700 border border-sky-200">
-                            {{ tag }}
-                        </span>
-                    </div>
-                </template>
+                <template #tags="{ text, record, resolvedWidth }">
+                    <div class="relative inline-block w-full" @click.stop>
+                        <button class="w-full text-left" @click.stop="toggleTagMenu(record.workNo)">
+                            <div class="flex items-center gap-1 flex-nowrap whitespace-nowrap overflow-hidden">
+                                <template v-for="tag in getTagRenderInfo(record, text, resolvedWidth).visible" :key="record.workNo + '-' + tag">
+                                    <span
+                                        class="px-1.5 py-0.5 rounded text-xs text-white inline-block"
+                                        :style="{ backgroundColor: getTagColor(tag) }"
+                                    >
+                                        {{ tag }}
+                                    </span>
+                                </template>
+                                <span v-if="getTagRenderInfo(record, text, resolvedWidth).hidden > 0" class="text-gray-400 font-medium text-sm">
+                                    +{{ getTagRenderInfo(record, text, resolvedWidth).hidden }}
+                                </span>
+                            </div>
+                        </button>
 
-                <template #status="{ text }">
-                    <span class="status-badge" :class="statusClassMap[text]">
-                        <span class="status-badge-icon">{{ statusIconMap[text] }}</span>
-                        <span>{{ text }}</span>
-                    </span>
-                </template>
-
-                <template #collaborators="{ text }">
-                    <div class="flex items-center">
                         <div
-                            v-for="(name, idx) in text"
-                            :key="name + idx"
-                            class="-ml-1 first:ml-0 w-6 h-6 rounded-full border border-white bg-indigo-500 text-white text-[11px] flex items-center justify-center"
-                            :title="name"
+                            v-if="openTagFor === record.workNo"
+                            class="absolute z-30 mt-1 w-[240px] bg-white border border-gray-200 rounded-lg shadow-md p-3"
                         >
-                            {{ getAvatarText(name) }}
+                            <div class="mb-2">
+                                <div class="relative">
+                                    <input
+                                        v-model="tagKeyword"
+                                        placeholder="搜索..."
+                                        class="w-full h-9 pl-3 pr-8 border border-gray-300 rounded-md text-sm"
+                                    />
+                                    <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">⌕</span>
+                                </div>
+                            </div>
+                            <div class="max-h-[200px] overflow-y-auto pr-1">
+                                <button
+                                    v-for="tag in filteredTagOptions"
+                                    :key="record.workNo + '-opt-' + tag"
+                                    class="w-full h-10 px-2 rounded-md flex items-center gap-2 text-left hover:bg-gray-50"
+                                    @click.stop="toggleTagOption(record, tag, text)"
+                                >
+                                    <span class="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center text-[12px] text-gray-500">
+                                        <span v-if="getRowTags(record, text).includes(tag)">✓</span>
+                                    </span>
+                                    <span class="w-5 h-5 rounded-full" :style="{ backgroundColor: getTagColor(tag) }" />
+                                    <span class="text-sm text-gray-700">{{ tag }}</span>
+                                </button>
+                            </div>
+                            <div class="mt-2 flex justify-end">
+                                <button class="h-8 px-3 text-sm bg-blue-600 text-white rounded hover:bg-blue-700" @click.stop="finishTagEdit">
+                                    完成
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </template>
 
-                <template #planTime="{ text }">
-                    <span class="text-red-500">{{ text }}</span>
+                <template #status="{ text, record }">
+                    <div class="relative inline-block text-left" @click.stop>
+                        <button class="status-edit-trigger" @click.stop="toggleRowStatusMenu(record.workNo)">
+                            <span class="status-badge table-status-badge" :class="statusClassMap[getRowStatus(record, text)]">
+                                <span class="status-badge-icon">{{ statusIconMap[getRowStatus(record, text)] }}</span>
+                                <span>{{ getRowStatus(record, text) }}</span>
+                            </span>
+                        </button>
+                        <div
+                            v-if="openStatusFor === record.workNo"
+                            class="absolute z-30 mt-1 w-[240px] bg-white border border-gray-200 rounded-lg shadow-md p-3"
+                        >
+                            <div class="mb-2">
+                                <input
+                                    v-model="rowStatusKeyword"
+                                    placeholder="搜索..."
+                                    class="w-full h-9 px-3 border border-gray-300 rounded-md text-sm"
+                                />
+                            </div>
+                            <div class="max-h-[220px] overflow-y-auto pr-1">
+                                <button
+                                    v-for="opt in filteredRowStatusOptions"
+                                    :key="record.workNo + '-status-' + opt.value"
+                                    class="w-full h-10 px-2 rounded-md flex items-center gap-2 text-left hover:bg-gray-50"
+                                    :class="{ 'bg-slate-100': getRowStatus(record, text) === opt.value }"
+                                    @click.stop="selectRowStatus(record, opt.value as Status)"
+                                >
+                                    <span class="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center text-[12px] text-gray-500">
+                                        <span v-if="getRowStatus(record, text) === opt.value">✓</span>
+                                    </span>
+                                    <span class="text-[14px] leading-none w-4 text-center" :class="opt.iconClass">{{ opt.icon }}</span>
+                                    <span class="text-sm text-gray-700">{{ opt.label }}</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <template #owner="{ text, record }">
+                    <div class="relative inline-block" @click.stop>
+                        <button
+                            class="h-8 max-w-[150px] px-2 rounded-md bg-transparent flex items-center gap-2"
+                            :class="{ 'ring-1 ring-blue-200': openOwnerFor === record.workNo }"
+                            @click.stop="toggleRowOwnerMenu(record.workNo)"
+                        >
+                            <span
+                                class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center shrink-0"
+                                :style="{ backgroundColor: getAvatarBg(getRowOwner(record, text)) }"
+                            >
+                                {{ getAvatarLabel(getRowOwner(record, text)) }}
+                            </span>
+                            <span class="text-sm text-gray-700 truncate">{{ getRowOwner(record, text) }}</span>
+                        </button>
+
+                        <div
+                            v-if="openOwnerFor === record.workNo"
+                            class="absolute z-30 mt-1 w-[260px] bg-white border border-gray-200 rounded-lg shadow-md p-3"
+                        >
+                            <div class="mb-2">
+                                <div class="relative">
+                                    <input
+                                        v-model="ownerEditKeyword"
+                                        placeholder="搜索..."
+                                        class="w-full h-9 pl-3 pr-8 border border-gray-300 rounded-md text-sm"
+                                    />
+                                    <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">⌕</span>
+                                </div>
+                            </div>
+                            <div class="max-h-[420px] overflow-y-auto -mx-3">
+                                <button class="w-full h-10 px-3 text-left text-gray-700 hover:bg-gray-50" @click.stop="selectRowOwner(record, '')">
+                                    未指派
+                                </button>
+                                <div v-for="group in filteredOwnerEditGroups" :key="'row-owner-' + group.label">
+                                    <button
+                                        class="w-full h-10 px-3 bg-slate-100 flex items-center justify-between text-left"
+                                        @click.stop="toggleOwnerEditGroup(group.label)"
+                                    >
+                                        <span class="text-gray-700 text-sm">{{ group.label }}（{{ group.members.length }}）</span>
+                                        <span class="status-arrow-simple" :class="{ open: ownerEditGroupOpen[group.label] }" />
+                                    </button>
+                                    <button
+                                        v-for="member in (ownerEditGroupOpen[group.label] ? group.members : [])"
+                                        :key="'row-owner-member-' + group.label + member"
+                                        class="w-full h-10 px-3 flex items-center gap-2 text-left hover:bg-gray-50"
+                                        @click.stop="selectRowOwner(record, member)"
+                                    >
+                                        <span
+                                            class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center"
+                                            :style="{ backgroundColor: getAvatarBg(member) }"
+                                        >
+                                            {{ getAvatarLabel(member) }}
+                                        </span>
+                                        <span class="text-sm text-gray-700">{{ member }}</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <template #creator="{ text }">
+                    <div class="h-8 max-w-[150px] px-2 rounded-md bg-transparent flex items-center gap-2">
+                        <span
+                            class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center shrink-0"
+                            :style="{ backgroundColor: getAvatarBg(text) }"
+                        >
+                            {{ getAvatarLabel(text) }}
+                        </span>
+                        <span class="text-sm text-gray-700 truncate">{{ text }}</span>
+                    </div>
+                </template>
+
+                <template #collaborators="{ text, record }">
+                    <div class="relative inline-block" @click.stop>
+                        <button class="h-8 px-1 rounded-md bg-transparent flex items-center" @click.stop="toggleCollaboratorMenu(record.workNo)">
+                            <div class="flex items-center">
+                                <div
+                                    v-for="(name, idx) in getRowCollaborators(record, text)"
+                                    :key="record.workNo + '-c-' + name + idx"
+                                    class="-ml-1 first:ml-0 w-6 h-6 rounded-full border border-white text-white text-[11px] flex items-center justify-center"
+                                    :style="{ backgroundColor: getAvatarBg(name) }"
+                                    :title="name"
+                                >
+                                    {{ getAvatarLabel(name) }}
+                                </div>
+                            </div>
+                        </button>
+
+                        <div
+                            v-if="openCollaboratorFor === record.workNo"
+                            class="absolute z-30 mt-1 w-[260px] bg-white border border-gray-200 rounded-lg shadow-md p-3"
+                        >
+                            <div class="mb-2">
+                                <div class="relative">
+                                    <input
+                                        v-model="collaboratorKeyword"
+                                        placeholder="搜索..."
+                                        class="w-full h-9 pl-3 pr-8 border border-gray-300 rounded-md text-sm"
+                                    />
+                                    <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">⌕</span>
+                                </div>
+                            </div>
+                            <div class="max-h-[260px] overflow-y-auto -mx-3">
+                                <div v-for="group in filteredCollaboratorGroups" :key="'collab-' + group.label">
+                                    <button
+                                        class="w-full h-10 px-3 bg-slate-100 flex items-center justify-between text-left"
+                                        @click.stop="toggleCollaboratorGroup(group.label)"
+                                    >
+                                        <span class="text-gray-700 text-sm">{{ group.label }}（{{ group.members.length }}）</span>
+                                        <span class="status-arrow-simple" :class="{ open: collaboratorGroupOpen[group.label] }" />
+                                    </button>
+                                    <button
+                                        v-for="member in (collaboratorGroupOpen[group.label] ? group.members : [])"
+                                        :key="'collab-member-' + group.label + member"
+                                        class="w-full h-10 px-3 flex items-center gap-2 text-left hover:bg-gray-50"
+                                        @click.stop="toggleRowCollaborator(record, member, text)"
+                                    >
+                                        <span class="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center text-[12px] text-gray-500">
+                                            <span v-if="getRowCollaborators(record, text).includes(member)">✓</span>
+                                        </span>
+                                        <span
+                                            class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center"
+                                            :style="{ backgroundColor: getAvatarBg(member) }"
+                                        >
+                                            {{ getAvatarLabel(member) }}
+                                        </span>
+                                        <span class="text-sm text-gray-700">{{ member }}</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="mt-2 flex justify-end">
+                                <button class="h-8 px-3 text-sm bg-blue-600 text-white rounded hover:bg-blue-700" @click.stop="finishCollaboratorEdit">
+                                    完成
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <template #planTime="{ text, record }">
+                    <div class="relative inline-block" @click.stop>
+                        <button
+                            v-if="openPlanTimeFor !== record.workNo"
+                            class="plan-time-display"
+                            @click.stop="togglePlanTimeMenu(record.workNo)"
+                        >
+                            {{ getRowPlanTimeText(record, text) }}
+                        </button>
+                        <vort-range-picker
+                            v-else
+                            v-model="planTimeModel[record.workNo]"
+                            value-format="YYYY-MM-DD"
+                            format="YYYY-MM-DD"
+                            separator="~"
+                            :placeholder="['开始日期', '结束日期']"
+                            class="plan-time-picker"
+                            @change="(value: DateRange) => onPlanTimeChange(record.workNo, value || text)"
+                            @click.stop
+                        />
+                    </div>
                 </template>
             </ProTable>
         </div>
+
+        <vort-drawer
+            v-model:open="createBugDrawerOpen"
+            :title="createBugDrawerMode === 'create' ? props.createDrawerTitle : props.detailDrawerTitle"
+            :width="1180"
+            :body-style="{ padding: '16px 20px 20px' }"
+        >
+            <template v-if="createBugDrawerMode === 'detail'">
+                <div class="bug-detail-drawer">
+                    <main class="bug-detail-main" v-if="detailCurrentRecord">
+                        <div class="bug-detail-meta-top">
+                            <span class="work-type-icon" :class="getWorkTypeIconClass(detailCurrentRecord.type)">
+                                <svg v-if="detailCurrentRecord.type === '缺陷'" class="work-type-icon-svg" viewBox="0 0 24 24" aria-hidden="true">
+                                    <circle cx="12" cy="7.5" r="3.2" fill="white" />
+                                    <rect x="8" y="10.5" width="8" height="9" rx="3.8" fill="white" />
+                                    <rect x="11.2" y="10.8" width="1.6" height="8.6" rx="0.8" fill="#ef4444" />
+                                    <path d="M8.3 12.3H5.2M8.1 15.1H4.8M15.9 12.3H18.8M16.1 15.1H19.2" stroke="white" stroke-width="1.5" stroke-linecap="round" />
+                                    <path d="M10.2 4.8 8.7 3.3M13.8 4.8 15.3 3.3" stroke="white" stroke-width="1.5" stroke-linecap="round" />
+                                </svg>
+                                <template v-else>{{ getWorkTypeIconSymbol(detailCurrentRecord.type) }}</template>
+                            </span>
+                            <span class="bug-detail-no">{{ detailCurrentRecord.workNo }}</span>
+                            <div class="relative inline-block text-left" @click.stop>
+                                <button class="detail-status-trigger" @click.stop="toggleDetailStatusMenu">
+                                    <span class="detail-status-content">
+                                        <span class="detail-status-icon" :class="getStatusOption(detailCurrentRecord.status).iconClass">
+                                            {{ getStatusOption(detailCurrentRecord.status).icon }}
+                                        </span>
+                                        <span class="detail-status-text">{{ detailCurrentRecord.status }}</span>
+                                    </span>
+                                    <span class="status-arrow-simple" :class="{ open: detailStatusDropdownOpen }" />
+                                </button>
+                                <div
+                                    v-if="detailStatusDropdownOpen"
+                                    class="absolute z-30 mt-1 w-[240px] bg-white border border-gray-200 rounded-lg shadow-md p-3"
+                                >
+                                    <div class="mb-2">
+                                        <input
+                                            v-model="detailStatusKeyword"
+                                            placeholder="搜索..."
+                                            class="w-full h-9 px-3 border border-gray-300 rounded-md text-sm"
+                                        />
+                                    </div>
+                                    <div class="max-h-[220px] overflow-y-auto pr-1">
+                                        <button
+                                            v-for="opt in filteredDetailStatusOptions"
+                                            :key="'detail-status-' + opt.value"
+                                            class="w-full h-10 px-2 rounded-md flex items-center gap-2 text-left hover:bg-gray-50"
+                                            :class="{ 'bg-slate-100': detailCurrentRecord.status === opt.value }"
+                                            @click.stop="selectDetailStatus(opt.value as Status)"
+                                        >
+                                            <span class="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center text-[12px] text-gray-500">
+                                                <span v-if="detailCurrentRecord.status === opt.value">✓</span>
+                                            </span>
+                                            <span class="text-[14px] leading-none w-4 text-center" :class="opt.iconClass">{{ opt.icon }}</span>
+                                            <span class="text-sm text-gray-700">{{ opt.label }}</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <h2 class="bug-detail-title">{{ detailCurrentRecord.title }}</h2>
+                        <p class="bug-detail-sub">
+                            {{ detailCurrentRecord.owner || "未指派" }}，创建于 {{ detailCurrentRecord.createdAt }}，最近更新于 {{ detailCurrentRecord.createdAt }}
+                        </p>
+
+                        <div class="bug-detail-tabs">
+                            <button :class="{ active: detailActiveTab === 'detail' }" @click="detailActiveTab = 'detail'">详情</button>
+                            <button :class="{ active: detailActiveTab === 'worklog' }" @click="detailActiveTab = 'worklog'">工作日志</button>
+                            <button :class="{ active: detailActiveTab === 'related' }" @click="detailActiveTab = 'related'">关联工作项</button>
+                            <button :class="{ active: detailActiveTab === 'test' }" @click="detailActiveTab = 'test'">关联测试用例</button>
+                            <button :class="{ active: detailActiveTab === 'docs' }" @click="detailActiveTab = 'docs'">关联文档</button>
+                        </div>
+
+                        <div class="bug-detail-panel" v-if="detailActiveTab === 'detail'">
+                            <div class="bug-detail-top-grid">
+                                <div class="bug-detail-left-col">
+                                    <div class="bug-detail-info-item bug-detail-info-item-row bug-detail-info-assignee" @click.stop>
+                                    <label>负责人 / 协作</label>
+                                    <button
+                                        class="detail-assignee-trigger"
+                                        :class="{ active: detailAssigneeDropdownOpen }"
+                                        @click.stop="toggleDetailAssigneeMenu"
+                                    >
+                                        <div class="detail-assignee-split">
+                                            <div class="detail-assignee-owner">
+                                                <span
+                                                    v-if="detailCurrentRecord.owner && detailCurrentRecord.owner !== '未指派'"
+                                                    class="detail-assignee-avatar"
+                                                    :style="{ backgroundColor: getAvatarBg(detailCurrentRecord.owner) }"
+                                                >
+                                                    {{ getAvatarLabel(detailCurrentRecord.owner) }}
+                                                </span>
+                                                <span class="detail-assignee-owner-name">
+                                                    {{ detailCurrentRecord.owner || "未指派" }}
+                                                </span>
+                                            </div>
+                                            <span class="detail-assignee-separator">/</span>
+                                            <div class="detail-assignee-collaborators detail-collab-stack">
+                                                <template v-if="detailCurrentRecord.collaborators.length > 0">
+                                                    <span
+                                                        v-for="name in detailCurrentRecord.collaborators"
+                                                        :key="'detail-collab-' + name"
+                                                        class="detail-assignee-avatar"
+                                                        :style="{ backgroundColor: getAvatarBg(name) }"
+                                                        :title="name"
+                                                    >
+                                                        {{ getAvatarLabel(name) }}
+                                                    </span>
+                                                </template>
+                                                <span v-else class="detail-assignee-avatar detail-assignee-add">+</span>
+                                            </div>
+                                        </div>
+                                    </button>
+
+                                    <div
+                                        v-if="detailAssigneeDropdownOpen"
+                                        class="detail-assignee-dropdown"
+                                    >
+                                        <div class="mb-2">
+                                            <div class="relative">
+                                                <input
+                                                    v-model="detailAssigneeKeyword"
+                                                    placeholder="输入搜索用户名"
+                                                    class="w-full h-9 pl-3 pr-8 border border-gray-300 rounded-md text-sm"
+                                                />
+                                                <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">⌕</span>
+                                            </div>
+                                        </div>
+                                        <div class="max-h-[320px] overflow-y-auto -mx-3">
+                                            <div v-for="group in filteredDetailAssigneeGroups" :key="'detail-assignee-' + group.label">
+                                                <button
+                                                    class="w-full h-10 px-3 bg-slate-100 flex items-center justify-between text-left"
+                                                    @click.stop="toggleDetailAssigneeGroup(group.label)"
+                                                >
+                                                    <span class="text-gray-700 text-sm">{{ group.label }}（{{ group.members.length }}）</span>
+                                                    <span class="status-arrow-simple" :class="{ open: detailAssigneeGroupOpen[group.label] }" />
+                                                </button>
+                                                <div v-if="detailAssigneeGroupOpen[group.label]">
+                                                    <div
+                                                        v-for="member in group.members"
+                                                        :key="'detail-assignee-member-' + group.label + member"
+                                                        class="detail-assignee-row"
+                                                    >
+                                                        <div class="detail-assignee-row-left">
+                                                            <span
+                                                                class="detail-assignee-avatar"
+                                                                :style="{ backgroundColor: getAvatarBg(member) }"
+                                                            >
+                                                                {{ getAvatarLabel(member) }}
+                                                            </span>
+                                                            <span class="text-sm text-gray-700">{{ member }}</span>
+                                                        </div>
+                                                        <div class="detail-assignee-row-actions">
+                                                            <button
+                                                                class="detail-role-btn"
+                                                                :class="{ active: isDetailOwner(member) }"
+                                                                @click.stop="setDetailOwner(member)"
+                                                            >
+                                                                负责人
+                                                            </button>
+                                                            <button
+                                                                class="detail-role-btn collab"
+                                                                :class="{ active: isDetailCollaborator(member) }"
+                                                                @click.stop="toggleDetailCollaborator(member)"
+                                                            >
+                                                                协作者
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    </div>
+                                    <div class="bug-detail-info-item bug-detail-info-item-row"><label>计划时间</label><div>{{ detailCurrentRecord.planTime[0] }} ~ {{ detailCurrentRecord.planTime[1] }}</div></div>
+                                    <div class="bug-detail-info-item bug-detail-info-item-row"><label>迭代</label><div>{{ createBugForm.iteration || "未设置" }}</div></div>
+                                </div>
+                                <div class="bug-detail-right-col">
+                                    <div class="bug-detail-info-item bug-detail-info-item-row"><label>类型</label><div>{{ detailCurrentRecord.type }}</div></div>
+                                    <div class="bug-detail-info-item bug-detail-info-item-row"><label>项目</label><div>{{ createBugForm.project || "VortMall" }}</div></div>
+                                    <div class="bug-detail-info-item bug-detail-info-item-row"><label>版本</label><div>{{ createBugForm.version || "未设置" }}</div></div>
+                                </div>
+                            </div>
+                            <div class="bug-detail-desc">
+                                <div class="bug-detail-desc-head">
+                                    <h4>描述</h4>
+                                    <button class="bug-detail-desc-edit-btn" @click="openDetailDescEditor">
+                                        <Pencil :size="14" />
+                                    </button>
+                                </div>
+                                <template v-if="detailDescEditing">
+                                    <VortEditor v-model="detailDescDraft" placeholder="请输入描述内容..." min-height="300px" />
+                                    <div class="bug-detail-desc-actions">
+                                        <vort-button variant="primary" @click="saveDetailDescEditor">保存</vort-button>
+                                        <vort-button @click="cancelDetailDescEditor">取消</vort-button>
+                                    </div>
+                                </template>
+                                <template v-else>
+                                    <div class="bug-detail-desc-content">{{ detailCurrentRecord.description || "-" }}</div>
+                                </template>
+                            </div>
+
+                            <div class="bug-detail-bottom-panel">
+                                <div class="bug-detail-bottom-tabs">
+                                    <button
+                                        :class="{ active: detailBottomTab === 'comments' }"
+                                        @click="detailBottomTab = 'comments'"
+                                    >
+                                        评论
+                                        <span class="count">{{ detailComments.length }}</span>
+                                    </button>
+                                    <button
+                                        :class="{ active: detailBottomTab === 'logs' }"
+                                        @click="detailBottomTab = 'logs'"
+                                    >
+                                        操作日志
+                                        <span class="count">{{ detailLogs.length }}</span>
+                                    </button>
+                                </div>
+
+                                <div v-if="detailBottomTab === 'comments'" class="bug-detail-comments">
+                                    <div v-if="detailComments.length === 0" class="bug-detail-empty">暂无评论</div>
+                                    <div v-else class="bug-detail-comment-list">
+                                        <div v-for="item in detailComments" :key="item.id" class="bug-detail-comment-item">
+                                            <span class="bug-detail-comment-avatar">{{ item.author.slice(0, 1) }}</span>
+                                            <div class="bug-detail-comment-main">
+                                                <div class="bug-detail-comment-meta">
+                                                    <span class="author">{{ item.author }}</span>
+                                                    <span class="time">{{ item.createdAt }}</span>
+                                                </div>
+                                                <div class="bug-detail-comment-content">{{ item.content }}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="bug-detail-comment-editor">
+                                        <VortEditor v-model="detailCommentDraft" placeholder="发表您的看法（Ctrl/Command+Enter发送）" min-height="120px" />
+                                        <div class="bug-detail-desc-actions">
+                                            <vort-button variant="primary" @click="submitDetailComment">评论</vort-button>
+                                            <vort-button @click="detailCommentDraft = ''">取消</vort-button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div v-else class="bug-detail-logs">
+                                    <div v-if="detailLogs.length === 0" class="bug-detail-empty">暂无操作日志</div>
+                                    <div v-else class="bug-detail-log-list">
+                                        <div v-for="item in detailLogs" :key="item.id" class="bug-detail-log-item">
+                                            <span class="bug-detail-log-dot" />
+                                            <span class="actor">{{ item.actor }}</span>
+                                            <span class="action">{{ item.action }}</span>
+                                            <span class="time">{{ item.createdAt }}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bug-detail-panel" v-else-if="detailActiveTab === 'worklog'">
+                            <p class="bug-detail-empty">暂无工作日志</p>
+                        </div>
+                        <div class="bug-detail-panel" v-else-if="detailActiveTab === 'related'">
+                            <p class="bug-detail-empty">暂无关联工作项</p>
+                        </div>
+                        <div class="bug-detail-panel" v-else-if="detailActiveTab === 'test'">
+                            <p class="bug-detail-empty">暂无关联测试用例</p>
+                        </div>
+                        <div class="bug-detail-panel" v-else>
+                            <p class="bug-detail-empty">暂无关联文档</p>
+                        </div>
+                    </main>
+                </div>
+            </template>
+
+            <template v-else>
+            <div class="create-bug-drawer">
+                <div class="create-bug-main">
+                    <div class="create-bug-row create-bug-row-full">
+                        <div class="create-bug-field">
+                            <label class="create-bug-label">标题 <span class="required">*</span></label>
+                            <vort-input v-model="createBugForm.title" placeholder="请填写" />
+                        </div>
+                    </div>
+
+                    <div class="create-bug-row">
+                        <div class="create-bug-field">
+                            <label class="create-bug-label">负责人/协作者</label>
+                            <div class="bug-detail-info-assignee create-assignee-wrapper" @click.stop>
+                                <button
+                                    class="detail-assignee-trigger create-assignee-trigger"
+                                    :class="{ active: createAssigneeDropdownOpen }"
+                                    @click.stop="toggleCreateAssigneeMenu"
+                                >
+                                    <div class="detail-assignee-split">
+                                        <div class="detail-assignee-owner">
+                                            <span
+                                                v-if="createBugForm.owner"
+                                                class="detail-assignee-avatar"
+                                                :style="{ backgroundColor: getAvatarBg(createBugForm.owner) }"
+                                            >
+                                                {{ getAvatarLabel(createBugForm.owner) }}
+                                            </span>
+                                            <span class="detail-assignee-owner-name">
+                                                {{ createBugForm.owner || "未指派" }}
+                                            </span>
+                                        </div>
+                                        <span class="detail-assignee-separator">/</span>
+                                        <div class="detail-assignee-collaborators detail-collab-stack">
+                                            <template v-if="createBugForm.collaborators.length > 0">
+                                                <span
+                                                    v-for="name in createBugForm.collaborators"
+                                                    :key="'create-collab-' + name"
+                                                    class="detail-assignee-avatar"
+                                                    :style="{ backgroundColor: getAvatarBg(name) }"
+                                                    :title="name"
+                                                >
+                                                    {{ getAvatarLabel(name) }}
+                                                </span>
+                                            </template>
+                                            <span v-else class="detail-assignee-avatar detail-assignee-add">+</span>
+                                        </div>
+                                    </div>
+                                </button>
+
+                                <div
+                                    v-if="createAssigneeDropdownOpen"
+                                    class="detail-assignee-dropdown create-assignee-dropdown"
+                                >
+                                    <div class="mb-2">
+                                        <div class="relative">
+                                            <input
+                                                v-model="createAssigneeKeyword"
+                                                placeholder="输入搜索用户名"
+                                                class="w-full h-9 pl-3 pr-8 border border-gray-300 rounded-md text-sm"
+                                            />
+                                            <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">⌕</span>
+                                        </div>
+                                    </div>
+                                    <div class="max-h-[320px] overflow-y-auto -mx-3">
+                                        <div v-for="group in filteredCreateAssigneeGroups" :key="'create-assignee-' + group.label">
+                                            <button
+                                                class="w-full h-10 px-3 bg-slate-100 flex items-center justify-between text-left"
+                                                @click.stop="toggleCreateAssigneeGroup(group.label)"
+                                            >
+                                                <span class="text-gray-700 text-sm">{{ group.label }}（{{ group.members.length }}）</span>
+                                                <span class="status-arrow-simple" :class="{ open: createAssigneeGroupOpen[group.label] }" />
+                                            </button>
+                                            <div v-if="createAssigneeGroupOpen[group.label]">
+                                                <div
+                                                    v-for="member in group.members"
+                                                    :key="'create-assignee-member-' + group.label + member"
+                                                    class="detail-assignee-row"
+                                                >
+                                                    <div class="detail-assignee-row-left">
+                                                        <span
+                                                            class="detail-assignee-avatar"
+                                                            :style="{ backgroundColor: getAvatarBg(member) }"
+                                                        >
+                                                            {{ getAvatarLabel(member) }}
+                                                        </span>
+                                                        <span class="text-sm text-gray-700">{{ member }}</span>
+                                                    </div>
+                                                    <div class="detail-assignee-row-actions">
+                                                        <button
+                                                            class="detail-role-btn"
+                                                            :class="{ active: isCreateOwner(member) }"
+                                                            @click.stop="setCreateOwner(member)"
+                                                        >
+                                                            负责人
+                                                        </button>
+                                                        <button
+                                                            class="detail-role-btn collab"
+                                                            :class="{ active: isCreateCollaborator(member) }"
+                                                            @click.stop="toggleCreateCollaborator(member)"
+                                                        >
+                                                            协作者
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div v-if="!props.fixedType" class="create-bug-field">
+                            <label class="create-bug-label">类型 <span class="required">*</span></label>
+                            <vort-select v-model="createBugForm.type">
+                                <vort-select-option value="缺陷">缺陷</vort-select-option>
+                                <vort-select-option value="需求">需求</vort-select-option>
+                                <vort-select-option value="任务">任务</vort-select-option>
+                            </vort-select>
+                        </div>
+                    </div>
+
+                    <div class="create-bug-row">
+                        <div class="create-bug-field">
+                            <label class="create-bug-label">计划时间</label>
+                            <vort-range-picker
+                                v-model="createBugForm.planTime"
+                                value-format="YYYY-MM-DD"
+                                format="YYYY-MM-DD"
+                                separator="~"
+                                :placeholder="['未设置', '未设置']"
+                            />
+                        </div>
+                        <div class="create-bug-field">
+                            <label class="create-bug-label">关联项目</label>
+                            <vort-select v-model="createBugForm.project">
+                                <vort-select-option v-for="item in createBugProjectOptions" :key="item" :value="item">{{ item }}</vort-select-option>
+                            </vort-select>
+                        </div>
+                    </div>
+
+                    <div class="create-bug-row">
+                        <div class="create-bug-field">
+                            <label class="create-bug-label">迭代</label>
+                            <vort-select v-model="createBugForm.iteration" placeholder="选择迭代" allow-clear>
+                                <vort-select-option value="Sprint 1">Sprint 1</vort-select-option>
+                                <vort-select-option value="Sprint 2">Sprint 2</vort-select-option>
+                            </vort-select>
+                        </div>
+                        <div class="create-bug-field">
+                            <label class="create-bug-label">版本</label>
+                            <vort-select v-model="createBugForm.version" placeholder="选择版本" allow-clear>
+                                <vort-select-option value="v1.0.0">v1.0.0</vort-select-option>
+                                <vort-select-option value="v1.1.0">v1.1.0</vort-select-option>
+                            </vort-select>
+                        </div>
+                    </div>
+
+                    <div class="create-bug-row create-bug-row-full">
+                        <div class="create-bug-field">
+                            <label class="create-bug-label">描述</label>
+                            <VortEditor v-model="createBugForm.description" :placeholder="props.descriptionPlaceholder" min-height="260px" />
+                            <div class="create-bug-attachment">
+                                <input
+                                    ref="createAttachmentInputRef"
+                                    type="file"
+                                    multiple
+                                    class="hidden"
+                                    @change="onCreateAttachmentChange"
+                                />
+                                <button class="create-bug-attachment-trigger" @click="openCreateAttachmentDialog">附件 +</button>
+                                <div v-if="createBugAttachments.length > 0" class="create-bug-attachment-list">
+                                    <div v-for="item in createBugAttachments" :key="item.id" class="create-bug-attachment-item">
+                                        <span class="name">{{ item.name }}</span>
+                                        <span class="size">{{ formatFileSize(item.size) }}</span>
+                                        <button class="remove" @click="removeCreateAttachment(item.id)">移除</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="create-bug-side">
+                    <div class="create-bug-field">
+                        <label class="create-bug-label">优先级</label>
+                        <div class="relative" @click.stop>
+                            <button
+                                class="create-bug-priority-trigger"
+                                :class="{ active: createBugPriorityDropdownOpen }"
+                                @click.stop="toggleCreateBugPriorityMenu"
+                            >
+                                <span
+                                    v-if="createBugForm.priority"
+                                    class="inline-block px-1.5 py-0.5 rounded border text-xs"
+                                    :class="priorityClassMap[createBugForm.priority]"
+                                >
+                                    {{ priorityLabelMap[createBugForm.priority] }}
+                                </span>
+                                <span v-else class="text-sm text-gray-400">请选择</span>
+                                <span class="status-arrow-simple ml-auto" :class="{ open: createBugPriorityDropdownOpen }" />
+                            </button>
+                            <div
+                                v-if="createBugPriorityDropdownOpen"
+                                class="absolute z-30 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-sm py-1"
+                            >
+                                <button
+                                    v-for="opt in priorityOptions"
+                                    :key="opt.value"
+                                    class="w-full text-left px-2 py-1.5 text-xs hover:bg-gray-50"
+                                    @click.stop="selectCreateBugPriority(opt.value)"
+                                >
+                                    <span class="inline-block px-1.5 py-0.5 rounded border" :class="priorityClassMap[opt.value]">
+                                        {{ opt.label }}
+                                    </span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="create-bug-field">
+                        <label class="create-bug-label">标签</label>
+                        <vort-select v-model="createBugForm.tags" placeholder="选择标签" allow-clear multiple>
+                            <vort-select-option v-for="item in createBugTagOptions" :key="item" :value="item">{{ item }}</vort-select-option>
+                        </vort-select>
+                    </div>
+                    <div class="create-bug-field">
+                        <label class="create-bug-label">关联仓库</label>
+                        <vort-select v-model="createBugForm.repo" placeholder="选择仓库" allow-clear>
+                            <vort-select-option v-for="item in createBugRepoOptions" :key="item" :value="item">{{ item }}</vort-select-option>
+                        </vort-select>
+                    </div>
+                    <div class="create-bug-field">
+                        <label class="create-bug-label">关联分支</label>
+                        <vort-select v-model="createBugForm.branch" placeholder="选择分支" allow-clear>
+                            <vort-select-option v-for="item in createBugBranchOptions" :key="item" :value="item">{{ item }}</vort-select-option>
+                        </vort-select>
+                    </div>
+                    <div class="create-bug-field">
+                        <label class="create-bug-label">实际开始时间</label>
+                        <vort-date-picker
+                            v-model="createBugForm.startAt"
+                            value-format="YYYY-MM-DD HH:mm:ss"
+                            format="YYYY-MM-DD HH:mm:ss"
+                            :show-time="true"
+                            placeholder="选择日期时间"
+                        />
+                    </div>
+                    <div class="create-bug-field">
+                        <label class="create-bug-label">实际结束时间</label>
+                        <vort-date-picker
+                            v-model="createBugForm.endAt"
+                            value-format="YYYY-MM-DD HH:mm:ss"
+                            format="YYYY-MM-DD HH:mm:ss"
+                            :show-time="true"
+                            placeholder="选择日期时间"
+                        />
+                    </div>
+                    <div class="create-bug-field">
+                        <label class="create-bug-label">备注说明</label>
+                        <vort-input v-model="createBugForm.remark" placeholder="测试用备注" />
+                    </div>
+                </div>
+            </div>
+            </template>
+
+            <template #footer>
+                <div class="create-bug-footer">
+                    <vort-button v-if="createBugDrawerMode === 'create'" variant="primary" @click="handleSubmitCreateBug">新建</vort-button>
+                    <vort-button v-if="createBugDrawerMode === 'create'" @click="resetCreateBugForm">新建并继续</vort-button>
+                    <vort-button @click="handleCancelCreateBug">取消</vort-button>
+                </div>
+            </template>
+        </vort-drawer>
     </div>
 </template>
 
@@ -559,6 +2049,750 @@ onBeforeUnmount(() => {
 .status-badge-icon {
     font-size: 13px;
     line-height: 1;
+}
+
+.table-status-badge {
+    gap: 3px;
+    padding: 2px 8px;
+    border-radius: 5px;
+    font-size: 12px;
+}
+
+.table-status-badge .status-badge-icon {
+    font-size: 12px;
+}
+
+.status-edit-trigger {
+    height: 28px;
+    max-width: 100%;
+    padding: 0;
+    border: none;
+    background: transparent;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+}
+
+.detail-status-trigger {
+    height: 32px;
+    min-width: 124px;
+    padding: 0 10px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    background: #f8fafc;
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    color: #334155;
+}
+
+.detail-status-trigger:hover {
+    border-color: #94a3b8;
+}
+
+.detail-status-content {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.detail-status-icon {
+    width: 14px;
+    text-align: center;
+    font-size: 13px;
+    line-height: 1;
+}
+
+.detail-status-text {
+    font-size: 14px;
+    line-height: 1;
+}
+
+:deep(.plan-time-picker) {
+    width: 228px;
+}
+
+.plan-time-display {
+    border: none;
+    background: transparent;
+    padding: 0;
+    color: #334155;
+    font-size: 14px;
+    line-height: 1.4;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.title-link-cell {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 0;
+    border: none;
+    background: transparent;
+    text-align: left;
+    color: #111827;
+    cursor: default;
+    transition: color 0.15s ease;
+}
+
+.title-link-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.title-link-cell:hover {
+    color: #60a5fa;
+    cursor: pointer;
+}
+
+.work-type-icon {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.work-type-icon-svg {
+    width: 12px;
+    height: 12px;
+    display: block;
+}
+
+.work-type-icon-demand {
+    background: #7c3aed;
+}
+
+.work-type-icon-task {
+    background: #38bdf8;
+}
+
+.work-type-icon-bug {
+    background: #ef4444;
+}
+
+.create-bug-drawer {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+    gap: 16px;
+}
+
+.create-bug-main,
+.create-bug-side {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.create-bug-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.create-bug-row-full {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.create-bug-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.create-bug-label {
+    font-size: 13px;
+    color: #344054;
+    font-weight: 500;
+}
+
+.required {
+    color: #ef4444;
+}
+
+.create-bug-footer {
+    display: flex;
+    justify-content: flex-start;
+    gap: 8px;
+}
+
+.create-bug-priority-trigger {
+    width: 100%;
+    height: 32px;
+    padding: 0 10px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    background: #fff;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    text-align: left;
+}
+
+.create-bug-priority-trigger:hover,
+.create-bug-priority-trigger.active {
+    border-color: #3b82f6;
+}
+
+.create-bug-attachment {
+    margin-top: 8px;
+}
+
+.create-bug-attachment-trigger {
+    border: none;
+    background: transparent;
+    color: #64748b;
+    font-size: 13px;
+    line-height: 1.4;
+    padding: 0;
+    cursor: pointer;
+}
+
+.create-bug-attachment-trigger:hover {
+    color: #334155;
+}
+
+.create-bug-attachment-list {
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.create-bug-attachment-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+}
+
+.create-bug-attachment-item .name {
+    color: #334155;
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.create-bug-attachment-item .size {
+    color: #94a3b8;
+}
+
+.create-bug-attachment-item .remove {
+    border: none;
+    background: transparent;
+    color: #ef4444;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.bug-detail-drawer {
+    min-height: 640px;
+}
+
+.bug-detail-main {
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 14px 16px;
+    overflow: auto;
+}
+
+.bug-detail-meta-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.bug-detail-no {
+    color: #64748b;
+    font-size: 12px;
+}
+
+.bug-detail-title {
+    margin: 10px 0 4px;
+    font-size: 28px;
+    color: #0f172a;
+    font-weight: 700;
+    flex: 1;
+    min-width: 0;
+}
+
+.bug-detail-sub {
+    margin: 0 0 12px;
+    color: #64748b;
+    font-size: 12px;
+}
+
+.bug-detail-tabs {
+    display: flex;
+    gap: 18px;
+    border-bottom: 1px solid #e5e7eb;
+    margin-bottom: 12px;
+}
+
+.bug-detail-tabs button {
+    border: none;
+    background: transparent;
+    padding: 10px 0;
+    color: #64748b;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.bug-detail-tabs button.active {
+    color: #2563eb;
+    font-weight: 600;
+    box-shadow: inset 0 -2px 0 #2563eb;
+}
+
+.bug-detail-top-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    gap: 16px;
+    margin-bottom: 12px;
+    align-items: start;
+}
+
+.bug-detail-left-col,
+.bug-detail-right-col {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.bug-detail-info-item > label {
+    display: block;
+    color: #94a3b8;
+    font-size: 12px;
+    margin-bottom: 4px;
+}
+
+.bug-detail-info-item > div {
+    color: #0f172a;
+    font-size: 13px;
+}
+
+.bug-detail-info-item {
+    min-width: 0;
+}
+
+.bug-detail-info-item-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.bug-detail-info-item-row > label {
+    width: 90px;
+    margin-bottom: 0;
+    flex-shrink: 0;
+}
+
+.bug-detail-info-item-row > div {
+    flex: 1;
+    min-width: 0;
+}
+
+.bug-detail-info-assignee {
+    position: relative;
+    overflow: visible;
+    align-items: flex-start;
+}
+
+.bug-detail-info-assignee > label {
+    margin-top: 7px;
+}
+
+.detail-assignee-trigger {
+    width: auto;
+    min-height: 32px;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 6px;
+    text-align: left;
+}
+
+.detail-assignee-trigger.active,
+.detail-assignee-trigger:hover {
+    border-color: transparent;
+}
+
+.detail-assignee-selected {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-height: 22px;
+}
+
+.detail-assignee-split {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.detail-assignee-owner {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    flex: 1;
+}
+
+.detail-assignee-owner-name {
+    color: #0f172a;
+    font-size: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.detail-assignee-separator {
+    color: #64748b;
+    font-size: 14px;
+    line-height: 1;
+}
+
+.detail-assignee-collaborators {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+}
+
+.detail-collab-stack .detail-assignee-avatar {
+    margin-left: -5px;
+    border: 2px solid #fff;
+}
+
+.detail-collab-stack .detail-assignee-avatar:first-child {
+    margin-left: 0;
+}
+
+.detail-assignee-add {
+    background: #2563eb;
+    color: #fff;
+    font-weight: 700;
+}
+
+.create-assignee-wrapper {
+    width: 100%;
+}
+
+.create-assignee-trigger {
+    width: 100%;
+    min-height: 36px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    background: #fff;
+    padding: 5px 10px;
+}
+
+.create-assignee-trigger.active,
+.create-assignee-trigger:hover {
+    border-color: #93c5fd;
+}
+
+.create-assignee-dropdown {
+    left: 0;
+    width: 100%;
+    min-width: 420px;
+}
+
+.detail-assignee-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    max-width: 220px;
+}
+
+.detail-assignee-avatar {
+    width: 20px;
+    height: 20px;
+    border-radius: 999px;
+    color: #fff;
+    font-size: 11px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.detail-role-tag {
+    font-size: 11px;
+    line-height: 1;
+    padding: 3px 6px;
+    border-radius: 5px;
+    border: 1px solid #dbeafe;
+    color: #2563eb;
+    background: #eff6ff;
+}
+
+.detail-role-tag.collab {
+    border-color: #bbf7d0;
+    color: #16a34a;
+    background: #f0fdf4;
+}
+
+.detail-assignee-dropdown {
+    position: absolute;
+    z-index: 30;
+    margin-top: 6px;
+    left: 100px;
+    width: min(460px, calc(100% - 100px));
+    min-width: 380px;
+    max-width: calc(100vw - 120px);
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
+    padding: 12px;
+}
+
+.detail-assignee-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    gap: 10px;
+}
+
+.detail-assignee-row:hover {
+    background: #f8fafc;
+}
+
+.detail-assignee-row-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.detail-assignee-row-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.detail-role-btn {
+    border: 1px solid #dbeafe;
+    color: #2563eb;
+    background: #f8fbff;
+    font-size: 12px;
+    border-radius: 6px;
+    padding: 2px 8px;
+}
+
+.detail-role-btn.active {
+    border-color: #3b82f6;
+    background: #eff6ff;
+    font-weight: 600;
+}
+
+.detail-role-btn.collab {
+    border-color: #bbf7d0;
+    color: #16a34a;
+    background: #f0fdf4;
+}
+
+.detail-role-btn.collab.active {
+    border-color: #22c55e;
+    font-weight: 600;
+}
+
+.bug-detail-desc-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.bug-detail-desc h4 {
+    margin: 0;
+    color: #334155;
+    font-size: 13px;
+}
+
+.bug-detail-desc-edit-btn {
+    border: none;
+    background: transparent;
+    color: #94a3b8;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.bug-detail-desc-edit-btn:hover {
+    color: #64748b;
+}
+
+.bug-detail-desc-content {
+    color: #334155;
+    font-size: 13px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+}
+
+.bug-detail-desc-actions {
+    margin-top: 10px;
+    display: flex;
+    gap: 8px;
+}
+
+.bug-detail-bottom-panel {
+    margin-top: 14px;
+    border-top: 1px solid #e5e7eb;
+    padding-top: 12px;
+}
+
+.bug-detail-bottom-tabs {
+    display: flex;
+    gap: 18px;
+    border-bottom: 1px solid #e5e7eb;
+    margin-bottom: 12px;
+}
+
+.bug-detail-bottom-tabs button {
+    border: none;
+    background: transparent;
+    padding: 8px 0;
+    color: #64748b;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.bug-detail-bottom-tabs button.active {
+    color: #2563eb;
+    font-weight: 600;
+    box-shadow: inset 0 -2px 0 #2563eb;
+}
+
+.bug-detail-bottom-tabs .count {
+    margin-left: 4px;
+    color: #94a3b8;
+}
+
+.bug-detail-comment-list,
+.bug-detail-log-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.bug-detail-comment-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.bug-detail-comment-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: #3b82f6;
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    flex-shrink: 0;
+}
+
+.bug-detail-comment-main {
+    flex: 1;
+    min-width: 0;
+}
+
+.bug-detail-comment-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.bug-detail-comment-meta .author {
+    color: #334155;
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.bug-detail-comment-meta .time {
+    color: #94a3b8;
+    font-size: 12px;
+}
+
+.bug-detail-comment-content {
+    color: #334155;
+    font-size: 13px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+}
+
+.bug-detail-log-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 0;
+    border-bottom: 1px solid #f1f5f9;
+    color: #334155;
+    font-size: 13px;
+}
+
+.bug-detail-log-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #94a3b8;
+    display: inline-block;
+}
+
+.bug-detail-log-item .actor {
+    color: #334155;
+    font-weight: 600;
+}
+
+.bug-detail-log-item .action {
+    color: #475569;
+}
+
+.bug-detail-log-item .time {
+    color: #94a3b8;
+    margin-left: auto;
+    white-space: nowrap;
+}
+
+.bug-detail-empty {
+    color: #94a3b8;
+    font-size: 13px;
 }
 </style>
 
