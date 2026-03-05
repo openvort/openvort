@@ -220,11 +220,17 @@ class AgentRuntime:
             # 执行工具调用
             tool_results = []
             need_refresh_tools = False
+            
+            # 获取用户当前输入（用于确认操作场景）
+            current_user_input = content
+            
             for block in response.content:
                 if getattr(block, "type", None) == "tool_use":
                     log.info(f"调用工具: {block.name}({block.input})")
                     tool_input = dict(block.input)
                     tool_input["_caller_id"] = ctx.user_id
+                    # 注入用户输入（用于确认操作场景）
+                    tool_input["_user_input"] = current_user_input
                     if ctx.member:
                         tool_input["_member_id"] = ctx.member.id
                     # 注入禅道账号（优先用操作人自己的账号）
@@ -508,11 +514,17 @@ class AgentRuntime:
 
                 any_tool_called = True
                 tool_results = []
+                
+                # 获取用户当前输入（用于确认操作场景）
+                current_user_input = content
+                
                 for block in response.content:
                     if getattr(block, "type", None) == "tool_use":
                         log.info(f"[web] 调用工具: {block.name}({block.input})")
                         tool_input = dict(block.input)
                         tool_input["_caller_id"] = ctx.user_id
+                        # 注入用户输入（用于确认操作场景）
+                        tool_input["_user_input"] = current_user_input
                         if ctx.member:
                             tool_input["_member_id"] = ctx.member.id
                         if ctx.platform_accounts.get("zentao"):
