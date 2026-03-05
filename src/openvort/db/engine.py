@@ -79,6 +79,92 @@ async def init_db(database_url: str) -> None:
             text("ALTER TABLE IF EXISTS flow_bugs ADD COLUMN IF NOT EXISTS collaborators_json TEXT DEFAULT '[]'")
         )
 
+        # VortFlow iterations & versions tables
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS flow_iterations (
+                id VARCHAR(32) PRIMARY KEY,
+                project_id VARCHAR(32) REFERENCES flow_projects(id),
+                name VARCHAR(200) NOT NULL,
+                goal TEXT DEFAULT '',
+                start_date TIMESTAMP,
+                end_date TIMESTAMP,
+                status VARCHAR(32) DEFAULT 'planning',
+                created_at TIMESTAMP DEFAULT now(),
+                updated_at TIMESTAMP DEFAULT now()
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_flow_iterations_project_id ON flow_iterations(project_id)"
+        ))
+
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS flow_versions (
+                id VARCHAR(32) PRIMARY KEY,
+                project_id VARCHAR(32) REFERENCES flow_projects(id),
+                name VARCHAR(64) NOT NULL,
+                description TEXT DEFAULT '',
+                release_date TIMESTAMP,
+                status VARCHAR(32) DEFAULT 'planning',
+                created_at TIMESTAMP DEFAULT now(),
+                updated_at TIMESTAMP DEFAULT now()
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_flow_versions_project_id ON flow_versions(project_id)"
+        ))
+
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS flow_version_stories (
+                id VARCHAR(32) PRIMARY KEY,
+                version_id VARCHAR(32) REFERENCES flow_versions(id),
+                story_id VARCHAR(32) REFERENCES flow_stories(id),
+                added_reason TEXT DEFAULT '',
+                story_order INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT now(),
+                CONSTRAINT uq_version_story UNIQUE (version_id, story_id)
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_flow_version_stories_version_id ON flow_version_stories(version_id)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_flow_version_stories_story_id ON flow_version_stories(story_id)"
+        ))
+
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS flow_iteration_stories (
+                id VARCHAR(32) PRIMARY KEY,
+                iteration_id VARCHAR(32) REFERENCES flow_iterations(id),
+                story_id VARCHAR(32) REFERENCES flow_stories(id),
+                story_order INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT now(),
+                CONSTRAINT uq_iteration_story UNIQUE (iteration_id, story_id)
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_flow_iteration_stories_iteration_id ON flow_iteration_stories(iteration_id)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_flow_iteration_stories_story_id ON flow_iteration_stories(story_id)"
+        ))
+
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS flow_iteration_tasks (
+                id VARCHAR(32) PRIMARY KEY,
+                iteration_id VARCHAR(32) REFERENCES flow_iterations(id),
+                task_id VARCHAR(32) REFERENCES flow_tasks(id),
+                task_order INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT now(),
+                CONSTRAINT uq_iteration_task UNIQUE (iteration_id, task_id)
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_flow_iteration_tasks_iteration_id ON flow_iteration_tasks(iteration_id)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_flow_iteration_tasks_task_id ON flow_iteration_tasks(task_id)"
+        ))
+
     log.info(f"数据库已初始化: {database_url.split('://')[0]}")
 
 
