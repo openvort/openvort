@@ -2,12 +2,13 @@
 import { ref, computed, onMounted } from "vue";
 import { z } from "zod";
 import { useRouter } from "vue-router";
-import { FolderKanban, ListChecks, CheckSquare, Bug, Plus, Settings, Trash2, Bot } from "lucide-vue-next";
+import { FolderKanban, ListChecks, CheckSquare, Bug, Plus, Settings, Trash2, Bot, Repeat, Tag, Filter } from "lucide-vue-next";
 import { useDirtyCheck } from "@/hooks";
 import {
     getVortflowStats, getVortflowProjects, createVortflowProject,
     updateVortflowProject, deleteVortflowProject,
     getVortgitRepos, generateVortflowDescriptionPrompt,
+    getVortflowIterations, getVortflowVersions,
 } from "@/api";
 import { message } from "@openvort/vort-ui";
 
@@ -42,6 +43,10 @@ const loading = ref(true);
 const stats = ref<DashboardStats>({ stories: { total: 0, done: 0 }, tasks: { total: 0, done: 0 }, bugs: { total: 0, closed: 0 } });
 const projects = ref<ProjectItem[]>([]);
 const projectRepoMap = ref<Record<string, VortgitRepoItem[]>>({});
+const iterations = ref<any[]>([]);
+const versions = ref<any[]>([]);
+const selectedIterationId = ref("");
+const selectedVersionId = ref("");
 
 const storyProgress = computed(() => {
     const s = stats.value.stories;
@@ -61,8 +66,10 @@ const projectRepos = (projectId: string) => projectRepoMap.value[projectId] || [
 const loadData = async () => {
     loading.value = true;
     try {
-        const [statsRes, projectsRes] = await Promise.all([
+        const [statsRes, projectsRes, iterRes, verRes] = await Promise.all([
             getVortflowStats(), getVortflowProjects(),
+            getVortflowIterations({ page: 1, page_size: 100 }),
+            getVortflowVersions({ page: 1, page_size: 100 }),
         ]);
         if (statsRes) {
             const r = statsRes as any;
@@ -73,6 +80,8 @@ const loadData = async () => {
             };
         }
         projects.value = (projectsRes as any)?.items || [];
+        iterations.value = (iterRes as any)?.items || [];
+        versions.value = (verRes as any)?.items || [];
 
         try {
             const reposRes = await getVortgitRepos({ page: 1, page_size: 100 });
@@ -248,7 +257,18 @@ onMounted(loadData);
             <!-- Projects -->
             <div class="bg-white rounded-xl p-6 mt-4">
                 <div class="flex items-center justify-between mb-4">
-                    <h3 class="text-base font-medium text-gray-800">项目</h3>
+                    <div class="flex items-center gap-3">
+                        <h3 class="text-base font-medium text-gray-800">项目</h3>
+                        <div class="flex items-center gap-2">
+                            <Filter :size="14" class="text-gray-400" />
+                            <vort-select v-model="selectedIterationId" placeholder="迭代筛选" clearable style="width: 140px" @change="loadData">
+                                <vort-select-option v-for="i in iterations" :key="i.id" :value="i.id">{{ i.name }}</vort-select-option>
+                            </vort-select>
+                            <vort-select v-model="selectedVersionId" placeholder="版本筛选" clearable style="width: 140px" @change="loadData">
+                                <vort-select-option v-for="v in versions" :key="v.id" :value="v.id">{{ v.name }}</vort-select-option>
+                            </vort-select>
+                        </div>
+                    </div>
                     <vort-button variant="primary" @click="handleAddProject">
                         <Plus :size="14" class="mr-1" /> 新增项目
                     </vort-button>

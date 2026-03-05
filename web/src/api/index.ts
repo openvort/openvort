@@ -1096,6 +1096,110 @@ export function generateVortflowDescriptionPrompt(entityType: string, projectNam
     });
 }
 
+// -- Iteration 迭代 --
+
+/** VortFlow 迭代列表 */
+export function getVortflowIterations(params: { project_id?: string; status?: string; page?: number; page_size?: number }) {
+    return request.get("/vortflow/iterations", { params });
+}
+
+/** VortFlow 迭代详情 */
+export function getVortflowIteration(id: string) {
+    return request.get(`/vortflow/iterations/${id}`);
+}
+
+/** VortFlow 创建迭代 */
+export function createVortflowIteration(data: { project_id: string; name: string; goal?: string; start_date?: string; end_date?: string; status?: string }) {
+    return request.post("/vortflow/iterations", data);
+}
+
+/** VortFlow 更新迭代 */
+export function updateVortflowIteration(id: string, data: { name?: string; goal?: string; start_date?: string; end_date?: string; status?: string }) {
+    return request.put(`/vortflow/iterations/${id}`, data);
+}
+
+/** VortFlow 删除迭代 */
+export function deleteVortflowIteration(id: string) {
+    return request.delete(`/vortflow/iterations/${id}`);
+}
+
+/** VortFlow 迭代关联的需求 */
+export function getVortflowIterationStories(iterationId: string) {
+    return request.get(`/vortflow/iterations/${iterationId}/stories`);
+}
+
+/** VortFlow 关联需求到迭代 */
+export function addVortflowIterationStory(iterationId: string, data: { story_id: string; story_order?: number }) {
+    return request.post(`/vortflow/iterations/${iterationId}/stories`, data);
+}
+
+/** VortFlow 取消关联需求 */
+export function removeVortflowIterationStory(iterationId: string, storyId: string) {
+    return request.delete(`/vortflow/iterations/${iterationId}/stories/${storyId}`);
+}
+
+/** VortFlow 迭代关联的任务 */
+export function getVortflowIterationTasks(iterationId: string) {
+    return request.get(`/vortflow/iterations/${iterationId}/tasks`);
+}
+
+/** VortFlow 关联任务到迭代 */
+export function addVortflowIterationTask(iterationId: string, data: { task_id: string; task_order?: number }) {
+    return request.post(`/vortflow/iterations/${iterationId}/tasks`, data);
+}
+
+/** VortFlow 取消关联任务 */
+export function removeVortflowIterationTask(iterationId: string, taskId: string) {
+    return request.delete(`/vortflow/iterations/${iterationId}/tasks/${taskId}`);
+}
+
+// -- Version 版本 --
+
+/** VortFlow 版本列表 */
+export function getVortflowVersions(params: { project_id?: string; status?: string; page?: number; page_size?: number }) {
+    return request.get("/vortflow/versions", { params });
+}
+
+/** VortFlow 版本详情 */
+export function getVortflowVersion(id: string) {
+    return request.get(`/vortflow/versions/${id}`);
+}
+
+/** VortFlow 创建版本 */
+export function createVortflowVersion(data: { project_id: string; name: string; description?: string; release_date?: string; status?: string }) {
+    return request.post("/vortflow/versions", data);
+}
+
+/** VortFlow 更新版本 */
+export function updateVortflowVersion(id: string, data: { name?: string; description?: string; release_date?: string; status?: string }) {
+    return request.put(`/vortflow/versions/${id}`, data);
+}
+
+/** VortFlow 删除版本 */
+export function deleteVortflowVersion(id: string) {
+    return request.delete(`/vortflow/versions/${id}`);
+}
+
+/** VortFlow 发布版本 */
+export function releaseVortflowVersion(id: string) {
+    return request.post(`/vortflow/versions/${id}/release`);
+}
+
+/** VortFlow 版本关联的需求 */
+export function getVortflowVersionStories(versionId: string) {
+    return request.get(`/vortflow/versions/${versionId}/stories`);
+}
+
+/** VortFlow 关联需求到版本 */
+export function addVortflowVersionStory(versionId: string, data: { story_id: string; added_reason?: string; story_order?: number }) {
+    return request.post(`/vortflow/versions/${versionId}/stories`, data);
+}
+
+/** VortFlow 取消关联需求 */
+export function removeVortflowVersionStory(versionId: string, storyId: string) {
+    return request.delete(`/vortflow/versions/${versionId}/stories/${storyId}`);
+}
+
 // ==================== VortGit ====================
 
 // -- Git 平台 --

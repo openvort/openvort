@@ -15,6 +15,8 @@ from openvort.plugins.vortflow.engine import (
 from openvort.plugins.vortflow.models import (
     FlowBug, FlowEvent, FlowMilestone, FlowProject,
     FlowProjectMember, FlowStory, FlowTask,
+    FlowIteration, FlowVersion,
+    FlowIterationStory, FlowIterationTask, FlowVersionStory,
 )
 
 router = APIRouter(prefix="/api/vortflow", tags=["vortflow"])
@@ -106,6 +108,54 @@ class ProjectMemberBody(BaseModel):
     role: str = "member"
 
 
+class IterationCreate(BaseModel):
+    project_id: str
+    name: str
+    goal: str = ""
+    start_date: str | None = None
+    end_date: str | None = None
+    status: str = "planning"
+
+
+class IterationUpdate(BaseModel):
+    name: str | None = None
+    goal: str | None = None
+    start_date: str | None = None
+    end_date: str | None = None
+    status: str | None = None
+
+
+class VersionCreate(BaseModel):
+    project_id: str
+    name: str
+    description: str = ""
+    release_date: str | None = None
+    status: str = "planning"
+
+
+class VersionUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    release_date: str | None = None
+    status: str | None = None
+
+
+class IterationStoryBody(BaseModel):
+    story_id: str
+    story_order: int = 0
+
+
+class IterationTaskBody(BaseModel):
+    task_id: str
+    task_order: int = 0
+
+
+class VersionStoryBody(BaseModel):
+    story_id: str
+    added_reason: str = ""
+    story_order: int = 0
+
+
 # ============ Helpers ============
 
 def _parse_dt(s: str | None) -> datetime | None:
@@ -164,6 +214,28 @@ def _milestone_dict(r: FlowMilestone) -> dict:
         "completed_at": r.completed_at.isoformat() if r.completed_at else None,
         "created_at": r.created_at.isoformat() if r.created_at else None,
         "description": getattr(r, "description", ""),
+    }
+
+
+def _iteration_dict(r: FlowIteration) -> dict:
+    return {
+        "id": r.id, "project_id": r.project_id, "name": r.name, "goal": r.goal,
+        "start_date": r.start_date.isoformat() if r.start_date else None,
+        "end_date": r.end_date.isoformat() if r.end_date else None,
+        "status": r.status,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+        "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+    }
+
+
+def _version_dict(r: FlowVersion) -> dict:
+    return {
+        "id": r.id, "project_id": r.project_id, "name": r.name,
+        "description": r.description,
+        "release_date": r.release_date.isoformat() if r.release_date else None,
+        "status": r.status,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+        "updated_at": r.updated_at.isoformat() if r.updated_at else None,
     }
 
 async def _log_event(session, entity_type: str, entity_id: str, action: str, detail: dict | None = None):
@@ -935,3 +1007,413 @@ async def generate_vortflow_description(
         prompt = f"请为「{title}」生成描述内容。"
 
     return {"prompt": prompt}
+
+
+# ============ Iteration CRUD ============
+
+@router.get("/iterations")
+async def list_iterations(
+    project_id: str = Query("", description="按项目过滤"),
+    status: str = Query("", description="按状态过滤"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+):
+    sf = get_session_factory()
+    async with sf() as session:
+        stmt = select(FlowIteration).order_by(FlowIteration.start_date.desc().nulls_last())
+        count_stmt = select(func.count()).select_from(FlowIteration)
+        if project_id:
+            stmt = stmt.where(FlowIteration.project_id == project_id)
+            count_stmt = count_stmt.where(FlowIteration.project_id == project_id)
+        if status:
+            stmt = stmt.where(FlowIteration.status == status)
+            count_stmt = count_stmt.where(FlowIteration.status == status)
+        total = (await session.execute(count_stmt)).scalar_one()
+        stmt = stmt.offset((page - 1) * page_size).limit(page_size)
+        rows = (await session.execute(stmt)).scalars().all()
+    return {"total": total, "items": [_iteration_dict(r) for r in rows]}
+
+
+@router.get("/iterations/{iteration_id}")
+async def get_iteration(iteration_id: str):
+    sf = get_session_factory()
+    async with sf() as session:
+        r = await session.get(FlowIteration, iteration_id)
+        if not r:
+            return {"error": "迭代不存在"}
+    return _iteration_dict(r)
+
+
+@router.post("/iterations")
+async def create_iteration(body: IterationCreate):
+    sf = get_session_factory()
+    async with sf() as session:
+        i = FlowIteration(
+            project_id=body.project_id, name=body.name, goal=body.goal,
+            start_date=_parse_dt(body.start_date), end_date=_parse_dt(body.end_date),
+            status=body.status,
+        )
+        session.add(i)
+        await session.flush()
+        await _log_event(session, "iteration", i.id, "created", {"name": body.name})
+        await session.commit()
+        await session.refresh(i)
+    return _iteration_dict(i)
+
+
+@router.put("/iterations/{iteration_id}")
+async def update_iteration(iteration_id: str, body: IterationUpdate):
+    sf = get_session_factory()
+    async with sf() as session:
+        i = await session.get(FlowIteration, iteration_id)
+        if not i:
+            return {"error": "迭代不存在"}
+        changes = {}
+        for field in ["name", "goal", "status"]:
+            val = getattr(body, field)
+            if val is not None:
+                changes[field] = val
+                setattr(i, field, val)
+        if body.start_date is not None:
+            i.start_date = _parse_dt(body.start_date)
+            changes["start_date"] = body.start_date
+        if body.end_date is not None:
+            i.end_date = _parse_dt(body.end_date)
+            changes["end_date"] = body.end_date
+        if changes:
+            await _log_event(session, "iteration", iteration_id, "updated", changes)
+        await session.commit()
+        await session.refresh(i)
+    return _iteration_dict(i)
+
+
+@router.delete("/iterations/{iteration_id}")
+async def delete_iteration(iteration_id: str):
+    sf = get_session_factory()
+    async with sf() as session:
+        i = await session.get(FlowIteration, iteration_id)
+        if not i:
+            return {"error": "迭代不存在"}
+        # Delete related associations
+        await session.execute(sa_delete(FlowIterationStory).where(FlowIterationStory.iteration_id == iteration_id))
+        await session.execute(sa_delete(FlowIterationTask).where(FlowIterationTask.iteration_id == iteration_id))
+        await session.delete(i)
+        await _log_event(session, "iteration", iteration_id, "deleted", {"name": i.name})
+        await session.commit()
+    return {"ok": True}
+
+
+# ---- Iteration Stories ----
+
+@router.get("/iterations/{iteration_id}/stories")
+async def list_iteration_stories(iteration_id: str):
+    sf = get_session_factory()
+    async with sf() as session:
+        stmt = (
+            select(FlowIterationStory, FlowStory)
+            .join(FlowStory, FlowIterationStory.story_id == FlowStory.id)
+            .where(FlowIterationStory.iteration_id == iteration_id)
+            .order_by(FlowIterationStory.story_order.asc())
+        )
+        rows = await session.execute(stmt)
+        items = []
+        for link, story in rows:
+            items.append({
+                "link_id": link.id,
+                "story_order": link.story_order,
+                **_story_dict(story),
+            })
+    return {"items": items}
+
+
+@router.post("/iterations/{iteration_id}/stories")
+async def add_iteration_story(iteration_id: str, body: IterationStoryBody):
+    sf = get_session_factory()
+    async with sf() as session:
+        # Check if iteration exists
+        iteration = await session.get(FlowIteration, iteration_id)
+        if not iteration:
+            return {"error": "迭代不存在"}
+        # Check if story exists
+        story = await session.get(FlowStory, body.story_id)
+        if not story:
+            return {"error": "需求不存在"}
+        # Check if already linked
+        existing = await session.execute(
+            select(FlowIterationStory).where(
+                FlowIterationStory.iteration_id == iteration_id,
+                FlowIterationStory.story_id == body.story_id,
+            )
+        )
+        if existing.scalar_one_or_none():
+            return {"error": "需求已在迭代中"}
+        link = FlowIterationStory(
+            iteration_id=iteration_id, story_id=body.story_id,
+            story_order=body.story_order,
+        )
+        session.add(link)
+        await _log_event(session, "iteration", iteration_id, "story_added",
+                         {"story_id": body.story_id})
+        await session.commit()
+    return {"ok": True}
+
+
+@router.delete("/iterations/{iteration_id}/stories/{story_id}")
+async def remove_iteration_story(iteration_id: str, story_id: str):
+    sf = get_session_factory()
+    async with sf() as session:
+        await session.execute(
+            sa_delete(FlowIterationStory).where(
+                FlowIterationStory.iteration_id == iteration_id,
+                FlowIterationStory.story_id == story_id,
+            )
+        )
+        await _log_event(session, "iteration", iteration_id, "story_removed",
+                         {"story_id": story_id})
+        await session.commit()
+    return {"ok": True}
+
+
+# ---- Iteration Tasks ----
+
+@router.get("/iterations/{iteration_id}/tasks")
+async def list_iteration_tasks(iteration_id: str):
+    sf = get_session_factory()
+    async with sf() as session:
+        stmt = (
+            select(FlowIterationTask, FlowTask)
+            .join(FlowTask, FlowIterationTask.task_id == FlowTask.id)
+            .where(FlowIterationTask.iteration_id == iteration_id)
+            .order_by(FlowIterationTask.task_order.asc())
+        )
+        rows = await session.execute(stmt)
+        items = []
+        for link, task in rows:
+            items.append({
+                "link_id": link.id,
+                "task_order": link.task_order,
+                **_task_dict(task),
+            })
+    return {"items": items}
+
+
+@router.post("/iterations/{iteration_id}/tasks")
+async def add_iteration_task(iteration_id: str, body: IterationTaskBody):
+    sf = get_session_factory()
+    async with sf() as session:
+        iteration = await session.get(FlowIteration, iteration_id)
+        if not iteration:
+            return {"error": "迭代不存在"}
+        task = await session.get(FlowTask, body.task_id)
+        if not task:
+            return {"error": "任务不存在"}
+        existing = await session.execute(
+            select(FlowIterationTask).where(
+                FlowIterationTask.iteration_id == iteration_id,
+                FlowIterationTask.task_id == body.task_id,
+            )
+        )
+        if existing.scalar_one_or_none():
+            return {"error": "任务已在迭代中"}
+        link = FlowIterationTask(
+            iteration_id=iteration_id, task_id=body.task_id,
+            task_order=body.task_order,
+        )
+        session.add(link)
+        await _log_event(session, "iteration", iteration_id, "task_added",
+                         {"task_id": body.task_id})
+        await session.commit()
+    return {"ok": True}
+
+
+@router.delete("/iterations/{iteration_id}/tasks/{task_id}")
+async def remove_iteration_task(iteration_id: str, task_id: str):
+    sf = get_session_factory()
+    async with sf() as session:
+        await session.execute(
+            sa_delete(FlowIterationTask).where(
+                FlowIterationTask.iteration_id == iteration_id,
+                FlowIterationTask.task_id == task_id,
+            )
+        )
+        await _log_event(session, "iteration", iteration_id, "task_removed",
+                         {"task_id": task_id})
+        await session.commit()
+    return {"ok": True}
+
+
+# ============ Version CRUD ============
+
+@router.get("/versions")
+async def list_versions(
+    project_id: str = Query("", description="按项目过滤"),
+    status: str = Query("", description="按状态过滤"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+):
+    sf = get_session_factory()
+    async with sf() as session:
+        stmt = select(FlowVersion).order_by(FlowVersion.created_at.desc())
+        count_stmt = select(func.count()).select_from(FlowVersion)
+        if project_id:
+            stmt = stmt.where(FlowVersion.project_id == project_id)
+            count_stmt = count_stmt.where(FlowVersion.project_id == project_id)
+        if status:
+            stmt = stmt.where(FlowVersion.status == status)
+            count_stmt = count_stmt.where(FlowVersion.status == status)
+        total = (await session.execute(count_stmt)).scalar_one()
+        stmt = stmt.offset((page - 1) * page_size).limit(page_size)
+        rows = (await session.execute(stmt)).scalars().all()
+    return {"total": total, "items": [_version_dict(r) for r in rows]}
+
+
+@router.get("/versions/{version_id}")
+async def get_version(version_id: str):
+    sf = get_session_factory()
+    async with sf() as session:
+        r = await session.get(FlowVersion, version_id)
+        if not r:
+            return {"error": "版本不存在"}
+    return _version_dict(r)
+
+
+@router.post("/versions")
+async def create_version(body: VersionCreate):
+    sf = get_session_factory()
+    async with sf() as session:
+        v = FlowVersion(
+            project_id=body.project_id, name=body.name,
+            description=body.description,
+            release_date=_parse_dt(body.release_date),
+            status=body.status,
+        )
+        session.add(v)
+        await session.flush()
+        await _log_event(session, "version", v.id, "created", {"name": body.name})
+        await session.commit()
+        await session.refresh(v)
+    return _version_dict(v)
+
+
+@router.put("/versions/{version_id}")
+async def update_version(version_id: str, body: VersionUpdate):
+    sf = get_session_factory()
+    async with sf() as session:
+        v = await session.get(FlowVersion, version_id)
+        if not v:
+            return {"error": "版本不存在"}
+        changes = {}
+        for field in ["name", "description", "status"]:
+            val = getattr(body, field)
+            if val is not None:
+                changes[field] = val
+                setattr(v, field, val)
+        if body.release_date is not None:
+            v.release_date = _parse_dt(body.release_date)
+            changes["release_date"] = body.release_date
+        if changes:
+            await _log_event(session, "version", version_id, "updated", changes)
+        await session.commit()
+        await session.refresh(v)
+    return _version_dict(v)
+
+
+@router.delete("/versions/{version_id}")
+async def delete_version(version_id: str):
+    sf = get_session_factory()
+    async with sf() as session:
+        v = await session.get(FlowVersion, version_id)
+        if not v:
+            return {"error": "版本不存在"}
+        await session.execute(sa_delete(FlowVersionStory).where(FlowVersionStory.version_id == version_id))
+        await session.delete(v)
+        await _log_event(session, "version", version_id, "deleted", {"name": v.name})
+        await session.commit()
+    return {"ok": True}
+
+
+@router.post("/versions/{version_id}/release")
+async def release_version(version_id: str):
+    """发布版本"""
+    sf = get_session_factory()
+    async with sf() as session:
+        v = await session.get(FlowVersion, version_id)
+        if not v:
+            return {"error": "版本不存在"}
+        if v.status == "released":
+            return {"error": "版本已发布"}
+        v.status = "released"
+        v.release_date = datetime.utcnow()
+        await _log_event(session, "version", version_id, "released", {"name": v.name})
+        await session.commit()
+        await session.refresh(v)
+    return _version_dict(v)
+
+
+# ---- Version Stories ----
+
+@router.get("/versions/{version_id}/stories")
+async def list_version_stories(version_id: str):
+    sf = get_session_factory()
+    async with sf() as session:
+        stmt = (
+            select(FlowVersionStory, FlowStory)
+            .join(FlowStory, FlowVersionStory.story_id == FlowStory.id)
+            .where(FlowVersionStory.version_id == version_id)
+            .order_by(FlowVersionStory.story_order.asc())
+        )
+        rows = await session.execute(stmt)
+        items = []
+        for link, story in rows:
+            items.append({
+                "link_id": link.id,
+                "added_reason": link.added_reason,
+                "story_order": link.story_order,
+                **_story_dict(story),
+            })
+    return {"items": items}
+
+
+@router.post("/versions/{version_id}/stories")
+async def add_version_story(version_id: str, body: VersionStoryBody):
+    sf = get_session_factory()
+    async with sf() as session:
+        version = await session.get(FlowVersion, version_id)
+        if not version:
+            return {"error": "版本不存在"}
+        story = await session.get(FlowStory, body.story_id)
+        if not story:
+            return {"error": "需求不存在"}
+        existing = await session.execute(
+            select(FlowVersionStory).where(
+                FlowVersionStory.version_id == version_id,
+                FlowVersionStory.story_id == body.story_id,
+            )
+        )
+        if existing.scalar_one_or_none():
+            return {"error": "需求已在版本中"}
+        link = FlowVersionStory(
+            version_id=version_id, story_id=body.story_id,
+            added_reason=body.added_reason, story_order=body.story_order,
+        )
+        session.add(link)
+        await _log_event(session, "version", version_id, "story_added",
+                         {"story_id": body.story_id})
+        await session.commit()
+    return {"ok": True}
+
+
+@router.delete("/versions/{version_id}/stories/{story_id}")
+async def remove_version_story(version_id: str, story_id: str):
+    sf = get_session_factory()
+    async with sf() as session:
+        await session.execute(
+            sa_delete(FlowVersionStory).where(
+                FlowVersionStory.version_id == version_id,
+                FlowVersionStory.story_id == story_id,
+            )
+        )
+        await _log_event(session, "version", version_id, "story_removed",
+                         {"story_id": story_id})
+        await session.commit()
+    return {"ok": True}
