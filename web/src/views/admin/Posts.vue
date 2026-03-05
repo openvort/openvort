@@ -6,7 +6,7 @@ import {
     getVirtualRoleSkills, bindVirtualRoleSkills,
     getSkills, generateRolePersonaPrompt,
 } from "@/api";
-import { message } from "@/components/vort/message";
+import { message } from "@openvort/vort-ui";
 import { Plus, Trash2, Save, Settings, Bot, Check } from "lucide-vue-next";
 
 const router = useRouter();

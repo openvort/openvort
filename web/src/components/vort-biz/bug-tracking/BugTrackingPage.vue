@@ -9,6 +9,5 @@ import ProTableDemo from "@/views/demo/ProTableDemo.vue";
         create-button-text="+ 新建缺陷"
         create-drawer-title="新建缺陷"
         detail-drawer-title="缺陷详情"
-        use-api
     />
 </template>

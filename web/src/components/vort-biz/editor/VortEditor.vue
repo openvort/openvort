@@ -3,6 +3,7 @@ import { watch, onBeforeUnmount } from "vue";
 import { useEditor, EditorContent } from "@tiptap/vue-3";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
+import Image from "@tiptap/extension-image";
 import { Markdown } from "tiptap-markdown";
 import {
     Bold, Italic, Strikethrough, Code, Heading1, Heading2, Heading3,
@@ -25,14 +26,60 @@ const emit = defineEmits<{
     "update:modelValue": [value: string];
 }>();
 
+const fileToDataUrl = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+    });
+};
+
+const insertImageFromFile = async (file: File) => {
+    if (!file.type.startsWith("image/")) return;
+    try {
+        const src = await fileToDataUrl(file);
+        if (!src) return;
+        editor.value?.chain().focus().setImage({ src, alt: file.name || "image" }).run();
+    } catch (error) {
+        console.error("[VortEditor] 读取图片失败:", error);
+    }
+};
+
 const editor = useEditor({
     content: props.modelValue || "",
     editable: !props.readonly,
     extensions: [
         StarterKit,
+        Image.configure({
+            inline: false,
+            allowBase64: true,
+            HTMLAttributes: { class: "vort-editor-image" },
+        }),
         Markdown,
         Placeholder.configure({ placeholder: props.placeholder }),
     ],
+    editorProps: {
+        handlePaste(_view, event) {
+            const files = Array.from(event.clipboardData?.files || []).filter((f) => f.type.startsWith("image/"));
+            if (files.length === 0) return false;
+            event.preventDefault();
+            files.forEach((file) => {
+                void insertImageFromFile(file);
+            });
+            return true;
+        },
+        handleDrop(_view, event, _slice, moved) {
+            if (moved) return false;
+            const files = Array.from(event.dataTransfer?.files || []).filter((f) => f.type.startsWith("image/"));
+            if (files.length === 0) return false;
+            event.preventDefault();
+            files.forEach((file) => {
+                void insertImageFromFile(file);
+            });
+            return true;
+        },
+    },
     onUpdate: ({ editor: e }) => {
         const md = e.storage.markdown.getMarkdown();
         emit("update:modelValue", md);
@@ -224,6 +271,14 @@ const toolbarItems: ToolItem[] = [
     border: none;
     border-top: 1px solid #e5e5e5;
     margin: 1em 0;
+}
+.vort-editor__content .tiptap img,
+.vort-editor__content .tiptap .vort-editor-image {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    margin: 8px 0;
+    border-radius: 6px;
 }
 .vort-editor__content .tiptap strong { font-weight: 700; }
 .vort-editor__content .tiptap em { font-style: italic; }

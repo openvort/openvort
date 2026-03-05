@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
 import { ChevronLeft, ChevronRight, Check, User, Bot } from "lucide-vue-next";
-import { message } from "@/components/vort/message";
+import { message } from "@openvort/vort-ui";
 import type { Component } from "vue";
 
 interface RoleOption {
