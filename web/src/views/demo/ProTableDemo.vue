@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { ProTable, type ProTableColumn, type ProTableRequestParams, type ProTableResponse } from "@/components/vort-biz/pro-table";
-import { message } from "@openvort/vort-ui";
+import { Popover, message } from "@openvort/vort-ui";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
 import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
 import { Pencil } from "lucide-vue-next";
@@ -130,16 +130,6 @@ const ownerDropdownOpen = ref(false);
 const ownerKeyword = ref("");
 const openOwnerFor = ref<string | null>(null);
 const ownerEditKeyword = ref("");
-const ownerTriggerRefs = ref<Record<string, HTMLElement | null>>({});
-const ownerDropdownStyle = ref<Record<string, string>>({});
-const priorityTriggerRefs = ref<Record<string, HTMLElement | null>>({});
-const priorityDropdownStyle = ref<Record<string, string>>({});
-const tagTriggerRefs = ref<Record<string, HTMLElement | null>>({});
-const tagDropdownStyle = ref<Record<string, string>>({});
-const statusTriggerRefs = ref<Record<string, HTMLElement | null>>({});
-const statusDropdownStyle = ref<Record<string, string>>({});
-const collaboratorTriggerRefs = ref<Record<string, HTMLElement | null>>({});
-const collaboratorDropdownStyle = ref<Record<string, string>>({});
 const openCollaboratorFor = ref<string | null>(null);
 const collaboratorKeyword = ref("");
 const type = ref<WorkType | "">(props.fixedType ?? "");
@@ -1513,9 +1503,7 @@ const getRowPriority = (record: RowItem, text?: Priority): Priority => {
 };
 
 const togglePriorityMenu = (workNo: string) => {
-    const willOpen = openPriorityFor.value !== workNo;
-    openPriorityFor.value = willOpen ? workNo : null;
-    if (willOpen) nextTick(() => updatePriorityDropdownPosition(workNo));
+    openPriorityFor.value = openPriorityFor.value !== workNo ? workNo : null;
 };
 
 const selectPriority = async (record: RowItem, value: Priority) => {
@@ -1539,23 +1527,6 @@ const selectPriority = async (record: RowItem, value: Priority) => {
         return;
     }
     openPriorityFor.value = null;
-};
-
-const onGlobalClick = () => {
-    openPriorityFor.value = null;
-    openTagFor.value = null;
-    openOwnerFor.value = null;
-    openCollaboratorFor.value = null;
-    openStatusFor.value = null;
-    openPlanTimeFor.value = null;
-    detailStatusDropdownOpen.value = false;
-    detailAssigneeDropdownOpen.value = false;
-    createAssigneeDropdownOpen.value = false;
-    ownerDropdownOpen.value = false;
-    typeDropdownOpen.value = false;
-    statusDropdownOpen.value = false;
-    createBugPriorityDropdownOpen.value = false;
-    createTagDropdownOpen.value = false;
 };
 
 const toggleCreateBugPriorityMenu = () => {
@@ -1591,7 +1562,6 @@ const toggleRowStatusMenu = (record: RowItem) => {
     rowStatusType.value = record.type || resolveActiveType();
     openStatusFor.value = record.workNo;
     rowStatusKeyword.value = "";
-    nextTick(() => updateStatusDropdownPosition(record.workNo));
 };
 
 const filteredRowStatusOptions = computed(() => {
@@ -1708,12 +1678,8 @@ const getRowOwner = (record: RowItem, text?: string): string => {
 };
 
 const toggleRowOwnerMenu = (workNo: string) => {
-    const willOpen = openOwnerFor.value !== workNo;
-    openOwnerFor.value = willOpen ? workNo : null;
+    openOwnerFor.value = openOwnerFor.value !== workNo ? workNo : null;
     ownerEditKeyword.value = "";
-    if (willOpen) {
-        nextTick(() => updateOwnerDropdownPosition(workNo));
-    }
 };
 
 const selectRowOwner = async (record: RowItem, value: string) => {
@@ -1744,133 +1710,13 @@ const selectRowOwner = async (record: RowItem, value: string) => {
     openOwnerFor.value = null;
 };
 
-const setOwnerTriggerRef = (workNo: string, el: HTMLElement | null) => {
-    if (el) ownerTriggerRefs.value[workNo] = el;
-    else delete ownerTriggerRefs.value[workNo];
-};
-
-const updateOwnerDropdownPosition = (workNo?: string) => {
-    const targetWorkNo = workNo || openOwnerFor.value;
-    if (!targetWorkNo) return;
-    const trigger = ownerTriggerRefs.value[targetWorkNo];
-    if (!trigger) return;
-
-    const rect = trigger.getBoundingClientRect();
-    const panelWidth = 260;
-    const panelHeight = 420;
-    const gap = 6;
-    const viewportPadding = 8;
-
-    let left = rect.left;
-    const maxLeft = window.innerWidth - panelWidth - viewportPadding;
-    left = Math.min(Math.max(viewportPadding, left), Math.max(viewportPadding, maxLeft));
-
-    let top = rect.bottom + gap;
-    if (top + panelHeight > window.innerHeight - viewportPadding) {
-        top = rect.top - panelHeight - gap;
-    }
-    if (top < viewportPadding) top = viewportPadding;
-
-    ownerDropdownStyle.value = {
-        position: "fixed",
-        left: `${left}px`,
-        top: `${top}px`,
-        zIndex: "9999"
-    };
-};
-
-const buildFloatingDropdownStyle = (trigger: HTMLElement, panelWidth: number, panelHeight: number): Record<string, string> => {
-    const rect = trigger.getBoundingClientRect();
-    const gap = 6;
-    const viewportPadding = 8;
-
-    let left = rect.left;
-    const maxLeft = window.innerWidth - panelWidth - viewportPadding;
-    left = Math.min(Math.max(viewportPadding, left), Math.max(viewportPadding, maxLeft));
-
-    let top = rect.bottom + gap;
-    if (top + panelHeight > window.innerHeight - viewportPadding) {
-        top = rect.top - panelHeight - gap;
-    }
-    if (top < viewportPadding) top = viewportPadding;
-
-    return {
-        position: "fixed",
-        left: `${left}px`,
-        top: `${top}px`,
-        zIndex: "9999"
-    };
-};
-
-const setPriorityTriggerRef = (workNo: string, el: HTMLElement | null) => {
-    if (el) priorityTriggerRefs.value[workNo] = el;
-    else delete priorityTriggerRefs.value[workNo];
-};
-
-const updatePriorityDropdownPosition = (workNo?: string) => {
-    const targetWorkNo = workNo || openPriorityFor.value;
-    if (!targetWorkNo) return;
-    const trigger = priorityTriggerRefs.value[targetWorkNo];
-    if (!trigger) return;
-    priorityDropdownStyle.value = buildFloatingDropdownStyle(trigger, 124, 220);
-};
-
-const setTagTriggerRef = (workNo: string, el: HTMLElement | null) => {
-    if (el) tagTriggerRefs.value[workNo] = el;
-    else delete tagTriggerRefs.value[workNo];
-};
-
-const updateTagDropdownPosition = (workNo?: string) => {
-    const targetWorkNo = workNo || openTagFor.value;
-    if (!targetWorkNo) return;
-    const trigger = tagTriggerRefs.value[targetWorkNo];
-    if (!trigger) return;
-    tagDropdownStyle.value = buildFloatingDropdownStyle(trigger, 240, 320);
-};
-
-const setStatusTriggerRef = (workNo: string, el: HTMLElement | null) => {
-    if (el) statusTriggerRefs.value[workNo] = el;
-    else delete statusTriggerRefs.value[workNo];
-};
-
-const updateStatusDropdownPosition = (workNo?: string) => {
-    const targetWorkNo = workNo || openStatusFor.value;
-    if (!targetWorkNo) return;
-    const trigger = statusTriggerRefs.value[targetWorkNo];
-    if (!trigger) return;
-    statusDropdownStyle.value = buildFloatingDropdownStyle(trigger, 240, 330);
-};
-
-const setCollaboratorTriggerRef = (workNo: string, el: HTMLElement | null) => {
-    if (el) collaboratorTriggerRefs.value[workNo] = el;
-    else delete collaboratorTriggerRefs.value[workNo];
-};
-
-const updateCollaboratorDropdownPosition = (workNo?: string) => {
-    const targetWorkNo = workNo || openCollaboratorFor.value;
-    if (!targetWorkNo) return;
-    const trigger = collaboratorTriggerRefs.value[targetWorkNo];
-    if (!trigger) return;
-    collaboratorDropdownStyle.value = buildFloatingDropdownStyle(trigger, 260, 360);
-};
-
-const onViewportChangeForOwnerDropdown = () => {
-    if (openOwnerFor.value) updateOwnerDropdownPosition();
-    if (openPriorityFor.value) updatePriorityDropdownPosition();
-    if (openTagFor.value) updateTagDropdownPosition();
-    if (openStatusFor.value) updateStatusDropdownPosition();
-    if (openCollaboratorFor.value) updateCollaboratorDropdownPosition();
-};
-
 const getRowCollaborators = (record: RowItem, text?: string[]): string[] => {
     return collaboratorsModel[record.workNo] || text || record.collaborators || [];
 };
 
 const toggleCollaboratorMenu = (workNo: string) => {
-    const willOpen = openCollaboratorFor.value !== workNo;
-    openCollaboratorFor.value = willOpen ? workNo : null;
+    openCollaboratorFor.value = openCollaboratorFor.value !== workNo ? workNo : null;
     collaboratorKeyword.value = "";
-    if (willOpen) nextTick(() => updateCollaboratorDropdownPosition(workNo));
 };
 
 const toggleRowCollaborator = async (record: RowItem, member: string, text?: string[]) => {
@@ -1993,10 +1839,8 @@ const getTagRenderInfo = (record: RowItem, text: string[] | undefined, resolvedW
 };
 
 const toggleTagMenu = (workNo: string) => {
-    const willOpen = openTagFor.value !== workNo;
-    openTagFor.value = willOpen ? workNo : null;
+    openTagFor.value = openTagFor.value !== workNo ? workNo : null;
     tagKeyword.value = "";
-    if (willOpen) nextTick(() => updateTagDropdownPosition(workNo));
 };
 
 const toggleTagOption = async (record: RowItem, tag: string, text?: string[]) => {
@@ -2115,17 +1959,8 @@ const loadApiMetadata = async (withStories = false) => {
 };
 
 onMounted(async () => {
-    document.addEventListener("click", onGlobalClick);
-    document.addEventListener("scroll", onViewportChangeForOwnerDropdown, true);
-    window.addEventListener("resize", onViewportChangeForOwnerDropdown);
     await loadMemberOptions();
     await loadApiMetadata(false);
-});
-
-onBeforeUnmount(() => {
-    document.removeEventListener("click", onGlobalClick);
-    document.removeEventListener("scroll", onViewportChangeForOwnerDropdown, true);
-    window.removeEventListener("resize", onViewportChangeForOwnerDropdown);
 });
 </script>
 
@@ -2135,43 +1970,46 @@ onBeforeUnmount(() => {
             <h3 class="text-base font-medium text-gray-800 mb-3">{{ props.pageTitle }}</h3>
             <div class="flex flex-wrap items-center gap-3 text-sm">
                 <div class="text-gray-600"><span class="text-gray-900 font-medium">共{{ totalCount || allData.length }}项</span></div>
-                <input v-model="keyword" placeholder="输入关键词" class="h-8 px-3 border border-gray-300 rounded w-[180px]" />
-                <div class="relative" @click.stop>
-                    <button
+                <VortInput v-model="keyword" placeholder="输入关键词" class="w-[180px]" size="small" />
+                <Popover v-model:open="ownerDropdownOpen" trigger="click" placement="bottomLeft" :arrow="false">
+                    <VortButton
                         class="h-8 min-w-[130px] px-3 border border-slate-300 rounded-md bg-white flex items-center justify-between text-left hover:border-slate-400"
-                        :class="{ 'border-blue-500 ring-1 ring-blue-200': ownerDropdownOpen }"
-                        @click.stop="ownerDropdownOpen = !ownerDropdownOpen"
+                        :class="ownerDropdownOpen ? 'border-blue-500 ring-1 ring-blue-200' : ''"
+                        @click.stop
                     >
                         <span class="text-sm text-gray-700">{{ owner || "负责人" }}</span>
                         <span class="status-arrow-simple" :class="{ open: ownerDropdownOpen }" />
-                    </button>
-                    <div v-if="ownerDropdownOpen" class="absolute z-30 mt-1 w-[260px] bg-white border border-gray-200 rounded-lg shadow-md p-3">
+                    </VortButton>
+                    <template #content>
+                        <div class="w-[260px] p-3">
                         <div class="mb-2">
                             <div class="relative">
-                                <input
+                                <VortInput
                                     v-model="ownerKeyword"
                                     placeholder="搜索..."
-                                    class="w-full h-9 pl-3 pr-8 border border-gray-300 rounded-md text-sm"
+                                    class="w-full"
+                                    size="small"
                                 />
-                                <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">⌕</span>
                             </div>
                         </div>
                         <div class="max-h-[460px] overflow-y-auto -mx-3">
-                            <button class="w-full h-10 px-3 text-left text-gray-700 hover:bg-gray-50" @click.stop="selectOwner('')">全部</button>
-                            <button class="w-full h-10 px-3 text-left text-gray-700 hover:bg-gray-50" @click.stop="selectOwner('未指派')">未指派</button>
+                            <VortButton class="w-full h-10 px-3 text-left text-gray-700 hover:bg-gray-50" variant="text" @click.stop="selectOwner('')">全部</VortButton>
+                            <VortButton class="w-full h-10 px-3 text-left text-gray-700 hover:bg-gray-50" variant="text" @click.stop="selectOwner('未指派')">未指派</VortButton>
 
                             <div v-for="group in filteredOwnerGroups" :key="group.label">
-                                <button
+                                <VortButton
                                     class="w-full h-10 px-3 bg-slate-100 flex items-center justify-between text-left"
+                                    variant="text"
                                     @click.stop="toggleOwnerGroup(group.label)"
                                 >
                                     <span class="text-gray-700 text-sm">{{ group.label }}（{{ group.members.length }}）</span>
                                     <span class="status-arrow-simple" :class="{ open: ownerGroupOpen[group.label] }" />
-                                </button>
-                                <button
+                                </VortButton>
+                                <VortButton
                                     v-for="member in (ownerGroupOpen[group.label] ? group.members : [])"
                                     :key="group.label + member"
                                     class="w-full h-10 px-3 flex items-center gap-2 text-left hover:bg-gray-50"
+                                    variant="text"
                                     @click.stop="selectOwner(member)"
                                 >
                                     <span
@@ -2182,89 +2020,98 @@ onBeforeUnmount(() => {
                                         <template v-else>{{ getAvatarLabel(member) }}</template>
                                     </span>
                                     <span class="text-sm text-gray-700">{{ member }}</span>
-                                </button>
+                                </VortButton>
                             </div>
                         </div>
                     </div>
-                </div>
-                <div v-if="!props.fixedType" class="relative" @click.stop>
-                    <button
+                    </template>
+                </Popover>
+                <Popover v-if="!props.fixedType" v-model:open="typeDropdownOpen" trigger="click" placement="bottomLeft" :arrow="false">
+                    <VortButton
                         class="h-8 min-w-[110px] px-3 border border-slate-300 rounded-md bg-white flex items-center justify-between text-left hover:border-slate-400"
-                        :class="{ 'border-blue-500 ring-1 ring-blue-200': typeDropdownOpen }"
-                        @click.stop="typeDropdownOpen = !typeDropdownOpen"
+                        :class="typeDropdownOpen ? 'border-blue-500 ring-1 ring-blue-200' : ''"
+                        @click.stop
                     >
                         <span class="text-sm text-gray-700">{{ type || "类型" }}</span>
                         <span class="status-arrow-simple" :class="{ open: typeDropdownOpen }" />
-                    </button>
-                    <div v-if="typeDropdownOpen" class="absolute z-30 mt-1 w-[180px] bg-white border border-gray-200 rounded-lg shadow-md p-3">
+                    </VortButton>
+                    <template #content>
+                        <div class="w-[180px] p-3">
                         <div class="mb-2">
                             <div class="relative">
-                                <input
+                                <VortInput
                                     v-model="typeKeyword"
                                     placeholder="搜索..."
-                                    class="w-full h-9 pl-3 pr-8 border border-gray-300 rounded-md text-sm"
+                                    class="w-full"
+                                    size="small"
                                 />
-                                <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">⌕</span>
                             </div>
                         </div>
                         <div class="max-h-[260px] overflow-y-auto -mx-3">
                             <div v-for="group in typeGroups" :key="group">
-                                <button
+                                <VortButton
                                     class="w-full h-10 px-3 bg-slate-100 flex items-center justify-between text-left"
+                                    variant="text"
                                     @click.stop="toggleTypeGroup(group)"
                                 >
                                     <span class="text-gray-700 text-sm">{{ group }}</span>
                                     <span class="status-arrow-simple" :class="{ open: typeGroupOpen[group] }" />
-                                </button>
-                                <button
+                                </VortButton>
+                                <VortButton
                                     v-if="typeGroupOpen[group]"
                                     class="w-full h-10 px-3 flex items-center gap-3 text-left hover:bg-gray-50"
+                                    variant="text"
                                     @click.stop="selectType(group)"
                                 >
                                     <span class="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center text-[12px] text-gray-500">
                                         <span v-if="type === group">✓</span>
                                     </span>
                                     <span class="text-gray-700 text-sm">{{ group }}</span>
-                                </button>
+                                </VortButton>
                             </div>
                         </div>
                     </div>
-                </div>
-                <div class="relative" @click.stop>
-                    <button
+                    </template>
+                </Popover>
+                <Popover v-model:open="statusDropdownOpen" trigger="click" placement="bottomLeft" :arrow="false">
+                    <VortButton
                         class="h-8 min-w-[130px] px-3 border border-slate-300 rounded-md bg-white flex items-center justify-between text-left hover:border-slate-400"
-                        @click.stop="statusDropdownOpen = !statusDropdownOpen"
+                        @click.stop
                     >
                         <span class="text-sm text-gray-700">{{ status || "状态" }}</span>
-                        <span class="status-arrow-simple" />
-                    </button>
-                    <div v-if="statusDropdownOpen" class="absolute z-30 mt-1 w-[240px] bg-white border border-gray-200 rounded-lg shadow-md p-3">
+                        <span class="status-arrow-simple" :class="{ open: statusDropdownOpen }" />
+                    </VortButton>
+                    <template #content>
+                        <div class="w-[240px] p-3">
                         <div class="mb-2">
-                            <input
+                            <VortInput
                                 v-model="statusKeyword"
                                 placeholder="搜索..."
-                                class="w-full h-9 px-3 border border-gray-300 rounded-md text-sm"
+                                class="w-full"
+                                size="small"
                             />
                         </div>
                         <div class="max-h-[220px] overflow-y-auto pr-1">
-                            <button
+                            <VortButton
                                 v-for="opt in filteredStatusOptions"
                                 :key="opt.value"
                                 class="w-full h-10 px-2 rounded-md flex items-center gap-2 text-left hover:bg-gray-50"
-                                :class="{ 'bg-slate-100': status === opt.value }"
+                                variant="text"
+                                :class="status === opt.value ? 'bg-slate-100' : ''"
                                 @click.stop="selectStatus(opt.value)"
                             >
                                 <span class="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center text-[12px] text-gray-500">
                                     <span v-if="status === opt.value">✓</span>
                                 </span>
                                 <span class="text-sm text-gray-700">{{ opt.label }}</span>
-                            </button>
+                            </VortButton>
                         </div>
                     </div>
-                </div>
-                <button class="h-8 px-4 bg-blue-600 text-white rounded hover:bg-blue-700" @click="tableRef?.refresh?.()">查询</button>
-                <button class="h-8 px-4 border border-gray-300 rounded hover:bg-gray-50" @click="onReset">重置</button>
-                <button class="h-8 px-4 bg-blue-600 text-white rounded hover:bg-blue-700 ml-auto" @click="handleCreateBug">{{ props.createButtonText }}</button>
+                    </template>
+                </Popover>
+                <VortButton size="small" variant="primary" @click="tableRef?.refresh?.()">查询</VortButton>
+                <VortButton size="small" @click="onReset">重置</VortButton>
+                <VortButton size="small" variant="primary" class="ml-auto" @click="handleCreateBug">{{ props.createButtonText }}</VortButton>
             </div>
         </div>
 
@@ -2272,9 +2119,9 @@ onBeforeUnmount(() => {
             <div v-if="selectedRows.length > 0" class="mb-3 flex items-center gap-3 text-sm">
                 <span class="text-gray-500">已选 {{ selectedRows.length }} 项</span>
                 <vort-popconfirm title="确认批量删除选中记录？" @confirm="handleBatchDelete">
-                    <button class="text-red-500 hover:text-red-600">批量删除</button>
+                    <VortButton size="small" variant="text" danger>批量删除</VortButton>
                 </vort-popconfirm>
-                <button class="text-blue-600 hover:text-blue-700" @click="clearSelection">取消选择</button>
+                <VortButton size="small" variant="link" @click="clearSelection">取消选择</VortButton>
             </div>
             <ProTable
                 ref="tableRef"
@@ -2288,48 +2135,55 @@ onBeforeUnmount(() => {
                 bordered
             >
                 <template #title="{ text, record }">
-                    <button class="title-link-cell" :title="text" @click.stop="handleOpenBugDetail(record)">
+                    <VortButton class="title-link-cell" :title="text" variant="link" @click.stop="handleOpenBugDetail(record)">
                         <span class="title-link-text">{{ text }}</span>
-                    </button>
+                    </VortButton>
                 </template>
 
                 <template #priority="{ text, record }">
-                    <div class="relative inline-block text-left" @click.stop>
-                        <button
+                    <Popover
+                        :open="openPriorityFor === record.workNo"
+                        trigger="click"
+                        placement="bottomLeft"
+                        :arrow="false"
+                        @update:open="(open) => { if (!open && openPriorityFor === record.workNo) openPriorityFor = null; }"
+                    >
+                        <VortButton
                             class="priority-cell-trigger"
-                            :ref="(el) => setPriorityTriggerRef(record.workNo, el as HTMLElement | null)"
                             @click.stop="togglePriorityMenu(record.workNo)"
                         >
                             <span class="priority-pill" :class="priorityClassMap[getRowPriority(record, text)]">
                                 {{ priorityLabelMap[getRowPriority(record, text)] }}
                             </span>
-                        </button>
-                        <Teleport to="body">
-                            <div
-                                v-if="openPriorityFor === record.workNo"
-                                class="priority-cell-menu"
-                                :style="priorityDropdownStyle"
-                                @click.stop
-                            >
-                                <button
+                        </VortButton>
+                        <template #content>
+                            <div class="priority-cell-menu" @click.stop>
+                                <VortButton
                                     v-for="opt in priorityOptions"
                                     :key="opt.value"
                                     class="priority-cell-menu-item"
-                                    :class="{ 'is-selected': getRowPriority(record, text) === opt.value }"
+                                    variant="text"
+                                    :class="getRowPriority(record, text) === opt.value ? 'is-selected' : ''"
                                     @click.stop="selectPriority(record, opt.value)"
                                 >
                                     <span class="priority-pill" :class="priorityClassMap[opt.value]">
                                         {{ opt.label }}
                                     </span>
-                                </button>
+                                </VortButton>
                             </div>
-                        </Teleport>
-                    </div>
+                        </template>
+                    </Popover>
                 </template>
 
                 <template #tags="{ text, record, resolvedWidth }">
-                    <div class="relative inline-block w-full" @click.stop>
-                        <button class="w-full text-left" :ref="(el) => setTagTriggerRef(record.workNo, el as HTMLElement | null)" @click.stop="toggleTagMenu(record.workNo)">
+                    <Popover
+                        :open="openTagFor === record.workNo"
+                        trigger="click"
+                        placement="bottomLeft"
+                        :arrow="false"
+                        @update:open="(open) => { if (!open && openTagFor === record.workNo) openTagFor = null; }"
+                    >
+                        <VortButton class="w-full text-left" variant="text" @click.stop="toggleTagMenu(record.workNo)">
                             <div class="flex items-center gap-1 flex-nowrap whitespace-nowrap overflow-hidden">
                                 <template v-for="tag in getTagRenderInfo(record, text, resolvedWidth).visible" :key="record.workNo + '-' + tag">
                                     <span
@@ -2343,30 +2197,26 @@ onBeforeUnmount(() => {
                                     +{{ getTagRenderInfo(record, text, resolvedWidth).hidden }}
                                 </span>
                             </div>
-                        </button>
+                        </VortButton>
 
-                        <Teleport to="body">
-                            <div
-                                v-if="openTagFor === record.workNo"
-                                class="w-[240px] bg-white border border-gray-200 rounded-lg shadow-md p-3"
-                                :style="tagDropdownStyle"
-                                @click.stop
-                            >
+                        <template #content>
+                            <div class="w-[240px] p-3" @click.stop>
                                 <div class="mb-2">
                                     <div class="relative">
-                                        <input
+                                        <VortInput
                                             v-model="tagKeyword"
                                             placeholder="搜索..."
-                                            class="w-full h-9 pl-3 pr-8 border border-gray-300 rounded-md text-sm"
+                                            class="w-full"
+                                            size="small"
                                         />
-                                        <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">⌕</span>
                                     </div>
                                 </div>
                                 <div class="max-h-[200px] overflow-y-auto pr-1">
-                                    <button
+                                    <VortButton
                                         v-for="tag in filteredTagOptions"
                                         :key="record.workNo + '-opt-' + tag"
                                         class="w-full h-10 px-2 rounded-md flex items-center gap-2 text-left hover:bg-gray-50"
+                                        variant="text"
                                         @click.stop="toggleTagOption(record, tag, text)"
                                     >
                                         <span class="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center text-[12px] text-gray-500">
@@ -2374,68 +2224,77 @@ onBeforeUnmount(() => {
                                         </span>
                                         <span class="w-5 h-5 rounded-full" :style="{ backgroundColor: getTagColor(tag) }" />
                                         <span class="text-sm text-gray-700">{{ tag }}</span>
-                                    </button>
+                                    </VortButton>
                                 </div>
                                 <div class="mt-2 flex justify-end">
-                                    <button class="h-8 px-3 text-sm bg-blue-600 text-white rounded hover:bg-blue-700" @click.stop="finishTagEdit">
+                                    <VortButton size="small" variant="primary" @click.stop="finishTagEdit">
                                         完成
-                                    </button>
+                                    </VortButton>
                                 </div>
                             </div>
-                        </Teleport>
-                    </div>
+                        </template>
+                    </Popover>
                 </template>
 
                 <template #status="{ text, record }">
-                    <div class="relative inline-block text-left" @click.stop>
-                        <button
+                    <Popover
+                        :open="openStatusFor === record.workNo"
+                        trigger="click"
+                        placement="bottomLeft"
+                        :arrow="false"
+                        @update:open="(open) => { if (!open && openStatusFor === record.workNo) openStatusFor = null; }"
+                    >
+                        <VortButton
                             class="status-edit-trigger"
-                            :ref="(el) => setStatusTriggerRef(record.workNo, el as HTMLElement | null)"
+                            variant="text"
                             @click.stop="toggleRowStatusMenu(record)"
                         >
                             <span class="status-badge table-status-badge" :class="statusClassMap[getRowStatus(record, text)]">
                                 <span>{{ getRowStatus(record, text) }}</span>
                             </span>
-                        </button>
-                        <Teleport to="body">
-                            <div
-                                v-if="openStatusFor === record.workNo"
-                                class="w-[240px] bg-white border border-gray-200 rounded-lg shadow-md p-3"
-                                :style="statusDropdownStyle"
-                                @click.stop
-                            >
+                        </VortButton>
+                        <template #content>
+                            <div class="w-[240px] p-3" @click.stop>
                                 <div class="mb-2">
-                                    <input
+                                    <VortInput
                                         v-model="rowStatusKeyword"
                                         placeholder="搜索..."
-                                        class="w-full h-9 px-3 border border-gray-300 rounded-md text-sm"
+                                        class="w-full"
+                                        size="small"
                                     />
                                 </div>
                                 <div class="max-h-[220px] overflow-y-auto pr-1">
-                                    <button
+                                    <VortButton
                                         v-for="opt in filteredRowStatusOptions"
                                         :key="record.workNo + '-status-' + opt.value"
                                         class="w-full h-10 px-2 rounded-md flex items-center gap-2 text-left hover:bg-gray-50"
-                                        :class="{ 'bg-slate-100': getRowStatus(record, text) === opt.value }"
+                                        variant="text"
+                                        :class="getRowStatus(record, text) === opt.value ? 'bg-slate-100' : ''"
                                         @click.stop="selectRowStatus(record, opt.value as Status)"
                                     >
                                         <span class="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center text-[12px] text-gray-500">
                                             <span v-if="getRowStatus(record, text) === opt.value">✓</span>
                                         </span>
                                         <span class="text-sm text-gray-700">{{ opt.label }}</span>
-                                    </button>
+                                    </VortButton>
                                 </div>
                             </div>
-                        </Teleport>
-                    </div>
+                        </template>
+                    </Popover>
                 </template>
 
                 <template #owner="{ text, record }">
-                    <div class="relative inline-block" @click.stop>
-                        <button
+                    <Popover
+                        :open="openOwnerFor === record.workNo"
+                        trigger="click"
+                        placement="bottomLeft"
+                        :arrow="false"
+                        @update:open="(open) => { if (!open && openOwnerFor === record.workNo) openOwnerFor = null; }"
+                    >
+                        <VortButton
                             class="h-8 max-w-[150px] px-2 rounded-md bg-transparent flex items-center gap-2"
-                            :class="{ 'ring-1 ring-blue-200': openOwnerFor === record.workNo }"
-                            :ref="(el) => setOwnerTriggerRef(record.workNo, el as HTMLElement | null)"
+                            variant="text"
+                            :class="openOwnerFor === record.workNo ? 'ring-1 ring-blue-200' : ''"
                             @click.stop="toggleRowOwnerMenu(record.workNo)"
                         >
                             <span
@@ -2446,41 +2305,38 @@ onBeforeUnmount(() => {
                                 <template v-else>{{ getAvatarLabel(getRowOwner(record, text)) }}</template>
                             </span>
                             <span class="text-sm text-gray-700 truncate">{{ getRowOwner(record, text) }}</span>
-                        </button>
+                        </VortButton>
 
-                        <Teleport to="body">
-                            <div
-                                v-if="openOwnerFor === record.workNo"
-                                class="w-[260px] bg-white border border-gray-200 rounded-lg shadow-md p-3"
-                                :style="ownerDropdownStyle"
-                                @click.stop
-                            >
+                        <template #content>
+                            <div class="w-[260px] p-3" @click.stop>
                                 <div class="mb-2">
                                     <div class="relative">
-                                        <input
+                                        <VortInput
                                             v-model="ownerEditKeyword"
                                             placeholder="搜索..."
-                                            class="w-full h-9 pl-3 pr-8 border border-gray-300 rounded-md text-sm"
+                                            class="w-full"
+                                            size="small"
                                         />
-                                        <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">⌕</span>
                                     </div>
                                 </div>
                                 <div class="max-h-[420px] overflow-y-auto -mx-3">
-                                    <button class="w-full h-10 px-3 text-left text-gray-700 hover:bg-gray-50" @click.stop="selectRowOwner(record, '')">
+                                    <VortButton class="w-full h-10 px-3 text-left text-gray-700 hover:bg-gray-50" variant="text" @click.stop="selectRowOwner(record, '')">
                                         未指派
-                                    </button>
+                                    </VortButton>
                                     <div v-for="group in filteredOwnerEditGroups" :key="'row-owner-' + group.label">
-                                        <button
+                                        <VortButton
                                             class="w-full h-10 px-3 bg-slate-100 flex items-center justify-between text-left"
+                                            variant="text"
                                             @click.stop="toggleOwnerEditGroup(group.label)"
                                         >
                                             <span class="text-gray-700 text-sm">{{ group.label }}（{{ group.members.length }}）</span>
                                             <span class="status-arrow-simple" :class="{ open: ownerEditGroupOpen[group.label] }" />
-                                        </button>
-                                        <button
+                                        </VortButton>
+                                        <VortButton
                                             v-for="member in (ownerEditGroupOpen[group.label] ? group.members : [])"
                                             :key="'row-owner-member-' + group.label + member"
                                             class="w-full h-10 px-3 flex items-center gap-2 text-left hover:bg-gray-50"
+                                            variant="text"
                                             @click.stop="selectRowOwner(record, member)"
                                         >
                                             <span
@@ -2491,12 +2347,12 @@ onBeforeUnmount(() => {
                                                 <template v-else>{{ getAvatarLabel(member) }}</template>
                                             </span>
                                             <span class="text-sm text-gray-700">{{ member }}</span>
-                                        </button>
+                                        </VortButton>
                                     </div>
                                 </div>
                             </div>
-                        </Teleport>
-                    </div>
+                        </template>
+                    </Popover>
                 </template>
 
                 <template #creator="{ text }">
@@ -2513,15 +2369,21 @@ onBeforeUnmount(() => {
 
                 <template #actions="{ record }">
                     <vort-popconfirm title="确认删除？" @confirm="handleDelete(record)">
-                        <a class="text-sm text-red-500 cursor-pointer">删除</a>
+                        <VortButton size="small" variant="link" danger>删除</VortButton>
                     </vort-popconfirm>
                 </template>
 
                 <template #collaborators="{ text, record }">
-                    <div class="relative inline-block" @click.stop>
-                        <button
+                    <Popover
+                        :open="openCollaboratorFor === record.workNo"
+                        trigger="click"
+                        placement="bottomLeft"
+                        :arrow="false"
+                        @update:open="(open) => { if (!open && openCollaboratorFor === record.workNo) openCollaboratorFor = null; }"
+                    >
+                        <VortButton
                             class="h-8 px-1 rounded-md bg-transparent flex items-center"
-                            :ref="(el) => setCollaboratorTriggerRef(record.workNo, el as HTMLElement | null)"
+                            variant="text"
                             @click.stop="toggleCollaboratorMenu(record.workNo)"
                         >
                             <div class="flex items-center">
@@ -2535,38 +2397,35 @@ onBeforeUnmount(() => {
                                     {{ getAvatarLabel(name) }}
                                 </div>
                             </div>
-                        </button>
+                        </VortButton>
 
-                        <Teleport to="body">
-                            <div
-                                v-if="openCollaboratorFor === record.workNo"
-                                class="w-[260px] bg-white border border-gray-200 rounded-lg shadow-md p-3"
-                                :style="collaboratorDropdownStyle"
-                                @click.stop
-                            >
+                        <template #content>
+                            <div class="w-[260px] p-3" @click.stop>
                                 <div class="mb-2">
                                     <div class="relative">
-                                        <input
+                                        <VortInput
                                             v-model="collaboratorKeyword"
                                             placeholder="搜索..."
-                                            class="w-full h-9 pl-3 pr-8 border border-gray-300 rounded-md text-sm"
+                                            class="w-full"
+                                            size="small"
                                         />
-                                        <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">⌕</span>
                                     </div>
                                 </div>
                                 <div class="max-h-[260px] overflow-y-auto -mx-3">
                                     <div v-for="group in filteredCollaboratorGroups" :key="'collab-' + group.label">
-                                        <button
+                                        <VortButton
                                             class="w-full h-10 px-3 bg-slate-100 flex items-center justify-between text-left"
+                                            variant="text"
                                             @click.stop="toggleCollaboratorGroup(group.label)"
                                         >
                                             <span class="text-gray-700 text-sm">{{ group.label }}（{{ group.members.length }}）</span>
                                             <span class="status-arrow-simple" :class="{ open: collaboratorGroupOpen[group.label] }" />
-                                        </button>
-                                        <button
+                                        </VortButton>
+                                        <VortButton
                                             v-for="member in (collaboratorGroupOpen[group.label] ? group.members : [])"
                                             :key="'collab-member-' + group.label + member"
                                             class="w-full h-10 px-3 flex items-center gap-2 text-left hover:bg-gray-50"
+                                            variant="text"
                                             @click.stop="toggleRowCollaborator(record, member, text)"
                                         >
                                             <span class="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center text-[12px] text-gray-500">
@@ -2579,28 +2438,29 @@ onBeforeUnmount(() => {
                                                 {{ getAvatarLabel(member) }}
                                             </span>
                                             <span class="text-sm text-gray-700">{{ member }}</span>
-                                        </button>
+                                        </VortButton>
                                     </div>
                                 </div>
                                 <div class="mt-2 flex justify-end">
-                                    <button class="h-8 px-3 text-sm bg-blue-600 text-white rounded hover:bg-blue-700" @click.stop="finishCollaboratorEdit">
+                                    <VortButton size="small" variant="primary" @click.stop="finishCollaboratorEdit">
                                         完成
-                                    </button>
+                                    </VortButton>
                                 </div>
                             </div>
-                        </Teleport>
-                    </div>
+                        </template>
+                    </Popover>
                 </template>
 
                 <template #planTime="{ text, record }">
                     <div class="relative inline-block" @click.stop>
-                        <button
+                        <VortButton
                             v-if="openPlanTimeFor !== record.workNo"
                             class="plan-time-display"
+                            variant="text"
                             @click.stop="togglePlanTimeMenu(record.workNo, record, text)"
                         >
                             {{ getRowPlanTimeText(record, text) }}
-                        </button>
+                        </VortButton>
                         <vort-range-picker
                             v-else
                             v-model="planTimeModel[record.workNo]"
@@ -2638,8 +2498,8 @@ onBeforeUnmount(() => {
                                 <template v-else>{{ getWorkTypeIconSymbol(detailCurrentRecord.type) }}</template>
                             </span>
                             <span class="bug-detail-no">{{ detailCurrentRecord.workNo }}</span>
-                            <div class="relative inline-block text-left" @click.stop>
-                                <button class="detail-status-trigger" @click.stop="toggleDetailStatusMenu">
+                            <Popover v-model:open="detailStatusDropdownOpen" trigger="click" placement="bottomLeft" :arrow="false">
+                                <VortButton class="detail-status-trigger" variant="text" @click.stop="toggleDetailStatusMenu">
                                     <span class="detail-status-content">
                                         <span class="detail-status-icon" :class="getStatusOption(detailCurrentRecord.status, detailCurrentRecord.type).iconClass">
                                             {{ getStatusOption(detailCurrentRecord.status, detailCurrentRecord.type).icon }}
@@ -2647,24 +2507,24 @@ onBeforeUnmount(() => {
                                         <span class="detail-status-text">{{ detailCurrentRecord.status }}</span>
                                     </span>
                                     <span class="status-arrow-simple" :class="{ open: detailStatusDropdownOpen }" />
-                                </button>
-                                <div
-                                    v-if="detailStatusDropdownOpen"
-                                    class="absolute z-30 mt-1 w-[240px] bg-white border border-gray-200 rounded-lg shadow-md p-3"
-                                >
+                                </VortButton>
+                                <template #content>
+                                    <div class="w-[240px] p-3">
                                     <div class="mb-2">
-                                        <input
+                                        <VortInput
                                             v-model="detailStatusKeyword"
                                             placeholder="搜索..."
-                                            class="w-full h-9 px-3 border border-gray-300 rounded-md text-sm"
+                                            class="w-full"
+                                            size="small"
                                         />
                                     </div>
                                     <div class="max-h-[220px] overflow-y-auto pr-1">
-                                        <button
+                                        <VortButton
                                             v-for="opt in filteredDetailStatusOptions"
                                             :key="'detail-status-' + opt.value"
                                             class="w-full h-10 px-2 rounded-md flex items-center gap-2 text-left hover:bg-gray-50"
-                                            :class="{ 'bg-slate-100': detailCurrentRecord.status === opt.value }"
+                                            variant="text"
+                                            :class="detailCurrentRecord.status === opt.value ? 'bg-slate-100' : ''"
                                             @click.stop="selectDetailStatus(opt.value as Status)"
                                         >
                                             <span class="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center text-[12px] text-gray-500">
@@ -2672,10 +2532,11 @@ onBeforeUnmount(() => {
                                             </span>
                                             <span class="text-[14px] leading-none w-4 text-center" :class="opt.iconClass">{{ opt.icon }}</span>
                                             <span class="text-sm text-gray-700">{{ opt.label }}</span>
-                                        </button>
+                                        </VortButton>
                                     </div>
-                                </div>
-                            </div>
+                                    </div>
+                                </template>
+                            </Popover>
                         </div>
 
                         <h2 class="bug-detail-title">{{ detailCurrentRecord.title }}</h2>
@@ -2696,67 +2557,67 @@ onBeforeUnmount(() => {
                                 <div class="bug-detail-left-col">
                                     <div class="bug-detail-info-item bug-detail-info-item-row bug-detail-info-assignee" @click.stop>
                                     <label>负责人 / 协作</label>
-                                    <button
-                                        class="detail-assignee-trigger"
-                                        :class="{ active: detailAssigneeDropdownOpen }"
-                                        @click.stop="toggleDetailAssigneeMenu"
-                                    >
-                                        <div class="detail-assignee-split">
-                                            <div class="detail-assignee-owner">
-                                                <span
-                                                    v-if="detailCurrentRecord.owner && detailCurrentRecord.owner !== '未指派'"
-                                                    class="detail-assignee-avatar overflow-hidden"
-                                                    :style="{ backgroundColor: getAvatarBg(detailCurrentRecord.owner) }"
-                                                >
-                                                    <img v-if="getMemberAvatarUrl(detailCurrentRecord.owner)" :src="getMemberAvatarUrl(detailCurrentRecord.owner)" class="w-full h-full object-cover" />
-                                                    <template v-else>{{ getAvatarLabel(detailCurrentRecord.owner) }}</template>
-                                                </span>
-                                                <span class="detail-assignee-owner-name">
-                                                    {{ detailCurrentRecord.owner || "未指派" }}
-                                                </span>
-                                            </div>
-                                            <span class="detail-assignee-separator">/</span>
-                                            <div class="detail-assignee-collaborators detail-collab-stack">
-                                                <template v-if="detailCurrentRecord.collaborators.length > 0">
+                                    <Popover v-model:open="detailAssigneeDropdownOpen" trigger="click" placement="bottomLeft" :arrow="false">
+                                        <VortButton
+                                            class="detail-assignee-trigger"
+                                            variant="text"
+                                            :class="detailAssigneeDropdownOpen ? 'active' : ''"
+                                            @click.stop="toggleDetailAssigneeMenu"
+                                        >
+                                            <div class="detail-assignee-split">
+                                                <div class="detail-assignee-owner">
                                                     <span
-                                                        v-for="name in detailCurrentRecord.collaborators"
-                                                        :key="'detail-collab-' + name"
+                                                        v-if="detailCurrentRecord.owner && detailCurrentRecord.owner !== '未指派'"
                                                         class="detail-assignee-avatar overflow-hidden"
-                                                        :style="{ backgroundColor: getAvatarBg(name) }"
-                                                        :title="name"
+                                                        :style="{ backgroundColor: getAvatarBg(detailCurrentRecord.owner) }"
                                                     >
-                                                        <img v-if="getMemberAvatarUrl(name)" :src="getMemberAvatarUrl(name)" class="w-full h-full object-cover" />
-                                                        <template v-else>{{ getAvatarLabel(name) }}</template>
+                                                        <img v-if="getMemberAvatarUrl(detailCurrentRecord.owner)" :src="getMemberAvatarUrl(detailCurrentRecord.owner)" class="w-full h-full object-cover" />
+                                                        <template v-else>{{ getAvatarLabel(detailCurrentRecord.owner) }}</template>
                                                     </span>
-                                                </template>
-                                                <span v-else class="detail-assignee-avatar detail-assignee-add">+</span>
+                                                    <span class="detail-assignee-owner-name">
+                                                        {{ detailCurrentRecord.owner || "未指派" }}
+                                                    </span>
+                                                </div>
+                                                <span class="detail-assignee-separator">/</span>
+                                                <div class="detail-assignee-collaborators detail-collab-stack">
+                                                    <template v-if="detailCurrentRecord.collaborators.length > 0">
+                                                        <span
+                                                            v-for="name in detailCurrentRecord.collaborators"
+                                                            :key="'detail-collab-' + name"
+                                                            class="detail-assignee-avatar overflow-hidden"
+                                                            :style="{ backgroundColor: getAvatarBg(name) }"
+                                                            :title="name"
+                                                        >
+                                                            <img v-if="getMemberAvatarUrl(name)" :src="getMemberAvatarUrl(name)" class="w-full h-full object-cover" />
+                                                            <template v-else>{{ getAvatarLabel(name) }}</template>
+                                                        </span>
+                                                    </template>
+                                                    <span v-else class="detail-assignee-avatar detail-assignee-add">+</span>
+                                                </div>
                                             </div>
-                                        </div>
-                                    </button>
-
-                                    <div
-                                        v-if="detailAssigneeDropdownOpen"
-                                        class="detail-assignee-dropdown"
-                                    >
+                                        </VortButton>
+                                        <template #content>
+                                            <div class="detail-assignee-dropdown">
                                         <div class="mb-2">
                                             <div class="relative">
-                                                <input
+                                                <VortInput
                                                     v-model="detailAssigneeKeyword"
                                                     placeholder="输入搜索用户名"
-                                                    class="w-full h-9 pl-3 pr-8 border border-gray-300 rounded-md text-sm"
+                                                    class="w-full"
+                                                    size="small"
                                                 />
-                                                <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">⌕</span>
                                             </div>
                                         </div>
                                         <div class="max-h-[320px] overflow-y-auto -mx-3">
                                             <div v-for="group in filteredDetailAssigneeGroups" :key="'detail-assignee-' + group.label">
-                                                <button
+                                                <VortButton
                                                     class="w-full h-10 px-3 bg-slate-100 flex items-center justify-between text-left"
+                                                    variant="text"
                                                     @click.stop="toggleDetailAssigneeGroup(group.label)"
                                                 >
                                                     <span class="text-gray-700 text-sm">{{ group.label }}（{{ group.members.length }}）</span>
                                                     <span class="status-arrow-simple" :class="{ open: detailAssigneeGroupOpen[group.label] }" />
-                                                </button>
+                                                </VortButton>
                                                 <div v-if="detailAssigneeGroupOpen[group.label]">
                                                     <div
                                                         v-for="member in group.members"
@@ -2774,26 +2635,30 @@ onBeforeUnmount(() => {
                                                             <span class="text-sm text-gray-700">{{ member }}</span>
                                                         </div>
                                                         <div class="detail-assignee-row-actions">
-                                                            <button
+                                                            <VortButton
                                                                 class="detail-role-btn"
-                                                                :class="{ active: isDetailOwner(member) }"
+                                                                variant="text"
+                                                                :class="isDetailOwner(member) ? 'active' : ''"
                                                                 @click.stop="setDetailOwner(member)"
                                                             >
                                                                 负责人
-                                                            </button>
-                                                            <button
+                                                            </VortButton>
+                                                            <VortButton
                                                                 class="detail-role-btn collab"
-                                                                :class="{ active: isDetailCollaborator(member) }"
+                                                                variant="text"
+                                                                :class="isDetailCollaborator(member) ? 'active' : ''"
                                                                 @click.stop="toggleDetailCollaborator(member)"
                                                             >
                                                                 协作者
-                                                            </button>
+                                                            </VortButton>
                                                         </div>
                                                     </div>
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
+                                        </template>
+                                    </Popover>
                                     </div>
                                     <div class="bug-detail-info-item bug-detail-info-item-row"><label>计划时间</label><div>{{ detailCurrentRecord.planTime[0] }} ~ {{ detailCurrentRecord.planTime[1] }}</div></div>
                                     <div class="bug-detail-info-item bug-detail-info-item-row"><label>迭代</label><div>{{ createBugForm.iteration || "未设置" }}</div></div>
@@ -2807,9 +2672,9 @@ onBeforeUnmount(() => {
                             <div class="bug-detail-desc">
                                 <div class="bug-detail-desc-head">
                                     <h4>描述</h4>
-                                    <button class="bug-detail-desc-edit-btn" @click="openDetailDescEditor">
+                                    <VortButton class="bug-detail-desc-edit-btn" variant="text" size="small" @click="openDetailDescEditor">
                                         <Pencil :size="14" />
-                                    </button>
+                                    </VortButton>
                                 </div>
                                 <template v-if="detailDescEditing">
                                     <VortEditor v-model="detailDescDraft" placeholder="请输入描述内容..." min-height="300px" />
@@ -2912,9 +2777,11 @@ onBeforeUnmount(() => {
                         <div class="create-bug-field">
                             <label class="create-bug-label">负责人/协作者</label>
                             <div class="bug-detail-info-assignee create-assignee-wrapper" @click.stop>
-                                <button
+                                <Popover v-model:open="createAssigneeDropdownOpen" trigger="click" placement="bottomLeft" :arrow="false">
+                                <VortButton
                                     class="detail-assignee-trigger create-assignee-trigger"
-                                    :class="{ active: createAssigneeDropdownOpen }"
+                                    variant="text"
+                                    :class="createAssigneeDropdownOpen ? 'active' : ''"
                                     @click.stop="toggleCreateAssigneeMenu"
                                 >
                                     <div class="detail-assignee-split">
@@ -2948,31 +2815,30 @@ onBeforeUnmount(() => {
                                             <span v-else class="detail-assignee-avatar detail-assignee-add">+</span>
                                         </div>
                                     </div>
-                                </button>
+                                </VortButton>
 
-                                <div
-                                    v-if="createAssigneeDropdownOpen"
-                                    class="detail-assignee-dropdown create-assignee-dropdown"
-                                >
+                                <template #content>
+                                <div class="detail-assignee-dropdown create-assignee-dropdown">
                                     <div class="mb-2">
                                         <div class="relative">
-                                            <input
+                                            <VortInput
                                                 v-model="createAssigneeKeyword"
                                                 placeholder="输入搜索用户名"
-                                                class="w-full h-9 pl-3 pr-8 border border-gray-300 rounded-md text-sm"
+                                                class="w-full"
+                                                size="small"
                                             />
-                                            <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">⌕</span>
                                         </div>
                                     </div>
                                     <div class="max-h-[320px] overflow-y-auto -mx-3">
                                         <div v-for="group in filteredCreateAssigneeGroups" :key="'create-assignee-' + group.label">
-                                            <button
+                                            <VortButton
                                                 class="w-full h-10 px-3 bg-slate-100 flex items-center justify-between text-left"
+                                                variant="text"
                                                 @click.stop="toggleCreateAssigneeGroup(group.label)"
                                             >
                                                 <span class="text-gray-700 text-sm">{{ group.label }}（{{ group.members.length }}）</span>
                                                 <span class="status-arrow-simple" :class="{ open: createAssigneeGroupOpen[group.label] }" />
-                                            </button>
+                                            </VortButton>
                                             <div v-if="createAssigneeGroupOpen[group.label]">
                                                 <div
                                                     v-for="member in group.members"
@@ -2990,26 +2856,30 @@ onBeforeUnmount(() => {
                                                         <span class="text-sm text-gray-700">{{ member }}</span>
                                                     </div>
                                                     <div class="detail-assignee-row-actions">
-                                                        <button
+                                                        <VortButton
                                                             class="detail-role-btn"
-                                                            :class="{ active: isCreateOwner(member) }"
+                                                            variant="text"
+                                                            :class="isCreateOwner(member) ? 'active' : ''"
                                                             @click.stop="setCreateOwner(member)"
                                                         >
                                                             负责人
-                                                        </button>
-                                                        <button
+                                                        </VortButton>
+                                                        <VortButton
                                                             class="detail-role-btn collab"
-                                                            :class="{ active: isCreateCollaborator(member) }"
+                                                            variant="text"
+                                                            :class="isCreateCollaborator(member) ? 'active' : ''"
                                                             @click.stop="toggleCreateCollaborator(member)"
                                                         >
                                                             协作者
-                                                        </button>
+                                                        </VortButton>
                                                     </div>
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
+                                </template>
+                                </Popover>
                             </div>
                         </div>
                         <div v-if="!props.fixedType" class="create-bug-field">
@@ -3070,12 +2940,12 @@ onBeforeUnmount(() => {
                                     class="hidden"
                                     @change="onCreateAttachmentChange"
                                 />
-                                <button class="create-bug-attachment-trigger" @click="openCreateAttachmentDialog">附件 +</button>
+                                <VortButton class="create-bug-attachment-trigger" size="small" @click="openCreateAttachmentDialog">附件 +</VortButton>
                                 <div v-if="createBugAttachments.length > 0" class="create-bug-attachment-list">
                                     <div v-for="item in createBugAttachments" :key="item.id" class="create-bug-attachment-item">
                                         <span class="name">{{ item.name }}</span>
                                         <span class="size">{{ formatFileSize(item.size) }}</span>
-                                        <button class="remove" @click="removeCreateAttachment(item.id)">移除</button>
+                                        <VortButton class="remove" size="small" variant="link" danger @click="removeCreateAttachment(item.id)">移除</VortButton>
                                     </div>
                                 </div>
                             </div>
@@ -3086,10 +2956,11 @@ onBeforeUnmount(() => {
                 <div class="create-bug-side">
                     <div class="create-bug-field">
                         <label class="create-bug-label">优先级</label>
-                        <div class="relative" @click.stop>
-                            <button
+                        <Popover v-model:open="createBugPriorityDropdownOpen" trigger="click" placement="bottomLeft" :arrow="false">
+                            <VortButton
                                 class="create-bug-priority-trigger"
-                                :class="{ active: createBugPriorityDropdownOpen }"
+                                variant="text"
+                                :class="createBugPriorityDropdownOpen ? 'active' : ''"
                                 @click.stop="toggleCreateBugPriorityMenu"
                             >
                                 <span
@@ -3101,29 +2972,29 @@ onBeforeUnmount(() => {
                                 </span>
                                 <span v-else class="text-sm text-gray-400">请选择</span>
                                 <span class="status-arrow-simple ml-auto" :class="{ open: createBugPriorityDropdownOpen }" />
-                            </button>
-                            <div
-                                v-if="createBugPriorityDropdownOpen"
-                                class="create-bug-priority-menu absolute z-30 mt-1 w-full"
-                            >
-                                <button
+                            </VortButton>
+                            <template #content>
+                            <div class="create-bug-priority-menu w-full">
+                                <VortButton
                                     v-for="opt in priorityOptions"
                                     :key="opt.value"
                                     class="create-bug-priority-option"
-                                    :class="{ 'is-selected': createBugForm.priority === opt.value }"
+                                    variant="text"
+                                    :class="createBugForm.priority === opt.value ? 'is-selected' : ''"
                                     @click.stop="selectCreateBugPriority(opt.value)"
                                 >
                                     <span class="priority-pill" :class="priorityClassMap[opt.value]">
                                         {{ opt.label }}
                                     </span>
-                                </button>
+                                </VortButton>
                             </div>
-                        </div>
+                            </template>
+                        </Popover>
                     </div>
                     <div class="create-bug-field">
                         <label class="create-bug-label">标签</label>
-                        <div class="relative inline-block w-full" @click.stop>
-                            <button class="create-tag-trigger" :class="{ active: createTagDropdownOpen }" @click.stop="toggleCreateTagMenu">
+                        <Popover v-model:open="createTagDropdownOpen" trigger="click" placement="bottomLeft" :arrow="false">
+                            <VortButton class="create-tag-trigger" variant="text" :class="createTagDropdownOpen ? 'active' : ''" @click.stop="toggleCreateTagMenu">
                                 <div class="create-tag-preview">
                                     <template v-if="createBugForm.tags.length > 0">
                                         <span
@@ -3139,24 +3010,26 @@ onBeforeUnmount(() => {
                                     <span v-else class="text-gray-400">选择标签</span>
                                 </div>
                                 <span class="status-arrow-simple" :class="{ open: createTagDropdownOpen }" />
-                            </button>
+                            </VortButton>
 
-                            <div v-if="createTagDropdownOpen" class="absolute z-30 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-md p-3">
+                            <template #content>
+                            <div class="w-full p-3">
                                 <div class="mb-2">
                                     <div class="relative">
-                                        <input
+                                        <VortInput
                                             v-model="createTagKeyword"
                                             placeholder="搜索..."
-                                            class="w-full h-9 pl-3 pr-8 border border-gray-300 rounded-md text-sm"
+                                            class="w-full"
+                                            size="small"
                                         />
-                                        <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">⌕</span>
                                     </div>
                                 </div>
                                 <div class="max-h-[220px] overflow-y-auto pr-1">
-                                    <button
+                                    <VortButton
                                         v-for="tag in filteredCreateTagOptions"
                                         :key="'create-tag-opt-' + tag"
                                         class="w-full h-10 px-2 rounded-md flex items-center gap-2 text-left hover:bg-gray-50"
+                                        variant="text"
                                         @click.stop="toggleCreateTagOption(tag)"
                                     >
                                         <span class="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center text-[12px] text-gray-500">
@@ -3164,15 +3037,16 @@ onBeforeUnmount(() => {
                                         </span>
                                         <span class="w-5 h-5 rounded-full" :style="{ backgroundColor: getTagColor(tag) }" />
                                         <span class="text-sm text-gray-700">{{ tag }}</span>
-                                    </button>
+                                    </VortButton>
                                 </div>
                                 <div class="mt-2 flex justify-end">
-                                    <button class="h-8 px-3 text-sm bg-blue-600 text-white rounded hover:bg-blue-700" @click.stop="finishCreateTagEdit">
+                                    <VortButton size="small" variant="primary" @click.stop="finishCreateTagEdit">
                                         完成
-                                    </button>
+                                    </VortButton>
                                 </div>
                             </div>
-                        </div>
+                            </template>
+                        </Popover>
                     </div>
                     <div class="create-bug-field">
                         <label class="create-bug-label">关联仓库</label>

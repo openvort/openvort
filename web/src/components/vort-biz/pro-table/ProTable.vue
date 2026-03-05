@@ -1,6 +1,6 @@
 <script setup lang="ts" generic="T = any">
 import { ref, computed, watch, onBeforeUnmount, onMounted, nextTick } from "vue";
-import { Checkbox, Spin, Pagination } from "@openvort/vort-ui";
+import { Checkbox, Spin, Pagination, Popover } from "@openvort/vort-ui";
 import { CaretUpFilled, CaretDownFilled, EmptyOutlined } from "@/components/vort/icons";
 import type {
   TableColumn,
@@ -66,7 +66,9 @@ const requestParams = ref<ProTableRequestParams>({
 });
 
 const tableData = computed<T[]>(() => {
-  return props.request ? internalDataSource.value : props.dataSource;
+  return props.request
+    ? (internalDataSource.value as unknown as T[])
+    : (props.dataSource as T[]);
 });
 
 // ==================== 排序状态 ====================
@@ -406,6 +408,7 @@ const isAllSelected = computed(() => {
   let hasEnabled = false;
   for (let i = 0; i < tableData.value.length; i++) {
     const record = tableData.value[i];
+    if (record === undefined) continue;
     const checkboxProps = props.rowSelection?.getCheckboxProps?.(record);
     if (checkboxProps?.disabled) continue;
     hasEnabled = true;
@@ -482,7 +485,6 @@ const handleRefresh = () => {
 
 // ==================== 列顺序设置 ====================
 const columnSettingOpen = ref(false);
-const columnSettingRef = ref<HTMLElement | null>(null);
 
 const canManualOrder = computed(() => {
   const columns = baseVisibleColumns.value || [];
@@ -511,13 +513,6 @@ const moveColumn = (columnKey: string, direction: -1 | 1) => {
   nextOrder[targetIndex] = nextOrder[currentIndex]!;
   nextOrder[currentIndex] = temp;
   columnOrderKeys.value = nextOrder;
-};
-
-const onGlobalMouseDown = (event: MouseEvent) => {
-  if (!columnSettingOpen.value) return;
-  const panel = columnSettingRef.value;
-  if (panel && panel.contains(event.target as Node)) return;
-  columnSettingOpen.value = false;
 };
 
 // ==================== 样式 ====================
@@ -611,7 +606,6 @@ const handleTableWrapperScroll = () => {
 };
 
 onMounted(() => {
-  document.addEventListener("mousedown", onGlobalMouseDown);
   nextTick(() => {
     updateFixedLeftEdgeShadow();
   });
@@ -671,7 +665,6 @@ const onResizeEnd = () => {
 onBeforeUnmount(() => {
   document.removeEventListener("mousemove", onResizeMove);
   document.removeEventListener("mouseup", onResizeEnd);
-  document.removeEventListener("mousedown", onGlobalMouseDown);
 });
 
 // ==================== 暴露方法 ====================
@@ -693,43 +686,43 @@ defineExpose({
       </div>
       <div class="vort-pro-table-toolbar-right">
         <slot name="toolbar-right" />
-        <div v-if="toolbar?.columnSetting !== false" ref="columnSettingRef" class="vort-pro-table-column-setting">
-          <button class="vort-pro-table-toolbar-btn" title="列设置" @click.stop="toggleColumnSetting">
-            列设置
-          </button>
-          <div v-if="columnSettingOpen" class="vort-pro-table-column-setting-panel">
-            <div class="vort-pro-table-column-setting-title">手动移动列</div>
-            <div v-if="canManualOrder" class="vort-pro-table-column-setting-list">
-              <div
-                v-for="(item, index) in orderedColumnSettingItems"
-                :key="item.key"
-                class="vort-pro-table-column-setting-item"
-              >
-                <span class="vort-pro-table-column-setting-name" :title="item.title">{{ item.title }}</span>
-                <div class="vort-pro-table-column-setting-actions">
-                  <button
-                    class="vort-pro-table-column-action-btn"
-                    :disabled="index === 0"
-                    @click.stop="moveColumn(item.key, -1)"
+        <div v-if="toolbar?.columnSetting !== false" class="vort-pro-table-column-setting">
+          <Popover v-model:open="columnSettingOpen" trigger="click" placement="bottomRight" :arrow="false">
+            <VortTooltip title="列设置">
+              <VortButton size="small" @click.stop="toggleColumnSetting">列设置</VortButton>
+            </VortTooltip>
+            <template #content>
+              <div class="vort-pro-table-column-setting-panel">
+                <div class="vort-pro-table-column-setting-title">手动移动列</div>
+                <div v-if="canManualOrder" class="vort-pro-table-column-setting-list">
+                  <div
+                    v-for="(item, index) in orderedColumnSettingItems"
+                    :key="item.key"
+                    class="vort-pro-table-column-setting-item"
                   >
-                    上移
-                  </button>
-                  <button
-                    class="vort-pro-table-column-action-btn"
-                    :disabled="index === orderedColumnSettingItems.length - 1"
-                    @click.stop="moveColumn(item.key, 1)"
-                  >
-                    下移
-                  </button>
+                    <span class="vort-pro-table-column-setting-name" :title="item.title">{{ item.title }}</span>
+                    <div class="vort-pro-table-column-setting-actions">
+                      <VortButton size="small" :disabled="index === 0" @click.stop="moveColumn(item.key, -1)">
+                        上移
+                      </VortButton>
+                      <VortButton
+                        size="small"
+                        :disabled="index === orderedColumnSettingItems.length - 1"
+                        @click.stop="moveColumn(item.key, 1)"
+                      >
+                        下移
+                      </VortButton>
+                    </div>
+                  </div>
                 </div>
+                <div v-else class="vort-pro-table-column-setting-tip">当前表头结构不支持手动排序</div>
               </div>
-            </div>
-            <div v-else class="vort-pro-table-column-setting-tip">当前表头结构不支持手动排序</div>
-          </div>
+            </template>
+          </Popover>
         </div>
-        <button v-if="toolbar?.refresh !== false" class="vort-pro-table-toolbar-btn" title="刷新" @click="handleRefresh">
-          刷新
-        </button>
+        <VortTooltip v-if="toolbar?.refresh !== false" title="刷新">
+          <VortButton size="small" @click="handleRefresh">刷新</VortButton>
+        </VortTooltip>
       </div>
     </div>
 
@@ -961,38 +954,15 @@ defineExpose({
   gap: 8px;
 }
 
-.vort-pro-table-toolbar-btn {
-  padding: 4px 12px;
-  border: 1px solid #d9d9d9;
-  border-radius: 4px;
-  background: #fff;
-  cursor: pointer;
-  font-size: 14px;
-  transition: all 0.2s;
-
-  &:hover {
-    color: #4096ff;
-    border-color: #4096ff;
-  }
-}
-
 .vort-pro-table-column-setting {
   position: relative;
 }
 
 .vort-pro-table-column-setting-panel {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  z-index: 30;
   width: 280px;
   max-height: 320px;
   overflow: auto;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
-  padding: 10px;
+  padding: 4px;
 }
 
 .vort-pro-table-column-setting-title {
@@ -1028,22 +998,6 @@ defineExpose({
 .vort-pro-table-column-setting-actions {
   display: inline-flex;
   gap: 4px;
-}
-
-.vort-pro-table-column-action-btn {
-  border: 1px solid #dbe2ea;
-  border-radius: 4px;
-  background: #fff;
-  color: #334155;
-  font-size: 12px;
-  line-height: 1;
-  padding: 5px 7px;
-  cursor: pointer;
-}
-
-.vort-pro-table-column-action-btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
 }
 
 .vort-pro-table-column-setting-tip {
