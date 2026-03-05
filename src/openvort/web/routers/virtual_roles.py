@@ -2,7 +2,7 @@
 
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select, delete
 
@@ -40,14 +40,27 @@ class BindSkillsRequest(BaseModel):
 
 
 @router.get("")
-async def list_posts(enabled: bool = None):
-    """列出岗位，可选按 enabled 筛选"""
+async def list_posts(
+    enabled: bool = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=30, ge=1, le=100),
+):
+    """列出岗位，可选按 enabled 筛选，支持分页"""
     factory = get_db_session_factory()
     async with factory() as db:
+        # 查询总数
+        count_stmt = select(Post)
+        if enabled is not None:
+            count_stmt = count_stmt.where(Post.enabled == enabled)
+        from sqlalchemy import func
+        count_result = await db.execute(select(func.count()).select_from(count_stmt.subquery()))
+        total = count_result.scalar() or 0
+
+        # 分页查询
         stmt = select(Post)
         if enabled is not None:
             stmt = stmt.where(Post.enabled == enabled)
-        stmt = stmt.order_by(Post.key)
+        stmt = stmt.order_by(Post.key).offset((page - 1) * page_size).limit(page_size)
         result = await db.execute(stmt)
         rows = result.scalars().all()
 
@@ -67,7 +80,7 @@ async def list_posts(enabled: bool = None):
             "updated_at": r.updated_at.isoformat() if r.updated_at else None,
         })
 
-    return {"posts": items}
+    return {"posts": items, "total": total, "page": page, "page_size": page_size}
 
 
 @router.get("/{post_key_or_id}")

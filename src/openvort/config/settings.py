@@ -92,6 +92,7 @@ class WeComSettings(BaseSettings):
     callback_token: str = ""
     callback_aes_key: str = ""
     api_base_url: str = "https://qyapi.weixin.qq.com/cgi-bin"
+    allowed_users: str = ""  # 允许处理的用户 ID，多个用逗号分隔（开发测试用）
 
 
 class RelaySettings(BaseSettings):

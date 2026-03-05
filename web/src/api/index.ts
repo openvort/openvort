@@ -1348,8 +1348,8 @@ export function getRestoreStreamUrl(filename: string, token: string) {
 // ========== AI 员工岗位 API ==========
 
 /** 获取岗位列表 */
-export function getVirtualRoles(enabled?: boolean) {
-    return request.get("/posts", { params: { enabled } });
+export function getVirtualRoles(enabled?: boolean, page?: number, pageSize?: number) {
+    return request.get("/posts", { params: { enabled, page, page_size: pageSize } });
 }
 
 /** 获取岗位详情 */

@@ -174,7 +174,8 @@ class PostSkill(Base):
     __tablename__ = "role_skills"  # 保持向后兼容，暂不重命名表
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    role: Mapped[str] = mapped_column("role", String(32), index=True)  # 岗位标识：developer/pm/qa/designer/assistant，映射到 role 列
+    role: Mapped[str] = mapped_column(String(32), index=True)  # 岗位标识：developer/pm/qa/designer/assistant (数据库用 role)
+    post: Mapped[str] = mapped_column(String(32), index=True, nullable=True)  # 冗余字段，保持兼容
     skill_id: Mapped[str] = mapped_column(String(32), ForeignKey("skills.id"), index=True)
     priority: Mapped[int] = mapped_column(Integer, default=0)  # 越小越优先
 

@@ -29,10 +29,43 @@ const filteredContacts = computed(() => {
     if (!searchKeyword.value.trim()) return contacts.value;
     const kw = searchKeyword.value.toLowerCase();
     return contacts.value.filter(c =>
-        c.name.toLowerCase().includes(kw) ||
+        matchPinyin(c.name, kw) ||
         c.last_message.toLowerCase().includes(kw)
     );
 });
+
+/**
+ * Match member name by pinyin initials (supports polyphones)
+ */
+function matchPinyin(name: string, keyword: string): boolean {
+    if (!keyword) return true;
+    const kw = keyword.toLowerCase();
+
+    // Direct name match
+    if (name.toLowerCase().includes(kw)) return true;
+
+    // Full pinyin match
+    const fullPy = pinyin(name, { toneType: 'none', type: 'array' }).join('').toLowerCase();
+    if (fullPy.includes(kw)) return true;
+
+    // Pinyin initials match (with polyphone support via multiple mode)
+    const initialsArr = pinyin(name, { pattern: 'first', type: 'array', multiple: true });
+    // Build all possible initial combinations for polyphones
+    const combos = initialsArr.reduce<string[]>((acc, cur) => {
+        // cur may be a string with multiple initials separated by space for polyphones
+        const options = typeof cur === 'string' ? cur.split(' ') : [cur];
+        if (acc.length === 0) return options.map(o => o.toLowerCase());
+        const result: string[] = [];
+        for (const prefix of acc) {
+            for (const opt of options) {
+                result.push(prefix + opt.toLowerCase());
+            }
+        }
+        return result;
+    }, []);
+
+    return combos.some(c => c.includes(kw));
+}
 
 async function loadContacts() {
     contactsLoading.value = true;

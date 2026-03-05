@@ -36,6 +36,7 @@ class WeComChannel(BaseChannel):
         if settings is None:
             settings = WeComSettings()
         self._settings = settings
+        self._allowed_users: set[str] = self._parse_allowed_users(settings.allowed_users)
         self._api: WeComAPI | None = None
         self._handler: MessageHandler | None = None
         self._running = False
@@ -67,6 +68,12 @@ class WeComChannel(BaseChannel):
             self._CURSOR_FILE.write_text(json.dumps(data), encoding="utf-8")
         except Exception as e:
             log.warning(f"保存消费位点失败: {e}")
+
+    def _parse_allowed_users(self, allowed_users: str) -> set[str]:
+        """解析白名单用户 ID"""
+        if not allowed_users:
+            return set()
+        return {u.strip() for u in allowed_users.split(",") if u.strip()}
 
     @property
     def api(self) -> WeComAPI:
@@ -263,6 +270,10 @@ class WeComChannel(BaseChannel):
                             new_msgs.extend(extra)
                         aggregated = self._aggregate(new_msgs)
                         for msg in aggregated:
+                            # 白名单过滤
+                            if self._allowed_users and msg.sender_id not in self._allowed_users:
+                                log.debug(f"跳过非白名单用户: {msg.sender_id}")
+                                continue
                             if self._handler:
                                 reply = await self._handler(msg)
                                 if reply:
@@ -433,6 +444,11 @@ class WeComChannel(BaseChannel):
 
                     aggregated = self._aggregate(raw_msgs)
                     for msg in aggregated:
+                        # 白名单过滤
+                        if self._allowed_users and msg.sender_id not in self._allowed_users:
+                            log.debug(f"跳过非白名单用户: {msg.sender_id}")
+                            continue
+
                         # 纯图片消息（无文本）：补充描述
                         if not msg.content or not msg.content.strip():
                             if msg.images:
@@ -460,7 +476,7 @@ class WeComChannel(BaseChannel):
                                 log.info(f"回复: {reply[:50]}")
                                 await self.send(msg.sender_id, Message(content=reply, channel="wecom"))
 
-                    # 标记已处理
+                    # 标记已处理（包括跳过的消息）
                     for m in messages:
                         try:
                             await http.post(f"/relay/messages/{m['id']}/ack")
