@@ -4,8 +4,8 @@ import { z } from "zod";
 import { useRouter } from "vue-router";
 import { Repeat, Plus, Search } from "lucide-vue-next";
 import {
-    getVortflowIterations, createVortflowIteration, updateVortflowIteration, deleteVortflowIteration,
-    getVortflowProjects, getVortflowIterationStories, getMembers,
+    createVortflowIteration, updateVortflowIteration, deleteVortflowIteration,
+    getVortflowProjects, getMembers,
 } from "@/api";
 
 interface IterationItem {
@@ -48,6 +48,7 @@ const memberOptions = ref<MemberOption[]>([]);
 const ownerDropdownOpen = ref(false);
 const ownerKeyword = ref("");
 const ownerDropdownRef = ref<HTMLElement | null>(null);
+const ownerGroupOpen = ref(true);
 
 const statusColorMap: Record<string, string> = {
     planning: "default", active: "processing", completed: "green"
@@ -58,7 +59,11 @@ const statusLabels: Record<string, string> = {
 
 const filteredIterations = computed(() => {
     let list = iterations.value;
-    if (selectedOwnerId.value) list = list.filter(i => iterationOwnerId(i) === selectedOwnerId.value);
+    if (selectedOwnerId.value === "__unassigned__") {
+        list = list.filter(i => !iterationOwnerId(i));
+    } else if (selectedOwnerId.value) {
+        list = list.filter(i => iterationOwnerId(i) === selectedOwnerId.value);
+    }
     if (selectedStatus.value) {
         list = list.filter(i => i.status === selectedStatus.value);
     }
@@ -77,6 +82,7 @@ const filteredOwnerOptions = computed(() => {
 
 const selectedOwnerText = computed(() => {
     if (!selectedOwnerId.value) return "负责人";
+    if (selectedOwnerId.value === "__unassigned__") return "未指派";
     return memberOptions.value.find(m => m.id === selectedOwnerId.value)?.name || "负责人";
 });
 
@@ -114,29 +120,8 @@ const loadMemberOptions = async () => {
 const loadData = async () => {
     loading.value = true;
     try {
-        const [iterRes, projRes] = await Promise.all([
-            getVortflowIterations({ page: 1, page_size: 100 }),
-            getVortflowProjects(),
-        ]);
-        const iterList = ((iterRes as any)?.items || []);
-        iterations.value = iterList;
+        const projRes = await getVortflowProjects();
         projects.value = ((projRes as any)?.items || []);
-
-        const settled = await Promise.allSettled(
-            iterList.map((it: IterationItem) => getVortflowIterationStories(it.id))
-        );
-        const metrics: Record<string, { total: number; done: number }> = {};
-        settled.forEach((result, idx) => {
-            const id = iterList[idx].id;
-            if (result.status !== "fulfilled") {
-                metrics[id] = { total: 0, done: 0 };
-                return;
-            }
-            const items = ((result.value as any)?.items || []) as Array<{ state?: string }>;
-            const done = items.filter(s => ["done", "closed", "accepted", "released"].includes(s.state || "")).length;
-            metrics[id] = { total: items.length, done };
-        });
-        storyMetrics.value = metrics;
     } catch { /* silent */ }
     finally { loading.value = false; }
 };
@@ -260,6 +245,20 @@ const clearOwnerFilter = () => {
     ownerDropdownOpen.value = false;
 };
 
+const selectUnassignedOwner = () => {
+    selectedOwnerId.value = "__unassigned__";
+    ownerDropdownOpen.value = false;
+};
+
+const ownerAvatarClass = (name: string) => {
+    const palette = [
+        "bg-emerald-500", "bg-sky-500", "bg-indigo-500", "bg-violet-500",
+        "bg-amber-500", "bg-rose-500", "bg-teal-500", "bg-cyan-500",
+    ];
+    const seed = name.split("").reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+    return palette[seed % palette.length];
+};
+
 const onDocumentClick = (e: MouseEvent) => {
     if (!ownerDropdownRef.value) return;
     const target = e.target as Node;
@@ -300,41 +299,60 @@ onBeforeUnmount(() => {
 
                     <div ref="ownerDropdownRef" class="relative w-[130px]" @click.stop>
                         <button
-                            class="h-8 w-full px-3 rounded border border-transparent bg-gray-50 hover:bg-gray-100 text-left flex items-center justify-between"
+                            class="h-8 w-full px-3 rounded border border-slate-300 bg-white text-left flex items-center justify-between transition-colors hover:border-slate-400"
                             :class="{ 'border-blue-500 bg-white': ownerDropdownOpen }"
                             @click.stop="ownerDropdownOpen = !ownerDropdownOpen"
                         >
                             <span class="text-sm text-gray-700 truncate">{{ selectedOwnerText }}</span>
                             <span class="text-gray-400 text-xs">▾</span>
                         </button>
-                        <div v-if="ownerDropdownOpen" class="absolute z-30 mt-1 w-[260px] bg-white border border-gray-200 rounded-lg shadow-md p-3">
-                            <div class="relative mb-2">
+                        <div v-if="ownerDropdownOpen" class="absolute z-30 mt-2 w-[390px] bg-white border border-gray-200 rounded-xl shadow-lg p-4 owner-dropdown-panel">
+                            <div class="relative mb-3">
                                 <input
                                     v-model="ownerKeyword"
-                                    placeholder="搜索负责人"
-                                    class="w-full h-8 pl-3 pr-8 border border-gray-300 rounded-md text-sm"
+                                    placeholder="搜索..."
+                                    class="w-full h-12 pl-4 pr-10 border border-gray-300 rounded-lg text-sm"
                                 />
-                                <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">⌕</span>
+                                <span class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-base">⌕</span>
                             </div>
-                            <div class="max-h-64 overflow-auto space-y-1">
+                            <div class="max-h-[520px] overflow-auto space-y-1 owner-list">
                                 <button
-                                    class="w-full text-left px-2 py-1.5 rounded text-sm hover:bg-gray-50"
+                                    class="w-full text-left px-3 py-2.5 rounded-md text-sm text-slate-700 hover:bg-gray-50"
                                     :class="{ 'bg-blue-50 text-blue-700': !selectedOwnerId }"
                                     @click="clearOwnerFilter"
                                 >
                                     全部
                                 </button>
                                 <button
-                                    v-for="member in filteredOwnerOptions"
+                                    class="w-full text-left px-3 py-2.5 rounded-md text-sm text-slate-700 hover:bg-gray-50"
+                                    :class="{ 'bg-blue-50 text-blue-700': selectedOwnerId === '__unassigned__' }"
+                                    @click="selectUnassignedOwner"
+                                >
+                                    未指派
+                                </button>
+                                <div class="mt-1">
+                                    <button
+                                        class="w-full flex items-center justify-between px-3 py-2 rounded-md bg-slate-100 text-sm text-slate-700"
+                                        @click="ownerGroupOpen = !ownerGroupOpen"
+                                    >
+                                        <span>全部成员（{{ filteredOwnerOptions.length }}）</span>
+                                        <span class="text-base leading-none">{{ ownerGroupOpen ? "⌃" : "⌄" }}</span>
+                                    </button>
+                                </div>
+                                <button
+                                    v-for="member in (ownerGroupOpen ? filteredOwnerOptions : [])"
                                     :key="member.id"
-                                    class="w-full text-left px-2 py-1.5 rounded text-sm hover:bg-gray-50 flex items-center gap-2"
+                                    class="w-full text-left px-3 py-2.5 rounded-md text-sm hover:bg-gray-50 flex items-center gap-3"
                                     :class="{ 'bg-blue-50 text-blue-700': selectedOwnerId === member.id }"
                                     @click="selectOwner(member.id)"
                                 >
-                                    <span class="w-6 h-6 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center shrink-0">
+                                    <span
+                                        class="w-8 h-8 rounded-full text-white text-base flex items-center justify-center shrink-0"
+                                        :class="ownerAvatarClass(member.name)"
+                                    >
                                         {{ member.name.slice(0, 1) }}
                                     </span>
-                                    <span class="truncate">{{ member.name }}</span>
+                                    <span class="truncate text-slate-700">{{ member.name }}</span>
                                 </button>
                                 <div v-if="filteredOwnerOptions.length === 0" class="px-2 py-2 text-xs text-gray-400">暂无匹配成员</div>
                             </div>
