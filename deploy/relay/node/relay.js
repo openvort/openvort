@@ -211,6 +211,32 @@ class RelayStore {
     this._save();
     return before - this.data.messages.length;
   }
+
+  // 调试用：获取所有消息（包括已消费的）
+  getAllMessages(sinceId = 0, limit = 50, status = "all") {
+    return this.data.messages
+      .filter((m) => {
+        if (m.id <= sinceId) return false;
+        if (status !== "all" && m.status !== status) return false;
+        return true;
+      })
+      .slice(-limit) // 返回最新的
+      .reverse(); // 按时间倒序
+  }
+
+  // 调试用：重置消息状态
+  resetMessage(msgId, newStatus = "pending") {
+    const msg = this.data.messages.find((m) => m.id === msgId);
+    if (msg) {
+      msg.status = newStatus;
+      if (newStatus === "pending") {
+        delete msg.processing_since;
+      }
+      this._save();
+      return true;
+    }
+    return false;
+  }
 }
 
 // ============================================================
@@ -410,6 +436,24 @@ const server = http.createServer(async (req, res) => {
       if (!checkAuth(req)) return json(res, { error: "unauthorized" }, 401);
       const deleted = store.cleanup();
       return json(res, { deleted });
+    }
+
+    // 调试接口：获取所有消息（包括已消费的）
+    if (urlPath === "/relay/messages/all" && req.method === "GET") {
+      if (!checkAuth(req)) return json(res, { error: "unauthorized" }, 401);
+      const sinceId = parseInt(query.since_id || "0");
+      const limit = parseInt(query.limit || "50");
+      const status = query.status || "all"; // pending, processing, processed, all
+      const messages = store.getAllMessages(sinceId, limit, status);
+      return json(res, { messages, total: store.data.messages.length });
+    }
+
+    // 调试接口：重置消息状态
+    if (urlPath === "/relay/messages/reset" && req.method === "POST") {
+      if (!checkAuth(req)) return json(res, { error: "unauthorized" }, 401);
+      const { msg_id, status } = JSON.parse(await readBody(req) || "{}");
+      const ok = store.resetMessage(msg_id, status);
+      return json(res, { ok });
     }
 
     // 404
