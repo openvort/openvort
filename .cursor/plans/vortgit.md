@@ -27,7 +27,7 @@ graph TB
     end
 
     subgraph storageLayer [存储层]
-        DB[(SQLite/PG)]
+        DB[(PostgreSQL)]
         LocalFS[Workspaces]
     end
 
