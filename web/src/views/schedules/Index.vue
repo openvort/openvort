@@ -5,8 +5,9 @@ import {
     toggleMySchedule, runMySchedule,
     getAdminSchedules, createAdminSchedule, updateAdminSchedule, deleteAdminSchedule,
     toggleAdminSchedule, runAdminSchedule,
+    getScheduleExecutors,
 } from "@/api";
-import { Plus, Play, Users, User, RefreshCw, HelpCircle } from "lucide-vue-next";
+import { Plus, Play, Users, User, RefreshCw, HelpCircle, Bot } from "lucide-vue-next";
 import { message } from "@/components/vort/message";
 import { useUserStore } from "@/stores";
 
@@ -24,6 +25,7 @@ interface ScheduleJob {
     timezone: string;
     action_type: string;
     action_config: Record<string, any>;
+    target_member_id: string;  // 执行人（AI 员工 ID）
     enabled: boolean;
     visible: boolean;
     last_run_at: string | null;
@@ -31,6 +33,12 @@ interface ScheduleJob {
     last_result: string;
     created_at: string | null;
     updated_at: string | null;
+}
+
+interface Executor {
+    id: string;
+    name: string;
+    virtual_role: string;
 }
 
 // ---- 状态 ----
@@ -64,9 +72,14 @@ const form = ref({
     schedule: "",
     timezone: "Asia/Shanghai",
     action_config: { prompt: "" },
+    target_member_id: "",
     enabled: true,
     visible: true,
 });
+
+// 执行人列表
+const executors = ref<Executor[]>([]);
+const loadingExecutors = ref(false);
 
 // 执行结果抽屉
 const resultOpen = ref(false);
@@ -98,7 +111,19 @@ function refresh() {
     if (isAdmin.value) loadTeamJobs();
 }
 
-onMounted(refresh);
+async function loadExecutors() {
+    loadingExecutors.value = true;
+    try {
+        const res = await getScheduleExecutors();
+        executors.value = (res as any).executors || [];
+    } catch { executors.value = []; }
+    loadingExecutors.value = false;
+}
+
+onMounted(() => {
+    refresh();
+    loadExecutors();
+});
 
 // ---- 弹窗操作 ----
 
@@ -113,6 +138,7 @@ function openCreate(scope: "personal" | "team") {
         schedule: "",
         timezone: "Asia/Shanghai",
         action_config: { prompt: "" },
+        target_member_id: "",
         enabled: true,
         visible: true,
     };
@@ -130,6 +156,7 @@ function openEdit(job: ScheduleJob) {
         schedule: job.schedule,
         timezone: job.timezone,
         action_config: { prompt: job.action_config?.prompt || "" },
+        target_member_id: job.target_member_id || "",
         enabled: job.enabled,
         visible: job.visible ?? true,
     };
@@ -262,6 +289,15 @@ const scheduleFieldLabel = computed(() => {
                         </VortTableColumn>
                         <VortTableColumn label="调度规则" :min-width="160">
                             <template #default="{ row }">{{ scheduleLabel(row) }}</template>
+                        </VortTableColumn>
+                        <VortTableColumn label="执行人" :width="100">
+                            <template #default="{ row }">
+                                <div v-if="row.target_member_id" class="flex items-center gap-1">
+                                    <Bot :size="14" class="text-blue-500" />
+                                    <span class="text-xs">AI 员工</span>
+                                </div>
+                                <div v-else class="text-xs text-gray-400">系统助手</div>
+                            </template>
                         </VortTableColumn>
                         <VortTableColumn label="启用" :width="80">
                             <template #default="{ row }">
@@ -419,6 +455,20 @@ const scheduleFieldLabel = computed(() => {
                 </VortFormItem>
                 <VortFormItem label="时区">
                     <VortInput v-model="form.timezone" placeholder="Asia/Shanghai" />
+                </VortFormItem>
+                <VortFormItem label="执行人">
+                    <VortSelect v-model="form.target_member_id" placeholder="系统助手" allow-clear :loading="loadingExecutors">
+                        <VortSelectOption v-for="ex in executors" :key="ex.id" :value="ex.id">
+                            <div class="flex items-center gap-2">
+                                <Bot :size="14" class="text-blue-500" />
+                                <span>{{ ex.name }}</span>
+                                <span v-if="ex.virtual_role" class="text-gray-400 text-xs">({{ ex.virtual_role }})</span>
+                            </div>
+                        </VortSelectOption>
+                    </VortSelect>
+                    <template #help>
+                        <span class="text-gray-400 text-xs">留空则由系统默认 AI 执行，選択 AI 员工则由该员工执行并汇报</span>
+                    </template>
                 </VortFormItem>
                 <VortFormItem label="执行 Prompt" required>
                     <VortTextarea v-model="form.action_config.prompt" :rows="4"

@@ -15,17 +15,19 @@ class SystemPlugin(BasePlugin):
 
     name = "system"
     display_name = "系统管理"
-    description = "OpenVort 系统配置与诊断，支持 AI 引导配置通道、检测连通性"
+    description = "OpenVort 系统配置与诊断，支持 AI 引导配置通道、添加/管理 AI 模型、检测连通性"
     version = "0.1.0"
     core = True
 
     def get_tools(self) -> list[BaseTool]:
         from openvort.plugins.system.tools.channel_config import SystemChannelConfigTool
         from openvort.plugins.system.tools.diagnose import SystemDiagnoseTool
+        from openvort.plugins.system.tools.llm_config import SystemLLMConfigTool
 
         return [
             SystemChannelConfigTool(),
             SystemDiagnoseTool(),
+            SystemLLMConfigTool(),
         ]
 
     def get_prompts(self) -> list[str]:

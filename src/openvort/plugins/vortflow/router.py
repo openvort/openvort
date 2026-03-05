@@ -871,3 +871,67 @@ async def dashboard_stats(project_id: str = Query("", description="项目 ID")):
         "tasks": {"total": total_tasks, "done": done_tasks},
         "bugs": {"total": total_bugs, "closed": closed_bugs},
     }
+
+
+# ============ AI 生成 ============
+
+@router.get("/generate-description-prompt")
+async def generate_vortflow_description(
+    entity_type: str = Query(..., description="类型: story/task/bug/milestone"),
+    project_name: str = Query("", description="项目名称"),
+    title: str = Query("", description="标题"),
+):
+    """生成 AI 创建 VortFlow 描述内容的 prompt"""
+    if entity_type == "story":
+        prompt = (
+            f"请为需求「{title}」生成专业、详细的需求描述内容。\n\n"
+            f"项目：{project_name or '未指定'}\n"
+            f"需求标题：{title}\n\n"
+            f"请生成完整的需求描述（Markdown 格式），包括：\n"
+            f"1. 背景与目标 - 为什么要做这个需求，解决什么问题\n"
+            f"2. 功能描述 - 详细的功能点和用户故事\n"
+            f"3. 验收标准 - 如何验证需求是否完成\n"
+            f"4. 注意事项 - 实现过程中需要关注的点\n\n"
+            f"要求：内容要清晰、完整，能帮助开发人员准确理解需求。"
+        )
+    elif entity_type == "task":
+        prompt = (
+            f"请为任务「{title}」生成详细的任务描述内容。\n\n"
+            f"项目：{project_name or '未指定'}\n"
+            f"任务标题：{title}\n\n"
+            f"请生成完整的任务描述（Markdown 格式），包括：\n"
+            f"1. 任务目标 - 具体要完成什么\n"
+            f"2. 实施方案 - 建议的实现方式和技术方案\n"
+            f"3. 关联需求 - 关联的需求或 Bug\n"
+            f"4. 自测要点 - 如何验证任务完成\n\n"
+            f"要求：内容要实用，能指导开发人员快速上手任务。"
+        )
+    elif entity_type == "bug":
+        prompt = (
+            f"请为缺陷「{title}」生成详细的缺陷描述内容。\n\n"
+            f"项目：{project_name or '未指定'}\n"
+            f"缺陷标题：{title}\n\n"
+            f"请生成完整的缺陷描述（Markdown 格式），包括：\n"
+            f"1. 问题描述 - 缺陷的详细描述\n"
+            f"2. 复现步骤 - 一步步如何复现这个问题\n"
+            f"3. 预期行为 - 正常应该是什么样子\n"
+            f"4. 实际行为 - 实际发生了什么\n"
+            f"5. 建议修复方案 - 如何修复这个问题\n\n"
+            f"要求：描述要清晰、准确，帮助开发人员快速定位和修复问题。"
+        )
+    elif entity_type == "milestone":
+        prompt = (
+            f"请为里程碑「{title}」生成详细的描述内容。\n\n"
+            f"项目：{project_name or '未指定'}\n"
+            f"里程碑标题：{title}\n\n"
+            f"请生成完整的里程碑描述（Markdown 格式），包括：\n"
+            f"1. 目标概述 - 这个里程碑要达成什么目标\n"
+            f"2. 关键交付物 - 需要完成哪些需求/任务\n"
+            f"3. 时间安排 - 计划的时间节点\n"
+            f"4. 风险与依赖 - 可能的风险和外部依赖\n\n"
+            f"要求：内容要能帮助团队明确里程碑的目标和计划。"
+        )
+    else:
+        prompt = f"请为「{title}」生成描述内容。"
+
+    return {"prompt": prompt}

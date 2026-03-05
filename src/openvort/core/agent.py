@@ -37,19 +37,19 @@ SYSTEM_PROMPT = """你是 OpenVort 助手，一个智能研发工作流引擎。
 - ❌ 不调用工具就说"已完成"、"已创建"、"已添加"、"搞定了"
 - ❌ 用户要求执行操作时只回复确认文字而不实际调用工具
 - ❌ 编造操作结果（文件路径、ID、链接等）
-- ❌ 说"我来帮你做"但不调用任何工具
+- ❌ 只说"我来帮你做"却不实际调用工具
 
-**正确行为：**
-- ✅ 收到明确的操作请求 → 直接调用对应工具 → 根据工具返回报告结果
-- ✅ 请求有歧义 → 简要确认关键参数 → 立即调用工具执行
+**正确行为（严格按此顺序）：**
+- ✅ 收到操作请求 → 先用一句话告诉用户你将要做什么（如"好的，我来帮你创建定时任务"）→ 然后在同一次回复中调用工具 → 根据工具返回报告结果
+- ✅ 请求有歧义 → 简要确认关键参数 → 确认后立即调用工具执行
 - ✅ 没有合适的工具 → 明确告知用户"目前无法执行该操作"，说明原因
 - ✅ 工具调用失败 → 如实报告错误，不要编造成功结果
 
-## 行动偏向：少确认，多执行
+## 回复风格：先说再做
 
-- 用户指令明确时，直接调用工具执行，不要反复问"确定吗？"、"要开始吗？"
-- 只在关键参数缺失或有歧义时才简要确认，确认后**立即调用工具**
-- 不要把确认和执行分成两个回合——确认完就执行，同一次回复中完成
+- **每次调用工具之前，必须先输出一段简短文字**，告诉用户你接下来要做什么（一句话即可，如"好的，我来帮你查一下"）
+- 不要反复问"确定吗？"、"要开始吗？"——说完就做，同一次回复中完成
+- 只在关键参数缺失或有歧义时才简要确认
 
 ## 工具路由指南
 
@@ -172,9 +172,14 @@ class AgentRuntime:
                 system = self._system_prompt + sender_context
                 if channel_prompt:
                     system += f"\n\n# 渠道回复规范\n\n{channel_prompt}"
+
+                # 检查是否为 AI 员工，注入人设
+                if ctx.member and ctx.member.is_virtual and ctx.member.virtual_system_prompt:
+                    system += f"\n\n# AI 员工人设\n\n{ctx.member.virtual_system_prompt}"
+
                 plugin_prompts = self._registry.get_system_prompt_extension()
                 if plugin_prompts:
-                    system += "\n\n# 插件能力\n\n" + plugin_prompts
+                    system += "\n\n" + plugin_prompts
                 if onboarding_hints:
                     system += "\n\n# 插件引导（优先处理）\n\n" + "\n\n".join(onboarding_hints)
 
@@ -235,6 +240,11 @@ class AgentRuntime:
                             {"data": img["data"], "media_type": img.get("media_type", "image/png")}
                             for img in ctx.images if img.get("data")
                         ]
+                    # 注入目标成员信息（用于 AI 员工聊天场景）
+                    # target_member_id 是当前对话的 AI 员工成员 ID
+                    # caller_member_id 是当前发起请求的真实成员 ID
+                    tool_input["_target_member_id"] = getattr(ctx, "target_member_id", "") or ""
+                    tool_input["_caller_member_id"] = getattr(ctx, "caller_member_id", "") or ctx.user_id
                     result = await self._registry.execute_tool(block.name, tool_input)
                     log.info(f"工具结果: {result[:200]}")
                     tool_results.append({
@@ -362,6 +372,10 @@ class AgentRuntime:
 
         ctx.images = images or []
 
+        # 设置目标成员和调用者信息（用于 AI 员工聊天场景）
+        ctx.target_member_id = target_id or ""
+        ctx.caller_member_id = member_id
+
         if (not content or not content.strip()) and not images:
             log.warning(f"[web] 空消息，跳过处理: member_id={member_id}, session_id={session_id}")
             return
@@ -400,7 +414,7 @@ class AgentRuntime:
 
         plugin_prompts = self._registry.get_system_prompt_extension()
         if plugin_prompts:
-            system += "\n\n# 可用工具\n\n" + plugin_prompts
+            system += "\n\n" + plugin_prompts
         if onboarding_hints:
             system += "\n\n# 插件引导（优先处理）\n\n" + "\n\n".join(onboarding_hints)
 
@@ -521,6 +535,8 @@ class AgentRuntime:
                             self._registry.execute_tool(block.name, tool_input)
                         )
                         elapsed = 0
+                        # Accumulate full CLI output for persistence
+                        accumulated_output: list[str] = []
                         while not tool_task.done():
                             if cancel_event and cancel_event.is_set():
                                 interrupted = True
@@ -543,6 +559,7 @@ class AgentRuntime:
                                         break
                                 output_chunk = "\n".join(lines)
                                 if output_chunk:
+                                    accumulated_output.append(output_chunk)
                                     yield {
                                         "type": "tool_output",
                                         "name": block.name,
@@ -562,12 +579,16 @@ class AgentRuntime:
                             break
                         result = tool_task.result()
 
-                        log.info(f"[web] 工具结果: {result[:200]}")
-                        yield {"type": "tool_result", "name": block.name, "result": result[:200]}
+                        log.info(f"[web] 工具结果: {result[:500] if len(result) > 500 else result}")
+                        yield {"type": "tool_result", "name": block.name, "result": result}
+                        # Persist full CLI conversation in chat history: prefer accumulated live output,
+                        # fall back to the final result string if no live output was produced.
+                        full_output = "\n".join(accumulated_output).strip()
+                        persisted_content = full_output or result
                         tool_results.append({
                             "type": "tool_result",
                             "tool_use_id": block.id,
-                            "content": result,
+                            "content": persisted_content,
                         })
 
                 if interrupted:

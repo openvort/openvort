@@ -448,9 +448,123 @@ async def _start_service(relay_url: str | None, poll_db_json: str | None, web_fl
     from openvort.core.scheduler import Scheduler as _Scheduler
     from openvort.core.schedule_service import ScheduleService as _ScheduleService
 
+    async def _schedule_notify(
+        owner_id: str,
+        job_name: str,
+        result_text: str,
+        executor_member=None,
+        job_id: str = "",
+    ):
+        """Push scheduled task result to the job owner via WebSocket and IM channels.
+
+        Args:
+            owner_id: 任务拥有者/接收通知的成员 ID
+            job_name: 任务名称
+            result_text: 执行结果文本
+            executor_member: 执行人 Member 对象（可能是 AI 员工）
+            job_id: 任务 ID
+        """
+        from openvort.plugin.base import Message as _Msg
+
+        # 确定执行人名称和身份
+        executor_name = "系统助手"
+        is_ai_employee = False
+        if executor_member and hasattr(executor_member, "is_virtual") and executor_member.is_virtual:
+            executor_name = executor_member.name or "AI 员工"
+            is_ai_employee = True
+
+        # 构建消息前缀
+        if is_ai_employee:
+            prefix = f"【AI 员工·{executor_name}】已完成任务「{job_name}」\n\n"
+        else:
+            prefix = f"【定时任务】已完成任务「{job_name}」\n\n"
+
+        full_message = prefix + result_text[:3000]  # 限制总长度
+
+        # 1. WebSocket push (web UI) - 以 AI 员工身份发送消息到聊天会话
+        try:
+            from openvort.web.ws import manager as ws_manager
+
+            # 发送结构化通知
+            await ws_manager.send_to(owner_id, {
+                "type": "schedule_result",
+                "job_id": job_id,
+                "job_name": job_name,
+                "result": result_text[:2000],
+                "executor_name": executor_name,
+                "is_ai_employee": is_ai_employee,
+            })
+
+            # 同时发送模拟消息到聊天会话（以执行人身份）
+            if is_ai_employee and executor_member:
+                # 查询 owner 的默认会话或创建新会话
+                from sqlalchemy import select as _sel
+                from openvort.db.models import ChatSession
+
+                async with session_factory() as _s:
+                    # 查找该用户与 AI 员工的会话
+                    stmt = _sel(ChatSession).where(
+                        ChatSession.user_id == owner_id,
+                        ChatSession.channel == "web",
+                        ChatSession.target_type == "member",
+                        ChatSession.target_id == executor_member.id,
+                    )
+                    session_obj = (await _s.execute(stmt)).scalar_one_or_none()
+
+                    if session_obj:
+                        # 发送到现有会话
+                        await ws_manager.send_to(owner_id, {
+                            "type": "message",
+                            "session_id": session_obj.session_id,
+                            "sender_type": "member",
+                            "sender_id": executor_member.id,
+                            "sender_name": executor_name,
+                            "content": result_text[:5000],
+                            "from_schedule": True,
+                            "job_id": job_id,
+                            "job_name": job_name,
+                        })
+        except Exception as e:
+            log.debug(f"WebSocket 推送失败（用户可能不在线）: {e}")
+
+        # 2. IM channel push (wecom/dingtalk/feishu/openclaw)
+        try:
+            from sqlalchemy import select as _sel
+            from openvort.contacts.models import PlatformIdentity
+
+            async with session_factory() as _s:
+                stmt = _sel(PlatformIdentity.platform, PlatformIdentity.platform_user_id).where(
+                    PlatformIdentity.member_id == owner_id,
+                )
+                rows = (await _s.execute(stmt)).all()
+
+            im_platforms = {"wecom", "dingtalk", "feishu", "openclaw"}
+            for platform, platform_user_id in rows:
+                if platform not in im_platforms:
+                    continue
+                ch = registry.get_channel(platform)
+                if ch and ch.is_configured():
+                    try:
+                        # 构建带执行人前缀的消息
+                        if is_ai_employee:
+                            im_content = f"【AI 员工·{executor_name}】已完成任务「{job_name}」\n\n{result_text[:3000]}"
+                        else:
+                            im_content = f"【定时任务】已完成任务「{job_name}」\n\n{result_text[:3000]}"
+
+                        await ch.send(platform_user_id, _Msg(
+                            content=im_content,
+                            channel=platform,
+                        ))
+                        log.info(f"定时任务结果已推送: {owner_id} via {platform}")
+                        break  # one IM channel is enough
+                    except Exception as e:
+                        log.warning(f"通过 {platform} 推送定时任务结果失败: {e}")
+        except Exception as e:
+            log.warning(f"IM 推送定时任务结果失败: {e}")
+
     _scheduler = _Scheduler()
     _scheduler.start()
-    schedule_service = _ScheduleService(session_factory, _scheduler, agent)
+    schedule_service = _ScheduleService(session_factory, _scheduler, agent, notify_fn=_schedule_notify)
     try:
         count = await schedule_service.sync_to_scheduler()
         if count:

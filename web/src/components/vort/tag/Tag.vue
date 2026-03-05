@@ -206,10 +206,10 @@ const handleClose = (e: MouseEvent) => {
 }
 
 /* ========================================
-   无边框
+   Borderless (no visible border)
    ======================================== */
 .vort-tag-borderless {
-    border-color: transparent;
+    border: none;
 }
 
 /* ========================================

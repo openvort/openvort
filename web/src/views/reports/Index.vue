@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from "vue";
+import { useRouter } from "vue-router";
 import {
     getReports, getReportDetail, submitReport, reviewReport,
     getReportTemplates, createReportTemplate, deleteReportTemplate,
     getReportRules, createReportRule, deleteReportRule,
-    getReportStats, getMembers,
+    getReportStats, getMembers, generateReportContentPrompt,
 } from "@/api";
 import {
     Plus, FileText, Send, CheckCircle, XCircle, Clock,
-    BarChart3, Settings, ChevronLeft, ChevronRight, Eye,
+    BarChart3, Settings, ChevronLeft, ChevronRight, Eye, Bot,
 } from "lucide-vue-next";
 import { message } from "@/components/vort/message";
 import { useUserStore } from "@/stores";
@@ -62,6 +63,7 @@ interface MemberItem {
 // ---- State ----
 
 const userStore = useUserStore();
+const router = useRouter();
 const activeTab = ref("my");
 const isAdmin = computed(() => userStore.userInfo.roles.includes("admin") || userStore.userInfo.roles.includes("manager"));
 
@@ -201,6 +203,26 @@ async function handleSubmit() {
         } else { message.error("提交失败"); }
     } catch { message.error("提交失败"); }
     finally { submitting.value = false; }
+}
+
+// AI 生成汇报内容
+async function handleAiGenerateContent() {
+    if (!submitForm.value.report_type) {
+        message.warning("请先选择汇报类型");
+        return;
+    }
+    try {
+        const res: any = await generateReportContentPrompt(
+            submitForm.value.report_type,
+            submitForm.value.report_date || new Date().toISOString().slice(0, 10)
+        );
+        if (res?.prompt) {
+            submitDialogOpen.value = false;
+            router.push({ name: "chat", query: { prompt: res.prompt } });
+        }
+    } catch (e: any) {
+        message.error(e?.response?.data?.detail || "生成失败");
+    }
 }
 
 // ---- Review ----
@@ -591,7 +613,14 @@ onMounted(() => {
                 </div>
                 <div>
                     <label class="block text-xs text-gray-500 mb-1">内容（Markdown）</label>
-                    <VortTextarea v-model="submitForm.content" :rows="12" placeholder="## 今日工作&#10;&#10;## 遇到的问题&#10;&#10;## 明日计划" />
+                    <div class="space-y-2">
+                        <VortTextarea v-model="submitForm.content" :rows="12" placeholder="## 今日工作&#10;&#10;## 遇到的问题&#10;&#10;## 明日计划" />
+                        <div class="flex justify-end">
+                            <vort-button size="small" @click="handleAiGenerateContent">
+                                <Bot :size="12" class="mr-1" /> AI 助手创建
+                            </vort-button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </VortDialog>

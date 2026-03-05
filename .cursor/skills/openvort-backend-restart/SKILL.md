@@ -13,7 +13,7 @@ cd /Users/yangqiang/Work/Projects/openvort && PYTHONUNBUFFERED=1 .venv/bin/openv
 ```
 
 - 设置 `block_until_ms: 0` 让它立即进入后台
-- 然后 sleep 15s 再读 terminal 文件检查输出
+- 然后 sleep 10s 再读 terminal 文件检查输出
 
 ## 检查启动成功
 
@@ -59,7 +59,7 @@ grep OPENVORT_DATABASE_URL /Users/yangqiang/Work/Projects/openvort/.env
 
 ## 注意事项
 
-- 前端 dev server（`npm run dev`，端口 9090）不需要重启，Vite 有 HMR。
+- 前端 dev server（`npm run dev`，端口 9090）如果端口已启动，不需要重启，Vite 有 HMR。
 - 后端监听端口 8090，前端通过 Vite proxy 转发 `/api` 请求到后端。
 - 每次修改后端代码后都应该执行重启，否则改动不会生效。
 - **永远不要用 `kill -9`**，使用 `openvort stop` 或 SIGTERM。

@@ -109,20 +109,42 @@ class CodingEnvironment:
 
     # ---- Detection ----
 
-    def detect_mode(self) -> EnvMode:
-        """Auto-detect the best execution mode."""
-        if self._is_running_in_docker():
-            if self._has_docker_socket():
+    async def detect_mode(self) -> EnvMode:
+        """Auto-detect the best execution mode.
+
+        Detection rules:
+        - If Docker is available AND image is pulled, use DOCKER mode
+        - If Docker is available but image not pulled, try to pull - if fails, fall back to LOCAL
+        - If no Docker but local CLI tools available, use LOCAL mode
+        - Otherwise UNAVAILABLE
+        """
+        if self._is_docker_available():
+            # Check if image is available
+            image_pulled = await self._is_image_pulled(self._image)
+            if image_pulled:
                 return EnvMode.DOCKER
-            # Inside Docker without socket — check if CLI tools are baked in
+            # Try to pull image first, if fails fall back to LOCAL
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "docker", "pull", self._image,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                await proc.communicate()
+                # Check again if pulled
+                if await self._is_image_pulled(self._image):
+                    return EnvMode.DOCKER
+            except Exception:
+                pass
+            # Fall back to LOCAL if Docker image not available
             if self._has_any_cli_locally():
                 return EnvMode.LOCAL
             return EnvMode.UNAVAILABLE
 
+        # No Docker, try LOCAL mode
         if self._has_any_cli_locally():
             return EnvMode.LOCAL
-        if self._is_docker_available():
-            return EnvMode.DOCKER
+
         return EnvMode.UNAVAILABLE
 
     async def get_status(self) -> EnvStatus:
@@ -134,7 +156,7 @@ class CodingEnvironment:
             coding_image_name=self._image,
         )
 
-        status.mode = self.detect_mode()
+        status.mode = await self.detect_mode()
 
         if status.docker_available:
             status.coding_image_pulled = await self._is_image_pulled(self._image)
@@ -176,7 +198,7 @@ class CodingEnvironment:
             on_output: Optional callback invoked with each line of stdout/stderr
                        as the subprocess produces it (for live streaming to UI).
         """
-        effective_mode = mode or self.detect_mode()
+        effective_mode = mode or await self.detect_mode()
         effective_timeout = timeout or self._timeout
 
         if effective_mode == EnvMode.UNAVAILABLE:
@@ -255,11 +277,13 @@ class CodingEnvironment:
             async for raw_line in stream:
                 line = raw_line.decode(errors="replace")
                 parts.append(line)
-                if is_stdout:
-                    try:
-                        on_output(line)
-                    except Exception:
-                        pass
+                # Forward both stdout and stderr lines to on_output so that
+                # tools which emit progress or JSON events to stderr are still
+                # visible in the live stream.
+                try:
+                    on_output(line)
+                except Exception:
+                    pass
 
         try:
             await asyncio.wait_for(
@@ -340,11 +364,13 @@ class CodingEnvironment:
             async for raw_line in stream:
                 line = raw_line.decode(errors="replace")
                 parts.append(line)
-                if is_stdout:
-                    try:
-                        on_output(line)
-                    except Exception:
-                        pass
+                # Forward both stdout and stderr lines to on_output so that
+                # tools which emit progress or JSON events to stderr are still
+                # visible in the live stream.
+                try:
+                    on_output(line)
+                except Exception:
+                    pass
 
         try:
             await asyncio.wait_for(

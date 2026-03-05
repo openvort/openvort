@@ -29,6 +29,7 @@ _LLM_FALLBACK_MODEL_IDS_KEY = "llm.fallback_model_ids"
 _CLI_DEFAULT_TOOL_KEY = "cli.default_tool"
 _CLI_PRIMARY_MODEL_ID_KEY = "cli.primary_model_id"
 _CLI_FALLBACK_MODEL_IDS_KEY = "cli.fallback_model_ids"
+_CLI_GLOBAL_SKILLS_KEY = "cli.global_skills"
 
 # LLM 字段 → DB key 映射
 _LLM_FIELDS = {
@@ -312,6 +313,7 @@ class ConfigService:
         default_tool = await self.get(_CLI_DEFAULT_TOOL_KEY, "claude-code")
         primary_id = await self.get(_CLI_PRIMARY_MODEL_ID_KEY, "")
         fallback_raw = await self.get(_CLI_FALLBACK_MODEL_IDS_KEY, "")
+        global_skills_raw = await self.get(_CLI_GLOBAL_SKILLS_KEY, "")
 
         # Parse fallbacks – supports both new [{tool, model_id}] and legacy [model_id] formats
         fallbacks: list[dict[str, str]] = []
@@ -330,6 +332,46 @@ class ConfigService:
             except (json.JSONDecodeError, Exception):
                 pass
 
+        # Parse global skills: list of {id, name, content, enabled}
+        global_skills: list[dict[str, Any]] = []
+        if global_skills_raw:
+            try:
+                parsed_skills = json.loads(global_skills_raw)
+                if isinstance(parsed_skills, list):
+                    for item in parsed_skills:
+                        if not isinstance(item, dict):
+                            continue
+                        sid = str(item.get("id") or uuid4().hex[:8])
+                        name = str(item.get("name") or "Skill")
+                        content = str(item.get("content") or "").strip()
+                        enabled = bool(item.get("enabled", True))
+                        if not content:
+                            continue
+                        global_skills.append(
+                            {
+                                "id": sid,
+                                "name": name,
+                                "content": content,
+                                "enabled": enabled,
+                            }
+                        )
+            except (json.JSONDecodeError, Exception):
+                global_skills = []
+
+        # If no skills configured yet, create a default Chinese-skill
+        if not global_skills:
+            default_skill = {
+                "id": "default-zh",
+                "name": "中文编码习惯",
+                "content": "在进行所有编码相关的思考和回复时，始终使用简体中文进行推理和说明。",
+                "enabled": True,
+            }
+            global_skills = [default_skill]
+            await self.set(
+                _CLI_GLOBAL_SKILLS_KEY,
+                json.dumps(global_skills, ensure_ascii=False),
+            )
+
         models = await self.get_llm_models()
         model_ids = {m["id"] for m in models if m.get("enabled", True)}
         if primary_id and primary_id not in model_ids:
@@ -341,13 +383,16 @@ class ConfigService:
             "cli_primary_model_id": primary_id,
             "cli_fallbacks": fallbacks,
             "cli_fallback_model_ids": [fb["model_id"] for fb in fallbacks],
+            "cli_global_skills": global_skills,
         }
 
     async def save_cli_config(
-        self, default_tool: str | None = None,
+        self,
+        default_tool: str | None = None,
         primary_model_id: str | None = None,
         fallbacks: list[dict[str, str]] | None = None,
         fallback_model_ids: list[str] | None = None,
+        global_skills: list[dict[str, Any]] | None = None,
     ) -> None:
         """Save CLI coding tool + model configuration.
 
@@ -379,6 +424,28 @@ class ConfigService:
                 seen.add(mid)
                 cleaned.append({"tool": fb.get("tool", "claude-code"), "model_id": mid})
             items[_CLI_FALLBACK_MODEL_IDS_KEY] = json.dumps(cleaned, ensure_ascii=False)
+
+        # Save global skills (normalize structure)
+        if global_skills is not None:
+            norm_skills: list[dict[str, Any]] = []
+            for raw in global_skills:
+                if not isinstance(raw, dict):
+                    continue
+                sid = str(raw.get("id") or uuid4().hex[:8])
+                name = str(raw.get("name") or "Skill")
+                content = str(raw.get("content") or "").strip()
+                enabled = bool(raw.get("enabled", True))
+                if not content:
+                    continue
+                norm_skills.append(
+                    {
+                        "id": sid,
+                        "name": name,
+                        "content": content,
+                        "enabled": enabled,
+                    }
+                )
+            items[_CLI_GLOBAL_SKILLS_KEY] = json.dumps(norm_skills, ensure_ascii=False)
         if items:
             await self.set_many(items)
 

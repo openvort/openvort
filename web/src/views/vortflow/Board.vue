@@ -2,13 +2,14 @@
 import { ref, computed, onMounted } from "vue";
 import { z } from "zod";
 import { useRouter } from "vue-router";
-import { FolderKanban, ListChecks, CheckSquare, Bug, Plus, Settings, Trash2 } from "lucide-vue-next";
+import { FolderKanban, ListChecks, CheckSquare, Bug, Plus, Settings, Trash2, Bot } from "lucide-vue-next";
 import { useDirtyCheck } from "@/hooks";
 import {
     getVortflowStats, getVortflowProjects, createVortflowProject,
     updateVortflowProject, deleteVortflowProject,
-    getVortgitRepos,
+    getVortgitRepos, generateVortflowDescriptionPrompt,
 } from "@/api";
+import { message } from "@/components/vort/message";
 
 interface ProjectItem {
     id: string;
@@ -155,6 +156,23 @@ const handleSaveProject = async () => {
         loadData();
     } finally { formLoading.value = false; }
 };
+
+// AI 生成项目描述
+async function handleAiGenerateProjectDescription() {
+    if (!currentProject.value.name?.trim()) {
+        message.warning("请先输入项目名称");
+        return;
+    }
+    try {
+        const res: any = await generateVortflowDescriptionPrompt("project", currentProject.value.name, "");
+        if (res?.prompt) {
+            drawerVisible.value = false;
+            router.push({ name: "chat", query: { prompt: res.prompt } });
+        }
+    } catch (e: any) {
+        message.error(e?.response?.data?.detail || "生成失败");
+    }
+}
 
 const handleDeleteProject = async (p: ProjectItem) => {
     await deleteVortflowProject(p.id);
@@ -314,7 +332,14 @@ onMounted(loadData);
                     <vort-date-picker v-model="currentProject.end_date" value-format="YYYY-MM-DD" placeholder="请选择结束日期" class="w-full" />
                 </vort-form-item>
                 <vort-form-item label="描述" name="description">
-                    <VortEditor v-model="currentProject.description" placeholder="请输入项目描述" min-height="160px" />
+                    <div class="space-y-2">
+                        <VortEditor v-model="currentProject.description" placeholder="请输入项目描述" min-height="160px" />
+                        <div class="flex justify-end">
+                            <vort-button size="small" @click="handleAiGenerateProjectDescription">
+                                <Bot :size="12" class="mr-1" /> AI 助手创建
+                            </vort-button>
+                        </div>
+                    </div>
                 </vort-form-item>
             </vort-form>
             <div class="flex justify-end gap-3 mt-6">

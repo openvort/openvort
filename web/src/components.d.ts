@@ -54,6 +54,7 @@ declare module 'vue' {
     VortTextarea: typeof import('@/components/vort/textarea')['Textarea']
     VortTimeline: typeof import('@/components/vort/timeline')['Timeline']
     VortTimelineItem: typeof import('@/components/vort/timeline')['TimelineItem']
+    VortTimePicker: typeof import('@/components/vort/time-picker')['TimePicker']
     VortTooltip: typeof import('@/components/vort/tooltip')['Tooltip']
   }
 }

@@ -1,12 +1,17 @@
 <script setup lang="ts">
 import { ref } from "vue";
+import { useRouter } from "vue-router";
 import { z } from "zod";
 import { useCrudPage, useDirtyCheck } from "@/hooks";
 import {
     getVortflowMilestones, getVortflowProjects, createVortflowMilestone,
     updateVortflowMilestone, deleteVortflowMilestone, completeVortflowMilestone,
+    generateVortflowDescriptionPrompt,
 } from "@/api";
-import { Check, Clock, Milestone, Plus } from "lucide-vue-next";
+import { message } from "@/components/vort/message";
+import { Check, Clock, Milestone, Plus, Bot } from "lucide-vue-next";
+
+const router = useRouter();
 
 interface MilestoneItem {
     id: string;
@@ -108,6 +113,24 @@ const handleSave = async () => {
         loadData();
     } finally { formLoading.value = false; }
 };
+
+// AI 生成描述
+async function handleAiGenerateDescription() {
+    if (!currentRow.value.name?.trim()) {
+        message.warning("请先输入里程碑名称");
+        return;
+    }
+    const projectName = projects.value.find(p => p.id === currentRow.value.project_id)?.name || "";
+    try {
+        const res: any = await generateVortflowDescriptionPrompt("milestone", projectName, currentRow.value.name);
+        if (res?.prompt) {
+            drawerVisible.value = false;
+            router.push({ name: "chat", query: { prompt: res.prompt } });
+        }
+    } catch (e: any) {
+        message.error(e?.response?.data?.detail || "生成失败");
+    }
+}
 
 const handleDelete = async (item: MilestoneItem) => {
     await deleteVortflowMilestone(item.id);
@@ -262,7 +285,14 @@ loadData();
                         <vort-date-picker v-model="currentRow.due_date" value-format="YYYY-MM-DD" placeholder="请选择截止日期" class="w-full" />
                     </vort-form-item>
                     <vort-form-item label="描述" name="description">
-                        <VortEditor v-model="currentRow.description" placeholder="请输入描述" min-height="160px" />
+                        <div class="space-y-2">
+                            <VortEditor v-model="currentRow.description" placeholder="请输入描述" min-height="160px" />
+                            <div class="flex justify-end">
+                                <vort-button size="small" @click="handleAiGenerateDescription">
+                                    <Bot :size="12" class="mr-1" /> AI 助手创建
+                                </vort-button>
+                            </div>
+                        </div>
                     </vort-form-item>
                 </vort-form>
                 <div class="flex justify-end gap-3 mt-6">

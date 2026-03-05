@@ -37,6 +37,15 @@ class Member(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
+    # AI 员工字段
+    is_virtual: Mapped[bool] = mapped_column(Boolean, default=False)  # 是否 AI 员工
+    post: Mapped[str] = mapped_column(String(32), default="")  # 岗位模板标识（对应 Post.key）
+    virtual_role: Mapped[str] = mapped_column(String(32), default="")  # 已废弃，使用 post 字段
+    virtual_system_prompt: Mapped[str] = mapped_column(Text, default="")  # AI 角色设定
+    skills: Mapped[str] = mapped_column(Text, default="[]")  # 技能 ID 列表 JSON
+    auto_report: Mapped[bool] = mapped_column(Boolean, default=False)  # 是否自动汇报
+    report_frequency: Mapped[str] = mapped_column(String(16), default="daily")  # 汇报频率 daily/weekly
+
     # 关联
     identities: Mapped[list["PlatformIdentity"]] = relationship(back_populates="member", cascade="all, delete-orphan")
     department_links: Mapped[list["MemberDepartment"]] = relationship(back_populates="member", cascade="all, delete-orphan")
