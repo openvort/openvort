@@ -597,6 +597,38 @@ export function batchTestModels() {
     return request.post("/admin/models/batch-test");
 }
 
+/** 语音服务商列表 */
+export function getVoiceProviders() {
+    return request.get("/admin/voice-providers");
+}
+
+/** 创建语音服务商 */
+export function createVoiceProvider(data: {
+    name: string;
+    platform: string;
+    api_key?: string;
+    config?: Record<string, any>;
+    is_default?: boolean;
+}) {
+    return request.post("/admin/voice-providers", data);
+}
+
+/** 更新语音服务商 */
+export function updateVoiceProvider(providerId: string, data: {
+    name?: string;
+    api_key?: string;
+    config?: Record<string, any>;
+    is_default?: boolean;
+    is_enabled?: boolean;
+}) {
+    return request.put(`/admin/voice-providers/${providerId}`, data);
+}
+
+/** 删除语音服务商 */
+export function deleteVoiceProvider(providerId: string) {
+    return request.delete(`/admin/voice-providers/${providerId}`);
+}
+
 /** 获取系统设置 */
 export function getSettings() {
     return request.get("/admin/settings");

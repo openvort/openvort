@@ -357,11 +357,21 @@ async def _start_service(relay_url: str | None, poll_db_json: str | None, web_fl
     from openvort.core.dispatcher import MessageDispatcher
     dispatcher = MessageDispatcher()
 
+    # 初始化 ASR 服务（用于语音消息转写）
+    from openvort.services.asr import ASRService
+    asr_service = ASRService(session_factory)
+    await asr_service.load_providers()
+    if asr_service._providers:
+        log.info(f"已加载 {len(asr_service._providers)} 个 ASR Provider 用于语音识别")
+    else:
+        log.info("未配置 ASR Provider，语音消息将无法识别")
+
     # 配置 Channel
     channels = registry.list_channels()
     for ch in channels:
         if ch.name == "wecom" and ch.is_configured():
             _ch = ch  # 闭包捕获
+            _ch.set_asr_service(asr_service)
 
             async def handle_message(msg):
                 # 初始化守卫：未初始化时拒绝外部渠道消息

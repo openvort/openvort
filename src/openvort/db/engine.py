@@ -30,6 +30,10 @@ async def init_db(database_url: str) -> None:
     import openvort.contacts.models  # noqa: F401
     import openvort.core.setup  # noqa: F401
     import openvort.db.models  # noqa: F401
+    try:
+        import openvort.services.asr.asr_service  # noqa: F401
+    except ImportError:
+        pass
 
     try:
         import openvort.plugins.vortflow.models  # noqa: F401

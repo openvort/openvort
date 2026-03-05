@@ -69,7 +69,7 @@ def create_app() -> FastAPI:
         settings_router, logs_router, schedules_router, admin_schedules_router,
         webhooks_admin_router, agents_router, models_router,
         member_skills_router, upgrade_router, posts_router,
-        work_assignments_router,
+        work_assignments_router, voice_providers_router,
     )
     from openvort.web.ws import ws_router
     from openvort.web.webhooks import webhooks_router
@@ -108,6 +108,7 @@ def create_app() -> FastAPI:
     app.include_router(webhooks_admin_router, prefix="/api/admin/webhooks", tags=["admin-webhooks"], dependencies=[Depends(require_admin)])
     app.include_router(agents_router, prefix="/api/admin/agents", tags=["admin-agents"], dependencies=[Depends(require_admin)])
     app.include_router(models_router, prefix="/api/admin/models", tags=["admin-models"], dependencies=[Depends(require_admin)])
+    app.include_router(voice_providers_router, prefix="/api/admin/voice-providers", tags=["admin-voice-providers"], dependencies=[Depends(require_admin)])
     app.include_router(upgrade_router, prefix="/api/admin/upgrade", tags=["admin-upgrade"], dependencies=[Depends(require_admin)])
 
     # ---- 动态挂载已启用插件的 API Router ----
