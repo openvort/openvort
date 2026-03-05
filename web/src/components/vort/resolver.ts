@@ -21,7 +21,6 @@ const vortBizComponentMap: Record<string, { from: string; name: string }> = {
     TableActionsItem: { from: "@/components/vort-biz/table-actions", name: "TableActionsItem" },
     TableActionsMoreItem: { from: "@/components/vort-biz/table-actions", name: "TableActionsMoreItem" },
     DeleteRecord: { from: "@/components/vort-biz/delete-record", name: "DeleteRecord" },
-    BatchActions: { from: "@/components/vort-biz/batch-actions", name: "BatchActions" },
     AiAssistButton: { from: "@/components/vort-biz/ai-assist-button", name: "AiAssistButton" },
     VortEditor: { from: "@/components/vort-biz/editor", name: "VortEditor" },
     MarkdownView: { from: "@/components/vort-biz/editor", name: "MarkdownView" },
