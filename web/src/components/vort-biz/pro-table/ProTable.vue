@@ -740,7 +740,8 @@ defineExpose({
       </div>
 
       <!-- 表格主体 -->
-      <div ref="tableWrapperRef" class="vort-pro-table-wrapper" @scroll="handleTableWrapperScroll">
+      <div class="vort-pro-table-wrapper">
+        <div ref="tableWrapperRef" class="vort-pro-table-scroll" @scroll="handleTableWrapperScroll">
         <table class="vort-pro-table">
         <colgroup>
           <col v-if="rowSelection" :style="{ width: rowSelection.columnWidth || '48px' }" />
@@ -897,6 +898,7 @@ defineExpose({
           </tr>
         </tbody>
         </table>
+        </div>
       </div>
 
       <!-- 分页 -->
@@ -1050,7 +1052,14 @@ defineExpose({
 }
 
 .vort-pro-table-wrapper {
+  position: relative;
+  z-index: 1;
+  overflow: visible;
+}
+
+.vort-pro-table-scroll {
   overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .vort-pro-table {
@@ -1060,11 +1069,15 @@ defineExpose({
 }
 
 .vort-pro-table-thead {
+  position: sticky;
+  top: 0;
+  z-index: 5;
   background: var(--vort-table-header-bg, #fafafa);
 }
 
 .vort-pro-table-thead th {
   position: relative;
+  background: var(--vort-table-header-bg, #fafafa);
   padding: 16px;
   font-weight: 600;
   text-align: left;

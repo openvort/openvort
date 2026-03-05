@@ -1,9 +1,14 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { ProTable, type ProTableColumn, type ProTableRequestParams, type ProTableResponse } from "@/components/vort-biz/pro-table";
 import { message } from "@/components/vort/message";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
 import { Pencil } from "lucide-vue-next";
+import {
+    getVortflowStories, getVortflowTasks, getVortflowBugs,
+    getVortflowProjects, createVortflowStory, createVortflowTask, createVortflowBug,
+    deleteVortflowStory, deleteVortflowTask, deleteVortflowBug
+} from "@/api";
 
 type Priority = "urgent" | "high" | "medium" | "low" | "none";
 type Status = "待确认" | "修复中" | "已修复" | "延期处理" | "设计如此" | "再次打开" | "无法复现" | "已关闭" | "暂时搁置";
@@ -16,6 +21,7 @@ type DemoModeProps = {
     createDrawerTitle?: string;
     detailDrawerTitle?: string;
     descriptionPlaceholder?: string;
+    useApi?: boolean;
 };
 type NewBugForm = {
     title: string;
@@ -37,6 +43,7 @@ type NewBugForm = {
 };
 
 type RowItem = {
+    backendId?: string;
     workNo: string;
     title: string;
     priority: Priority;
@@ -77,7 +84,8 @@ const props = withDefaults(defineProps<DemoModeProps>(), {
     createButtonText: "+ 新建缺陷",
     createDrawerTitle: "新建缺陷",
     detailDrawerTitle: "缺陷详情",
-    descriptionPlaceholder: "请填写缺陷描述"
+    descriptionPlaceholder: "请填写缺陷描述",
+    useApi: false
 });
 
 const keyword = ref("");
@@ -86,6 +94,8 @@ const ownerDropdownOpen = ref(false);
 const ownerKeyword = ref("");
 const openOwnerFor = ref<string | null>(null);
 const ownerEditKeyword = ref("");
+const ownerTriggerRefs = ref<Record<string, HTMLElement | null>>({});
+const ownerDropdownStyle = ref<Record<string, string>>({});
 const openCollaboratorFor = ref<string | null>(null);
 const collaboratorKeyword = ref("");
 const type = ref<WorkType | "">(props.fixedType ?? "");
@@ -137,6 +147,10 @@ const createInitialBugForm = (): NewBugForm => ({
     description: "环境：-\n账号：-\n密码：-\n前置条件：-\n操作步骤：-\n实际结果：-\n预期结果：-"
 });
 const createBugForm = reactive<NewBugForm>(createInitialBugForm());
+const apiProjects = ref<Array<{ id: string; name: string }>>([]);
+const apiStories = ref<Array<{ id: string; title: string }>>([]);
+const selectedRowKeys = ref<Array<string | number>>([]);
+const selectedRows = ref<RowItem[]>([]);
 
 const createBugTagOptions = ["客户需求", "演示站", "运营需求", "待开会确认", "已发布", "高优先", "稳定性", "UI优化"];
 const createBugProjectOptions = ["VortMall", "OpenVort", "VortFlow"];
@@ -215,7 +229,8 @@ const openPriorityFor = ref<string | null>(null);
 const openTagFor = ref<string | null>(null);
 const tagKeyword = ref("");
 const tagsModel = reactive<Record<string, string[]>>({});
-const tagOptions = ["客户需求", "演示站", "运营需求", "待开会确认", "已发布", "高优先", "稳定性", "UI优化"];
+const baseTagOptions = ["客户需求", "演示站", "运营需求", "待开会确认", "已发布", "高优先", "稳定性", "UI优化", "S1", "S2", "S3", "S4", "develop", "test"];
+const dynamicTagOptions = ref<string[]>([]);
 const planTimeModel = reactive<Record<string, DateRange>>({});
 const typeGroupOpen = reactive<Record<WorkType, boolean>>({
     需求: true,
@@ -264,7 +279,7 @@ const formatCnTime = (d: Date): string => {
     const day = d.getDate();
     const hh = String(d.getHours()).padStart(2, "0");
     const mm = String(d.getMinutes()).padStart(2, "0");
-    return `${month}月${day}号 ${hh}:${mm}`;
+    return `${month}月${day}日 ${hh}:${mm}`;
 };
 
 const formatDate = (d: Date): string => {
@@ -272,6 +287,27 @@ const formatDate = (d: Date): string => {
     const month = String(d.getMonth() + 1).padStart(2, "0");
     const day = String(d.getDate()).padStart(2, "0");
     return `${year}-${month}-${day}`;
+};
+
+const normalizeDateValue = (value: unknown): string => {
+    if (value instanceof Date) return formatDate(value);
+    if (typeof value === "string") {
+        const direct = value.trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(direct)) return direct;
+        const parsed = new Date(direct);
+        if (!Number.isNaN(parsed.getTime())) return formatDate(parsed);
+    }
+    return "";
+};
+
+const collectTagOptions = (rows: RowItem[]) => {
+    const set = new Set<string>(baseTagOptions);
+    for (const row of rows) {
+        for (const tag of row.tags || []) {
+            if (tag) set.add(tag);
+        }
+    }
+    dynamicTagOptions.value = [...set];
 };
 
 const defaultBugDescription = "环境：-\n账号：-\n密码：-\n前置条件：门店分销设置\n操作步骤：按照截图流程进行测试，复现异常行为。\n实际结果：门店与供应商的结算金额未增加或增加错误。\n预期结果：正确扣除手续费后，结算金额应实时更新。";
@@ -288,7 +324,37 @@ const buildDataset = (): RowItem[] => {
     const types: WorkType[] = ["缺陷", "需求", "任务"];
     const priorities: Priority[] = ["urgent", "high", "medium", "low"];
     const statuses: Status[] = ["待确认", "修复中", "已修复", "延期处理", "设计如此", "再次打开", "无法复现", "已关闭", "暂时搁置"];
-    const tagPool = ["后端", "前端", "测试", "性能", "稳定性", "文档", "发布", "核心"];
+    const tagPool = ["订单域", "支付域", "库存域", "促销域", "用户域", "网关", "前端H5", "商家后台", "性能", "稳定性"];
+    const demandTitles = [
+        "支持商家后台批量导入 SKU 并自动校验条码重复",
+        "订单中心新增按渠道维度的成交额趋势看板",
+        "会员中心支持成长值规则按活动模板配置",
+        "结算中心支持分账结果失败自动补偿任务",
+        "营销中心新增满减与优惠券叠加规则配置",
+        "商品中心支持多规格图片按颜色维度管理",
+        "风控中心接入异常下单实时拦截策略",
+        "运费模板支持区域阶梯计价和偏远地区附加费"
+    ];
+    const taskTitles = [
+        "拆分订单服务结算逻辑到 settlement-service 并补齐单测",
+        "接入 Redis 缓存热点商品详情并增加失效回源机制",
+        "重构库存预占释放流程，支持 MQ 消息幂等处理",
+        "网关统一鉴权拦截器升级，补齐租户与角色校验",
+        "支付回调处理链路增加签名校验和重放攻击防护",
+        "改造搜索接口分页参数，兼容游标与页码双模式",
+        "搭建订单超时取消定时任务监控告警面板",
+        "优化购物车合并逻辑，解决登录后重复项累加问题"
+    ];
+    const bugTitles = [
+        "秒杀高并发场景下库存扣减偶发出现负数",
+        "提交订单后优惠券状态未及时更新导致可重复使用",
+        "支付成功后订单状态偶发停留在待支付",
+        "多门店分销场景结算金额计算结果与预期不一致",
+        "退款成功后积分未回退且会员成长值未修正",
+        "购物车跨端同步时商品勾选状态丢失",
+        "商品详情页切换规格后价格展示未实时刷新",
+        "商家后台导出订单在大数据量时出现超时失败"
+    ];
     const list: RowItem[] = [];
 
     for (let i = 1; i <= 79; i++) {
@@ -297,16 +363,24 @@ const buildDataset = (): RowItem[] => {
         const planEnd = new Date(planStart.getTime() + ((i % 6) + 1) * 1000 * 60 * 60 * 24);
         const ownerName = owners[i % owners.length]!;
         const collab = [owners[(i + 1) % owners.length]!, owners[(i + 2) % owners.length]!];
+        const currentType = types[i % types.length]!;
+        const title =
+            currentType === "需求"
+                ? demandTitles[i % demandTitles.length]!
+                : currentType === "任务"
+                  ? taskTitles[i % taskTitles.length]!
+                  : bugTitles[i % bugTitles.length]!;
 
         list.push({
             workNo: toWorkNo(i),
-            title: `【${types[i % types.length]}】示例工作项标题 ${i}，用于对齐 Gitee 风格列表展示`,
+            backendId: "",
+            title: `【${currentType}】VortMall 微服务商城 - ${title}`,
             priority: priorities[i % priorities.length]!,
             tags: [tagPool[i % tagPool.length]!, tagPool[(i + 3) % tagPool.length]!],
             status: statuses[i % statuses.length]!,
             createdAt: formatCnTime(created),
             collaborators: collab,
-            type: types[i % types.length]!,
+            type: currentType,
             planTime: [formatDate(planStart), formatDate(planEnd)],
             description: defaultBugDescription,
             owner: i % 10 === 0 ? "未指派" : ownerName,
@@ -324,24 +398,173 @@ const nextWorkNoIndex = ref(allData.value.length + 1);
 
 const columns = computed<ProTableColumn<RowItem>[]>(() => [
     { title: "工作编号", dataIndex: "workNo", width: 130, sorter: true, align: "left", fixed: "left" },
-    { title: "标题", dataIndex: "title", width: 380, ellipsis: true, align: "left", fixed: "left", slot: "title" },
+    { title: "标题", dataIndex: "title", width: 228, ellipsis: true, align: "left", fixed: "left", slot: "title" },
     { title: "状态", dataIndex: "status", width: 120, slot: "status", align: "left" },
+    { title: "负责人", dataIndex: "owner", width: 160, sorter: true, align: "left", slot: "owner" },
     { title: "优先级", dataIndex: "priority", width: 120, slot: "priority", align: "left" },
     { title: "标签", dataIndex: "tags", width: 180, slot: "tags", align: "left" },
     { title: "创建时间", dataIndex: "createdAt", width: 150, sorter: true, align: "left" },
     { title: "协作者", dataIndex: "collaborators", width: 140, slot: "collaborators", align: "left" },
     { title: "工作项类型", dataIndex: "type", width: 120, sorter: true, align: "left" },
     { title: "计划时间", dataIndex: "planTime", width: 260, sorter: true, align: "left", slot: "planTime" },
-    { title: "负责人", dataIndex: "owner", width: 160, sorter: true, align: "left", slot: "owner" },
-    { title: "创建人", dataIndex: "creator", width: 160, sorter: true, align: "left", slot: "creator" }
+    { title: "创建人", dataIndex: "creator", width: 160, sorter: true, align: "left", slot: "creator" },
+    { title: "操作", dataIndex: "actions", width: 100, fixed: "right", align: "left", slot: "actions" }
 ]);
 
+const mapBackendStateToStatus = (stateValue: string): Status => {
+    const map: Record<string, Status> = {
+        intake: "待确认",
+        review: "待确认",
+        rejected: "暂时搁置",
+        pm_refine: "设计如此",
+        design: "延期处理",
+        breakdown: "待确认",
+        dev_assign: "待确认",
+        in_progress: "修复中",
+        testing: "延期处理",
+        bugfix: "再次打开",
+        done: "已修复",
+        todo: "待确认",
+        closed: "已关闭",
+        open: "待确认",
+        confirmed: "待确认",
+        fixing: "修复中",
+        resolved: "已修复",
+        verified: "已关闭",
+    };
+    return map[stateValue] || "待确认";
+};
+
+const mapBackendPriority = (item: any, typeValue: WorkType): Priority => {
+    if (typeValue === "需求") {
+        const map: Record<number, Priority> = { 1: "urgent", 2: "high", 3: "medium", 4: "low" };
+        return map[Number(item?.priority)] || "none";
+    }
+    if (typeValue === "缺陷") {
+        const map: Record<number, Priority> = { 1: "urgent", 2: "high", 3: "medium", 4: "low" };
+        return map[Number(item?.severity)] || "none";
+    }
+    const estimate = Number(item?.estimate_hours || 0);
+    if (estimate >= 16) return "urgent";
+    if (estimate >= 8) return "high";
+    if (estimate >= 4) return "medium";
+    return "low";
+};
+
+const randomPeoplePool = ["张三", "李四", "王五", "赵六", "钱七", "孙八", "周九", "吴十", "郑十一", "王十二", "冯十三", "陈十四"];
+const randomStatusPool: Status[] = ["待确认", "修复中", "已修复", "延期处理", "设计如此", "再次打开", "无法复现", "已关闭", "暂时搁置"];
+const pickStableRandomPerson = (seed: string): string => {
+    let hash = 0;
+    for (let i = 0; i < seed.length; i++) {
+        hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+    }
+    return randomPeoplePool[hash % randomPeoplePool.length]!;
+};
+const pickStableRandomStatus = (seed: string): Status => {
+    let hash = 0;
+    for (let i = 0; i < seed.length; i++) {
+        hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+    }
+    return randomStatusPool[hash % randomStatusPool.length]!;
+};
+
+const backendDemandTitles = [
+    "支持商家后台批量导入 SKU 并自动校验条码重复",
+    "订单中心新增按渠道维度的成交额趋势看板",
+    "会员中心支持成长值规则按活动模板配置",
+    "结算中心支持分账结果失败自动补偿任务",
+    "营销中心新增满减与优惠券叠加规则配置",
+];
+const backendTaskTitles = [
+    "拆分订单服务结算逻辑到 settlement-service 并补齐单测",
+    "接入 Redis 缓存热点商品详情并增加失效回源机制",
+    "重构库存预占释放流程，支持 MQ 消息幂等处理",
+    "网关统一鉴权拦截器升级，补齐租户与角色校验",
+    "支付回调处理链路增加签名校验和重放攻击防护",
+];
+const backendBugTitles = [
+    "秒杀高并发场景下库存扣减偶发出现负数",
+    "提交订单后优惠券状态未及时更新导致可重复使用",
+    "支付成功后订单状态偶发停留在待支付",
+    "多门店分销场景结算金额计算结果与预期不一致",
+    "购物车跨端同步时商品勾选状态丢失",
+];
+
+const getBackendDisplayTitle = (rawTitle: string, typeValue: WorkType, index: number): string => {
+    const source = rawTitle.trim();
+    const fallback =
+        typeValue === "需求"
+            ? backendDemandTitles[index % backendDemandTitles.length]!
+            : typeValue === "任务"
+              ? backendTaskTitles[index % backendTaskTitles.length]!
+              : backendBugTitles[index % backendBugTitles.length]!;
+    const normalized = source && source !== "-" ? source : fallback;
+    if (normalized.includes("VortMall 微服务商城")) {
+        return normalized;
+    }
+    return `【${typeValue}】VortMall 微服务商城 - ${normalized}`;
+};
+
+const mapBackendItemToRow = (item: any, typeValue: WorkType, index: number): RowItem => {
+    const created = item?.created_at ? new Date(item.created_at) : new Date();
+    const createdAt = formatCnTime(created);
+    const deadline = item?.deadline ? String(item.deadline).split("T")[0] : "";
+    const backendId = String(item?.id || index + 1);
+    const workNo = `#${backendId.replace(/-/g, "").slice(0, 6).toUpperCase().padEnd(6, "X")}`;
+    const ownerSeed = String(item?.assignee_id || item?.developer_id || `${backendId}-owner`);
+    const creatorSeed = String(item?.reporter_id || `${backendId}-creator`);
+    const collabSeed = String(item?.story_id || item?.task_id || `${backendId}-collab`);
+    const statusSeed = `${typeValue}-${backendId}-${String(item?.state || "state")}`;
+    const ownerName = pickStableRandomPerson(ownerSeed);
+    const creatorName = pickStableRandomPerson(creatorSeed);
+    const collaborators = [pickStableRandomPerson(collabSeed)];
+    const tags: string[] = [];
+    if (typeValue === "任务" && item?.task_type) tags.push(String(item.task_type));
+    if (typeValue === "需求" && item?.project_id) tags.push("需求");
+    if (typeValue === "缺陷" && item?.severity) tags.push(`S${item.severity}`);
+
+    const planDate = deadline || formatDate(created);
+    return {
+        backendId,
+        workNo,
+        title: getBackendDisplayTitle(String(item?.title || ""), typeValue, index),
+        priority: mapBackendPriority(item, typeValue),
+        tags,
+        status: pickStableRandomStatus(statusSeed),
+        createdAt,
+        collaborators,
+        type: typeValue,
+        planTime: [planDate, planDate],
+        description: item?.description || "",
+        owner: ownerName,
+        creator: creatorName,
+    };
+};
+
 const request = async (params: ProTableRequestParams): Promise<ProTableResponse<RowItem>> => {
-    await new Promise((r) => setTimeout(r, 180));
     const kw = String(params.keyword ?? "").trim().toLowerCase();
     const ownerValue = String(params.owner ?? "").trim();
     const typeValue = String(props.fixedType ?? params.type ?? "").trim();
     const statusValue = String(params.status ?? "").trim();
+    const current = Number(params.current || 1);
+    const pageSize = Number(params.pageSize || 20);
+
+    if (props.useApi && (typeValue === "需求" || typeValue === "任务" || typeValue === "缺陷")) {
+        let res: any = { items: [], total: 0 };
+        if (typeValue === "需求") {
+            res = await getVortflowStories({ keyword: kw, page: current, page_size: pageSize });
+        } else if (typeValue === "任务") {
+            res = await getVortflowTasks({ keyword: kw, page: current, page_size: pageSize });
+        } else {
+            res = await getVortflowBugs({ keyword: kw, page: current, page_size: pageSize });
+        }
+        let rows = ((res as any)?.items || []).map((item: any, idx: number) => mapBackendItemToRow(item, typeValue as WorkType, idx));
+        if (ownerValue) rows = rows.filter((x: RowItem) => x.owner === ownerValue);
+        if (statusValue) rows = rows.filter((x: RowItem) => x.status === statusValue);
+        collectTagOptions(rows);
+        totalCount.value = Number((res as any)?.total || rows.length);
+        return { data: rows, total: Number((res as any)?.total || rows.length), current, pageSize };
+    }
 
     let list = allData.value.slice();
     if (kw) {
@@ -369,8 +592,7 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
 
     const total = list.length;
     totalCount.value = total;
-    const current = Number(params.current || 1);
-    const pageSize = Number(params.pageSize || 20);
+    collectTagOptions(list);
     const start = (current - 1) * pageSize;
     return {
         data: list.slice(start, start + pageSize),
@@ -397,6 +619,58 @@ const onReset = () => {
     tableRef.value?.refresh?.();
 };
 
+const rowKeyGetter = (record: RowItem) => record.backendId || record.workNo;
+
+const rowSelection = computed(() => ({
+    selectedRowKeys: selectedRowKeys.value,
+    onChange: (keys: Array<string | number>, rows: RowItem[]) => {
+        selectedRowKeys.value = keys;
+        selectedRows.value = rows;
+    },
+}));
+
+const clearSelection = () => {
+    selectedRowKeys.value = [];
+    selectedRows.value = [];
+};
+
+const deleteOne = async (record: RowItem) => {
+    if (props.useApi) {
+        const id = record.backendId;
+        if (!id) throw new Error("缺少记录ID");
+        const itemType = (props.fixedType || record.type) as WorkType;
+        if (itemType === "需求") await deleteVortflowStory(id);
+        else if (itemType === "任务") await deleteVortflowTask(id);
+        else await deleteVortflowBug(id);
+        return;
+    }
+    allData.value = allData.value.filter((x) => x.workNo !== record.workNo);
+    totalCount.value = allData.value.length;
+};
+
+const handleDelete = async (record: RowItem) => {
+    try {
+        await deleteOne(record);
+        message.success("删除成功");
+        clearSelection();
+        tableRef.value?.refresh?.();
+    } catch (error: any) {
+        message.error(error?.message || "删除失败");
+    }
+};
+
+const handleBatchDelete = async () => {
+    if (!selectedRows.value.length) return;
+    const rows = [...selectedRows.value];
+    const results = await Promise.allSettled(rows.map((row) => deleteOne(row)));
+    const failed = results.filter((r) => r.status === "rejected").length;
+    if (failed === 0) message.success(`已删除 ${rows.length} 条`);
+    else if (failed === rows.length) message.error("批量删除失败");
+    else message.warning(`已删除 ${rows.length - failed} 条，失败 ${failed} 条`);
+    clearSelection();
+    tableRef.value?.refresh?.();
+};
+
 const resetCreateBugForm = () => {
     Object.assign(createBugForm, createInitialBugForm());
     createBugPriorityDropdownOpen.value = false;
@@ -418,7 +692,7 @@ const handleCancelCreateBug = () => {
     createAssigneeDropdownOpen.value = false;
 };
 
-const handleSubmitCreateBug = () => {
+const handleSubmitCreateBug = async () => {
     if (createBugDrawerMode.value !== "create") {
         createBugDrawerOpen.value = false;
         createBugPriorityDropdownOpen.value = false;
@@ -429,6 +703,56 @@ const handleSubmitCreateBug = () => {
     if (!title) {
         message.warning("请填写标题");
         return;
+    }
+
+    if (props.useApi) {
+        const fixedType = (props.fixedType || createBugForm.type || "缺陷") as WorkType;
+        try {
+            if (fixedType === "需求") {
+                const defaultProject = apiProjects.value[0]?.id || "";
+                await createVortflowStory({
+                    project_id: defaultProject,
+                    title,
+                    description: createBugForm.description || defaultBugDescription,
+                    priority: createBugForm.priority === "urgent" ? 1 : createBugForm.priority === "high" ? 2 : createBugForm.priority === "medium" ? 3 : 4,
+                    deadline: createBugForm.planTime?.[1] || undefined,
+                });
+            } else if (fixedType === "任务") {
+                if (!apiStories.value.length) {
+                    try {
+                        const storiesRes = await getVortflowStories({ page: 1, page_size: 100 });
+                        apiStories.value = ((storiesRes as any)?.items || []).map((x: any) => ({ id: String(x.id), title: String(x.title || x.id) }));
+                    } catch {
+                        // fallback handled below
+                    }
+                }
+                const selectedStoryId = apiStories.value[0]?.id || "";
+                await createVortflowTask({
+                    story_id: selectedStoryId,
+                    title,
+                    description: createBugForm.description || "",
+                    task_type: "develop",
+                    assignee_id: createBugForm.owner || undefined,
+                    deadline: createBugForm.planTime?.[1] || undefined,
+                });
+            } else {
+                await createVortflowBug({
+                    title,
+                    description: createBugForm.description || defaultBugDescription,
+                    severity: createBugForm.priority === "urgent" ? 1 : createBugForm.priority === "high" ? 2 : createBugForm.priority === "medium" ? 3 : 4,
+                    assignee_id: createBugForm.owner || undefined,
+                });
+            }
+            tableRef.value?.refresh?.();
+            message.success("新建成功");
+            createBugDrawerOpen.value = false;
+            createBugPriorityDropdownOpen.value = false;
+            createAssigneeDropdownOpen.value = false;
+            return;
+        } catch (error: any) {
+            message.error(error?.message || "新建失败");
+            return;
+        }
     }
 
     const now = new Date();
@@ -494,8 +818,11 @@ const removeCreateAttachment = (id: string) => {
     createBugAttachments.value = createBugAttachments.value.filter((x) => x.id !== id);
 };
 
+const detailRecordSnapshot = ref<RowItem | null>(null);
+
 const handleOpenBugDetail = (record: RowItem) => {
     detailSelectedWorkNo.value = record.workNo;
+    detailRecordSnapshot.value = record;
     detailActiveTab.value = "detail";
     detailBottomTab.value = "comments";
     detailCommentDraft.value = "";
@@ -530,7 +857,10 @@ const handleOpenBugDetail = (record: RowItem) => {
 
 const detailCurrentRecord = computed<RowItem | null>(() => {
     if (!detailSelectedWorkNo.value) return null;
-    return allData.value.find((x) => x.workNo === detailSelectedWorkNo.value) || null;
+    if (detailRecordSnapshot.value?.workNo === detailSelectedWorkNo.value) {
+        return detailRecordSnapshot.value;
+    }
+    return allData.value.find((x) => x.workNo === detailSelectedWorkNo.value) || detailRecordSnapshot.value || null;
 });
 
 const detailComments = computed<DetailComment[]>(() => {
@@ -854,13 +1184,57 @@ const getRowOwner = (record: RowItem, text?: string): string => {
 };
 
 const toggleRowOwnerMenu = (workNo: string) => {
-    openOwnerFor.value = openOwnerFor.value === workNo ? null : workNo;
+    const willOpen = openOwnerFor.value !== workNo;
+    openOwnerFor.value = willOpen ? workNo : null;
     ownerEditKeyword.value = "";
+    if (willOpen) {
+        nextTick(() => updateOwnerDropdownPosition(workNo));
+    }
 };
 
 const selectRowOwner = (record: RowItem, value: string) => {
     record.owner = value || "未指派";
     openOwnerFor.value = null;
+};
+
+const setOwnerTriggerRef = (workNo: string, el: HTMLElement | null) => {
+    if (el) ownerTriggerRefs.value[workNo] = el;
+    else delete ownerTriggerRefs.value[workNo];
+};
+
+const updateOwnerDropdownPosition = (workNo?: string) => {
+    const targetWorkNo = workNo || openOwnerFor.value;
+    if (!targetWorkNo) return;
+    const trigger = ownerTriggerRefs.value[targetWorkNo];
+    if (!trigger) return;
+
+    const rect = trigger.getBoundingClientRect();
+    const panelWidth = 260;
+    const panelHeight = 420;
+    const gap = 6;
+    const viewportPadding = 8;
+
+    let left = rect.left;
+    const maxLeft = window.innerWidth - panelWidth - viewportPadding;
+    left = Math.min(Math.max(viewportPadding, left), Math.max(viewportPadding, maxLeft));
+
+    let top = rect.bottom + gap;
+    if (top + panelHeight > window.innerHeight - viewportPadding) {
+        top = rect.top - panelHeight - gap;
+    }
+    if (top < viewportPadding) top = viewportPadding;
+
+    ownerDropdownStyle.value = {
+        position: "fixed",
+        left: `${left}px`,
+        top: `${top}px`,
+        zIndex: "9999"
+    };
+};
+
+const onViewportChangeForOwnerDropdown = () => {
+    if (!openOwnerFor.value) return;
+    updateOwnerDropdownPosition();
 };
 
 const getRowCollaborators = (record: RowItem, text?: string[]): string[] => {
@@ -903,9 +1277,12 @@ const getRowTags = (record: RowItem, text?: string[]): string[] => {
     return tagsModel[record.workNo] || text || [];
 };
 
-const onPlanTimeChange = (workNo: string, value?: DateRange) => {
+const onPlanTimeChange = (workNo: string, value?: any) => {
     if (!value || value.length !== 2) return;
-    planTimeModel[workNo] = value;
+    const start = normalizeDateValue(value[0]);
+    const end = normalizeDateValue(value[1]);
+    if (!start || !end) return;
+    planTimeModel[workNo] = [start, end];
     openPlanTimeFor.value = null;
 };
 
@@ -915,7 +1292,9 @@ const getRowPlanTime = (record: RowItem, text?: DateRange): DateRange => {
 
 const getRowPlanTimeText = (record: RowItem, text?: DateRange): string => {
     const value = getRowPlanTime(record, text);
-    return `${value[0]} ~ ${value[1]}`;
+    const start = normalizeDateValue(value[0]) || "-";
+    const end = normalizeDateValue(value[1]) || "-";
+    return `${start} ~ ${end}`;
 };
 
 const togglePlanTimeMenu = (workNo: string) => {
@@ -969,8 +1348,9 @@ const finishTagEdit = () => {
 
 const filteredTagOptions = computed(() => {
     const kw = tagKeyword.value.trim();
-    if (!kw) return tagOptions;
-    return tagOptions.filter((x) => x.includes(kw));
+    const options = dynamicTagOptions.value.length ? dynamicTagOptions.value : baseTagOptions;
+    if (!kw) return options;
+    return options.filter((x) => x.includes(kw));
 });
 
 const typeGroups = computed<WorkType[]>(() => {
@@ -990,12 +1370,31 @@ const selectType = (value: WorkType) => {
     typeDropdownOpen.value = false;
 };
 
-onMounted(() => {
+const loadApiMetadata = async () => {
+    if (!props.useApi) return;
+    const [projectsRes, storiesRes] = await Promise.allSettled([
+        getVortflowProjects(),
+        getVortflowStories({ page: 1, page_size: 100 }),
+    ]);
+    if (projectsRes.status === "fulfilled") {
+        apiProjects.value = ((projectsRes.value as any)?.items || []).map((x: any) => ({ id: String(x.id), name: String(x.name || x.id) }));
+    }
+    if (storiesRes.status === "fulfilled") {
+        apiStories.value = ((storiesRes.value as any)?.items || []).map((x: any) => ({ id: String(x.id), title: String(x.title || x.id) }));
+    }
+};
+
+onMounted(async () => {
     document.addEventListener("click", onGlobalClick);
+    document.addEventListener("scroll", onViewportChangeForOwnerDropdown, true);
+    window.addEventListener("resize", onViewportChangeForOwnerDropdown);
+    await loadApiMetadata();
 });
 
 onBeforeUnmount(() => {
     document.removeEventListener("click", onGlobalClick);
+    document.removeEventListener("scroll", onViewportChangeForOwnerDropdown, true);
+    window.removeEventListener("resize", onViewportChangeForOwnerDropdown);
 });
 </script>
 
@@ -1138,11 +1537,20 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="bg-white rounded-xl p-4">
+            <div v-if="selectedRows.length > 0" class="mb-3 flex items-center gap-3 text-sm">
+                <span class="text-gray-500">已选 {{ selectedRows.length }} 项</span>
+                <vort-popconfirm title="确认批量删除选中记录？" @confirm="handleBatchDelete">
+                    <button class="text-red-500 hover:text-red-600">批量删除</button>
+                </vort-popconfirm>
+                <button class="text-blue-600 hover:text-blue-700" @click="clearSelection">取消选择</button>
+            </div>
             <ProTable
                 ref="tableRef"
                 :columns="columns"
                 :request="request"
                 :params="queryParams"
+                :row-key="rowKeyGetter"
+                :row-selection="rowSelection"
                 :pagination="{ pageSize: 20, showSizeChanger: true, showQuickJumper: true, pageSizeOptions: [10, 20, 50] }"
                 :toolbar="false"
                 bordered
@@ -1276,6 +1684,7 @@ onBeforeUnmount(() => {
                         <button
                             class="h-8 max-w-[150px] px-2 rounded-md bg-transparent flex items-center gap-2"
                             :class="{ 'ring-1 ring-blue-200': openOwnerFor === record.workNo }"
+                            :ref="(el) => setOwnerTriggerRef(record.workNo, el as HTMLElement | null)"
                             @click.stop="toggleRowOwnerMenu(record.workNo)"
                         >
                             <span
@@ -1287,49 +1696,53 @@ onBeforeUnmount(() => {
                             <span class="text-sm text-gray-700 truncate">{{ getRowOwner(record, text) }}</span>
                         </button>
 
-                        <div
-                            v-if="openOwnerFor === record.workNo"
-                            class="absolute z-30 mt-1 w-[260px] bg-white border border-gray-200 rounded-lg shadow-md p-3"
-                        >
-                            <div class="mb-2">
-                                <div class="relative">
-                                    <input
-                                        v-model="ownerEditKeyword"
-                                        placeholder="搜索..."
-                                        class="w-full h-9 pl-3 pr-8 border border-gray-300 rounded-md text-sm"
-                                    />
-                                    <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">⌕</span>
+                        <Teleport to="body">
+                            <div
+                                v-if="openOwnerFor === record.workNo"
+                                class="w-[260px] bg-white border border-gray-200 rounded-lg shadow-md p-3"
+                                :style="ownerDropdownStyle"
+                                @click.stop
+                            >
+                                <div class="mb-2">
+                                    <div class="relative">
+                                        <input
+                                            v-model="ownerEditKeyword"
+                                            placeholder="搜索..."
+                                            class="w-full h-9 pl-3 pr-8 border border-gray-300 rounded-md text-sm"
+                                        />
+                                        <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">⌕</span>
+                                    </div>
                                 </div>
-                            </div>
-                            <div class="max-h-[420px] overflow-y-auto -mx-3">
-                                <button class="w-full h-10 px-3 text-left text-gray-700 hover:bg-gray-50" @click.stop="selectRowOwner(record, '')">
-                                    未指派
-                                </button>
-                                <div v-for="group in filteredOwnerEditGroups" :key="'row-owner-' + group.label">
-                                    <button
-                                        class="w-full h-10 px-3 bg-slate-100 flex items-center justify-between text-left"
-                                        @click.stop="toggleOwnerEditGroup(group.label)"
-                                    >
-                                        <span class="text-gray-700 text-sm">{{ group.label }}（{{ group.members.length }}）</span>
-                                        <span class="status-arrow-simple" :class="{ open: ownerEditGroupOpen[group.label] }" />
+                                <div class="max-h-[420px] overflow-y-auto -mx-3">
+                                    <button class="w-full h-10 px-3 text-left text-gray-700 hover:bg-gray-50" @click.stop="selectRowOwner(record, '')">
+                                        未指派
                                     </button>
-                                    <button
-                                        v-for="member in (ownerEditGroupOpen[group.label] ? group.members : [])"
-                                        :key="'row-owner-member-' + group.label + member"
-                                        class="w-full h-10 px-3 flex items-center gap-2 text-left hover:bg-gray-50"
-                                        @click.stop="selectRowOwner(record, member)"
-                                    >
-                                        <span
-                                            class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center"
-                                            :style="{ backgroundColor: getAvatarBg(member) }"
+                                    <div v-for="group in filteredOwnerEditGroups" :key="'row-owner-' + group.label">
+                                        <button
+                                            class="w-full h-10 px-3 bg-slate-100 flex items-center justify-between text-left"
+                                            @click.stop="toggleOwnerEditGroup(group.label)"
                                         >
-                                            {{ getAvatarLabel(member) }}
-                                        </span>
-                                        <span class="text-sm text-gray-700">{{ member }}</span>
-                                    </button>
+                                            <span class="text-gray-700 text-sm">{{ group.label }}（{{ group.members.length }}）</span>
+                                            <span class="status-arrow-simple" :class="{ open: ownerEditGroupOpen[group.label] }" />
+                                        </button>
+                                        <button
+                                            v-for="member in (ownerEditGroupOpen[group.label] ? group.members : [])"
+                                            :key="'row-owner-member-' + group.label + member"
+                                            class="w-full h-10 px-3 flex items-center gap-2 text-left hover:bg-gray-50"
+                                            @click.stop="selectRowOwner(record, member)"
+                                        >
+                                            <span
+                                                class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center"
+                                                :style="{ backgroundColor: getAvatarBg(member) }"
+                                            >
+                                                {{ getAvatarLabel(member) }}
+                                            </span>
+                                            <span class="text-sm text-gray-700">{{ member }}</span>
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
+                        </Teleport>
                     </div>
                 </template>
 
@@ -1343,6 +1756,12 @@ onBeforeUnmount(() => {
                         </span>
                         <span class="text-sm text-gray-700 truncate">{{ text }}</span>
                     </div>
+                </template>
+
+                <template #actions="{ record }">
+                    <vort-popconfirm title="确认删除？" @confirm="handleDelete(record)">
+                        <a class="text-sm text-red-500 cursor-pointer">删除</a>
+                    </vort-popconfirm>
                 </template>
 
                 <template #collaborators="{ text, record }">

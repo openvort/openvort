@@ -9,5 +9,6 @@ import ProTableDemo from "@/views/demo/ProTableDemo.vue";
         create-button-text="+ 新建任务"
         create-drawer-title="新建任务"
         detail-drawer-title="任务详情"
+        use-api
     />
 </template>
