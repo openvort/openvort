@@ -419,7 +419,7 @@ async def list_stories(
 ):
     sf = get_session_factory()
     async with sf() as session:
-        stmt = select(FlowStory).order_by(FlowStory.created_at.desc())
+        stmt = select(FlowStory).order_by(FlowStory.created_at.desc(), FlowStory.id.desc())
         count_stmt = select(func.count()).select_from(FlowStory)
         if project_id:
             stmt = stmt.where(FlowStory.project_id == project_id)
@@ -569,7 +569,7 @@ async def list_tasks(
 ):
     sf = get_session_factory()
     async with sf() as session:
-        stmt = select(FlowTask).order_by(FlowTask.created_at.desc())
+        stmt = select(FlowTask).order_by(FlowTask.created_at.desc(), FlowTask.id.desc())
         count_stmt = select(func.count()).select_from(FlowTask)
         if story_id:
             stmt = stmt.where(FlowTask.story_id == story_id)
@@ -711,7 +711,7 @@ async def list_bugs(
 ):
     sf = get_session_factory()
     async with sf() as session:
-        stmt = select(FlowBug).order_by(FlowBug.created_at.desc())
+        stmt = select(FlowBug).order_by(FlowBug.created_at.desc(), FlowBug.id.desc())
         count_stmt = select(func.count()).select_from(FlowBug)
         if story_id:
             stmt = stmt.where(FlowBug.story_id == story_id)
