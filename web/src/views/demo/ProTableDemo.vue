@@ -811,10 +811,6 @@ const loadMemberOptions = async () => {
             }
             collectTagOptions(allData.value);
             tableRef.value?.refresh?.();
-        } else {
-            // API mode: trigger one refresh after member mapping is ready,
-            // so assignee IDs can be rendered as member names immediately.
-            tableRef.value?.refresh?.();
         }
     } catch {
         // keep fallback groups
@@ -1115,7 +1111,7 @@ const resetCreateBugForm = () => {
 };
 
 const handleCreateBug = async () => {
-    await loadApiMetadata();
+    await loadApiMetadata(props.fixedType === "任务");
     createBugDrawerMode.value = "create";
     resetCreateBugForm();
     createBugForm.type = props.fixedType ?? createBugForm.type;
@@ -2095,12 +2091,15 @@ const selectType = (value: WorkType) => {
     typeDropdownOpen.value = false;
 };
 
-const loadApiMetadata = async () => {
+const loadApiMetadata = async (withStories = false) => {
     if (!props.useApi) return;
-    const [projectsRes, storiesRes] = await Promise.allSettled([
-        getVortflowProjects(),
-        getVortflowStories({ page: 1, page_size: 100 }),
-    ]);
+    const tasks: Promise<any>[] = [getVortflowProjects()];
+    if (withStories) {
+        tasks.push(getVortflowStories({ page: 1, page_size: 100 }));
+    }
+    const results = await Promise.allSettled(tasks);
+    const projectsRes = results[0];
+    const storiesRes = withStories ? results[1] : undefined;
     if (projectsRes.status === "fulfilled") {
         apiProjects.value = ((projectsRes.value as any)?.items || []).map((x: any) => ({ id: String(x.id), name: String(x.name || x.id) }));
         if (apiProjects.value.length > 0) {
@@ -2110,7 +2109,7 @@ const loadApiMetadata = async () => {
             }
         }
     }
-    if (storiesRes.status === "fulfilled") {
+    if (storiesRes && storiesRes.status === "fulfilled") {
         apiStories.value = ((storiesRes.value as any)?.items || []).map((x: any) => ({ id: String(x.id), title: String(x.title || x.id) }));
     }
 };
@@ -2120,7 +2119,7 @@ onMounted(async () => {
     document.addEventListener("scroll", onViewportChangeForOwnerDropdown, true);
     window.addEventListener("resize", onViewportChangeForOwnerDropdown);
     await loadMemberOptions();
-    await loadApiMetadata();
+    await loadApiMetadata(false);
 });
 
 onBeforeUnmount(() => {
