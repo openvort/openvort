@@ -4,7 +4,7 @@
 鉴权、角色管理、权限注册、内置种子数据初始化。
 """
 
-from sqlalchemy import select
+from sqlalchemy import select, delete
 
 from openvort.auth.models import MemberRole, Permission, Role, RolePermission
 from openvort.utils.logging import get_logger
@@ -164,15 +164,27 @@ class AuthService:
 
     # ---- 角色管理 ----
 
-    async def assign_role(self, member_id: str, role_name: str) -> bool:
-        """给成员分配角色（幂等）"""
+    async def assign_role(self, member_id: str, role_name: str, exclusive: bool = True) -> bool:
+        """给成员分配角色（幂等）
+
+        Args:
+            member_id: 成员ID
+            role_name: 角色名
+            exclusive: 是否独占模式（默认True，表示分配新角色前先移除其他所有角色）
+        """
         async with self._session_factory() as session:
             role = await self._get_role_by_name(session, role_name)
             if not role:
                 log.warning(f"角色 '{role_name}' 不存在")
                 return False
 
-            # 检查是否已绑定
+            # 独占模式：分配新角色前先移除其他所有角色
+            if exclusive:
+                delete_stmt = delete(MemberRole).where(MemberRole.member_id == member_id)
+                await session.execute(delete_stmt)
+                log.info(f"已清除成员 {member_id[:8]} 的所有现有角色")
+
+            # 检查是否已绑定（独占模式下已清除，这里会直接新增）
             stmt = select(MemberRole).where(
                 MemberRole.member_id == member_id,
                 MemberRole.role_id == role.id,

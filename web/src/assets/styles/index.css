@@ -10,6 +10,24 @@
     --radius-md: 4px;
     --radius-lg: 6px;
     --radius-xl: 8px;
+
+    /* Vort 主题色映射 - 覆盖默认 blue 色板 */
+    --color-blue-50: var(--vort-primary-bg);
+    --color-blue-100: var(--vort-primary-bg-hover);
+    --color-blue-200: #a3c9fc;
+    --color-blue-300: #7eb4fc;
+    --color-blue-400: var(--vort-primary-hover);
+    --color-blue-500: var(--vort-primary);
+    --color-blue-600: var(--vort-primary-active);
+    --color-blue-700: #0a3090;
+    --color-blue-800: #082468;
+    --color-blue-900: #061c44;
+    --color-blue-950: #030f22;
+
+    /* Ring 焦点色 */
+    --color-ring: var(--vort-primary);
+
+    /* 侧边栏和其他颜色映射 */
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -23,7 +41,6 @@
     --color-chart-3: var(--chart-3);
     --color-chart-2: var(--chart-2);
     --color-chart-1: var(--chart-1);
-    --color-ring: var(--ring);
     --color-input: var(--input);
     --color-border: var(--border);
     --color-destructive: var(--destructive);

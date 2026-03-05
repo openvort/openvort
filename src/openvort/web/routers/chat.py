@@ -303,6 +303,26 @@ async def chat_history(request: Request, limit: int = 50, session_id: str = "def
     session_store = get_session_store()
     messages = await session_store.get_messages("web", member_id, session_id)
 
+    # 获取当前会话的目标信息（成员聊天模式需要获取成员头像）
+    session_info = session_store.get_session_info("web", member_id, session_id)
+    target_type = session_info.get("target_type", "ai")
+    target_id = session_info.get("target_id", "")
+
+    # 如果是成员聊天，获取成员信息
+    member_avatar_url = ""
+    member_name = ""
+    if target_type == "member" and target_id:
+        from sqlalchemy import select
+        from openvort.contacts.models import Member
+        from openvort.web.deps import get_db_session_factory
+
+        session_factory = get_db_session_factory()
+        async with session_factory() as db:
+            m = await db.get(Member, target_id)
+            if m:
+                member_avatar_url = m.avatar_url or ""
+                member_name = m.name or ""
+
     trimmed = messages[-limit:]
     result = []
     for i, msg in enumerate(trimmed):
@@ -310,6 +330,7 @@ async def chat_history(request: Request, limit: int = 50, session_id: str = "def
         content = ""
         images: list[str] = []
         tool_calls: list[dict] = []
+        avatar_url = ""
         if isinstance(msg.get("content"), str):
             content = msg["content"]
         elif isinstance(msg.get("content"), list):
@@ -341,12 +362,17 @@ async def chat_history(request: Request, limit: int = 50, session_id: str = "def
                 for tc in tool_calls:
                     tc["output"] = result_map.get(tc.get("id", ""), "")
 
+        # 设置头像：成员聊天时，assistant 消息使用成员头像
+        if role == "assistant" and target_type == "member":
+            avatar_url = member_avatar_url
+
         if role == "assistant" and (content or tool_calls):
             entry: dict = {
                 "id": str(i),
                 "role": role,
                 "content": content,
                 "timestamp": 0,
+                "avatar_url": avatar_url,
             }
             if tool_calls:
                 entry["tool_calls"] = tool_calls
@@ -603,6 +629,7 @@ async def list_contacts(request: Request):
                     "avatar_url": m.avatar_url or "",
                     "email": m.email or "",
                     "position": m.position or "",
+                    "is_virtual": m.is_virtual,
                 }
 
         seen_targets: set[str] = set()
@@ -623,6 +650,7 @@ async def list_contacts(request: Request):
                 "unread": 0,
                 "session_id": row.session_id,
                 "pinned": row.pinned,
+                "is_virtual": m_info.get("is_virtual", False),
             })
 
     # Sort: AI first (always), then pinned members, then by time

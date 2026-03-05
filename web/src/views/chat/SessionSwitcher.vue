@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { ref, watch, computed } from "vue";
 import { ChevronDown, Plus, Loader2, Pencil, Trash2, ListChecks, MoreHorizontal, Search } from "lucide-vue-next";
-import { Popover as VortPopover } from "@/components/vort/popover";
+import { Popover as VortPopover } from "@openvort/vort-ui";
 import {
     getChatSessions, createChatSession, renameChatSession, deleteChatSession, batchDeleteChatSessions
 } from "@/api";
-import { message } from "@/components/vort/message";
-import { dialog } from "@/components/vort/dialog";
+import { message, dialog } from "@openvort/vort-ui";
 import type { ChatSession } from "./types";
 
 const props = defineProps<{

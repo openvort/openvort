@@ -36,6 +36,7 @@ class WeComChannel(BaseChannel):
         if settings is None:
             settings = WeComSettings()
         self._settings = settings
+        self._allowed_users: set[str] = self._parse_allowed_users(settings.allowed_users)
         self._api: WeComAPI | None = None
         self._handler: MessageHandler | None = None
         self._running = False
@@ -67,6 +68,12 @@ class WeComChannel(BaseChannel):
             self._CURSOR_FILE.write_text(json.dumps(data), encoding="utf-8")
         except Exception as e:
             log.warning(f"保存消费位点失败: {e}")
+
+    def _parse_allowed_users(self, allowed_users: str) -> set[str]:
+        """解析白名单用户 ID"""
+        if not allowed_users:
+            return set()
+        return {u.strip() for u in allowed_users.split(",") if u.strip()}
 
     @property
     def api(self) -> WeComAPI:
@@ -223,6 +230,13 @@ class WeComChannel(BaseChannel):
         """发送消息（自动选择直连或 relay）"""
         if self._relay_url:
             await self._relay_send(target, message)
+        elif message.msg_type == "voice":
+            # 发送语音消息
+            voice_data = getattr(message, "voice_data", None)
+            if voice_data:
+                await self.api.send_voice(voice_data["media_id"], touser=target)
+            else:
+                log.warning("发送语音消息缺少 voice_data")
         elif message.msg_type == "markdown":
             await self.api.send_markdown(message.content, touser=target)
         else:
@@ -263,6 +277,10 @@ class WeComChannel(BaseChannel):
                             new_msgs.extend(extra)
                         aggregated = self._aggregate(new_msgs)
                         for msg in aggregated:
+                            # 白名单过滤
+                            if self._allowed_users and msg.sender_id not in self._allowed_users:
+                                log.debug(f"跳过非白名单用户: {msg.sender_id}")
+                                continue
                             if self._handler:
                                 reply = await self._handler(msg)
                                 if reply:
@@ -317,29 +335,34 @@ class WeComChannel(BaseChannel):
             user_msgs.setdefault(m["from_user"], []).append(m)
         result = []
         for uid, msgs in user_msgs.items():
-            # 合并图片
+            # 合并图片和语音
             all_images = []
+            all_voice_media_ids = []
             for m in msgs:
                 all_images.extend(m.get("images", []))
+                voice_id = m.get("voice_media_id")
+                if voice_id:
+                    all_voice_media_ids.append(voice_id)
 
             if len(msgs) == 1:
                 m = msgs[0]
                 result.append(Message(
                     content=m["content"], sender_id=m["from_user"],
                     channel="wecom", msg_type=m["msg_type"],
-                    images=all_images, raw=m,
+                    images=all_images, voice_media_ids=all_voice_media_ids, raw=m,
                 ))
             else:
                 combined = "\n".join(m["content"] for m in msgs if m["content"])
                 last = msgs[-1]
                 raw = dict(last)
                 raw["_all_msg_ids"] = [m["msg_id"] for m in msgs]
-                # 有图片时 msg_type 标记为 mixed
-                msg_type = "mixed" if all_images and combined else last["msg_type"]
+                # 有图片或语音时 msg_type 标记为 mixed
+                has_media = all_images or all_voice_media_ids
+                msg_type = "mixed" if has_media and combined else last["msg_type"]
                 result.append(Message(
                     content=combined, sender_id=uid,
                     channel="wecom", msg_type=msg_type,
-                    images=all_images, raw=raw,
+                    images=all_images, voice_media_ids=all_voice_media_ids, raw=raw,
                 ))
         return result
 
@@ -416,6 +439,7 @@ class WeComChannel(BaseChannel):
                         msg_type = m["msg_type"]
                         raw_data = m.get("raw_data", {})
                         images = []
+                        voice_media_id = None
 
                         # 图片消息：提取 PicUrl / MediaId
                         if msg_type == "image":
@@ -424,19 +448,31 @@ class WeComChannel(BaseChannel):
                             if pic_url or media_id:
                                 images.append({"pic_url": pic_url, "media_id": media_id})
 
+                        # 语音消息：提取 MediaId
+                        if msg_type == "voice":
+                            voice_media_id = raw_data.get("MediaId", "")
+
                         raw_msgs.append({
                             "db_id": m["id"], "msg_id": m.get("msg_id", ""),
                             "from_user": m["from_user"], "msg_type": msg_type,
                             "content": m["content"], "raw": raw_data,
                             "images": images,
+                            "voice_media_id": voice_media_id,
                         })
 
                     aggregated = self._aggregate(raw_msgs)
                     for msg in aggregated:
-                        # 纯图片消息（无文本）：补充描述
+                        # 白名单过滤
+                        if self._allowed_users and msg.sender_id not in self._allowed_users:
+                            log.debug(f"跳过非白名单用户: {msg.sender_id}")
+                            continue
+
+                        # 纯图片/语音消息（无文本）：补充描述
                         if not msg.content or not msg.content.strip():
                             if msg.images:
                                 msg.content = "[用户发送了图片]"
+                            elif msg.voice_media_ids:
+                                msg.content = "[用户发送了语音]"
                             elif msg.msg_type and msg.msg_type not in ("text", "mixed"):
                                 log.info(f"收到不支持的消息类型: {msg.sender_id} (type={msg.msg_type})")
                                 await self.send(
@@ -452,6 +488,10 @@ class WeComChannel(BaseChannel):
                         if msg.images:
                             msg.images = await self._download_images(msg.images)
 
+                        # 下载语音（MediaId → bytes）
+                        if msg.voice_media_ids:
+                            msg.voice_data = await self._download_voices(msg.voice_media_ids)
+
                         if self._handler:
                             log.info(f"处理消息: {msg.sender_id} -> {msg.content[:50]}")
                             # handler 返回 None 表示消息已入队（dispatcher 模式），不发送
@@ -460,7 +500,7 @@ class WeComChannel(BaseChannel):
                                 log.info(f"回复: {reply[:50]}")
                                 await self.send(msg.sender_id, Message(content=reply, channel="wecom"))
 
-                    # 标记已处理
+                    # 标记已处理（包括跳过的消息）
                     for m in messages:
                         try:
                             await http.post(f"/relay/messages/{m['id']}/ack")
@@ -481,9 +521,29 @@ class WeComChannel(BaseChannel):
         """通过 Relay 代理发送消息"""
         http = self._get_relay_http()
         try:
-            resp = await http.post("/relay/send", json={
-                "touser": target, "content": message.content, "msg_type": message.msg_type,
-            })
+            payload = {
+                "touser": target,
+                "content": message.content,
+                "msg_type": message.msg_type,
+            }
+
+            # 如果是语音消息，需要先上传获取 media_id
+            if message.msg_type == "voice":
+                voice_data = getattr(message, "voice_data", None)
+                if voice_data:
+                    # 调用企微 API 上传语音
+                    file_content = voice_data.get("data", b"")
+                    file_format = voice_data.get("format", "amr")
+                    file_name = f"voice.{file_format}"
+                    media_result = await self.api.upload_media("voice", file_content, file_name)
+                    payload["media_id"] = media_result.get("media_id")
+                else:
+                    log.warning("Relay 发送语音消息缺少 voice_data")
+                    return
+                # 转换为 voice 类型让 relay 知道如何处理
+                payload["msg_type"] = "voice"
+
+            resp = await http.post("/relay/send", json=payload)
             data = resp.json()
             if not data.get("ok"):
                 log.error(f"Relay 发送失败: {data}")
@@ -538,4 +598,33 @@ class WeComChannel(BaseChannel):
                     log.info(f"图片下载成功: {len(resp.content)} bytes ({media_type})")
                 except Exception as e:
                     log.error(f"下载图片异常: {e}")
+        return result
+
+    async def _download_voices(self, media_ids: list[str]) -> list[dict]:
+        """下载语音文件并返回列表
+
+        每个 voice dict 增加 data (bytes) 和 format 字段。
+        """
+        result = []
+        for media_id in media_ids:
+            if not media_id:
+                continue
+            try:
+                voice_data = await self.api.get_media(media_id)
+                # 企微语音通常是 amr 或 silk 格式
+                # 尝试检测格式
+                format = "amr"
+                if voice_data[:4] == b"\xFF\xFB\x90" or voice_data[:4] == b"\xFF\xFB\xA0":
+                    format = "amr"
+                elif voice_data[:2] == b"\x02\x21":
+                    format = "silk"
+                result.append({
+                    "media_id": media_id,
+                    "data": voice_data,
+                    "format": format,
+                    "size": len(voice_data),
+                })
+                log.info(f"语音下载成功: media_id={media_id}, size={len(voice_data)} bytes, format={format}")
+            except Exception as e:
+                log.error(f"下载语音异常: media_id={media_id}, error={e}")
         return result

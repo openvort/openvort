@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import { ref } from "vue";
+import { useRouter } from "vue-router";
 import { z } from "zod";
 import { useCrudPage, useDirtyCheck } from "@/hooks";
 import {
     getVortflowTasks, getVortflowStories, createVortflowTask,
     updateVortflowTask, deleteVortflowTask, transitionVortflowTask,
-    getVortflowTaskTransitions,
+    getVortflowTaskTransitions, generateVortflowDescriptionPrompt,
 } from "@/api";
-import { Plus, ArrowRight } from "lucide-vue-next";
+import { message } from "@/components/vort/message";
+import { Plus, ArrowRight, Bot } from "lucide-vue-next";
+
+const router = useRouter();
 
 interface TaskItem {
     id: string;
@@ -145,6 +149,23 @@ const handleSave = async () => {
         formLoading.value = false;
     }
 };
+
+// AI 生成描述
+async function handleAiGenerateDescription() {
+    if (!currentRow.value.title?.trim()) {
+        message.warning("请先输入任务标题");
+        return;
+    }
+    try {
+        const res: any = await generateVortflowDescriptionPrompt("task", "", currentRow.value.title);
+        if (res?.prompt) {
+            drawerVisible.value = false;
+            router.push({ name: "chat", query: { prompt: res.prompt } });
+        }
+    } catch (e: any) {
+        message.error(e?.response?.data?.detail || "生成失败");
+    }
+}
 
 const handleDelete = async (row: TaskItem) => {
     await deleteVortflowTask(row.id);
@@ -345,7 +366,14 @@ loadData();
                         <vort-date-picker v-model="currentRow.deadline" value-format="YYYY-MM-DD" placeholder="请选择截止日期" class="w-full" />
                     </vort-form-item>
                     <vort-form-item label="描述" name="description">
-                        <VortEditor v-model="currentRow.description" placeholder="请输入任务描述" min-height="160px" />
+                        <div class="space-y-2">
+                            <VortEditor v-model="currentRow.description" placeholder="请输入任务描述" min-height="160px" />
+                            <div class="flex justify-end">
+                                <vort-button size="small" @click="handleAiGenerateDescription">
+                                    <Bot :size="12" class="mr-1" /> AI 助手创建
+                                </vort-button>
+                            </div>
+                        </div>
                     </vort-form-item>
                 </vort-form>
                 <div class="flex justify-end gap-3 mt-6">

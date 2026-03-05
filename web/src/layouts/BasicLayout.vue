@@ -1,23 +1,28 @@
 <script setup lang="ts">
-import { ref, computed, watch } from "vue";
+import { ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { useAppStore } from "@/stores";
 import { useBreakpoint } from "@/hooks";
 import Sidebar from "./components/Sidebar.vue";
 import Header from "./components/Header.vue";
 
-import Footer from "./components/Footer.vue";
-
 const route = useRoute();
 const appStore = useAppStore();
 const { isMobile } = useBreakpoint();
 const isScrolled = ref(false);
-const isFullscreen = computed(() => !!route.meta.fullscreen);
+const contentRef = ref<HTMLElement>();
 
 const handleScroll = (e: Event) => {
     const target = e.target as HTMLElement;
     isScrolled.value = target.scrollTop > 0;
 };
+
+watch(() => route.path, () => {
+    if (contentRef.value) {
+        contentRef.value.scrollTop = 0;
+        isScrolled.value = false;
+    }
+});
 
 // 切换到桌面端时自动关闭移动端侧边栏
 watch(isMobile, (val) => {
@@ -46,7 +51,7 @@ watch(isMobile, (val) => {
             <!-- 顶部栏 -->
             <Header :is-scrolled="isScrolled" :is-mobile="isMobile" />
             <!-- 内容区域 -->
-            <div class="flex-1 overflow-auto" @scroll="handleScroll">
+            <div ref="contentRef" class="flex-1 overflow-auto" @scroll="handleScroll">
                 <main class="h-full">
                     <router-view v-slot="{ Component, route: currentRoute }">
                         <transition name="fade" mode="out-in">
@@ -56,9 +61,6 @@ watch(isMobile, (val) => {
                         </transition>
                     </router-view>
                 </main>
-
-                <!-- 页脚 -->
-                <Footer v-if="!isFullscreen" />
             </div>
         </div>
     </div>

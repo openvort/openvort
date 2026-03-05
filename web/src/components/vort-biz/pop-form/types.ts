@@ -1,4 +1,4 @@
-import type { FloatingPlacement } from "@/components/vort/composables";
+import type { FloatingPlacement } from "@openvort/vort-ui";
 
 /**
  * PopForm 输入类型

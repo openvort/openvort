@@ -2,9 +2,7 @@
 import { ref, computed, watch, onMounted, nextTick } from "vue";
 import { Bot, Plus, Search, Loader2, Pin } from "lucide-vue-next";
 import { getChatContacts, getChatMembers, startMemberChat, togglePinContact, hideChatContact, resetChatSession } from "@/api";
-import { message } from "@/components/vort/message";
-import { dialog } from "@/components/vort/dialog";
-import { Popover as VortPopover } from "@/components/vort/popover";
+import { message, dialog, Popover as VortPopover } from "@openvort/vort-ui";
 import { pinyin } from "pinyin-pro";
 import type { Contact, MentionMember } from "./types";
 
@@ -31,10 +29,43 @@ const filteredContacts = computed(() => {
     if (!searchKeyword.value.trim()) return contacts.value;
     const kw = searchKeyword.value.toLowerCase();
     return contacts.value.filter(c =>
-        c.name.toLowerCase().includes(kw) ||
+        matchPinyin(c.name, kw) ||
         c.last_message.toLowerCase().includes(kw)
     );
 });
+
+/**
+ * Match member name by pinyin initials (supports polyphones)
+ */
+function matchPinyin(name: string, keyword: string): boolean {
+    if (!keyword) return true;
+    const kw = keyword.toLowerCase();
+
+    // Direct name match
+    if (name.toLowerCase().includes(kw)) return true;
+
+    // Full pinyin match
+    const fullPy = pinyin(name, { toneType: 'none', type: 'array' }).join('').toLowerCase();
+    if (fullPy.includes(kw)) return true;
+
+    // Pinyin initials match (with polyphone support via multiple mode)
+    const initialsArr = pinyin(name, { pattern: 'first', type: 'array', multiple: true });
+    // Build all possible initial combinations for polyphones
+    const combos = initialsArr.reduce<string[]>((acc, cur) => {
+        // cur may be a string with multiple initials separated by space for polyphones
+        const options = typeof cur === 'string' ? cur.split(' ') : [cur];
+        if (acc.length === 0) return options.map(o => o.toLowerCase());
+        const result: string[] = [];
+        for (const prefix of acc) {
+            for (const opt of options) {
+                result.push(prefix + opt.toLowerCase());
+            }
+        }
+        return result;
+    }, []);
+
+    return combos.some(c => c.includes(kw));
+}
 
 async function loadContacts() {
     contactsLoading.value = true;
@@ -337,7 +368,18 @@ defineExpose({ refreshContacts, loadContacts });
                         <!-- Name + last message -->
                         <div class="flex-1 min-w-0 overflow-hidden">
                             <div class="flex items-center justify-between gap-2">
-                                <span class="text-sm font-medium text-gray-800 truncate min-w-0">{{ c.name }}</span>
+                                <div class="flex items-center gap-1 min-w-0">
+                                    <span class="text-sm font-medium text-gray-800 truncate">{{ c.name }}</span>
+                                    <vort-tag
+                                        v-if="c.is_virtual"
+                                        size="small"
+                                        color="blue"
+                                        :bordered="false"
+                                        class="flex-shrink-0"
+                                    >
+                                        AI 员工
+                                    </vort-tag>
+                                </div>
                                 <span class="text-[11px] text-gray-400 flex-shrink-0 whitespace-nowrap">{{ formatTime(c.last_message_time) }}</span>
                             </div>
                             <div class="flex items-center justify-between mt-0.5 gap-2">

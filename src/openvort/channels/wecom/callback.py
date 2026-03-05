@@ -68,6 +68,13 @@ def create_callback_router(crypto: WeComCrypto, handler: MessageHandler) -> APIR
                 msg.content = "[用户发送了一张图片]"
                 msg.images = [{"pic_url": msg_dict.get("PicUrl", ""), "media_id": msg_dict.get("MediaId", "")}]
 
+            # 语音消息
+            if msg.msg_type == "voice":
+                msg.content = "[用户发送了一段语音]"
+                media_id = msg_dict.get("MediaId", "")
+                if media_id:
+                    msg.voice_media_ids = [media_id]
+
             # 异步处理，不阻塞回调响应
             import asyncio
             asyncio.create_task(_handle_message(msg, handler))

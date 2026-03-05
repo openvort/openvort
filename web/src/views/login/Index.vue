@@ -4,7 +4,7 @@ import { z } from "zod";
 import { useRouter } from "vue-router";
 import { useUserStore } from "@/stores";
 import { User, Lock } from "lucide-vue-next";
-import { message } from "@/components/vort/message";
+import { message } from "@openvort/vort-ui";
 import { login } from "@/api";
 
 const router = useRouter();

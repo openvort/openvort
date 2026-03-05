@@ -8,9 +8,14 @@ import uuid
 from sqlalchemy import func, select, update
 
 from openvort.db.engine import get_session_factory
+from openvort.plugins.jenkins.confirm import get_confirm_manager
 from openvort.plugins.jenkins.models import JenkinsInstance
 from openvort.plugins.jenkins.tools.base import JenkinsToolBase
 from openvort.plugins.vortgit.crypto import encrypt_token
+
+
+# 需要确认的操作
+CONFIRM_ACTIONS = {"create", "update", "delete"}
 
 
 def _parse_bool(value, default: bool) -> bool:
@@ -85,17 +90,145 @@ class JenkinsManageInstanceTool(JenkinsToolBase):
 
     async def execute(self, params: dict) -> str:
         action = str(params.get("action", "") or "").strip().lower()
+        
+        # 获取调用者 ID
+        caller_id = params.get("_caller_id", "")
+        
+        # 检查是否有待确认操作需要处理
+        if caller_id:
+            confirm_mgr = get_confirm_manager()
+            pending = confirm_mgr.get_pending(caller_id)
+            
+            if pending and pending.tool == self.name and pending.action == action:
+                # 用户之前发起过此操作，检查是否确认
+                user_input = params.get("_user_input", "")
+                is_confirmed, _ = confirm_mgr.check_confirm(caller_id, user_input)
+                
+                if is_confirmed:
+                    # 用户确认了，执行实际操作
+                    if action == "create":
+                        return await self._create(pending.params)
+                    elif action == "update":
+                        return await self._update(pending.params)
+                    elif action == "delete":
+                        return await self._delete(pending.params)
+                
+                # 用户没确认，返回待确认提示
+                return json.dumps({
+                    "ok": False,
+                    "error": "pending_confirm",
+                    "message": f"请回复「确认」以执行 {action} 操作（其他内容无效）。",
+                    "pending_action": action,
+                    "instance_name": pending.instance_name,
+                }, ensure_ascii=False)
+        
+        # 正常流程
         if action == "list":
             return await self._list()
         if action == "create":
-            return await self._create(params)
+            # 先检查参数是否完整
+            missing = self._check_create_params(params)
+            if missing:
+                return json.dumps({
+                    "ok": False,
+                    "error": "missing_params",
+                    "message": f"创建实例需要以下参数：{missing}，请提供后再操作。",
+                    "missing_params": missing,
+                }, ensure_ascii=False)
+            return await self._confirm_and_execute(caller_id, "create", params)
         if action == "update":
-            return await self._update(params)
+            # 先检查参数是否完整
+            missing = self._check_update_params(params)
+            if missing:
+                return json.dumps({
+                    "ok": False,
+                    "error": "missing_params",
+                    "message": f"修改实例需要以下参数：{missing}，请提供后再操作。",
+                    "missing_params": missing,
+                }, ensure_ascii=False)
+            return await self._confirm_and_execute(caller_id, "update", params)
         if action == "delete":
-            return await self._delete(params)
+            # 先检查参数是否完整
+            if not params.get("instance_id"):
+                return json.dumps({
+                    "ok": False,
+                    "error": "missing_params",
+                    "message": "删除实例需要提供 instance_id，请提供后再操作。",
+                    "missing_params": ["instance_id"],
+                }, ensure_ascii=False)
+            return await self._confirm_and_execute(caller_id, "delete", params)
         if action == "verify":
             return await self._verify(params)
         return json.dumps({"ok": False, "message": f"未知操作: {action}"}, ensure_ascii=False)
+
+    def _check_create_params(self, params: dict) -> list[str]:
+        """检查创建实例的必要参数"""
+        missing = []
+        if not params.get("name"):
+            missing.append("name（实例名称）")
+        if not params.get("url"):
+            missing.append("url（Jenkins 地址）")
+        if not params.get("username"):
+            missing.append("username（Jenkins 用户名）")
+        if not params.get("api_token"):
+            missing.append("api_token（API Token）")
+        return missing
+
+    def _check_update_params(self, params: dict) -> list[str]:
+        """检查修改实例的必要参数"""
+        missing = []
+        if not params.get("instance_id"):
+            missing.append("instance_id（实例 ID）")
+        return missing
+
+    async def _confirm_and_execute(self, caller_id: str, action: str, params: dict) -> str:
+        """处理需要确认的操作"""
+        # 获取实例名称用于显示
+        instance_name = ""
+        if action == "update" or action == "delete":
+            instance_id = params.get("instance_id", "")
+            if instance_id:
+                sf = get_session_factory()
+                async with sf() as session:
+                    instance = await session.get(JenkinsInstance, instance_id)
+                    if instance:
+                        instance_name = instance.name
+        
+        if action == "create":
+            instance_name = params.get("name", "")
+        
+        # 如果没有 caller_id（无会话上下文），直接执行
+        if not caller_id:
+            if action == "create":
+                return await self._create(params)
+            elif action == "update":
+                return await self._update(params)
+            elif action == "delete":
+                return await self._delete(params)
+        
+        # 设置待确认状态
+        confirm_mgr = get_confirm_manager()
+        confirm_mgr.set_pending(
+            caller_id=caller_id,
+            action=action,
+            tool=self.name,
+            params=params,
+            instance_name=instance_name,
+        )
+        
+        action_desc = {
+            "create": f"创建 Jenkins 实例「{instance_name}」",
+            "update": f"修改 Jenkins 实例「{instance_name}」",
+            "delete": f"删除 Jenkins 实例「{instance_name}」",
+        }
+        
+        return json.dumps({
+            "ok": False,
+            "error": "pending_confirm",
+            "message": f"即将{action_desc[action]}，请回复「确认」以执行（其他内容无效）。",
+            "pending_action": action,
+            "instance_name": instance_name,
+        }, ensure_ascii=False)
 
     async def _list(self) -> str:
         sf = get_session_factory()

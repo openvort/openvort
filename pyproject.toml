@@ -70,6 +70,7 @@ jenkins = "openvort.plugins.jenkins:JenkinsPlugin"
 schedule = "openvort.plugins.schedule:SchedulePlugin"
 report = "openvort.plugins.report:ReportPlugin"
 system = "openvort.plugins.system:SystemPlugin"
+browser = "openvort.plugins.browser:BrowserPlugin"
 
 [project.urls]
 Homepage = "https://github.com/nicekate/openvort"

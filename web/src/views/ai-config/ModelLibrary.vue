@@ -2,7 +2,7 @@
 import { ref, onMounted } from "vue";
 import { Plus, RefreshCw, Search } from "lucide-vue-next";
 import { createModel, deleteModel, getModels, testModel, updateModel, fetchAvailableModels, batchTestModels, getSettings } from "@/api";
-import { message } from "@/components/vort/message";
+import { message } from "@openvort/vort-ui";
 
 interface ModelItem {
     id: string;

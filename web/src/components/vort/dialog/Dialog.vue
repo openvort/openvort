@@ -45,6 +45,8 @@ interface Props {
     bodyNoPadding?: boolean;
     /** 内容区域背景色（仅 body 区域），默认白色 */
     contentBg?: string;
+    /** 内容区最大高度 */
+    bodyMaxHeight?: string;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -62,13 +64,17 @@ const props = withDefaults(defineProps<Props>(), {
     footer: true,
     zIndex: 1000,
     bodyNoPadding: false,
-    contentBg: "#fff"
+    contentBg: "#fff",
+    bodyMaxHeight: undefined
 });
 
 // 国际化
 const { t } = useLocale("Modal");
 const okTextValue = computed(() => props.okText ?? t("ok_text"));
 const cancelTextValue = computed(() => props.cancelText ?? t("cancel_text"));
+
+// 计算内容区最大高度样式
+const maxHeight = computed(() => props.bodyMaxHeight ? { maxHeight: props.bodyMaxHeight, overflowY: 'auto' } : undefined);
 
 // 提供 z-index 上下文给子组件（如 Select、Dropdown 等）
 // 这样子组件的弹出层会自动获得比 Dialog 更高的 z-index
@@ -263,7 +269,11 @@ onUnmounted(() => {
                         </div>
 
                         <!-- 内容区 -->
-                        <div class="vort-dialog-body" :class="{ 'vort-dialog-body-no-padding': bodyNoPadding }" :style="{ background: contentBg }">
+                        <div
+                            class="vort-dialog-body"
+                            :class="{ 'vort-dialog-body-no-padding': bodyNoPadding }"
+                            :style="{ background: contentBg, maxHeight }"
+                        >
                             <slot />
                         </div>
 

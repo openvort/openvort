@@ -1,5 +1,5 @@
 import { ref, computed, onMounted, watch, type Ref } from "vue";
-import { message } from "@/components/vort/message";
+import { message } from "@openvort/vort-ui";
 
 export interface DialogFormProps<P = Record<string, unknown>> {
     params: P;

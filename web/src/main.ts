@@ -1,6 +1,6 @@
 // 样式
 import "@/assets/styles/index.css";
-import "@/components/vort/styles/index.css";
+import "@openvort/vort-ui/styles";
 
 import "@/utils/zod-zh";
 

@@ -6,7 +6,7 @@
 
 from datetime import date
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
@@ -213,3 +213,50 @@ async def review_report(report_id: str, req: ReviewRequest):
     if not result:
         return {"success": False, "error": "汇报不存在"}
     return {"success": True, "report": result}
+
+
+# ============ AI 生成 ============
+
+@router.get("/generate-content-prompt")
+async def generate_report_content_prompt(
+    report_type: str = Query(..., description="汇报类型: daily/weekly/monthly"),
+    report_date: str = Query("", description="汇报日期"),
+):
+    """生成 AI 创建汇报内容的 prompt"""
+    date_text = report_date or "今天"
+    
+    if report_type == "daily":
+        prompt = (
+            f"请为 {date_text} 生成一份详细的日报内容。\n\n"
+            f"请按照以下结构生成（Markdown 格式）：\n"
+            f"1. 今日工作 - 列出完成的主要工作内容\n"
+            f"2. 工作成果 - 描述取得的成果和产出\n"
+            f"3. 遇到问题 - 描述遇到的问题和挑战\n"
+            f"4. 明日计划 - 计划次日的工作内容\n\n"
+            f"要求：内容要真实、具体，突出工作价值和成果。"
+        )
+    elif report_type == "weekly":
+        prompt = (
+            f"请为 {date_text} 生成一份详细的周报内容。\n\n"
+            f"请按照以下结构生成（Markdown 格式）：\n"
+            f"1. 本周工作概述 - 本周的主要工作内容\n"
+            f"2. 成果与亮点 - 本周取得的主要成果\n"
+            f"3. 问题与反思 - 遇到的问题和改进建议\n"
+            f"4. 下周计划 - 计划下周的工作内容\n\n"
+            f"要求：内容要全面、简洁，突出工作成效。"
+        )
+    elif report_type == "monthly":
+        prompt = (
+            f"请为 {date_text} 生成一份详细的月报内容。\n\n"
+            f"请按照以下结构生成（Markdown 格式）：\n"
+            f"1. 本月工作概述 - 本月的主要工作内容\n"
+            f"2. 成果与数据 - 本月取得的主要成果和相关数据\n"
+            f"3. 项目进展 - 参与项目的进展状态\n"
+            f"4. 问题与改进 - 遇到的问题和解决方案\n"
+            f"5. 下月计划 - 计划下月的工作重点\n\n"
+            f"要求：内容要系统、全面，突出业绩和成长。"
+        )
+    else:
+        prompt = f"请为 {date_text} 生成一份{report_type}汇报内容。"
+
+    return {"prompt": prompt}

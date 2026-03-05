@@ -42,6 +42,8 @@ export const menuConfig: MenuConfig[] = [
             { title: "AI 配置", icon: "sparkles", path: "/ai-config" },
             { title: "Git 平台", icon: "server", path: "/vortgit/providers" },
             { title: "Webhook", icon: "webhook", path: "/webhooks" },
+            { title: "AI 员工岗位", icon: "bot", path: "/admin/posts" },
+            { title: "系统升级", icon: "arrow-up-circle", path: "/upgrade" },
             { title: "运行日志", icon: "file-text", path: "/logs" },
         ],
     },

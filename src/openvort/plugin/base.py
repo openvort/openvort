@@ -25,6 +25,7 @@ class Message:
     channel: str = ""
     msg_type: str = "text"  # text, image, voice, file, ...
     images: list[dict] = field(default_factory=list)
+    voice_media_ids: list[str] = field(default_factory=list)  # 语音消息的 media_id 列表
     raw: dict = field(default_factory=dict)  # 原始数据，Channel 特有字段
 
 

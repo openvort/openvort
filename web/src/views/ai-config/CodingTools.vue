@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from "vue";
 import { Plus, Save, Trash2, Download, XCircle, CheckCircle, Terminal } from "lucide-vue-next";
 import { getModels, getSettings, updateSettings } from "@/api";
-import { message } from "@/components/vort/message";
+import { message } from "@openvort/vort-ui";
 import { useUserStore } from "@/stores";
 
 interface ModelSummary {
@@ -45,11 +45,21 @@ interface CLIFallback {
     model_id: string;
 }
 
+interface CLIGlobalSkill {
+    id?: string;
+    name: string;
+    content: string;
+    enabled: boolean;
+}
+
 const cliForm = ref({
     cli_default_tool: "claude-code",
     cli_primary_model_id: "",
     cli_fallbacks: [] as CLIFallback[],
+    cli_global_skills: [] as CLIGlobalSkill[],
 });
+
+const autoCheckUpdate = ref(true);
 
 function modelLabel(item: ModelSummary): string {
     return `${item.name} (${item.provider} / ${item.model})`;
@@ -102,6 +112,28 @@ async function loadData() {
         }
         cliTools.value = Array.isArray(settingsData.cli_tools) ? settingsData.cli_tools : [];
         cliToolsStatus.value = Array.isArray(settingsData.cli_tools_status) ? settingsData.cli_tools_status : [];
+
+        // System settings
+        autoCheckUpdate.value = settingsData.auto_check_update !== false;
+
+        // Global coding skills
+        if (Array.isArray(settingsData.cli_global_skills) && settingsData.cli_global_skills.length) {
+            cliForm.value.cli_global_skills = settingsData.cli_global_skills.map((s: any) => ({
+                id: s.id,
+                name: s.name || "Skill",
+                content: s.content || "",
+                enabled: s.enabled !== false,
+            }));
+        } else {
+            // 默认添加一条中文 Skill
+            cliForm.value.cli_global_skills = [
+                {
+                    name: "中文编码习惯",
+                    content: "在进行所有编码相关的思考和回复时，始终使用简体中文进行推理和说明。",
+                    enabled: true,
+                },
+            ];
+        }
     } catch {
         message.error("加载设置失败");
     } finally {
@@ -117,6 +149,18 @@ function removeCliFallback(index: number) {
     cliForm.value.cli_fallbacks.splice(index, 1);
 }
 
+function addGlobalSkill() {
+    cliForm.value.cli_global_skills.push({
+        name: "新 Skill",
+        content: "",
+        enabled: true,
+    });
+}
+
+function removeGlobalSkill(index: number) {
+    cliForm.value.cli_global_skills.splice(index, 1);
+}
+
 async function handleSaveCli() {
     savingCli.value = true;
     try {
@@ -126,12 +170,23 @@ async function handleSaveCli() {
             if (!mid) continue;
             cleaned.push({ tool: fb.tool || cliForm.value.cli_default_tool, model_id: mid });
         }
+        const skillsPayload = cliForm.value.cli_global_skills
+            .filter((s) => s.content && s.content.trim())
+            .map((s) => ({
+                id: s.id,
+                name: s.name || "Skill",
+                content: s.content.trim(),
+                enabled: s.enabled !== false,
+            }));
         await updateSettings({
             cli_default_tool: cliForm.value.cli_default_tool,
             cli_primary_model_id: cliForm.value.cli_primary_model_id,
             cli_fallbacks: cleaned,
+            cli_global_skills: skillsPayload,
+            auto_check_update: autoCheckUpdate.value,
         });
         cliForm.value.cli_fallbacks = [...cleaned];
+        cliForm.value.cli_global_skills = skillsPayload;
         message.success("编码工具设置已保存");
     } catch {
         message.error("保存失败");
@@ -266,6 +321,21 @@ onMounted(loadData);
 
         <VortDivider />
 
+        <!-- System settings -->
+        <div class="max-w-2xl mt-4">
+            <p class="text-sm text-gray-500 mb-4">系统运行相关配置。</p>
+
+            <div class="flex items-center justify-between py-3 border-b border-gray-100">
+                <div>
+                    <div class="text-sm font-medium text-gray-700">自动检查更新</div>
+                    <div class="text-xs text-gray-400 mt-0.5">关闭后可避免 GitHub API 调用频率限制</div>
+                </div>
+                <VortSwitch v-model:checked="autoCheckUpdate" />
+            </div>
+        </div>
+
+        <VortDivider />
+
         <!-- Coding tool config -->
         <VortForm label-width="130px" class="max-w-2xl mt-4">
             <p class="text-sm text-gray-500 mb-4">
@@ -341,6 +411,45 @@ onMounted(loadData);
 
             <div v-if="cliForm.cli_fallbacks.length === 0" class="text-center py-4 text-gray-400 text-sm">
                 暂无备选方案
+            </div>
+
+            <VortDivider />
+
+            <!-- Global Coding Skills -->
+            <div class="flex items-center justify-between mb-4">
+                <h4 class="text-sm font-medium text-gray-700">全局编码规范</h4>
+                <VortButton size="small" @click="addGlobalSkill">
+                    <Plus :size="14" class="mr-1" /> 添加
+                </VortButton>
+            </div>
+            <p class="text-xs text-gray-400 mb-4">
+                配置全局编码规范（如「始终使用中文回复」），所有编码模型执行任务时会自动遵循这些规范。
+            </p>
+
+            <div v-for="(skill, i) in cliForm.cli_global_skills" :key="i" class="border border-gray-200 rounded-lg p-4 mb-3 relative">
+                <button class="absolute top-3 right-3 text-gray-400 hover:text-red-500" type="button" @click="removeGlobalSkill(i)">
+                    <Trash2 :size="14" />
+                </button>
+                <div class="grid grid-cols-1 gap-3">
+                    <div class="flex items-center gap-3">
+                        <div class="flex-1">
+                            <div class="text-xs text-gray-500 mb-1">名称</div>
+                            <VortInput v-model="skill.name" placeholder="Skill 名称" />
+                        </div>
+                        <div class="flex items-center h-full pt-5">
+                            <vort-switch v-model:checked="skill.enabled" />
+                            <span class="ml-2 text-xs text-gray-500">{{ skill.enabled ? '启用' : '禁用' }}</span>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-xs text-gray-500 mb-1">规范内容</div>
+                        <VortTextarea v-model="skill.content" placeholder="例如：使用简体中文进行思考和回复" :rows="2" />
+                    </div>
+                </div>
+            </div>
+
+            <div v-if="cliForm.cli_global_skills.length === 0" class="text-center py-4 text-gray-400 text-sm">
+                暂无全局编码规范
             </div>
 
             <VortDivider />

@@ -4,7 +4,7 @@ import {
     getWebhooks, createWebhook, updateWebhook, deleteWebhook,
     getWebhookPresets, installWebhookPreset,
 } from "@/api";
-import { message } from "@/components/vort/message";
+import { message } from "@openvort/vort-ui";
 import {
     Plus, Webhook, ExternalLink, Zap, Check, ChevronDown, ChevronUp,
     Globe, Github, Gitlab, Bot, BookOpen,
