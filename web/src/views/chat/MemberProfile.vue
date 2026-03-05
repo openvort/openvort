@@ -368,7 +368,7 @@ const sourceTypeLabels: Record<string, string> = {
                                 size="small"
                                 style="width: 90px"
                                 @change="handleUpdateStatus(assignment, $event)">
-                                <VortOption v-for="opt in statusOptions" :key="opt.value" :value="opt.value" :label="opt.label" />
+                                <VortSelectOption v-for="opt in statusOptions" :key="opt.value" :value="opt.value" :label="opt.label" />
                             </VortSelect>
                         </div>
                         <div v-if="assignment.plan" class="mt-2 pt-2 border-t border-gray-200">
