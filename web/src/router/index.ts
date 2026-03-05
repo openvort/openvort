@@ -45,6 +45,7 @@ const routes: RouteRecordRaw[] = [
             { path: "agents", name: "agents", component: () => import("@/views/agents/Index.vue"), meta: { title: "Agent 路由", requiredRole: "admin" } },
             { path: "ai-config", name: "ai-config", component: () => import("@/views/ai-config/Index.vue"), meta: { title: "AI 配置", requiredRole: "admin" } },
             { path: "upgrade", name: "upgrade", component: () => import("@/views/upgrade/Index.vue"), meta: { title: "系统升级", requiredRole: "admin" } },
+            { path: "admin/posts", name: "posts", component: () => import("@/views/admin/Posts.vue"), meta: { title: "AI 员工岗位", requiredRole: "admin" } },
             { path: "models", redirect: "/ai-config" },
             { path: "settings", redirect: "/ai-config" },
             // 异常页

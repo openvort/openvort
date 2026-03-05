@@ -76,7 +76,11 @@ class ScheduleManageTool(BaseTool):
         from openvort.core.scheduler import Scheduler
 
         action = params["action"]
-        member_id = params.get("_member_id", "")
+        # _member_id 是当前发起请求的成员 ID
+        # _target_member_id 是当前对话的 AI 员工成员 ID（如果是与 AI 员工聊天）
+        # _caller_member_id 是实际发起请求的真实成员 ID
+        member_id = params.get("_caller_member_id") or params.get("_member_id", "")
+        target_member_id = params.get("_target_member_id", "")  # AI 员工 ID
         if not member_id:
             return json.dumps({"ok": False, "message": "无法识别当前用户"}, ensure_ascii=False)
 
@@ -111,9 +115,12 @@ class ScheduleManageTool(BaseTool):
 
         action_config = {"prompt": prompt}
 
+        # 获取执行人（AI 员工）- 如果当前在与 AI 员工聊天，使用 AI 员工作为执行人
+        target_member_id = params.get("_target_member_id", "")
+
         try:
             job = await service.create_job(
-                owner_id=member_id,
+                owner_id=member_id,  # 任务拥有者是发起请求的真实用户
                 name=name,
                 description=params.get("description", ""),
                 schedule_type=schedule_type,
@@ -121,6 +128,7 @@ class ScheduleManageTool(BaseTool):
                 timezone=params.get("timezone", "Asia/Shanghai"),
                 action_config=action_config,
                 enabled=params.get("enabled", True),
+                target_member_id=target_member_id,  # 执行人
             )
             return json.dumps({"ok": True, "message": f"定时任务「{name}」创建成功", "job": job}, ensure_ascii=False)
         except Exception as e:

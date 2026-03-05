@@ -116,8 +116,8 @@ class ScheduleJob(Base):
     action_type: Mapped[str] = mapped_column(String(32), default="agent_chat")  # agent_chat
     action_config: Mapped[str] = mapped_column(Text, default="{}")  # JSON: {"prompt": "..."}
 
-    # 虚拟员工绑定（用于定时汇报）
-    target_member_id: Mapped[str] = mapped_column(String(32), default="", nullable=True)  # 绑定的虚拟员工 ID
+    # AI 员工绑定（用于定时汇报）
+    target_member_id: Mapped[str] = mapped_column(String(32), default="", nullable=True)  # 绑定的 AI 员工 ID
 
     # 可见性（团队任务是否对成员展示）
     visible: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -168,21 +168,21 @@ class MemberSkill(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
-class RoleSkill(Base):
-    """角色-技能映射表"""
+class PostSkill(Base):
+    """岗位-技能映射表"""
 
-    __tablename__ = "role_skills"
+    __tablename__ = "role_skills"  # 保持向后兼容，暂不重命名表
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    role: Mapped[str] = mapped_column(String(32), index=True)  # developer/pm/qa/designer/assistant
+    post: Mapped[str] = mapped_column(String(32), index=True)  # 岗位标识：developer/pm/qa/designer/assistant
     skill_id: Mapped[str] = mapped_column(String(32), ForeignKey("skills.id"), index=True)
     priority: Mapped[int] = mapped_column(Integer, default=0)  # 越小越优先
 
 
-class VirtualRole(Base):
-    """虚拟员工角色元数据表"""
+class Post(Base):
+    """AI 员工岗位元数据表"""
 
-    __tablename__ = "virtual_roles"
+    __tablename__ = "virtual_roles"  # 保持向后兼容，暂不重命名表
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
     key: Mapped[str] = mapped_column(String(32), unique=True, index=True)  # developer/pm/qa/designer/assistant
@@ -193,5 +193,45 @@ class VirtualRole(Base):
     default_auto_report: Mapped[bool] = mapped_column(Boolean, default=False)
     default_report_frequency: Mapped[str] = mapped_column(String(16), default="daily")  # daily/weekly
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+# 保留旧名称的别名，保持向后兼容
+VirtualRole = Post
+RoleSkill = PostSkill
+
+
+class WorkAssignment(Base):
+    """工作安排 - 记录 AI 员工被安排的工作任务"""
+
+    __tablename__ = "work_assignments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+
+    # 任务基本信息
+    title: Mapped[str] = mapped_column(String(256))  # 任务标题/一句话描述
+    summary: Mapped[str] = mapped_column(Text, default="")  # 任务详细描述/AI 的理解
+    plan: Mapped[str] = mapped_column(Text, default="")  # AI 员工"打算怎么做"的简短步骤
+
+    # 归属与执行
+    requested_by_member_id: Mapped[str] = mapped_column(String(32), ForeignKey("members.id"), index=True)  # 谁要求的
+    assignee_member_id: Mapped[str] = mapped_column(String(32), ForeignKey("members.id"), index=True)  # 谁来执行（AI 员工）
+
+    # 来源追踪
+    source_type: Mapped[str] = mapped_column(String(16), default="manual")  # chat / code_task / schedule / manual
+    source_id: Mapped[str] = mapped_column(String(64), default="")  # 来源ID（如 chat session id, code_task id 等）
+    source_detail: Mapped[str] = mapped_column(Text, default="")  # 来源详情摘要
+
+    # 关联的计划任务（可选，一个工作安排可以关联多个定时任务）
+    related_schedule_id: Mapped[int] = mapped_column(Integer, ForeignKey("schedule_jobs.id"), nullable=True)
+
+    # 状态
+    status: Mapped[str] = mapped_column(String(16), default="pending")  # pending / in_progress / completed / ongoing
+    priority: Mapped[str] = mapped_column(String(16), default="normal")  # low / normal / high / urgent
+
+    # 时间戳
+    due_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # 截止日期
+    last_action_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # 最近一次行动/汇报时间
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())

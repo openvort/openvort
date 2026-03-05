@@ -31,6 +31,8 @@ class RequestContext:
     max_reply_length: int = 0  # 回复长度限制，0=不限
     images: list[dict] = field(default_factory=list)  # 图片列表 [{data, media_type, ...}]
     platform_accounts: dict[str, str] = field(default_factory=dict)  # 平台账号映射 {platform: account}
+    target_member_id: str = ""  # 目标成员 ID（用于 AI 员工代理聊天场景）
+    caller_member_id: str = ""  # 发起请求的真实成员 ID
     _identity_refresher: Callable[["RequestContext"], Coroutine[Any, Any, None]] | None = field(
         default=None, repr=False
     )  # 可选回调：刷新身份信息（member、platform_accounts 等）

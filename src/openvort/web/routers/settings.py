@@ -60,8 +60,11 @@ async def get_current_settings():
         "cli_primary_model_id": cli_config["cli_primary_model_id"],
         "cli_fallbacks": cli_config["cli_fallbacks"],
         "cli_fallback_model_ids": cli_config["cli_fallback_model_ids"],
+        "cli_global_skills": cli_config.get("cli_global_skills", []),
         "cli_tools": cli_tools_info,
         "cli_tools_status": cli_tools_status,
+        # Web settings
+        "auto_check_update": settings.web.auto_check_update,
         # 兼容旧前端字段
         "llm_provider": settings.llm.provider,
         "llm_api_key": _mask_key(settings.llm.api_key),
@@ -106,6 +109,10 @@ class UpdateSettingsRequest(BaseModel):
     cli_primary_model_id: str | None = None
     cli_fallbacks: list[dict] | None = None
     cli_fallback_model_ids: list[str] | None = None  # legacy compat
+    cli_global_skills: list[dict] | None = None
+
+    # Web settings
+    auto_check_update: bool | None = None
 
     # 兼容旧请求字段
     llm_provider: str | None = None
@@ -153,12 +160,22 @@ async def update_settings(req: UpdateSettingsRequest):
         await config_service.save_llm_model_selection(primary_id, fallback_ids)
 
     # CLI coding config
-    if any(v is not None for v in [req.cli_default_tool, req.cli_primary_model_id, req.cli_fallbacks, req.cli_fallback_model_ids]):
+    if any(
+        v is not None
+        for v in [
+            req.cli_default_tool,
+            req.cli_primary_model_id,
+            req.cli_fallbacks,
+            req.cli_fallback_model_ids,
+            req.cli_global_skills,
+        ]
+    ):
         await config_service.save_cli_config(
             default_tool=req.cli_default_tool,
             primary_model_id=req.cli_primary_model_id,
             fallbacks=req.cli_fallbacks,
             fallback_model_ids=req.cli_fallback_model_ids if req.cli_fallbacks is None else None,
+            global_skills=req.cli_global_skills,
         )
 
     data: dict = {}
@@ -179,6 +196,12 @@ async def update_settings(req: UpdateSettingsRequest):
 
     if data:
         await config_service.save_llm_settings(data)
+
+    # Update web settings (auto_check_update)
+    if req.auto_check_update is not None:
+        settings = get_settings()
+        settings.web.auto_check_update = req.auto_check_update
+
     await config_service.apply_llm_to_settings()
     await _reload_llm_client()
 
@@ -190,7 +213,29 @@ async def restart_service():
     """重启后端服务（仅管理员，由 app.py 的 require_admin 保护）"""
     import logging
     log = logging.getLogger("openvort.web")
-    log.info("收到重启请求，将在 1 秒后重启...")
+    log.info("收到重启请求，正在保存对话历史...")
+
+    # 保存所有内存中的对话到数据库
+    try:
+        from openvort.web.deps import get_session_store
+        session_store = get_session_store()
+        if session_store._session_factory:
+            saved_count = 0
+            for key, session in session_store._sessions.items():
+                # 只保存 "web" channel 的会话，且有实际消息的
+                if session.channel == "web" and session.messages:
+                    await session_store.save_messages(
+                        session.channel,
+                        session.user_id,
+                        session.messages,
+                        session.session_id,
+                    )
+                    saved_count += 1
+            log.info(f"已保存 {saved_count} 个会话的对话历史到数据库")
+    except Exception as e:
+        log.warning(f"保存对话历史失败: {e}")
+
+    log.info("将在 1 秒后重启...")
 
     def _do_restart():
         import time

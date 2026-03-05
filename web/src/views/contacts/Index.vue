@@ -37,6 +37,9 @@ interface MemberItem {
     position: string;
     status: string;
     is_account: boolean;
+    is_virtual?: boolean;
+    virtual_role?: string;
+    virtual_role_name?: string;
     has_password: boolean;
     roles: string[];
     platform_accounts: Record<string, string>;
@@ -93,6 +96,7 @@ const membersPage = ref(1);
 const membersSize = ref(50);
 const searchText = ref("");
 const filterRole = ref("");
+const filterMemberType = ref<"" | "real" | "virtual">("");
 const loadingMembers = ref(false);
 const loadingSync = ref(false);
 const loadingDedup = ref(false);
@@ -290,6 +294,11 @@ async function loadMembers() {
             page: membersPage.value,
             size: membersSize.value,
         };
+        if (filterMemberType.value === "virtual") {
+            params.is_virtual = true;
+        } else if (filterMemberType.value === "real") {
+            params.is_virtual = false;
+        }
         if (selectedDeptId.value !== null) {
             params.department_id = selectedDeptId.value;
         }
@@ -1120,6 +1129,19 @@ function getAvatarColor(name: string): string {
 
 const ROLE_MEMBER_DISPLAY_LIMIT = 10;
 
+// 角色显示名（优先后端配置，其次内置映射，最后回退英文标识）
+const BUILTIN_ROLE_LABELS: Record<string, string> = {
+    admin: "管理员",
+    manager: "管理者",
+    member: "成员",
+};
+
+function roleLabel(roleName: string): string {
+    const found = roles.value.find(r => r.name === roleName);
+    if (found?.display_name) return found.display_name;
+    return BUILTIN_ROLE_LABELS[roleName] || roleName;
+}
+
 // ---- 初始化 ----
 
 onMounted(() => {
@@ -1282,7 +1304,7 @@ onMounted(() => {
                             </div>
 
                             <!-- 搜索 + 筛选 -->
-                            <div class="flex items-center gap-2 mb-4">
+                            <div class="flex flex-wrap items-center gap-2 mb-4">
                                 <VortInputSearch
                                     v-model="searchText"
                                     placeholder="搜索姓名、邮箱、手机"
@@ -1299,6 +1321,16 @@ onMounted(() => {
                                     @change="handleSearch"
                                 >
                                     <VortSelectOption v-for="r in roles" :key="r.name" :value="r.name">{{ r.display_name }}</VortSelectOption>
+                                </VortSelect>
+                                <VortSelect
+                                    v-model="filterMemberType"
+                                    placeholder="成员类型"
+                                    allow-clear
+                                    style="width: 140px"
+                                    @change="handleSearch"
+                                >
+                                    <VortSelectOption value="real">真实成员</VortSelectOption>
+                                    <VortSelectOption value="virtual">AI 员工</VortSelectOption>
                                 </VortSelect>
                             </div>
 
@@ -1326,7 +1358,16 @@ onMounted(() => {
                                                 class="inline-flex items-center justify-center w-7 h-7 rounded-full text-white text-xs font-medium flex-shrink-0"
                                                 :class="getAvatarColor(row.name)"
                                             >{{ getInitial(row.name) }}</span>
-                                            <span class="text-blue-600 cursor-pointer hover:underline" @click="openMemberDrawer(row.id)">{{ row.name }}</span>
+                                            <div class="flex items-center gap-1">
+                                                <span class="text-blue-600 cursor-pointer hover:underline" @click="openMemberDrawer(row.id)">{{ row.name }}</span>
+                                                <VortTag
+                                                    v-if="row.is_virtual"
+                                                    size="small"
+                                                    color="blue"
+                                                >
+                                                    AI 员工
+                                                </VortTag>
+                                            </div>
                                         </div>
                                     </template>
                                 </VortTableColumn>
@@ -1345,7 +1386,7 @@ onMounted(() => {
                                     <template #default="{ row }">
                                         <VortTag v-for="role in (row.roles || [])" :key="role" class="mr-1" :bordered="false"
                                             :color="role === 'admin' ? 'red' : role === 'manager' ? 'orange' : 'default'">
-                                            {{ role }}
+                                            {{ roleLabel(role) }}
                                         </VortTag>
                                         <span v-if="!row.roles?.length" class="text-gray-400 text-sm">-</span>
                                     </template>
@@ -1755,7 +1796,7 @@ onMounted(() => {
                                 closable
                                 @close="handleRemoveRole(currentMember!.id, role)"
                             >
-                                {{ role }}
+                                {{ roleLabel(role) }}
                             </VortTag>
                             <span v-if="!currentMember.roles.length" class="text-gray-400 text-sm">无角色</span>
                         </div>
@@ -2109,7 +2150,7 @@ onMounted(() => {
                 </div>
                 <div class="flex items-center gap-2">
                     <VortSwitch v-model:checked="createMemberForm.is_virtual" />
-                    <span class="text-sm text-gray-600">虚拟员工</span>
+                    <span class="text-sm text-gray-600">AI 员工</span>
                 </div>
                 <template v-if="createMemberForm.is_virtual">
                     <div>

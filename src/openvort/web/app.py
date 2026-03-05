@@ -56,7 +56,8 @@ def create_app() -> FastAPI:
         plugins_router, skills_router, channels_router,
         settings_router, logs_router, schedules_router, admin_schedules_router,
         webhooks_admin_router, agents_router, models_router,
-        member_skills_router, upgrade_router,
+        member_skills_router, upgrade_router, posts_router,
+        work_assignments_router,
     )
     from openvort.web.ws import ws_router
     from openvort.web.webhooks import webhooks_router
@@ -85,6 +86,9 @@ def create_app() -> FastAPI:
     app.include_router(org_calendar_router, prefix="/api/admin/org-calendar", tags=["admin-org-calendar"], dependencies=[Depends(require_admin)])
     app.include_router(plugins_router, prefix="/api/admin/plugins", tags=["admin-plugins"], dependencies=[Depends(require_admin)])
     app.include_router(skills_router, prefix="/api/admin/skills", tags=["admin-skills"], dependencies=[Depends(require_admin)])
+    # 岗位管理（AI 员工岗位）
+    app.include_router(posts_router, prefix="/api/posts", tags=["posts"], dependencies=[Depends(require_auth)])
+    app.include_router(work_assignments_router, prefix="/api/work-assignments", tags=["work-assignments"], dependencies=[Depends(require_auth)])
     app.include_router(channels_router, prefix="/api/admin/channels", tags=["admin-channels"], dependencies=[Depends(require_admin)])
     app.include_router(settings_router, prefix="/api/admin/settings", tags=["admin-settings"], dependencies=[Depends(require_admin)])
     app.include_router(logs_router, prefix="/api/admin/logs", tags=["admin-logs"], dependencies=[Depends(require_admin)])
@@ -127,10 +131,11 @@ def create_app() -> FastAPI:
         # Use cached result if fresh (within 60s) and not forced
         if not force and _llm_health_cache["healthy"] is not None and (now - _llm_health_cache["checked_at"]) < cache_ttl:
             update_info: dict = {}
-            try:
-                update_info = await _get_update_svc().check_update()
-            except Exception:
-                pass
+            if _get_settings().web.auto_check_update:
+                try:
+                    update_info = await _get_update_svc().check_update()
+                except Exception:
+                    pass
             return {
                 "version": __version__,
                 "llm_healthy": _llm_health_cache["healthy"],
@@ -151,10 +156,11 @@ def create_app() -> FastAPI:
         if not chain:
             _llm_health_cache.update(healthy=False, checked_at=now, error="未配置主模型，请在模型管理中添加并在系统设置中选择", model="")
             up = {}
-            try:
-                up = await _get_update_svc().check_update()
-            except Exception:
-                pass
+            if _get_settings().web.auto_check_update:
+                try:
+                    up = await _get_update_svc().check_update()
+                except Exception:
+                    pass
             return {
                 "version": __version__,
                 "llm_healthy": False,
@@ -190,11 +196,13 @@ def create_app() -> FastAPI:
             _llm_health_cache.update(healthy=False, checked_at=now, error=str(e)[:200], model=llm_model)
 
         # Piggyback update check (uses its own cache, non-blocking)
+        # Only check if auto_check_update is enabled
         update_info: dict = {}
-        try:
-            update_info = await _get_update_svc().check_update()
-        except Exception:
-            pass
+        if _get_settings().web.auto_check_update:
+            try:
+                update_info = await _get_update_svc().check_update()
+            except Exception:
+                pass
 
         return {
             "version": __version__,

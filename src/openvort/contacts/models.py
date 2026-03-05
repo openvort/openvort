@@ -37,9 +37,10 @@ class Member(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
-    # 虚拟员工字段
-    is_virtual: Mapped[bool] = mapped_column(Boolean, default=False)  # 是否虚拟员工
-    virtual_role: Mapped[str] = mapped_column(String(32), default="")  # 角色模板标识
+    # AI 员工字段
+    is_virtual: Mapped[bool] = mapped_column(Boolean, default=False)  # 是否 AI 员工
+    post: Mapped[str] = mapped_column(String(32), default="")  # 岗位模板标识（对应 Post.key）
+    virtual_role: Mapped[str] = mapped_column(String(32), default="")  # 已废弃，使用 post 字段
     virtual_system_prompt: Mapped[str] = mapped_column(Text, default="")  # AI 角色设定
     skills: Mapped[str] = mapped_column(Text, default="[]")  # 技能 ID 列表 JSON
     auto_report: Mapped[bool] = mapped_column(Boolean, default=False)  # 是否自动汇报

@@ -70,14 +70,38 @@ const totalSteps = computed(() => steps.value.length);
 const currentStepKey = computed(() => steps.value[currentStep.value - 1]?.key || "type");
 const currentStepTitle = computed(() => steps.value[currentStep.value - 1]?.title || "");
 
-// 角色选项
-const roleOptions: RoleOption[] = [
-    { value: "developer", label: "开发工程师", icon: Code, description: "代码、Git、Debug 专家" },
-    { value: "pm", label: "产品经理", icon: ClipboardList, description: "需求、任务、需求评审" },
-    { value: "qa", label: "测试工程师", icon: TestTube, description: "用例、测试、质量把控" },
-    { value: "designer", label: "设计师", icon: Palette, description: "UI/UX、设计稿规范" },
-    { value: "assistant", label: "通用助手", icon: Bot, description: "处理日常事务的 AI 助手" },
-];
+// 图标映射
+const ICON_MAP: Record<string, any> = {
+    Code,
+    ClipboardList,
+    TestTube,
+    Palette,
+    Bot,
+};
+
+// 角色选项（从 API 加载）
+const roleOptions = ref<RoleOption[]>([]);
+const loadingRoles = ref(false);
+
+async function loadRoleOptions() {
+    loadingRoles.value = true;
+    try {
+        const { getVirtualRoles } = await import("@/api");
+        const res: any = await getVirtualRoles(true);
+        if (res?.roles) {
+            roleOptions.value = res.roles.map((r: any) => ({
+                value: r.key,
+                label: r.name,
+                icon: ICON_MAP[r.icon] || Bot,
+                description: r.description,
+            }));
+        }
+    } catch (e) {
+        console.error("加载角色列表失败", e);
+    } finally {
+        loadingRoles.value = false;
+    }
+}
 
 // 技能选项（从角色推荐中获取）
 const availableSkills = ref<SkillOption[]>([]);
@@ -129,6 +153,13 @@ watch(() => formData.value.roles, async () => {
 watch(currentStepKey, async (key) => {
     if (key === "skill") {
         await loadRoleSkills();
+    }
+});
+
+// 打开弹窗时加载角色列表
+watch(() => props.open, (isOpen) => {
+    if (isOpen) {
+        loadRoleOptions();
     }
 });
 
@@ -291,7 +322,7 @@ async function complete() {
                         <div class="w-16 h-16 rounded-full bg-purple-100 flex items-center justify-center mb-4">
                             <Bot :size="32" class="text-purple-600" />
                         </div>
-                        <div class="text-lg font-medium text-gray-800 mb-1">虚拟员工</div>
+                        <div class="text-lg font-medium text-gray-800 mb-1">AI 员工</div>
                         <div class="text-sm text-gray-500">AI 数字员工，可以替你完成特定工作的智能助手</div>
                         <div v-if="formData.memberType === 'virtual'" class="mt-3">
                             <Check :size="20" class="text-blue-500" />
@@ -301,11 +332,11 @@ async function complete() {
             </div>
         </div>
 
-        <!-- 选择角色（虚拟员工） -->
+        <!-- 选择角色（AI 员工） -->
         <div v-if="currentStepKey === 'role'" class="space-y-4">
             <div class="text-center mb-6">
                 <div class="text-lg font-medium text-gray-800">选择角色</div>
-                <div class="text-sm text-gray-400 mt-1">为虚拟员工选择一个或多个角色，每个角色会推荐一组技能</div>
+                <div class="text-sm text-gray-400 mt-1">为 AI 员工选择一个或多个角色，每个角色会推荐一组技能</div>
             </div>
 
             <div class="grid grid-cols-2 gap-3">
@@ -338,7 +369,7 @@ async function complete() {
             </div>
         </div>
 
-        <!-- 确认技能（虚拟员工） -->
+        <!-- 确认技能（AI 员工） -->
         <div v-if="currentStepKey === 'skill'" class="space-y-4">
             <div class="text-center mb-6">
                 <div class="text-lg font-medium text-gray-800">确认技能</div>
@@ -397,14 +428,14 @@ async function complete() {
                     <VortInput v-model="formData.position" placeholder="请输入职位" />
                 </div>
 
-                <!-- 虚拟员工额外字段 -->
+                <!-- AI 员工额外字段 -->
                 <template v-if="formData.memberType === 'virtual'">
                     <div class="border-t border-gray-200 pt-4 mt-4">
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">个人介绍（Persona）</label>
                             <VortTextarea
                                 v-model="formData.persona"
-                                placeholder="描述这个虚拟员工的性格、说话风格、工作方式..."
+                                placeholder="描述这个 AI 员工的性格、说话风格、工作方式..."
                                 :rows="3"
                             />
                         </div>

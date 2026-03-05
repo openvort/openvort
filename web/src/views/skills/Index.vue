@@ -1,13 +1,18 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from "vue";
+import { useRouter } from "vue-router";
 import {
     getSkills, getSkill, createSkill, updateSkill, deleteSkill, toggleSkill,
     getRoleSkills, addRoleSkill, removeRoleSkill,
     getMemberSkillsWithSource, getMembers,
+    getSkillDirectories, searchOnlineSkills, importSkillFromGithub,
+    generateSkillContentPrompt,
 } from "@/api";
 import { message } from "@/components/vort/message";
 import { dialog } from "@/components/vort/dialog";
-import { Plus, Trash2, Save, User, Link, BookOpen, Zap, FileText, Settings, ChevronDown, ChevronUp, Code, ClipboardList, TestTube, Palette, Bot } from "lucide-vue-next";
+import { Plus, Trash2, Save, User, Link, BookOpen, Zap, FileText, Settings, ChevronDown, ChevronUp, Code, ClipboardList, TestTube, Palette, Bot, Github, FolderOpen } from "lucide-vue-next";
+
+const router = useRouter();
 
 interface SkillItem {
     id: string;
@@ -183,6 +188,36 @@ async function handleCreate() {
     } finally { creating.value = false; }
 }
 
+// AI 生成 Skill 内容
+async function handleAiGenerateContent() {
+    if (!createForm.value.name.trim()) {
+        message.warning("请先输入 Skill 名称");
+        return;
+    }
+    // 先创建 Skill（使用临时内容），然后生成内容
+    creating.value = true;
+    try {
+        const res: any = await createSkill({
+            name: createForm.value.name,
+            description: createForm.value.description || "",
+            skill_type: createForm.value.skill_type || "workflow",
+            content: "（AI 生成中...）",
+        });
+        message.success("Skill 已创建，正在生成内容...");
+
+        // 调用生成 prompt API
+        const promptRes: any = await generateSkillContentPrompt(res.id || res.skill?.id);
+        if (promptRes?.prompt) {
+            createDialogOpen.value = false;
+            router.push({ name: "chat", query: { prompt: promptRes.prompt } });
+        }
+    } catch (e: any) {
+        message.error(e?.response?.data?.detail || "创建失败");
+    } finally {
+        creating.value = false;
+    }
+}
+
 // ---- Role-Skill mapping ----
 const roleSkillsMap = ref<Record<string, SkillItem[]>>({});
 const roleLoading = ref(false);
@@ -294,7 +329,79 @@ function getRoleLabelByValue(value: string): string {
     return ROLE_OPTIONS.find(o => o.value === value)?.label || value;
 }
 
-onMounted(() => { loadSkills(); loadRoleSkills(); loadMembers(); });
+onMounted(() => { loadSkills(); loadRoleSkills(); loadMembers(); loadDirectories(); });
+
+// ---- Skill 目录管理 ----
+const directories = ref<any[]>([]);
+const directoriesLoading = ref(false);
+
+async function loadDirectories() {
+    directoriesLoading.value = true;
+    try {
+        const res: any = await getSkillDirectories();
+        directories.value = res?.directories || [];
+    } catch { /* ignore */ }
+    finally { directoriesLoading.value = false; }
+}
+
+// ---- GitHub 导入 ----
+const importDialogOpen = ref(false);
+const importUrl = ref("");
+const importLoading = ref(false);
+const searchResults = ref<any[]>([]);
+const searchLoading = ref(false);
+const searchQuery = ref("");
+
+async function handleSearchOnline() {
+    if (!searchQuery.value.trim()) return;
+    searchLoading.value = true;
+    try {
+        const res: any = await searchOnlineSkills(searchQuery.value);
+        searchResults.value = res?.results || [];
+    } catch { searchResults.value = []; }
+    finally { searchLoading.value = false; }
+}
+
+async function handleImportFromUrl() {
+    if (!importUrl.value.trim()) { message.error("请输入 GitHub URL"); return; }
+    importLoading.value = true;
+    try {
+        const res: any = await importSkillFromGithub(importUrl.value);
+        if (res?.success) {
+            message.success("导入成功");
+            importDialogOpen.value = false;
+            importUrl.value = "";
+            loadDirectories();
+            loadSkills();
+        }
+    } catch (e: any) {
+        message.error(e?.response?.data?.detail || "导入失败");
+    }
+    finally { importLoading.value = false; }
+}
+
+async function handleImportResult(result: any) {
+    importLoading.value = true;
+    try {
+        const url = result.html_url || result.url;
+        const res: any = await importSkillFromGithub(url);
+        if (res?.success) {
+            message.success(`成功导入: ${result.name}`);
+            loadDirectories();
+            loadSkills();
+        }
+    } catch (e: any) {
+        message.error(e?.response?.data?.detail || "导入失败");
+    }
+    finally { importLoading.value = false; }
+}
+
+function openImportDialog() {
+    importUrl.value = "";
+    searchQuery.value = "";
+    searchResults.value = [];
+    importDialogOpen.value = true;
+}
 </script>
 
 <template>
@@ -307,9 +414,14 @@ onMounted(() => { loadSkills(); loadRoleSkills(); loadMembers(); });
                     <h3 class="text-base font-medium text-gray-800">技能库</h3>
                     <span class="text-xs text-gray-400">按类型分组管理所有技能</span>
                 </div>
-                <VortButton variant="primary" size="small" @click="openCreateDialog">
-                    <Plus :size="14" class="mr-1" /> 新建技能
-                </VortButton>
+                <div class="flex items-center gap-2">
+                    <VortButton variant="secondary" size="small" @click="openImportDialog">
+                        <Github :size="14" class="mr-1" /> 从 GitHub 导入
+                    </VortButton>
+                    <VortButton variant="primary" size="small" @click="openCreateDialog">
+                        <Plus :size="14" class="mr-1" /> 新建技能
+                    </VortButton>
+                </div>
             </div>
 
             <VortSpin :spinning="loading">
@@ -359,7 +471,7 @@ onMounted(() => { loadSkills(); loadRoleSkills(); loadMembers(); });
                 <div class="flex items-center gap-2 cursor-pointer" @click="roleCollapsed = !roleCollapsed">
                     <Link :size="18" class="text-indigo-600" />
                     <h3 class="text-base font-medium text-gray-800">角色-技能映射</h3>
-                    <span class="text-xs text-gray-400">创建虚拟员工时按角色自动推荐技能</span>
+                    <span class="text-xs text-gray-400">创建 AI 员工时按角色自动推荐技能</span>
                 </div>
                 <component :is="roleCollapsed ? ChevronDown : ChevronUp" :size="14" class="text-gray-400 cursor-pointer" @click="roleCollapsed = !roleCollapsed" />
             </div>
@@ -393,7 +505,41 @@ onMounted(() => { loadSkills(); loadRoleSkills(); loadMembers(); });
             </VortSpin>
         </div>
 
-        <!-- 区域三：成员技能总览 -->
+        <!-- 区域三：Skill 目录管理 -->
+        <div class="bg-white rounded-xl p-6">
+            <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center gap-2 cursor-pointer">
+                    <FolderOpen :size="18" class="text-green-600" />
+                    <h3 class="text-base font-medium text-gray-800">Skill 目录</h3>
+                    <span class="text-xs text-gray-400">多目录扫描：内置 / 用户 / 企业</span>
+                </div>
+            </div>
+
+            <VortSpin :spinning="directoriesLoading">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div v-for="dir in directories" :key="dir.key"
+                        class="p-4 rounded-lg border border-gray-100 hover:border-gray-200">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="flex items-center gap-2">
+                                <FolderOpen :size="16" class="text-gray-500" />
+                                <span class="text-sm font-medium text-gray-800">{{ dir.name }}</span>
+                            </div>
+                            <VortTag :color="dir.enabled ? 'green' : 'default'" size="small">
+                                {{ dir.enabled ? '启用' : '禁用' }}
+                            </VortTag>
+                        </div>
+                        <div class="text-xs text-gray-400 mb-2">{{ dir.description }}</div>
+                        <div class="text-xs text-gray-500">
+                            <span class="bg-gray-100 px-2 py-0.5 rounded">{{ dir.skill_count || 0 }} 个 Skills</span>
+                            <span v-if="dir.writable" class="ml-2 text-green-500">可写</span>
+                        </div>
+                        <div class="text-xs text-gray-400 mt-1 truncate" :title="dir.path">{{ dir.path }}</div>
+                    </div>
+                </div>
+            </VortSpin>
+        </div>
+
+        <!-- 区域四：成员技能总览 -->
         <div class="bg-white rounded-xl p-6">
             <div class="flex items-center gap-2 mb-4">
                 <User :size="18" class="text-purple-600" />
@@ -493,14 +639,72 @@ onMounted(() => { loadSkills(); loadRoleSkills(); loadMembers(); });
                     <VortInput v-model="createForm.description" placeholder="Skill 用途描述" />
                 </VortFormItem>
                 <VortFormItem label="内容">
-                    <VortTextarea v-model="createForm.content" placeholder="Markdown 格式的 Skill 内容" :rows="8"
-                        style="font-family: monospace; font-size: 13px;" />
+                    <div class="space-y-2">
+                        <VortTextarea v-model="createForm.content" placeholder="Markdown 格式的 Skill 内容" :rows="8"
+                            style="font-family: monospace; font-size: 13px;" />
+                        <div class="flex justify-end">
+                            <VortButton size="small" @click="handleAiGenerateContent">
+                                <Bot :size="12" class="mr-1" /> AI 助手创建
+                            </VortButton>
+                        </div>
+                    </div>
                 </VortFormItem>
             </VortForm>
             <template #footer>
                 <div class="flex justify-end gap-2">
                     <VortButton @click="createDialogOpen = false">取消</VortButton>
                     <VortButton variant="primary" :loading="creating" @click="handleCreate">创建</VortButton>
+                </div>
+            </template>
+        </VortDialog>
+
+        <!-- GitHub import dialog -->
+        <VortDialog :open="importDialogOpen" title="从 GitHub 导入 Skill" :width="600" @update:open="importDialogOpen = $event">
+            <div class="space-y-4">
+                <!-- 直接导入 -->
+                <div>
+                    <label class="block text-sm text-gray-600 mb-2">直接导入</label>
+                    <div class="flex gap-2">
+                        <VortInput v-model="importUrl" placeholder="输入 GitHub 仓库或 SKILL.md 文件 URL" class="flex-1" />
+                        <VortButton variant="primary" :loading="importLoading" @click="handleImportFromUrl">导入</VortButton>
+                    </div>
+                    <p class="text-xs text-gray-400 mt-1">支持仓库 URL（如 https://github.com/owner/repo）或 SKILL.md 文件 URL</p>
+                </div>
+
+                <div class="border-t border-gray-200 my-4"></div>
+
+                <!-- 在线搜索 -->
+                <div>
+                    <label class="block text-sm text-gray-600 mb-2">在线搜索</label>
+                    <div class="flex gap-2">
+                        <VortInput v-model="searchQuery" placeholder="输入关键词搜索" class="flex-1" @keyup.enter="handleSearchOnline" />
+                        <VortButton @click="handleSearchOnline" :loading="searchLoading">搜索</VortButton>
+                    </div>
+                </div>
+
+                <!-- 搜索结果 -->
+                <div v-if="searchResults.length > 0" class="space-y-2 max-h-[300px] overflow-y-auto">
+                    <div v-for="result in searchResults" :key="result.repo"
+                        class="flex items-center justify-between p-3 rounded-lg border border-gray-100 hover:border-blue-200">
+                        <div class="min-w-0 flex-1">
+                            <div class="flex items-center gap-2">
+                                <span class="text-sm font-medium text-gray-800">{{ result.name }}</span>
+                                <span class="text-xs text-gray-400">⭐ {{ result.stars }}</span>
+                            </div>
+                            <div class="text-xs text-gray-400 truncate">{{ result.repo }}</div>
+                            <div class="text-xs text-gray-400 truncate">{{ result.description }}</div>
+                        </div>
+                        <VortButton size="small" variant="primary" :loading="importLoading" @click="handleImportResult(result)">
+                            导入
+                        </VortButton>
+                    </div>
+                </div>
+                <div v-else-if="searchLoading" class="text-center py-4 text-gray-400 text-sm">搜索中...</div>
+                <div v-else-if="searchQuery && !searchLoading" class="text-center py-4 text-gray-400 text-sm">未找到相关 Skills</div>
+            </div>
+            <template #footer>
+                <div class="flex justify-end gap-2">
+                    <VortButton @click="importDialogOpen = false">关闭</VortButton>
                 </div>
             </template>
         </VortDialog>

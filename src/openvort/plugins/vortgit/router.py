@@ -2,7 +2,7 @@
 
 import uuid
 
-from fastapi import APIRouter, Body, HTTPException, Query
+from fastapi import APIRouter, Body, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import select, func, delete as sa_delete
 
@@ -10,6 +10,7 @@ from openvort.db.engine import get_session_factory
 from openvort.plugins.vortgit.crypto import decrypt_token, encrypt_token
 from openvort.plugins.vortgit.models import GitCodeTask, GitProvider, GitRepo, GitRepoMember
 from openvort.utils.logging import get_logger
+from openvort.web.auth import verify_token
 
 log = get_logger("plugins.vortgit.router")
 
@@ -73,6 +74,10 @@ class RepoMemberAdd(BaseModel):
     platform_username: str = ""
 
 
+class CodeTaskBatchDelete(BaseModel):
+    ids: list[str]
+
+
 # ============ Helpers ============
 
 def _provider_to_dict(p: GitProvider) -> dict:
@@ -116,6 +121,27 @@ def _get_provider_instance(provider: GitProvider):
         from openvort.plugins.vortgit.providers.gitee import GiteeProvider
         return GiteeProvider(access_token=token, api_base=provider.api_base)
     raise HTTPException(400, f"Unsupported platform: {provider.platform}")
+
+
+def _require_admin(request: Request) -> dict:
+    """Lightweight admin check for plugin routes (matches web.app.require_admin)."""
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        token = auth[7:]
+    else:
+        token = ""
+
+    if not token:
+        raise HTTPException(status_code=401, detail="未登录")
+
+    payload = verify_token(token)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Token 无效或已过期")
+
+    roles = payload.get("roles", [])
+    if "admin" not in roles:
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    return payload
 
 
 # ============ Provider CRUD ============
@@ -639,6 +665,36 @@ async def get_code_task(task_id: str):
         if not task:
             raise HTTPException(404, "Code task not found")
         return _code_task_detail_to_dict(task)
+
+
+@router.delete("/code-tasks/{task_id}")
+async def delete_code_task(task_id: str, request: Request):
+    """删除单个编码任务记录（仅管理员）"""
+    _require_admin(request)
+    sf = get_session_factory()
+    async with sf() as session:
+        task = await session.get(GitCodeTask, task_id)
+        if not task:
+            raise HTTPException(404, "Code task not found")
+        await session.delete(task)
+        await session.commit()
+        return {"ok": True}
+
+
+@router.post("/code-tasks/batch-delete")
+async def batch_delete_code_tasks(body: CodeTaskBatchDelete, request: Request):
+    """批量删除编码任务记录（仅管理员）"""
+    _require_admin(request)
+    if not body.ids:
+        return {"deleted": 0}
+    sf = get_session_factory()
+    async with sf() as session:
+        result = await session.execute(
+            sa_delete(GitCodeTask).where(GitCodeTask.id.in_(body.ids))
+        )
+        deleted = result.rowcount or 0
+        await session.commit()
+        return {"deleted": deleted}
 
 
 # ============ Coding Environment Status ============

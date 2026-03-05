@@ -173,9 +173,9 @@ class AgentRuntime:
                 if channel_prompt:
                     system += f"\n\n# 渠道回复规范\n\n{channel_prompt}"
 
-                # 检查是否为虚拟员工，注入人设
+                # 检查是否为 AI 员工，注入人设
                 if ctx.member and ctx.member.is_virtual and ctx.member.virtual_system_prompt:
-                    system += f"\n\n# 虚拟员工人设\n\n{ctx.member.virtual_system_prompt}"
+                    system += f"\n\n# AI 员工人设\n\n{ctx.member.virtual_system_prompt}"
 
                 plugin_prompts = self._registry.get_system_prompt_extension()
                 if plugin_prompts:
@@ -240,6 +240,11 @@ class AgentRuntime:
                             {"data": img["data"], "media_type": img.get("media_type", "image/png")}
                             for img in ctx.images if img.get("data")
                         ]
+                    # 注入目标成员信息（用于 AI 员工聊天场景）
+                    # target_member_id 是当前对话的 AI 员工成员 ID
+                    # caller_member_id 是当前发起请求的真实成员 ID
+                    tool_input["_target_member_id"] = getattr(ctx, "target_member_id", "") or ""
+                    tool_input["_caller_member_id"] = getattr(ctx, "caller_member_id", "") or ctx.user_id
                     result = await self._registry.execute_tool(block.name, tool_input)
                     log.info(f"工具结果: {result[:200]}")
                     tool_results.append({
@@ -366,6 +371,10 @@ class AgentRuntime:
             ctx = RequestContext(channel="web", user_id=member_id, permissions={"*"})
 
         ctx.images = images or []
+
+        # 设置目标成员和调用者信息（用于 AI 员工聊天场景）
+        ctx.target_member_id = target_id or ""
+        ctx.caller_member_id = member_id
 
         if (not content or not content.strip()) and not images:
             log.warning(f"[web] 空消息，跳过处理: member_id={member_id}, session_id={session_id}")
@@ -526,6 +535,8 @@ class AgentRuntime:
                             self._registry.execute_tool(block.name, tool_input)
                         )
                         elapsed = 0
+                        # Accumulate full CLI output for persistence
+                        accumulated_output: list[str] = []
                         while not tool_task.done():
                             if cancel_event and cancel_event.is_set():
                                 interrupted = True
@@ -548,6 +559,7 @@ class AgentRuntime:
                                         break
                                 output_chunk = "\n".join(lines)
                                 if output_chunk:
+                                    accumulated_output.append(output_chunk)
                                     yield {
                                         "type": "tool_output",
                                         "name": block.name,
@@ -567,12 +579,16 @@ class AgentRuntime:
                             break
                         result = tool_task.result()
 
-                        log.info(f"[web] 工具结果: {result[:200]}")
-                        yield {"type": "tool_result", "name": block.name, "result": result[:200]}
+                        log.info(f"[web] 工具结果: {result[:500] if len(result) > 500 else result}")
+                        yield {"type": "tool_result", "name": block.name, "result": result}
+                        # Persist full CLI conversation in chat history: prefer accumulated live output,
+                        # fall back to the final result string if no live output was produced.
+                        full_output = "\n".join(accumulated_output).strip()
+                        persisted_content = full_output or result
                         tool_results.append({
                             "type": "tool_result",
                             "tool_use_id": block.id,
-                            "content": result,
+                            "content": persisted_content,
                         })
 
                 if interrupted:

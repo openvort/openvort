@@ -209,18 +209,49 @@ class ScheduleService:
 
     # ---- 内部方法 ----
 
+    async def _build_executor_context(self, job: ScheduleJob) -> "RequestContext":
+        """构建执行人上下文（AI 员工或系统默认）"""
+        from openvort.core.context import RequestContext
+        from openvort.auth.service import AuthService
+
+        exec_id = f"{job.job_id}_{uuid.uuid4().hex[:8]}"
+
+        # 如果绑定了 AI 员工，使用完整的成员上下文
+        if job.target_member_id:
+            member = await self._contacts_service.get_member(job.target_member_id)
+            if member:
+                # 获取成员的角色和权限
+                roles = []
+                permissions = set()
+                try:
+                    auth_service = AuthService(self._session_factory)
+                    roles = await auth_service.get_member_roles(member.id)
+                    permissions = await auth_service.get_member_permissions(member.id)
+                except Exception as e:
+                    log.warning(f"获取成员角色权限失败: {e}")
+
+                ctx = RequestContext(
+                    channel="scheduler",
+                    user_id=exec_id,
+                    member=member,
+                    roles=roles,
+                    permissions=permissions,
+                )
+                return ctx
+
+        # 否则使用默认上下文（系统助手）
+        return RequestContext(
+            channel="scheduler",
+            user_id=exec_id,
+            member=None,
+        )
+
     async def _execute_job(self, job: ScheduleJob) -> str:
         """执行任务 — 目前只支持 agent_chat"""
         config = json.loads(job.action_config) if job.action_config else {}
         prompt = config.get("prompt", "")
         if not prompt:
             raise ValueError("action_config 缺少 prompt")
-
-        # 如果绑定了虚拟员工，注入人设
-        if job.target_member_id:
-            member = await self._contacts_service.get_member(job.target_member_id)
-            if member and member.is_virtual and member.virtual_system_prompt:
-                prompt = f"{member.virtual_system_prompt}\n\n{prompt}"
 
         # Resolve owner name for context
         owner_name = ""
@@ -231,8 +262,19 @@ class ScheduleService:
         except Exception:
             pass
 
+        # 构建执行人上下文（自动注入 AI 员工人设）
+        ctx = await self._build_executor_context(job)
+
+        # 根据执行人类型生成上下文提示
+        executor_name = ""
+        if ctx.member and ctx.member.is_virtual:
+            executor_name = ctx.member.name or "AI 员工"
+        else:
+            executor_name = "系统助手"
+
         sched_context = (
             f"[系统] 你正在执行定时任务「{job.name}」，任务创建者是{owner_name or job.owner_id}。"
+            f"当前执行人是{executor_name}。"
             f"请根据任务要求执行操作，如需发送消息请通过 wecom_send_message 等工具发送给创建者。\n\n"
             f"任务要求：{prompt}"
         )
@@ -242,13 +284,7 @@ class ScheduleService:
 
         try:
             if self._agent and job.action_type == "agent_chat":
-                from openvort.core.context import RequestContext
-                exec_id = f"{job.job_id}_{uuid.uuid4().hex[:8]}"
-                ctx = RequestContext(
-                    channel="scheduler",
-                    user_id=exec_id,
-                    member=None,
-                )
+                # AgentRuntime.process 会自动根据 ctx.member.is_virtual 注入人设
                 result_text = await self._agent.process(ctx, sched_context)
             else:
                 result_text = "Agent 未初始化或不支持的 action_type"
@@ -268,6 +304,19 @@ class ScheduleService:
                 db_job.last_status = status
                 db_job.last_result = result_text[:2000]
                 await session.commit()
+
+        # 调用通知回调（如果有）
+        if self._notify_fn:
+            try:
+                await self._notify_fn(
+                    owner_id=job.owner_id,
+                    job_name=job.name,
+                    result_text=result_text,
+                    executor_member=ctx.member,
+                    job_id=job.job_id,
+                )
+            except Exception as e:
+                log.error(f"通知任务结果失败: {e}")
 
         return result_text
 

@@ -7,6 +7,7 @@ export interface ChatMessage {
     toolsExpanded?: boolean;
     timestamp: number;
     streaming?: boolean;
+    avatar_url?: string;  // 成员聊天时，assistant 消息使用成员头像
 }
 
 export interface ChatSession {
@@ -27,6 +28,7 @@ export interface ToolCall {
     collapsed?: boolean;
     count?: number;
     hasLiveOutput?: boolean;
+    screenshots?: string[];  // base64 screenshots from tool output
 }
 
 export interface PendingImage {
@@ -48,6 +50,11 @@ export interface Contact {
     pinned?: boolean;
     position?: string;
     bio?: string;
+    /** Whether this contact represents an AI employee (virtual member) */
+    is_virtual?: boolean;
+    /** Optional virtual role key/name for AI employees */
+    virtual_role_key?: string;
+    virtual_role_name?: string;
 }
 
 export interface MentionMember {

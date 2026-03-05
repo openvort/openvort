@@ -13,7 +13,7 @@ cd /Users/yangqiang/Work/Projects/openvort && PYTHONUNBUFFERED=1 .venv/bin/openv
 ```
 
 - 设置 `block_until_ms: 0` 让它立即进入后台
-- 然后 sleep 15s 再读 terminal 文件检查输出
+- 然后 sleep 10s 再读 terminal 文件检查输出
 
 ## 检查启动成功
 

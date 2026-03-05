@@ -2,7 +2,12 @@
 Skill 加载器
 
 DB 驱动的三级 Skill 体系（builtin / public / personal）。
-启动时扫描内置文件同步到 DB，运行时全部通过 DB 读写。
+启动时扫描多目录同步到 DB，运行时全部通过 DB 读写。
+
+支持目录：
+- 内置目录 (skills/) - builtin scope
+- 用户目录 (~/.openvort/skills/) - personal scope
+- 企业目录 (/etc/openvort/skills/) - public scope
 """
 
 import re
@@ -14,6 +19,7 @@ from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from openvort.plugin.registry import PluginRegistry
+from openvort.skill.directories import SkillDirectoryManager
 from openvort.utils.logging import get_logger
 
 log = get_logger("skill.loader")
@@ -31,8 +37,8 @@ BUILTIN_SKILL_TYPES: dict[str, str] = {
     "daily-report": "workflow",
 }
 
-# 默认角色-技能映射配置
-DEFAULT_ROLE_SKILLS = {
+# 默认岗位-技能映射配置
+DEFAULT_POST_SKILLS = {
     "developer": [
         {"skill_name": "developer", "priority": 1},
         {"skill_name": "code-review", "priority": 2},
@@ -51,6 +57,9 @@ DEFAULT_ROLE_SKILLS = {
         {"skill_name": "assistant", "priority": 1},
     ],
 }
+
+# 保留旧名称的别名，保持向后兼容
+DEFAULT_ROLE_SKILLS = DEFAULT_POST_SKILLS
 
 
 @dataclass
@@ -112,7 +121,7 @@ class SkillLoader:
         self._migration_done = False
 
     async def load_all(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
-        """Sync builtin files to DB, then register enabled global skills."""
+        """Sync builtin/user/organization files to DB, then register enabled global skills."""
         self._session_factory = session_factory
 
         # 启动时自动迁移数据库结构
@@ -120,8 +129,12 @@ class SkillLoader:
             await self._migrate_schema()
             self._migration_done = True
 
+        # 同步各目录到 DB
         await self._sync_builtin_to_db()
+        await self._sync_user_to_db()
+        await self._sync_organization_to_db()
         await self._sync_role_skills_to_db()
+        await self._sync_posts_to_db()
 
         async with session_factory() as db:
             from openvort.db.models import Skill as SkillModel
@@ -286,12 +299,41 @@ class SkillLoader:
         """Scan builtin SKILL.md files and upsert into DB."""
         from openvort.db.models import Skill as SkillModel
 
-        builtin_dir = Path(__file__).parent.parent / "skills"
-        if not builtin_dir.exists():
+        builtin_dir = SkillDirectoryManager.get_directory("builtin")
+        if not builtin_dir or not builtin_dir.path.exists():
             return
 
+        await self._sync_directory_to_db(builtin_dir.path, "builtin", SkillDirectoryManager.get_directory("builtin").key)
+
+    async def _sync_user_to_db(self) -> None:
+        """Scan user SKILL.md files and upsert into DB."""
+        from openvort.db.models import Skill as SkillModel
+
+        user_dir = SkillDirectoryManager.get_directory("user")
+        if not user_dir or not user_dir.path.exists():
+            return
+
+        await self._sync_directory_to_db(user_dir.path, "personal", user_dir.key)
+
+    async def _sync_organization_to_db(self) -> None:
+        """Scan organization SKILL.md files and upsert into DB."""
+        from openvort.db.models import Skill as SkillModel
+
+        org_dir = SkillDirectoryManager.get_directory("organization")
+        if not org_dir or not org_dir.enabled or not org_dir.path.exists():
+            return
+
+        await self._sync_directory_to_db(org_dir.path, "public", org_dir.key)
+
+    async def _sync_directory_to_db(self, directory: Path, scope: str, dir_key: str) -> None:
+        """Scan a directory for SKILL.md files and sync to DB."""
+        from openvort.db.models import Skill as SkillModel
+
         file_skills: dict[str, dict] = {}
-        for skill_dir in sorted(builtin_dir.iterdir()):
+        if not directory.exists():
+            return
+
+        for skill_dir in sorted(directory.iterdir()):
             if not skill_dir.is_dir():
                 continue
             skill_file = skill_dir / "SKILL.md"
@@ -306,12 +348,14 @@ class SkillLoader:
 
         async with self._session_factory() as db:
             result = await db.execute(
-                select(SkillModel).where(SkillModel.scope == "builtin")
+                select(SkillModel).where(SkillModel.scope == scope)
             )
             existing = {row.name: row for row in result.scalars().all()}
 
             for name, data in file_skills.items():
+                # Determine skill_type based on name (keep existing logic)
                 stype = BUILTIN_SKILL_TYPES.get(name, "workflow")
+
                 if name in existing:
                     row = existing[name]
                     row.description = data["description"]
@@ -323,29 +367,31 @@ class SkillLoader:
                         name=name,
                         description=data["description"],
                         content=data["content"],
-                        scope="builtin",
+                        scope=scope,
                         skill_type=stype,
                         enabled=data["enabled"],
                     ))
 
-            # Remove DB builtins that no longer exist on disk
-            for name, row in existing.items():
-                if name not in file_skills:
-                    await db.delete(row)
+            # Remove DB entries that no longer exist on disk (only for non-builtin)
+            if scope != "builtin":
+                for name, row in existing.items():
+                    if name not in file_skills:
+                        await db.delete(row)
 
             await db.commit()
+        log.info(f"已同步 {dir_key} 目录 {len(file_skills)} 个 Skills 到 DB (scope={scope})")
 
     async def _sync_role_skills_to_db(self) -> None:
-        """同步角色-技能映射到数据库"""
-        from openvort.db.models import RoleSkill as RoleSkillModel, Skill as SkillModel
+        """同步岗位-技能映射到数据库"""
+        from openvort.db.models import PostSkill as PostSkillModel, Skill as SkillModel
 
         async with self._session_factory() as db:
             # 获取所有已存在的映射
-            result = await db.execute(select(RoleSkillModel))
-            existing = {(row.role, row.skill_id): row for row in result.scalars().all()}
+            result = await db.execute(select(PostSkillModel))
+            existing = {(row.post, row.skill_id): row for row in result.scalars().all()}
 
             # 遍历默认配置，创建映射
-            for role, skill_configs in DEFAULT_ROLE_SKILLS.items():
+            for post, skill_configs in DEFAULT_POST_SKILLS.items():
                 for config in skill_configs:
                     skill_name = config["skill_name"]
                     priority = config["priority"]
@@ -358,23 +404,24 @@ class SkillLoader:
                     if not skill:
                         continue
 
-                    key = (role, skill.id)
+                    key = (post, skill.id)
                     if key not in existing:
-                        db.add(RoleSkillModel(
-                            role=role,
+                        db.add(PostSkillModel(
+                            post=post,
                             skill_id=skill.id,
                             priority=priority,
                         ))
 
             await db.commit()
-        log.info("角色-技能映射已同步")
+        log.info("岗位-技能映射已同步")
 
-    async def _sync_virtual_roles_to_db(self) -> None:
-        """同步虚拟角色元数据到数据库"""
-        from openvort.db.models import VirtualRole as VirtualRoleModel
+    # 保留旧方法名，保持向后兼容
+    async def _sync_posts_to_db(self) -> None:
+        """同步岗位元数据到数据库"""
+        from openvort.db.models import Post as PostModel
 
-        # 默认角色配置
-        DEFAULT_VIRTUAL_ROLES = [
+        # 默认岗位配置
+        DEFAULT_POSTS = [
             {
                 "key": "developer",
                 "name": "开发工程师",
@@ -423,13 +470,13 @@ class SkillLoader:
         ]
 
         async with self._session_factory() as db:
-            # 获取所有已存在的角色
-            result = await db.execute(select(VirtualRoleModel))
+            # 获取所有已存在的岗位
+            result = await db.execute(select(PostModel))
             existing = {row.key: row for row in result.scalars().all()}
 
-            for config in DEFAULT_VIRTUAL_ROLES:
+            for config in DEFAULT_POSTS:
                 if config["key"] in existing:
-                    # 更新已有角色
+                    # 更新已有岗位
                     row = existing[config["key"]]
                     row.name = config["name"]
                     row.description = config["description"]
@@ -438,8 +485,8 @@ class SkillLoader:
                     row.default_auto_report = config["default_auto_report"]
                     row.default_report_frequency = config["default_report_frequency"]
                 else:
-                    # 创建新角色
-                    db.add(VirtualRoleModel(
+                    # 创建新岗位
+                    db.add(PostModel(
                         id=uuid.uuid4().hex,
                         key=config["key"],
                         name=config["name"],
@@ -451,7 +498,7 @@ class SkillLoader:
                     ))
 
             await db.commit()
-        log.info("虚拟角色元数据已同步")
+        log.info("岗位元数据已同步")
 
     async def get_member_skills_content(self, member_id: str) -> list[str]:
         """Return content list of ALL member skills: role-based + subscribed + personal."""
@@ -571,14 +618,14 @@ class SkillLoader:
         if not self._session_factory:
             return []
 
-        from openvort.db.models import RoleSkill as RoleSkillModel, Skill as SkillModel
+        from openvort.db.models import PostSkill as RoleSkillModel, Skill as SkillModel
 
         async with self._session_factory() as db:
             result = await db.execute(
                 select(SkillModel, RoleSkillModel).join(
                     RoleSkillModel, RoleSkillModel.skill_id == SkillModel.id
                 ).where(
-                    RoleSkillModel.role == role,
+                    RoleSkillModel.post == role,
                 ).order_by(RoleSkillModel.priority)
             )
             rows = result.all()

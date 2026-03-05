@@ -152,6 +152,9 @@ function mergeToolCalls(tools: ToolCall[]): ToolCall[] {
             if (t.output) {
                 last.output = last.output ? last.output + "\n" + t.output : t.output;
             }
+            if (t.screenshots?.length) {
+                last.screenshots = [...(last.screenshots || []), ...t.screenshots];
+            }
         } else {
             merged.push({ ...t, count: t.count || 1 });
         }
@@ -354,13 +357,30 @@ async function loadHistory() {
                 };
                 if (m.tool_calls?.length) {
                     msg.toolCalls = mergeToolCalls(
-                        m.tool_calls.map((tc: any) => ({
-                            name: tc.name,
-                            status: tc.status || "done",
-                            output: tc.output || "",
-                            collapsed: true,
-                            count: 1,
-                        }))
+                        m.tool_calls.map((tc: any) => {
+                                // 解析截图: 支持多个 [screenshot]base64 段
+                                let output = tc.output || "";
+                                let screenshots: string[] | undefined;
+                                if (output && output.includes("[screenshot]")) {
+                                    const matches = Array.from(
+                                        output.matchAll(/\[screenshot\]([A-Za-z0-9+/=]+)/g),
+                                    );
+                                    if (matches.length) {
+                                        screenshots = matches.map((m) => m[1].trim());
+                                        output = output
+                                            .replace(/\[screenshot\][A-Za-z0-9+/=]+/g, "")
+                                            .trim();
+                                    }
+                                }
+                                return {
+                                    name: tc.name,
+                                    status: tc.status || "done",
+                                    output,
+                                    screenshots,
+                                    collapsed: true,
+                                    count: 1,
+                                };
+                            })
                     );
                 }
                 return msg;
@@ -436,6 +456,8 @@ async function handleSend() {
         toolCalls: [],
         timestamp: Date.now(),
         streaming: true,
+        // 成员聊天模式：使用成员头像
+        avatar_url: !isAiMode.value ? activeContact.value?.avatar_url : undefined,
     };
     messages.value.push(rawAssistantMsg);
     const assistantMsg = messages.value[messages.value.length - 1]!;
@@ -574,9 +596,26 @@ async function handleSend() {
                 if (call) {
                     call.status = "done";
                     if (data.result) {
-                        call.output = call.output
-                            ? call.output + "\n---\n" + data.result
-                            : data.result;
+                        // 解析截图: 支持多个 [screenshot]base64 段
+                        if (data.result.includes("[screenshot]")) {
+                            const matches = Array.from(
+                                data.result.matchAll(/\[screenshot\]([A-Za-z0-9+/=]+)/g),
+                            );
+                            if (matches.length) {
+                                const newScreenshots = matches.map((m: any) => m[1].trim());
+                                call.screenshots = [
+                                    ...(call.screenshots || []),
+                                    ...newScreenshots,
+                                ];
+                                call.output = data.result
+                                    .replace(/\[screenshot\][A-Za-z0-9+/=]+/g, "")
+                                    .trim();
+                            } else {
+                                call.output = data.result;
+                            }
+                        } else {
+                            call.output = data.result;
+                        }
                     }
                     call.collapsed = call.hasLiveOutput ? false : !!call.output;
                 }
@@ -1551,11 +1590,27 @@ onUnmounted(() => {
                     <!-- 消息气泡 -->
                     <div v-for="msg in messages" :key="msg.id" class="flex" :class="msg.role === 'user' ? 'justify-end' : 'justify-start'">
                         <div class="flex max-w-[80%]" :class="msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'">
-                            <div class="flex-shrink-0" :class="msg.role === 'user' ? 'ml-3' : 'mr-3'">
-                                <div class="w-8 h-8 rounded-full flex items-center justify-center"
-                                    :class="msg.role === 'user' ? 'bg-blue-600' : 'bg-gray-100'">
-                                    <span v-if="msg.role === 'user'" class="text-white text-xs font-medium">{{ (userStore.userInfo.name || 'U')[0] }}</span>
-                                    <Bot v-else :size="16" class="text-blue-600" />
+                            <div class="flex-shrink-0 relative" :class="msg.role === 'user' ? 'ml-3' : 'mr-3'">
+                                <!-- 用户消息头像 -->
+                                <div v-if="msg.role === 'user'" class="w-8 h-8 rounded-full flex items-center justify-center bg-blue-600">
+                                    <span class="text-white text-xs font-medium">{{ (userStore.userInfo.name || 'U')[0] }}</span>
+                                </div>
+                                <!-- AI 回复头像 -->
+                                <div v-else class="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden"
+                                    :class="isAiMode ? 'bg-gray-100' : (msg.avatar_url ? '' : 'bg-gray-100')">
+                                    <!-- AI 模式：显示 Bot 图标 -->
+                                    <template v-if="isAiMode">
+                                        <Bot :size="16" class="text-blue-600" />
+                                    </template>
+                                    <!-- 成员聊天模式：显示成员头像 -->
+                                    <template v-else>
+                                        <img v-if="msg.avatar_url" :src="msg.avatar_url" class="w-full h-full object-cover" />
+                                        <span v-else class="text-sm font-medium text-gray-500">{{ (activeContact?.name || '?')[0] }}</span>
+                                        <!-- AI 小标识 -->
+                                        <div class="absolute -top-1 -right-1 w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center">
+                                            <Bot :size="10" class="text-white" />
+                                        </div>
+                                    </template>
                                 </div>
                             </div>
                             <div>
@@ -1582,6 +1637,16 @@ onUnmounted(() => {
                                     <div v-if="tool.output && (tool.hasLiveOutput ? true : !tool.collapsed)"
                                         :ref="(el: any) => { if (el) el.scrollTop = el.scrollHeight }"
                                         class="mt-1 ml-1 max-h-60 overflow-y-auto rounded-lg bg-gray-900 text-green-400 text-xs font-mono px-3 py-2 whitespace-pre-wrap break-words leading-5 border border-gray-700/50 shadow-inner">{{ tool.output }}</div>
+                                    <!-- 工具截图 -->
+                                    <div v-if="tool.screenshots?.length" class="mt-2 ml-1 flex flex-wrap gap-2">
+                                        <VortImage v-for="(screenshot, idx) in tool.screenshots" :key="idx"
+                                            :src="'data:image/png;base64,' + screenshot"
+                                            :preview-src-list="tool.screenshots.map(s => 'data:image/png;base64,' + s)"
+                                            :initial-index="idx"
+                                            fit="contain"
+                                            class="rounded-lg border border-gray-600 cursor-pointer"
+                                            style="max-width: 200px; max-height: 150px;" />
+                                    </div>
                                 </div>
                             </div>
                             <!-- 已完成的工具调用（历史加载时，显示在气泡上方可展开）-->
@@ -1604,6 +1669,16 @@ onUnmounted(() => {
                                         </div>
                                         <div v-if="tool.output && !tool.collapsed"
                                             class="mt-1 ml-1 max-h-60 overflow-y-auto rounded-lg bg-gray-900 text-green-400 text-xs font-mono px-3 py-2 whitespace-pre-wrap break-words leading-5 border border-gray-700/50 shadow-inner">{{ tool.output }}</div>
+                                        <!-- 工具截图 -->
+                                        <div v-if="tool.screenshots?.length" class="mt-2 ml-1 flex flex-wrap gap-2">
+                                            <VortImage v-for="(screenshot, idx) in tool.screenshots" :key="idx"
+                                                :src="'data:image/png;base64,' + screenshot"
+                                                :preview-src-list="tool.screenshots.map(s => 'data:image/png;base64,' + s)"
+                                                :initial-index="idx"
+                                                fit="contain"
+                                                class="rounded-lg border border-gray-600 cursor-pointer"
+                                                style="max-width: 200px; max-height: 150px;" />
+                                        </div>
                                     </div>
                                 </div>
                             </div>

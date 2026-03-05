@@ -191,7 +191,7 @@ export function createMember(data: {
 }
 
 /** 成员列表 */
-export function getMembers(params?: { search?: string; role?: string; department_id?: number; page?: number; size?: number }) {
+export function getMembers(params?: { search?: string; role?: string; department_id?: number; page?: number; size?: number; is_virtual?: boolean }) {
     return request.get("/admin/members", { params });
 }
 
@@ -644,6 +644,7 @@ export function createMySchedule(data: {
     action_type?: string;
     action_config?: Record<string, any>;
     enabled?: boolean;
+    target_member_id?: string;
 }) {
     return request.post("/schedules", data);
 }
@@ -666,6 +667,11 @@ export function toggleMySchedule(jobId: string) {
 /** 立即执行个人任务 */
 export function runMySchedule(jobId: string) {
     return request.post(`/schedules/${jobId}/run`);
+}
+
+/** 获取可作为执行人的 AI 员工列表 */
+export function getScheduleExecutors() {
+    return request.get("/schedules/executors");
 }
 
 // ---- 定时任务（管理员）----
@@ -739,6 +745,31 @@ export function deleteSkill(id: string) {
 /** 启用/禁用 Skill */
 export function toggleSkill(id: string) {
     return request.post(`/admin/skills/${id}/toggle`);
+}
+
+/** 获取 Skill 扫描目录列表 */
+export function getSkillDirectories() {
+    return request.get("/admin/skills/directories");
+}
+
+/** 搜索 GitHub 上的 Skills */
+export function searchOnlineSkills(q: string, limit?: number) {
+    return request.get("/admin/skills/search-online", { params: { q, limit } });
+}
+
+/** 从 GitHub 导入 Skill */
+export function importSkillFromGithub(url: string, ownerId?: string) {
+    return request.post("/admin/skills/import", { url, owner_id: ownerId });
+}
+
+/** 获取 GitHub 仓库信息 */
+export function getGithubRepoInfo(owner: string, repo: string) {
+    return request.get(`/admin/skills/import/repos/${owner}/${repo}`);
+}
+
+/** 生成 Skill 内容的 AI 创建 prompt */
+export function generateSkillContentPrompt(skillId: string) {
+    return request.get(`/admin/skills/${skillId}/generate-content-prompt`);
 }
 
 // ---- 成员技能（登录用户）----
@@ -1058,6 +1089,13 @@ export function getVortflowEvents(params: { entity_type?: string; entity_id?: st
     return request.get("/vortflow/events", { params });
 }
 
+/** 生成 VortFlow 描述的 AI 创建 prompt */
+export function generateVortflowDescriptionPrompt(entityType: string, projectName: string, title: string) {
+    return request.get("/vortflow/generate-description-prompt", {
+        params: { entity_type: entityType, project_name: projectName, title },
+    });
+}
+
 // ==================== VortGit ====================
 
 // -- Git 平台 --
@@ -1175,6 +1213,16 @@ export function getVortgitCodeTaskStats() {
     return request.get("/vortgit/code-tasks/stats");
 }
 
+/** 删除单个 VortGit 编码任务（仅管理员） */
+export function deleteVortgitCodeTask(id: string) {
+    return request.delete(`/vortgit/code-tasks/${id}`);
+}
+
+/** 批量删除 VortGit 编码任务（仅管理员） */
+export function batchDeleteVortgitCodeTasks(ids: string[]) {
+    return request.post("/vortgit/code-tasks/batch-delete", { ids });
+}
+
 /** VortGit 编码环境状态 */
 export function getVortgitCodingEnvStatus() {
     return request.get("/vortgit/coding-env/status");
@@ -1238,6 +1286,13 @@ export function updateReport(id: string, data: { title?: string; content?: strin
     return request.put(`/reports/${id}`, data);
 }
 
+/** 生成汇报内容的 AI 创建 prompt */
+export function generateReportContentPrompt(reportType: string, reportDate?: string) {
+    return request.get("/reports/generate-content-prompt", {
+        params: { report_type: reportType, report_date: reportDate },
+    });
+}
+
 /** 审阅汇报 */
 export function reviewReport(id: string, data: { status: string; comment?: string }) {
     return request.put(`/reports/${id}/review`, data);
@@ -1288,4 +1343,116 @@ export function deleteBackup(filename: string) {
 /** 恢复备份 SSE 流地址 */
 export function getRestoreStreamUrl(filename: string, token: string) {
     return `/api/admin/upgrade/backups/${encodeURIComponent(filename)}/restore?token=${encodeURIComponent(token)}`;
+}
+
+// ========== AI 员工岗位 API ==========
+
+/** 获取岗位列表 */
+export function getVirtualRoles(enabled?: boolean) {
+    return request.get("/posts", { params: { enabled } });
+}
+
+/** 获取岗位详情 */
+export function getVirtualRole(roleKeyOrId: string) {
+    return request.get(`/posts/${roleKeyOrId}`);
+}
+
+/** 创建岗位 */
+export function createVirtualRole(data: {
+    key: string;
+    name: string;
+    description?: string;
+    icon?: string;
+    default_persona?: string;
+    default_auto_report?: boolean;
+    default_report_frequency?: string;
+}) {
+    return request.post("/posts", data);
+}
+
+/** 更新岗位 */
+export function updateVirtualRole(roleId: string, data: {
+    name?: string;
+    description?: string;
+    icon?: string;
+    default_persona?: string;
+    default_auto_report?: boolean;
+    default_report_frequency?: string;
+    enabled?: boolean;
+}) {
+    return request.put(`/posts/${roleId}`, data);
+}
+
+/** 删除岗位 */
+export function deleteVirtualRole(roleId: string) {
+    return request.delete(`/posts/${roleId}`);
+}
+
+/** 获取岗位的推荐技能 */
+export function getVirtualRoleSkills(roleKeyOrId: string) {
+    return request.get(`/posts/${roleKeyOrId}/skills`);
+}
+
+/** 重置岗位的推荐技能 */
+export function bindVirtualRoleSkills(roleKeyOrId: string, data: {
+    skill_ids: string[];
+    priorities?: Record<string, number>;
+}) {
+    return request.put(`/posts/${roleKeyOrId}/skills`, data);
+}
+
+/** 生成岗位 Persona 的 AI 创建 prompt */
+export function generateRolePersonaPrompt(roleKeyOrId: string) {
+    return request.get(`/virtual-roles/${roleKeyOrId}/generate-persona-prompt`);
+}
+
+// ---- 工作安排（WorkAssignment）----
+
+/** 获取工作安排列表 */
+export function getWorkAssignments(params: {
+    assignee_member_id?: string;
+    requested_by_member_id?: string;
+    status?: string;
+}) {
+    return request.get("/work-assignments", { params });
+}
+
+/** 创建工作安排 */
+export function createWorkAssignment(data: {
+    title: string;
+    summary?: string;
+    plan?: string;
+    assignee_member_id: string;
+    requested_by_member_id?: string;
+    source_type?: string;
+    source_id?: string;
+    source_detail?: string;
+    related_schedule_id?: number;
+    status?: string;
+    priority?: string;
+    due_date?: string;
+}) {
+    return request.post("/work-assignments", data);
+}
+
+/** 更新工作安排 */
+export function updateWorkAssignment(assignmentId: number, data: {
+    title?: string;
+    summary?: string;
+    plan?: string;
+    status?: string;
+    priority?: string;
+    due_date?: string;
+}) {
+    return request.put(`/work-assignments/${assignmentId}`, data);
+}
+
+/** 删除工作安排 */
+export function deleteWorkAssignment(assignmentId: number) {
+    return request.delete(`/work-assignments/${assignmentId}`);
+}
+
+/** 更新工作安排状态 */
+export function updateWorkAssignmentStatus(assignmentId: number, status: string) {
+    return request.post(`/work-assignments/${assignmentId}/update_status`, null, { params: { status } });
 }
