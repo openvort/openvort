@@ -598,18 +598,14 @@ function openRoleDialog(member: MemberItem) {
 
 async function handleRoleDialogToggle(roleName: string) {
     if (!roleDialogMember.value) return;
-    roleDialogLoading.value = true;
     const member = roleDialogMember.value;
-    const hasRole = member.roles.includes(roleName);
-    if (hasRole) {
-        await handleRemoveRole(member.id, roleName);
-    } else {
-        await handleAssignRole(member.id, roleName);
-    }
-    // 刷新 member 数据
+    if (member.roles.length === 1 && member.roles[0] === roleName) return;
+    roleDialogLoading.value = true;
+    await handleAssignRole(member.id, roleName);
     const updated = members.value.find(m => m.id === member.id);
     if (updated) roleDialogMember.value = updated;
     roleDialogLoading.value = false;
+    roleDialogOpen.value = false;
 }
 
 // ---- 删除 ----
@@ -1858,28 +1854,35 @@ onMounted(() => {
             </template>
         </VortDrawer>
 
-        <!-- 角色分配弹窗 -->
-        <VortDialog :open="roleDialogOpen" title="角色管理" @update:open="roleDialogOpen = $event">
+        <!-- 角色分配弹窗（单选） -->
+        <VortDialog :open="roleDialogOpen" title="角色管理" :footer="false" @update:open="roleDialogOpen = $event">
             <template v-if="roleDialogMember">
                 <div class="mb-3 text-sm text-gray-600">
                     为 <span class="font-medium text-gray-800">{{ roleDialogMember.name }}</span> 分配角色
                 </div>
-                <div class="space-y-2">
-                    <div
-                        v-for="r in roles" :key="r.name"
-                        class="flex items-center justify-between px-4 py-3 rounded-lg border transition-colors cursor-pointer"
-                        :class="roleDialogMember.roles.includes(r.name) ? 'border-blue-400 bg-blue-50' : 'border-gray-100 hover:bg-gray-50'"
-                        @click="handleRoleDialogToggle(r.name)"
-                    >
-                        <div>
-                            <div class="text-sm font-medium" :class="roleDialogMember.roles.includes(r.name) ? 'text-blue-700' : 'text-gray-700'">
-                                {{ r.display_name }}
+                <VortSpin :spinning="roleDialogLoading">
+                    <div class="space-y-2">
+                        <div
+                            v-for="r in roles" :key="r.name"
+                            class="flex items-center justify-between px-4 py-3 rounded-lg border transition-colors cursor-pointer"
+                            :class="roleDialogMember.roles.includes(r.name) ? 'border-blue-400 bg-blue-50' : 'border-gray-100 hover:bg-gray-50'"
+                            @click="handleRoleDialogToggle(r.name)"
+                        >
+                            <div>
+                                <div class="text-sm font-medium" :class="roleDialogMember.roles.includes(r.name) ? 'text-blue-700' : 'text-gray-700'">
+                                    {{ r.display_name }}
+                                </div>
+                                <div class="text-xs text-gray-400">{{ r.name }}</div>
                             </div>
-                            <div class="text-xs text-gray-400">{{ r.name }}</div>
+                            <div
+                                class="w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0"
+                                :class="roleDialogMember.roles.includes(r.name) ? 'border-blue-500 bg-blue-500' : 'border-gray-300'"
+                            >
+                                <div v-if="roleDialogMember.roles.includes(r.name)" class="w-1.5 h-1.5 rounded-full bg-white" />
+                            </div>
                         </div>
-                        <Check v-if="roleDialogMember.roles.includes(r.name)" :size="16" class="text-blue-600" />
                     </div>
-                </div>
+                </VortSpin>
             </template>
         </VortDialog>
 

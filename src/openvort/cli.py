@@ -371,7 +371,8 @@ async def _start_service(relay_url: str | None, poll_db_json: str | None, web_fl
     for ch in channels:
         if ch.name == "wecom" and ch.is_configured():
             _ch = ch  # 闭包捕获
-            _ch.set_asr_service(asr_service)
+            if hasattr(_ch, "set_asr_service"):
+                _ch.set_asr_service(asr_service)
 
             async def handle_message(msg):
                 # 初始化守卫：未初始化时拒绝外部渠道消息
