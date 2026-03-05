@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
-import { ChevronLeft, ChevronRight, Check, User, Bot, Code, ClipboardList, TestTube, Palette } from "lucide-vue-next";
+import { ChevronLeft, ChevronRight, Check, User, Bot } from "lucide-vue-next";
 import { message } from "@openvort/vort-ui";
 import type { Component } from "vue";
 
 interface RoleOption {
     value: string;
     label: string;
-    icon: Component;
     description: string;
 }
 
@@ -70,15 +69,6 @@ const totalSteps = computed(() => steps.value.length);
 const currentStepKey = computed(() => steps.value[currentStep.value - 1]?.key || "type");
 const currentStepTitle = computed(() => steps.value[currentStep.value - 1]?.title || "");
 
-// 图标映射
-const ICON_MAP: Record<string, any> = {
-    Code,
-    ClipboardList,
-    TestTube,
-    Palette,
-    Bot,
-};
-
 // 角色选项（从 API 加载）
 const roleOptions = ref<RoleOption[]>([]);
 const loadingRoles = ref(false);
@@ -88,11 +78,10 @@ async function loadRoleOptions() {
     try {
         const { getVirtualRoles } = await import("@/api");
         const res: any = await getVirtualRoles(true);
-        if (res?.roles) {
-            roleOptions.value = res.roles.map((r: any) => ({
+        if (res?.posts) {
+            roleOptions.value = res.posts.map((r: any) => ({
                 value: r.key,
                 label: r.name,
-                icon: ICON_MAP[r.icon] || Bot,
                 description: r.description,
             }));
         }
@@ -260,6 +249,7 @@ async function complete() {
         :title="`添加成员 - ${currentStepTitle}`"
         width="720px"
         :footer="false"
+        body-max-height="70vh"
         @update:open="handleClose"
     >
         <!-- 步骤指示器 -->
@@ -354,9 +344,6 @@ async function complete() {
                     "
                 >
                     <div class="flex items-start gap-3">
-                        <div class="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
-                            <component :is="role.icon" :size="18" class="text-gray-600" />
-                        </div>
                         <div class="flex-1">
                             <div class="flex items-center justify-between">
                                 <div class="font-medium text-gray-800">{{ role.label }}</div>

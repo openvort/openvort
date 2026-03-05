@@ -7,7 +7,7 @@ import {
     getSkills, generateRolePersonaPrompt,
 } from "@/api";
 import { message } from "@openvort/vort-ui";
-import { Plus, Trash2, Save, Settings, Code, ClipboardList, TestTube, Palette, Bot, Check } from "lucide-vue-next";
+import { Plus, Trash2, Save, Settings, Bot, Check } from "lucide-vue-next";
 
 const router = useRouter();
 
@@ -33,27 +33,17 @@ interface SkillItem {
     skill_type: string;
 }
 
-// 图标映射
-const ICON_MAP: Record<string, any> = {
-    Code,
-    ClipboardList,
-    TestTube,
-    Palette,
-    Bot,
-};
-
-const ICON_OPTIONS = [
-    { value: "Code", label: "开发工程师", icon: Code },
-    { value: "ClipboardList", label: "产品经理", icon: ClipboardList },
-    { value: "TestTube", label: "测试工程师", icon: TestTube },
-    { value: "Palette", label: "设计师", icon: Palette },
-    { value: "Bot", label: "通用助手", icon: Bot },
-];
-
 // 列表数据
 const posts = ref<VirtualRoleItem[]>([]);
 const loading = ref(false);
 const allSkills = ref<SkillItem[]>([]);
+
+// 分页
+const pagination = ref({
+    current: 1,
+    pageSize: 30,
+    total: 0,
+});
 
 // 弹窗状态
 const drawerVisible = ref(false);
@@ -229,11 +219,6 @@ async function handleAiGeneratePersona() {
     }
 }
 
-// 获取图标组件
-function getIconComponent(iconName: string) {
-    return ICON_MAP[iconName] || Bot;
-}
-
 onMounted(() => {
     loadRoles();
     loadAllSkills();
@@ -257,15 +242,21 @@ onMounted(() => {
 
         <!-- 表格卡片 -->
         <div class="bg-white rounded-xl p-6">
-            <vort-table :data-source="posts" :loading="loading" :pagination="false">
+            <vort-table
+                :data-source="posts"
+                :loading="loading"
+                :pagination="{
+                    current: pagination.current,
+                    pageSize: pagination.pageSize,
+                    total: pagination.total,
+                }"
+                @change="handlePageChange"
+            >
                 <vort-table-column label="角色" :width="200">
                     <template #default="{ row }">
-                        <div class="flex items-center gap-2">
-                            <component :is="getIconComponent(row.icon)" :size="18" class="text-gray-500" />
-                            <div>
-                                <div class="font-medium text-gray-800">{{ row.name }}</div>
-                                <div class="text-xs text-gray-400">{{ row.key }}</div>
-                            </div>
+                        <div>
+                            <div class="font-medium text-gray-800">{{ row.name }}</div>
+                            <div class="text-xs text-gray-400">{{ row.key }}</div>
                         </div>
                     </template>
                 </vort-table-column>
@@ -318,10 +309,7 @@ onMounted(() => {
                     </div>
                     <div>
                         <span class="text-sm text-gray-400">角色名称</span>
-                        <div class="flex items-center gap-2 mt-1">
-                            <component :is="getIconComponent(currentRole.icon || '')" :size="16" class="text-gray-500" />
-                            <span class="text-sm text-gray-800">{{ currentRole.name }}</span>
-                        </div>
+                        <div class="text-sm text-gray-800 mt-1">{{ currentRole.name }}</div>
                     </div>
                     <div class="col-span-2">
                         <span class="text-sm text-gray-400">描述</span>
@@ -375,19 +363,6 @@ onMounted(() => {
                     </vort-form-item>
                     <vort-form-item label="描述">
                         <vort-input v-model="currentRole.description" placeholder="一句话描述角色职能" />
-                    </vort-form-item>
-                    <vort-form-item label="图标">
-                        <div class="flex gap-2">
-                            <div
-                                v-for="opt in ICON_OPTIONS"
-                                :key="opt.value"
-                                class="w-10 h-10 rounded-lg border-2 cursor-pointer flex items-center justify-center transition-all"
-                                :class="currentRole.icon === opt.value ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:border-gray-300'"
-                                @click="currentRole.icon = opt.value"
-                            >
-                                <component :is="opt.icon" :size="20" class="text-gray-600" />
-                            </div>
-                        </div>
                     </vort-form-item>
                     <vort-form-item label="默认 Persona">
                         <div class="space-y-2">

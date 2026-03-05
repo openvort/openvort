@@ -103,11 +103,16 @@ class WeComCrypto {
 // JSON 文件存储（零依赖，不用 SQLite）
 // ============================================================
 
+const PROCESSING_TIMEOUT_MS = 30000; // 处理中状态超时 30 秒
+
 class RelayStore {
   constructor(dbPath) {
     this.dbPath = dbPath;
     this.data = { nextId: 1, messages: [] };
     this._load();
+
+    // 启动超时清理定时器
+    setInterval(() => this._releaseTimeout(), 5000);
   }
 
   _load() {
@@ -124,6 +129,20 @@ class RelayStore {
     fs.writeFileSync(this.dbPath, JSON.stringify(this.data, null, 2));
   }
 
+  // 释放超时的 processing 消息
+  _releaseTimeout() {
+    const now = Date.now();
+    let changed = false;
+    for (const msg of this.data.messages) {
+      if (msg.status === "processing" && now - msg.processing_since > PROCESSING_TIMEOUT_MS) {
+        msg.status = "pending";
+        delete msg.processing_since;
+        changed = true;
+      }
+    }
+    if (changed) this._save();
+  }
+
   save(msg) {
     const id = this.data.nextId++;
     this.data.messages.push({
@@ -133,33 +152,90 @@ class RelayStore {
       msg_type: msg.MsgType || "text",
       content: msg.Content || "",
       raw_data: msg,
-      processed: false,
+      status: "pending", // pending | processing | processed
       created_at: parseFloat(msg.CreateTime) || Date.now() / 1000,
     });
     this._save();
     return id;
   }
 
-  getMessages(sinceId = 0, limit = 50) {
-    return this.data.messages.filter((m) => m.id > sinceId).slice(0, limit);
-  }
+  // 原子性获取并标记消息为处理中（防止多客户端重复消费）
+  getAndMarkProcessing(sinceId = 0, limit = 50) {
+    const now = Date.now();
+    const messages = [];
 
-  markProcessed(msgId) {
-    const msg = this.data.messages.find((m) => m.id === msgId);
-    if (msg) {
-      msg.processed = true;
+    for (const msg of this.data.messages) {
+      if (messages.length >= limit) break;
+      if (msg.id <= sinceId) continue;
+      if (msg.status === "processed") continue;
+      if (msg.status === "pending") {
+        // 原子性标记为 processing
+        msg.status = "processing";
+        msg.processing_since = now;
+        messages.push(msg);
+      } else if (msg.status === "processing") {
+        // 超时的 processing 也视为可用
+        if (now - (msg.processing_since || 0) > PROCESSING_TIMEOUT_MS) {
+          msg.processing_since = now;
+          messages.push(msg);
+        }
+      }
+    }
+
+    if (messages.length > 0) {
       this._save();
     }
+
+    return messages;
+  }
+
+  // 确认处理完成
+  markProcessed(msgId) {
+    const msg = this.data.messages.find((m) => m.id === msgId);
+    // 只有 processing 状态才能确认，防止重复 ack
+    if (msg && msg.status === "processing") {
+      msg.status = "processed";
+      delete msg.processing_since;
+      this._save();
+      return true;
+    }
+    return false;
   }
 
   cleanup(maxAgeHours = 72) {
     const cutoff = Date.now() / 1000 - maxAgeHours * 3600;
     const before = this.data.messages.length;
     this.data.messages = this.data.messages.filter(
-      (m) => !(m.processed && m.created_at < cutoff)
+      (m) => !(m.status === "processed" && m.created_at < cutoff)
     );
     this._save();
     return before - this.data.messages.length;
+  }
+
+  // 调试用：获取所有消息（包括已消费的）
+  getAllMessages(sinceId = 0, limit = 50, status = "all") {
+    return this.data.messages
+      .filter((m) => {
+        if (m.id <= sinceId) return false;
+        if (status !== "all" && m.status !== status) return false;
+        return true;
+      })
+      .slice(-limit) // 返回最新的
+      .reverse(); // 按时间倒序
+  }
+
+  // 调试用：重置消息状态
+  resetMessage(msgId, newStatus = "pending") {
+    const msg = this.data.messages.find((m) => m.id === msgId);
+    if (msg) {
+      msg.status = newStatus;
+      if (newStatus === "pending") {
+        delete msg.processing_since;
+      }
+      this._save();
+      return true;
+    }
+    return false;
   }
 }
 
@@ -291,30 +367,42 @@ const server = http.createServer(async (req, res) => {
 
     // ---- Relay API ----
 
+    // 原子性获取消息并标记为处理中（防止多客户端重复消费）
     if (urlPath === "/relay/messages" && req.method === "GET") {
       if (!checkAuth(req)) return json(res, { error: "unauthorized" }, 401);
       const sinceId = parseInt(query.since_id || "0");
       const limit = parseInt(query.limit || "50");
-      return json(res, { messages: store.getMessages(sinceId, limit) });
+      const messages = store.getAndMarkProcessing(sinceId, limit);
+      return json(res, { messages });
     }
 
+    // 确认消息处理完成
     if (urlPath.match(/^\/relay\/messages\/\d+\/ack$/) && req.method === "POST") {
       if (!checkAuth(req)) return json(res, { error: "unauthorized" }, 401);
       const msgId = parseInt(urlPath.split("/")[3]);
-      store.markProcessed(msgId);
-      return json(res, { ok: true });
+      const ok = store.markProcessed(msgId);
+      return json(res, { ok });
     }
 
     if (urlPath === "/relay/send" && req.method === "POST") {
       if (!checkAuth(req)) return json(res, { error: "unauthorized" }, 401);
       const body = JSON.parse(await readBody(req));
-      const { touser, content, msg_type = "text" } = body;
-      if (!touser || !content) return json(res, { error: "touser and content required" }, 400);
+      const { touser, content, msg_type = "text", media_id } = body;
+      if (!touser) return json(res, { error: "touser required" }, 400);
+      if (!content && msg_type !== "voice") return json(res, { error: "content required" }, 400);
 
       const token = await getWecomToken();
       const payload = { touser, agentid: CONFIG.WECOM_AGENT_ID, msgtype: msg_type };
-      if (msg_type === "markdown") payload.markdown = { content };
-      else payload.text = { content };
+
+      if (msg_type === "voice") {
+        // 语音消息：需要 media_id
+        if (!media_id) return json(res, { error: "media_id required for voice" }, 400);
+        payload.voice = { media_id };
+      } else if (msg_type === "markdown") {
+        payload.markdown = { content };
+      } else {
+        payload.text = { content };
+      }
 
       const data = await httpsPost(
         `${CONFIG.WECOM_API_BASE}/message/send?access_token=${token}`,
@@ -324,7 +412,7 @@ const server = http.createServer(async (req, res) => {
         console.log(`[Relay] 发送失败: ${JSON.stringify(data)}`);
         return json(res, { error: data.errmsg || "unknown" }, 502);
       }
-      console.log(`[Relay] 已发送消息 -> ${touser}`);
+      console.log(`[Relay] 已发送消息 -> ${touser} (${msg_type})`);
       return json(res, { ok: true });
     }
 
@@ -348,6 +436,24 @@ const server = http.createServer(async (req, res) => {
       if (!checkAuth(req)) return json(res, { error: "unauthorized" }, 401);
       const deleted = store.cleanup();
       return json(res, { deleted });
+    }
+
+    // 调试接口：获取所有消息（包括已消费的）
+    if (urlPath === "/relay/messages/all" && req.method === "GET") {
+      if (!checkAuth(req)) return json(res, { error: "unauthorized" }, 401);
+      const sinceId = parseInt(query.since_id || "0");
+      const limit = parseInt(query.limit || "50");
+      const status = query.status || "all"; // pending, processing, processed, all
+      const messages = store.getAllMessages(sinceId, limit, status);
+      return json(res, { messages, total: store.data.messages.length });
+    }
+
+    // 调试接口：重置消息状态
+    if (urlPath === "/relay/messages/reset" && req.method === "POST") {
+      if (!checkAuth(req)) return json(res, { error: "unauthorized" }, 401);
+      const { msg_id, status } = JSON.parse(await readBody(req) || "{}");
+      const ok = store.resetMessage(msg_id, status);
+      return json(res, { ok });
     }
 
     // 404

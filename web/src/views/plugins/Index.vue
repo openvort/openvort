@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from "vue";
 import { getPlugins, getPluginDetail, updatePlugin, togglePlugin, installPlugin, uploadPlugin, deletePlugin } from "@/api";
-import { Puzzle, Wrench, CheckCircle, XCircle, Settings, Plus, Upload, Trash2, Search, ChevronDown, ChevronRight } from "lucide-vue-next";
+import { Puzzle, Wrench, CheckCircle, XCircle, Settings, Plus, Upload, Trash2, ChevronDown, ChevronRight } from "lucide-vue-next";
 import { message, dialog } from "@openvort/vort-ui";
 import { usePluginStore } from "@/stores/modules/plugin";
 
@@ -224,15 +224,12 @@ onMounted(loadPlugins);
 
         <!-- 搜索和筛选 -->
         <div class="flex flex-wrap items-center gap-3">
-            <div class="relative flex-1 min-w-[200px] max-w-md">
-                <Search :size="14" class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input
-                    v-model="searchQuery"
-                    type="text"
-                    placeholder="搜索插件名称、描述、工具..."
-                    class="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-blue-400"
-                />
-            </div>
+            <VortInputSearch
+                v-model="searchQuery"
+                placeholder="搜索插件名称、描述、工具..."
+                allow-clear
+                class="flex-1 min-w-[200px] max-w-md"
+            />
             <VortSelect v-model="filterSource" class="w-28">
                 <VortSelectOption value="all">全部来源</VortSelectOption>
                 <VortSelectOption value="builtin">内置</VortSelectOption>

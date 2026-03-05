@@ -16,7 +16,10 @@ declare module 'vue' {
     MarkdownView: typeof import('@/components/vort-biz/editor')['MarkdownView']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    TableActions: typeof import('@/components/vort-biz/table-actions')['TableActions']
+    TableActionsItem: typeof import('@/components/vort-biz/table-actions')['TableActionsItem']
     VortAlert: typeof import('@openvort/vort-ui')['Alert']
+    VortAutoComplete: typeof import('@openvort/vort-ui')['AutoComplete']
     VortButton: typeof import('@openvort/vort-ui')['Button']
     VortCard: typeof import('@openvort/vort-ui')['Card']
     VortCheckbox: typeof import('@openvort/vort-ui')['Checkbox']
@@ -39,6 +42,7 @@ declare module 'vue' {
     VortPopconfirm: typeof import('@openvort/vort-ui')['Popconfirm']
     VortRadioButton: typeof import('@openvort/vort-ui')['RadioButton']
     VortRadioGroup: typeof import('@openvort/vort-ui')['RadioGroup']
+    VortRangePicker: typeof import('@openvort/vort-ui')['RangePicker']
     VortScrollbar: typeof import('@openvort/vort-ui')['Scrollbar']
     VortSelect: typeof import('@openvort/vort-ui')['Select']
     VortSelectOption: typeof import('@openvort/vort-ui')['SelectOption']
@@ -50,6 +54,9 @@ declare module 'vue' {
     VortTabs: typeof import('@openvort/vort-ui')['Tabs']
     VortTag: typeof import('@openvort/vort-ui')['Tag']
     VortTextarea: typeof import('@openvort/vort-ui')['Textarea']
+    VortTimeline: typeof import('@/components/vort/timeline')['Timeline']
+    VortTimelineItem: typeof import('@/components/vort/timeline')['TimelineItem']
+    VortTimePicker: typeof import('@openvort/vort-ui')['TimePicker']
     VortTooltip: typeof import('@openvort/vort-ui')['Tooltip']
   }
 }

@@ -9,6 +9,10 @@ import type { VNode, Ref } from "vue";
 export interface TableColumn<T = any> {
   /** 列唯一标识 */
   key?: string;
+  /** 是否展示该列（为未来列设置做兼容） */
+  visible?: boolean;
+  /** 是否可编辑（为未来单元格编辑做兼容） */
+  editable?: boolean;
   /** 数据字段名 */
   dataIndex?: string;
   /** 列标题 */
@@ -126,7 +130,10 @@ export interface QuickFilter {
 
 /** ProTable 列扩展 */
 export interface ProTableColumn<T = any> extends TableColumn<T> {
+  /** 默认是否展示（兼容历史字段） */
   defaultShow?: boolean;
+  /** 表格中是否隐藏（语义化别名，优先级低于 visible） */
+  hideInTable?: boolean;
   searchable?: boolean;
   searchConfig?: {
     type: "input" | "select" | "date" | "daterange";

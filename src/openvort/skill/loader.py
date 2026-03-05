@@ -386,7 +386,7 @@ class SkillLoader:
         from openvort.db.models import PostSkill as PostSkillModel, Skill as SkillModel
 
         async with self._session_factory() as db:
-            # 获取所有已存在的映射
+            # 获取所有已存在的映射（使用 role 字段）
             result = await db.execute(select(PostSkillModel))
             existing = {(row.role, row.skill_id): row for row in result.scalars().all()}
 
@@ -407,7 +407,8 @@ class SkillLoader:
                     key = (post, skill.id)
                     if key not in existing:
                         db.add(PostSkillModel(
-                            role=post,
+                            role=post,  # 数据库使用 role 列
+                            post=post,  # 保留 post 字段
                             skill_id=skill.id,
                             priority=priority,
                         ))
@@ -426,7 +427,7 @@ class SkillLoader:
                 "key": "developer",
                 "name": "开发工程师",
                 "description": "代码、Git、Debug 专家",
-                "icon": "Code",
+                "icon": "",
                 "default_persona": "你是一位经验丰富的开发工程师，擅长代码编写、调试和优化。",
                 "default_auto_report": False,
                 "default_report_frequency": "daily",
@@ -435,7 +436,7 @@ class SkillLoader:
                 "key": "pm",
                 "name": "产品经理",
                 "description": "需求、任务、需求评审",
-                "icon": "ClipboardList",
+                "icon": "",
                 "default_persona": "你是一位专业的产品经理，擅长需求分析、产品规划和团队协作。",
                 "default_auto_report": True,
                 "default_report_frequency": "weekly",
@@ -444,7 +445,7 @@ class SkillLoader:
                 "key": "qa",
                 "name": "测试工程师",
                 "description": "用例、测试、质量把控",
-                "icon": "TestTube",
+                "icon": "",
                 "default_persona": "你是一位细致的测试工程师，擅长用例设计、缺陷追踪和质量把控。",
                 "default_auto_report": False,
                 "default_report_frequency": "daily",
@@ -453,7 +454,7 @@ class SkillLoader:
                 "key": "designer",
                 "name": "设计师",
                 "description": "UI/UX、设计稿规范",
-                "icon": "Palette",
+                "icon": "",
                 "default_persona": "你是一位创意的设计师，擅长 UI/UX 设计和用户体验优化。",
                 "default_auto_report": False,
                 "default_report_frequency": "weekly",
@@ -462,10 +463,145 @@ class SkillLoader:
                 "key": "assistant",
                 "name": "通用助手",
                 "description": "处理日常事务的 AI 助手",
-                "icon": "Bot",
+                "icon": "",
                 "default_persona": "你是一位乐于助人的 AI 助手，擅长回答问题、提供建议和协助完成各种任务。",
                 "default_auto_report": False,
                 "default_report_frequency": "daily",
+            },
+            {
+                "key": "operations",
+                "name": "运营专员",
+                "description": "内容运营、用户运营、活动策划",
+                "icon": "",
+                "default_persona": "你是一位专业的运营专员，擅长内容策划、用户增长和活动运营。",
+                "default_auto_report": True,
+                "default_report_frequency": "weekly",
+            },
+            {
+                "key": "marketing",
+                "name": "市场营销",
+                "description": "品牌推广、市场分析、营销策划",
+                "icon": "",
+                "default_persona": "你是一位资深的市场营销专家，擅长品牌建设、市场推广和营销策略制定。",
+                "default_auto_report": True,
+                "default_report_frequency": "weekly",
+            },
+            {
+                "key": "sales",
+                "name": "销售代表",
+                "description": "客户开发、需求挖掘、商务谈判",
+                "icon": "",
+                "default_persona": "你是一位专业的销售代表，擅长客户开发、需求挖掘和商务谈判。",
+                "default_auto_report": True,
+                "default_report_frequency": "daily",
+            },
+            {
+                "key": "customer_service",
+                "name": "客服专员",
+                "description": "咨询解答、问题处理、用户反馈",
+                "icon": "",
+                "default_persona": "你是一位耐心的客服专员，擅长解答咨询、处理问题和收集用户反馈。",
+                "default_auto_report": True,
+                "default_report_frequency": "daily",
+            },
+            {
+                "key": "hr",
+                "name": "人力资源",
+                "description": "招聘、培训、员工关系",
+                "icon": "",
+                "default_persona": "你是一位专业的人力资源专员，擅长招聘选拔、培训发展和员工关系维护。",
+                "default_auto_report": True,
+                "default_report_frequency": "weekly",
+            },
+            {
+                "key": "finance",
+                "name": "财务专员",
+                "description": "账务处理、预算管理、报表分析",
+                "icon": "",
+                "default_persona": "你是一位严谨的财务专员，擅长账务处理、预算管理和财务分析。",
+                "default_auto_report": True,
+                "default_report_frequency": "weekly",
+            },
+            {
+                "key": "legal",
+                "name": "法务专员",
+                "description": "合同审核、法律咨询、风险防控",
+                "icon": "",
+                "default_persona": "你是一位专业的法务专员，擅长合同审核、法律咨询和风险防控。",
+                "default_auto_report": False,
+                "default_report_frequency": "weekly",
+            },
+            {
+                "key": "data_analyst",
+                "name": "数据分析师",
+                "description": "数据分析、报表可视化、洞察发现",
+                "icon": "",
+                "default_persona": "你是一位专业的数据分析师，擅长数据挖掘、趋势分析和可视化呈现。",
+                "default_auto_report": True,
+                "default_report_frequency": "weekly",
+            },
+            {
+                "key": "architect",
+                "name": "架构师",
+                "description": "系统设计、技术规划、架构评审",
+                "icon": "",
+                "default_persona": "你是一位资深的架构师，擅长系统设计、技术规划和架构优化。",
+                "default_auto_report": False,
+                "default_report_frequency": "weekly",
+            },
+            {
+                "key": "devops",
+                "name": "运维工程师",
+                "description": "系统运维、自动化部署、监控告警",
+                "icon": "",
+                "default_persona": "你是一位专业的运维工程师，擅长系统运维、自动化和性能优化。",
+                "default_auto_report": False,
+                "default_report_frequency": "daily",
+            },
+            {
+                "key": "security",
+                "name": "安全工程师",
+                "description": "安全防护、漏洞扫描、风险评估",
+                "icon": "",
+                "default_persona": "你是一位专业的安全工程师，擅长安全防护、漏洞扫描和风险评估。",
+                "default_auto_report": False,
+                "default_report_frequency": "weekly",
+            },
+            {
+                "key": "editor",
+                "name": "内容编辑",
+                "description": "内容创作、文案撰写、稿件审核",
+                "icon": "",
+                "default_persona": "你是一位优秀的内容编辑，擅长文案创作、内容策划和编辑审核。",
+                "default_auto_report": True,
+                "default_report_frequency": "weekly",
+            },
+            {
+                "key": "business_dev",
+                "name": "商务拓展",
+                "description": "合作伙伴开拓、资源对接、商务合作",
+                "icon": "",
+                "default_persona": "你是一位专业的商务拓展专家，擅长合作伙伴开发和商务谈判。",
+                "default_auto_report": True,
+                "default_report_frequency": "weekly",
+            },
+            {
+                "key": "product_ops",
+                "name": "产品运营",
+                "description": "产品优化、数据分析、用户研究",
+                "icon": "",
+                "default_persona": "你是一位专业的产品运营专员，擅长产品优化、数据分析和用户研究。",
+                "default_auto_report": True,
+                "default_report_frequency": "weekly",
+            },
+            {
+                "key": "project_manager",
+                "name": "项目经理",
+                "description": "项目规划、进度管理、风险控制",
+                "icon": "",
+                "default_persona": "你是一位资深的项目经理，擅长项目规划、进度管理和团队协调。",
+                "default_auto_report": True,
+                "default_report_frequency": "weekly",
             },
         ]
 
@@ -640,5 +776,3 @@ class SkillLoader:
                     "scope": skill.scope,
                     "skill_type": skill.skill_type,
                 })
-
-        return skills

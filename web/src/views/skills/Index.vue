@@ -675,10 +675,15 @@ function openImportDialog() {
                 <!-- 在线搜索 -->
                 <div>
                     <label class="block text-sm text-gray-600 mb-2">在线搜索</label>
-                    <div class="flex gap-2">
-                        <VortInput v-model="searchQuery" placeholder="输入关键词搜索" class="flex-1" @keyup.enter="handleSearchOnline" />
-                        <VortButton @click="handleSearchOnline" :loading="searchLoading">搜索</VortButton>
-                    </div>
+                    <VortInputSearch
+                        v-model="searchQuery"
+                        placeholder="输入关键词搜索"
+                        allow-clear
+                        enter-button="搜索"
+                        :loading="searchLoading"
+                        class="w-full"
+                        @search="handleSearchOnline"
+                    />
                 </div>
 
                 <!-- 搜索结果 -->
