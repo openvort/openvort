@@ -23,6 +23,7 @@ from openvort.web.routers.agents import router as agents_router
 from openvort.web.routers.models import router as models_router
 from openvort.web.routers.upgrade import router as upgrade_router
 from openvort.web.routers.virtual_roles import router as posts_router
+from openvort.web.routers.voice_providers import router as voice_providers_router
 
 # 保留旧名称的别名，保持向后兼容
 virtual_roles_router = posts_router
@@ -53,4 +54,5 @@ __all__ = [
     "posts_router",
     "virtual_roles_router",  # 兼容旧名称
     "work_assignments_router",
+    "voice_providers_router",
 ]

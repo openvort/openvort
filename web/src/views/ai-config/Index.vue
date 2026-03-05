@@ -6,6 +6,7 @@ import { message } from "@openvort/vort-ui";
 import ModelLibrary from "./ModelLibrary.vue";
 import ChatModel from "./ChatModel.vue";
 import CodingTools from "./CodingTools.vue";
+import VoiceProviders from "./VoiceProviders.vue";
 
 const activeTab = ref("models");
 
@@ -51,6 +52,12 @@ async function handleRestart() {
                 <VortTabPane tab-key="coding" tab="编码工具">
                     <div class="mt-4">
                         <CodingTools />
+                    </div>
+                </VortTabPane>
+
+                <VortTabPane tab-key="voice" tab="语音服务">
+                    <div class="mt-4">
+                        <VoiceProviders />
                     </div>
                 </VortTabPane>
             </VortTabs>
