@@ -1241,7 +1241,11 @@ defineExpose({
 
 .vort-pro-table-middle .vort-pro-table-thead th,
 .vort-pro-table-middle .vort-pro-table-tbody td {
-  padding: 16px;
+  padding: 8px;
+}
+
+.vort-pro-table-middle .vort-pro-table-selection-column {
+  padding: 8px 6px;
 }
 
 .vort-pro-table-small .vort-pro-table-thead th,

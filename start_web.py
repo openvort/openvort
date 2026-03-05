@@ -103,18 +103,22 @@ async def init_runtime():
     return session_factory
 
 
-def main():
-    # 先初始化依赖
-    asyncio.run(init_runtime())
-
-    # 启动 uvicorn
-    uvicorn.run(
+async def _serve():
+    """在同一事件循环内完成初始化并启动服务。"""
+    await init_runtime()
+    config = uvicorn.Config(
         "openvort.web.app:create_app",
         factory=True,
         host="0.0.0.0",
         port=8090,
         log_level="info",
     )
+    server = uvicorn.Server(config)
+    await server.serve()
+
+
+def main():
+    asyncio.run(_serve())
 
 
 if __name__ == "__main__":
