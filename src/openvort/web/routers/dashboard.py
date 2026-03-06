@@ -1,6 +1,5 @@
 """仪表盘路由"""
 
-import time
 from datetime import datetime, timezone
 
 from fastapi import APIRouter

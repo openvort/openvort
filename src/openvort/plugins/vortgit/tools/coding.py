@@ -575,10 +575,15 @@ class CodeTaskTool(BaseTool):
             diff_summary=diff.get("summary", ""),
         )
 
+        pr_note = f"，PR 已创建: {pr_url}" if pr_url else "（未创建 PR）"
         return json.dumps({
             "ok": True,
-            "message": "编码任务完成",
+            "message": (
+                f"编码任务完成。代码已提交到新分支 {branch_name}（不是主分支）{pr_note}。"
+                f"共修改 {len(result.files_changed)} 个文件，耗时 {result.duration_seconds} 秒。"
+            ),
             "branch": branch_name,
+            "base_branch": effective_base,
             "commit_sha": sha,
             "files_changed": result.files_changed,
             "file_count": len(result.files_changed),

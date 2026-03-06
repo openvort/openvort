@@ -70,6 +70,17 @@ class ContactService:
             result = await session.execute(stmt)
             return list(result.scalars().all())
 
+    async def search_members_by_name_prefix(self, prefix: str) -> list[Member]:
+        """按姓名前缀搜索（用于称谓匹配场景，如 "杨" 匹配 "杨明" "杨强"）"""
+        pattern = f"{prefix}%"
+        async with self._session_factory() as session:
+            stmt = select(Member).where(
+                Member.status == "active",
+                Member.name.ilike(pattern),
+            ).order_by(Member.name)
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
     async def get_member_identities(self, member_id: str) -> list[PlatformIdentity]:
         """获取成员的所有平台身份"""
         async with self._session_factory() as session:

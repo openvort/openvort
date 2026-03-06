@@ -5,7 +5,8 @@ import { useUserStore } from "@/stores";
 import {
     Send, Bot, Loader2, Wrench, X, ImagePlus, FileText, MonitorPlay, Smile,
     Settings, Check, Brain, PackageMinus, RotateCcw, Zap, StopCircle, Square,
-    Hash, Bug, ListTodo, BookOpen, Milestone, GitBranch, ChevronDown, ChevronRight
+    Hash, Bug, ListTodo, BookOpen, Milestone, GitBranch, ChevronDown, ChevronRight,
+    Copy, RefreshCw
 } from "lucide-vue-next";
 import { Popover as VortPopover, Image as VortImage, ImagePreviewGroup as VortImagePreviewGroup } from "@openvort/vort-ui";
 import {
@@ -872,6 +873,23 @@ function formatTime(ts: number): string {
     return d.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
 }
 
+async function copyMessageContent(msg: ChatMessage) {
+    const text = msg.content || '';
+    if (!text) return;
+    try {
+        await navigator.clipboard.writeText(text);
+        message.success("已复制到剪贴板");
+    } catch {
+        message.error("复制失败");
+    }
+}
+
+function resendMessage(msg: ChatMessage) {
+    if (loading.value) return;
+    inputText.value = msg.content || '';
+    nextTick(() => handleSend());
+}
+
 // ---- @mention、/command、#tag 提示 ----
 const slashCommands: SlashCommand[] = [
     { name: "/new", label: "/new", description: "重置会话" },
@@ -1596,7 +1614,7 @@ onUnmounted(() => {
                     </div>
 
                     <!-- 消息气泡 -->
-                    <div v-for="msg in messages" :key="msg.id" class="flex" :class="msg.role === 'user' ? 'justify-end' : 'justify-start'">
+                    <div v-for="msg in messages" :key="msg.id" class="flex group" :class="msg.role === 'user' ? 'justify-end' : 'justify-start'">
                         <div class="flex max-w-[80%]" :class="msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'">
                             <div class="flex-shrink-0 relative" :class="msg.role === 'user' ? 'ml-3' : 'mr-3'">
                                 <!-- 用户消息头像 -->
@@ -1711,6 +1729,24 @@ onUnmounted(() => {
                                     </span>
                                 </span>
                                 <template v-else>{{ msg.content }}</template>
+                            </div>
+                            <!-- Message action buttons -->
+                            <div v-if="!msg.streaming && msg.content"
+                                class="flex mt-1 gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                                :class="msg.role === 'user' ? 'justify-end' : 'justify-start'">
+                                <vort-tooltip title="复制">
+                                    <button @click="copyMessageContent(msg)"
+                                        class="p-1 rounded text-gray-300 hover:text-gray-500 hover:bg-gray-100 transition-colors cursor-pointer">
+                                        <Copy :size="14" />
+                                    </button>
+                                </vort-tooltip>
+                                <vort-tooltip v-if="msg.role === 'user'" title="重新发送">
+                                    <button @click="resendMessage(msg)"
+                                        class="p-1 rounded text-gray-300 hover:text-gray-500 hover:bg-gray-100 transition-colors cursor-pointer"
+                                        :disabled="loading">
+                                        <RefreshCw :size="14" />
+                                    </button>
+                                </vort-tooltip>
                             </div>
                         </div>
                     </div>
