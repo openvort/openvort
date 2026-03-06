@@ -182,13 +182,18 @@ const allStatusFilterOptions: StatusOption[] = Array.from(
 
 const priorityModel = reactive<Record<string, Priority>>({});
 const openPriorityFor = ref<string | null>(null);
-const openTagFor = ref<string | null>(null);
+const tagPopoverOpen = reactive<Record<string, boolean>>({});
 const tagKeyword = ref("");
 const createTagDropdownOpen = ref(false);
 const createTagKeyword = ref("");
 const tagsModel = reactive<Record<string, string[]>>({});
 const baseTagOptions = ["客户需求", "演示站", "运营需求", "待开会确认", "已发布", "高优先", "稳定性", "UI优化", "S1", "S2", "S3", "S4", "develop", "test"];
 const dynamicTagOptions = ref<string[]>([]);
+const newTagDialogOpen = ref(false);
+const newTagName = ref("");
+const newTagColor = ref<string>("");
+const newTagTargetRecord = ref<RowItem | null>(null);
+const newTagTargetText = ref<string[] | undefined>(undefined);
 const planTimeModel = reactive<Record<string, DateRange>>({});
 const typeGroupOpen = reactive<Record<WorkItemType, boolean>>({
     需求: true,
@@ -221,6 +226,17 @@ const createAssigneeGroupOpen = reactive<Record<string, boolean>>({
     离职人员: true
 });
 const collaboratorsModel = reactive<Record<string, string[]>>({});
+
+const closeRowPopovers = () => {
+    openPriorityFor.value = null;
+    for (const key in tagPopoverOpen) {
+        tagPopoverOpen[key] = false;
+    }
+    openStatusFor.value = null;
+    openOwnerFor.value = null;
+    openCollaboratorFor.value = null;
+    openPlanTimeFor.value = null;
+};
 const resolveActiveType = (): WorkItemType => {
     if (props.type) return props.type;
     if (type.value === "需求" || type.value === "任务" || type.value === "缺陷") return type.value;
@@ -1219,7 +1235,9 @@ const getRowPriority = (record: RowItem, text?: Priority): Priority => {
 };
 
 const togglePriorityMenu = (workNo: string) => {
-    openPriorityFor.value = openPriorityFor.value !== workNo ? workNo : null;
+    const willOpen = openPriorityFor.value !== workNo;
+    closeRowPopovers();
+    openPriorityFor.value = willOpen ? workNo : null;
 };
 
 const selectPriority = async (record: RowItem, value: Priority) => {
@@ -1270,14 +1288,12 @@ const getRowStatus = (record: RowItem, text?: Status): Status => {
 };
 
 const toggleRowStatusMenu = (record: RowItem) => {
-    if (openStatusFor.value === record.workNo) {
-        openStatusFor.value = null;
-        rowStatusKeyword.value = "";
-        return;
-    }
+    rowStatusKeyword.value = "";
+    const willOpen = openStatusFor.value !== record.workNo;
+    closeRowPopovers();
+    if (!willOpen) return;
     rowStatusType.value = record.type || resolveActiveType();
     openStatusFor.value = record.workNo;
-    rowStatusKeyword.value = "";
 };
 
 const filteredRowStatusOptions = computed(() => {
@@ -1394,7 +1410,9 @@ const getRowOwner = (record: RowItem, text?: string): string => {
 };
 
 const toggleRowOwnerMenu = (workNo: string) => {
-    openOwnerFor.value = openOwnerFor.value !== workNo ? workNo : null;
+    const willOpen = openOwnerFor.value !== workNo;
+    closeRowPopovers();
+    openOwnerFor.value = willOpen ? workNo : null;
     ownerEditKeyword.value = "";
 };
 
@@ -1431,7 +1449,9 @@ const getRowCollaborators = (record: RowItem, text?: string[]): string[] => {
 };
 
 const toggleCollaboratorMenu = (workNo: string) => {
-    openCollaboratorFor.value = openCollaboratorFor.value !== workNo ? workNo : null;
+    const willOpen = openCollaboratorFor.value !== workNo;
+    closeRowPopovers();
+    openCollaboratorFor.value = willOpen ? workNo : null;
     collaboratorKeyword.value = "";
 };
 
@@ -1453,7 +1473,10 @@ const toggleRowCollaborator = async (record: RowItem, member: string, text?: str
 };
 
 const tagColorPalette = ["#ef4444", "#d946ef", "#eab308", "#22c55e", "#3b82f6", "#f97316", "#14b8a6", "#8b5cf6"];
+const tagColorOverrides = reactive<Record<string, string>>({});
+
 const getTagColor = (name: string): string => {
+    if (tagColorOverrides[name]) return tagColorOverrides[name]!;
     let hash = 0;
     for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
     return tagColorPalette[hash % tagColorPalette.length]!;
@@ -1461,6 +1484,42 @@ const getTagColor = (name: string): string => {
 
 const getRowTags = (record: RowItem, text?: string[]): string[] => {
     return tagsModel[record.workNo] || text || [];
+};
+
+const openCreateTagDialog = (record?: RowItem | null, text?: string[]) => {
+    if (record) {
+        tagPopoverOpen[record.workNo] = false;
+    }
+    newTagName.value = "";
+    newTagColor.value = tagColorPalette[0] || "#3b82f6";
+    newTagTargetRecord.value = record || null;
+    newTagTargetText.value = text;
+    newTagDialogOpen.value = true;
+};
+
+const handleCancelCreateTag = () => {
+    newTagDialogOpen.value = false;
+};
+
+const handleConfirmCreateTag = async () => {
+    const name = newTagName.value.trim();
+    if (!name) {
+        message.error("请输入标签名称");
+        return;
+    }
+    const existing = new Set<string>([...baseTagOptions, ...dynamicTagOptions.value]);
+    if (existing.has(name)) {
+        message.error("该标签已存在");
+        return;
+    }
+    dynamicTagOptions.value = [...dynamicTagOptions.value, name];
+    if (newTagColor.value) {
+        tagColorOverrides[name] = newTagColor.value;
+    }
+    if (newTagTargetRecord.value) {
+        await toggleTagOption(newTagTargetRecord.value, name, newTagTargetText.value);
+    }
+    newTagDialogOpen.value = false;
 };
 
 const onPlanTimeChange = async (record: RowItem, value?: any) => {
@@ -1502,6 +1561,7 @@ const getRowPlanTimeText = (record: RowItem, text?: DateRange): string => {
 
 const togglePlanTimeMenu = (workNo: string, record?: RowItem, text?: DateRange) => {
     const willOpen = openPlanTimeFor.value !== workNo;
+    closeRowPopovers();
     if (willOpen) {
         const value = record ? getRowPlanTime(record, text) : undefined;
         const start = normalizeDateValue(value?.[0]);
@@ -1542,7 +1602,6 @@ const getTagRenderInfo = (record: RowItem, text: string[] | undefined, resolvedW
 };
 
 const toggleTagMenu = (workNo: string) => {
-    openTagFor.value = openTagFor.value !== workNo ? workNo : null;
     tagKeyword.value = "";
 };
 
@@ -1731,13 +1790,13 @@ onMounted(async () => {
                 </template>
 
                 <template #tags="{ text, record, resolvedWidth }">
-                        <TableCell @click.stop="toggleTagMenu(record.workNo)">
+                        <TableCell @click.stop="tagPopoverOpen[record.workNo] = !tagPopoverOpen[record.workNo]">
                     <Popover
-                        :open="openTagFor === record.workNo"
+                        :open="tagPopoverOpen[record.workNo]"
                         trigger="click"
                         placement="bottomLeft"
                         :arrow="false"
-                        @update:open="(open) => { if (!open && openTagFor === record.workNo) openTagFor = null; }"
+                        @update:open="(open) => { if (!open) tagPopoverOpen[record.workNo] = false; }"
                     >
                             <div class="flex items-center gap-1 flex-nowrap whitespace-nowrap overflow-hidden">
                                 <template v-for="tag in getTagRenderInfo(record, text, resolvedWidth).visible" :key="record.workNo + '-' + tag">
@@ -1765,19 +1824,36 @@ onMounted(async () => {
                                         />
                                     </div>
                                 </div>
-                                <div class="max-h-[200px] overflow-y-auto pr-1 text-left">
-                                    <button
+                                <div class="max-h-[200px] overflow-y-auto pr-1">
+                                    <div
                                         v-for="tag in filteredTagOptions"
                                         :key="record.workNo + '-opt-' + tag"
-                                        type="button"
-                                        class="w-full h-10 px-2 rounded-md flex items-center justify-start gap-2 text-left hover:bg-gray-50 cursor-pointer border-0 bg-transparent"
+                                        class="w-full px-2 py-1 rounded-md hover:bg-gray-50 cursor-pointer"
                                         @click.stop="toggleTagOption(record, tag, text)"
                                     >
-                                        <span class="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center text-[12px] text-gray-500 shrink-0">
-                                            <span v-if="getRowTags(record, text).includes(tag)">✓</span>
-                                        </span>
-                                        <span class="w-5 h-5 rounded-full shrink-0" :style="{ backgroundColor: getTagColor(tag) }" />
-                                        <span class="text-sm text-gray-700">{{ tag }}</span>
+                                        <div class="flex items-center gap-3">
+                                            <vort-checkbox
+                                                :checked="getRowTags(record, text).includes(tag)"
+                                                @update:checked="() => toggleTagOption(record, tag, text)"
+                                                @click.stop
+                                                style="min-height: 24px;"
+                                            />
+                                            <span
+                                                class="inline-block w-3 h-3 rounded-full flex-shrink-0"
+                                                :style="{ backgroundColor: getTagColor(tag) }"
+                                            />
+                                            <span class="text-sm text-gray-700 leading-5">{{ tag }}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="mt-1 pt-2 border-t border-gray-100 text-left">
+                                    <button
+                                        type="button"
+                                        class="inline-flex items-center gap-1 px-2 py-1 text-sm text-blue-600 hover:text-blue-700"
+                                        @click.stop="openCreateTagDialog"
+                                    >
+                                        <span class="text-base leading-none">+</span>
+                                        <span>新建标签</span>
                                     </button>
                                 </div>
                             </div>
@@ -2011,6 +2087,40 @@ onMounted(async () => {
                 />
             </template>
         </vort-drawer>
+
+        <VortDialog
+            :open="newTagDialogOpen"
+            title="新建标签"
+            :width="520"
+            @update:open="(val) => (newTagDialogOpen = val)"
+        >
+            <div class="space-y-5 mt-2">
+                <div>
+                    <div class="text-sm text-gray-700 mb-1">名称</div>
+                    <VortInput v-model="newTagName" placeholder="请输入标签名称" />
+                </div>
+                <div>
+                    <div class="text-sm text-gray-700 mb-2">颜色</div>
+                    <div class="grid grid-cols-8 gap-2">
+                        <button
+                            v-for="color in tagColorPalette"
+                            :key="color"
+                            type="button"
+                            class="w-8 h-8 rounded-sm border-2 flex items-center justify-center transition"
+                            :class="newTagColor === color ? 'border-blue-500 shadow-sm' : 'border-transparent'"
+                            :style="{ backgroundColor: color }"
+                            @click="newTagColor = color"
+                        >
+                            <span v-if="newTagColor === color" class="text-white text-xs">✓</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <template #footer>
+                <VortButton @click="handleCancelCreateTag">取消</VortButton>
+                <VortButton variant="primary" class="ml-2" @click="handleConfirmCreateTag">确定</VortButton>
+            </template>
+        </VortDialog>
     </div>
 </template>
 
@@ -2028,5 +2138,8 @@ onMounted(async () => {
 .plan-time-picker {
     @apply w-full;
 }
-
+:deep(.table-cell) {
+    .vort-popover-trigger{
+    }
+}
 </style>
