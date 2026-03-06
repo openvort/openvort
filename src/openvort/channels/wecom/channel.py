@@ -44,6 +44,10 @@ class WeComChannel(BaseChannel):
         self._relay_url: str = ""
         self._relay_secret: str = ""
         self._relay_http: httpx.AsyncClient | None = None
+        self._asr_service = None
+
+    def set_asr_service(self, asr_service) -> None:
+        self._asr_service = asr_service
 
     # ---- 消费位点持久化 ----
 
@@ -488,9 +492,15 @@ class WeComChannel(BaseChannel):
                         if msg.images:
                             msg.images = await self._download_images(msg.images)
 
-                        # 下载语音（MediaId → bytes）
+                        # 下载语音（MediaId → bytes）并 ASR 转写
                         if msg.voice_media_ids:
                             msg.voice_data = await self._download_voices(msg.voice_media_ids)
+                            transcribed = await self._transcribe_voice(msg.voice_data)
+                            if transcribed:
+                                msg.content = transcribed
+                                log.info(f"语音转写成功: {msg.sender_id} -> {transcribed[:80]}")
+                            else:
+                                log.warning(f"语音转写失败或为空: {msg.sender_id}")
 
                         if self._handler:
                             log.info(f"处理消息: {msg.sender_id} -> {msg.content[:50]}")
@@ -628,3 +638,21 @@ class WeComChannel(BaseChannel):
             except Exception as e:
                 log.error(f"下载语音异常: media_id={media_id}, error={e}")
         return result
+
+    async def _transcribe_voice(self, voice_data_list: list[dict]) -> str:
+        """ASR transcribe voice data to text, return combined text or empty string."""
+        if not self._asr_service or not voice_data_list:
+            return ""
+        texts = []
+        for vd in voice_data_list:
+            data = vd.get("data", b"")
+            fmt = vd.get("format", "amr")
+            if not data:
+                continue
+            try:
+                text = await self._asr_service.recognize(audio_data=data, format=fmt)
+                if text and text.strip():
+                    texts.append(text.strip())
+            except Exception as e:
+                log.error(f"ASR 转写异常: media_id={vd.get('media_id')}, error={e}")
+        return "\n".join(texts)
