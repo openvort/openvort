@@ -41,6 +41,7 @@ declare module 'vue' {
     VortOption: typeof import('@openvort/vort-ui')['Option']
     VortPagination: typeof import('@openvort/vort-ui')['Pagination']
     VortPopconfirm: typeof import('@openvort/vort-ui')['Popconfirm']
+    VortPopover: typeof import('@openvort/vort-ui')['Popover']
     VortRadioButton: typeof import('@openvort/vort-ui')['RadioButton']
     VortRadioGroup: typeof import('@openvort/vort-ui')['RadioGroup']
     VortRangePicker: typeof import('@openvort/vort-ui')['RangePicker']
