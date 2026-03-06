@@ -38,7 +38,6 @@ declare module 'vue' {
     VortInputNumber: typeof import('@openvort/vort-ui')['InputNumber']
     VortInputPassword: typeof import('@openvort/vort-ui')['InputPassword']
     VortInputSearch: typeof import('@openvort/vort-ui')['InputSearch']
-    VortOption: typeof import('@openvort/vort-ui')['Option']
     VortPagination: typeof import('@openvort/vort-ui')['Pagination']
     VortPopconfirm: typeof import('@openvort/vort-ui')['Popconfirm']
     VortPopover: typeof import('@openvort/vort-ui')['Popover']

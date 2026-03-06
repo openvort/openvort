@@ -43,7 +43,7 @@ import { Code, ClipboardList, TestTube, Palette, Bot } from "lucide-vue-next";
 
 ## 组件自动注册
 
-`vort-*` 前缀组件在模板中自动解析，无需 import。业务组件（`vort-biz/*`）需手动 import。
+`vort-*` 前缀组件在模板中自动业务组件（`vort-biz解析，无需 import。/*`）需手动 import。
 
 已注册的全局组件见 `components.d.ts`，包括：
 - 基础：VortButton, VortInput, VortSelect, VortSelectOption, VortTag, VortSpin, VortTooltip, VortDivider, VortAlert, VortCard
@@ -54,6 +54,45 @@ import { Code, ClipboardList, TestTube, Palette, Bot } from "lucide-vue-next";
 - 搜索（自动注册）：SearchToolbar, SearchForm, SearchFormItem, SearchFormActions
 - 操作（自动注册）：TableActions, TableActionsItem, DeleteRecord
 - AI 辅助（自动注册）：AiAssistButton
+
+### 常见导入错误
+
+**错误示例：手动导入不存在的路径**
+
+```typescript
+// 错误 - @/components/vort-ui 不存在！
+import { VortButton, VortInput } from "@/components/vort-ui";
+```
+
+**正确做法：无需 import，直接在模板中使用**
+
+```vue
+<template>
+    <!-- VortButton 和 VortInput 由 unplugin-vue-components 自动解析，无需 import -->
+    <VortButton variant="primary">提交</VortButton>
+    <VortInput v-model="keyword" placeholder="请输入关键词" />
+</template>
+```
+
+**原理：** `components.d.ts` 中声明了类型别名，将 `VortButton` 映射到 `@openvort/vort-ui` 的 `Button` 组件。unplugin-vue-components 会自动解析模板中使用的全局组件，无需手动 import。
+
+**例外情况：** 如果确实需要手动导入（如在 setup 脚本中使用组件对象），应从 `@openvort/vort-ui` 导入：
+
+```typescript
+import { Button, Input } from "@openvort/vort-ui";
+```
+
+**使用 Vue API 必须导入**
+
+在 `<script setup>` 中使用 Vue 响应式 API（如 `computed`, `ref`, `watch`, `onMounted` 等）必须手动导入：
+
+```typescript
+// 正确
+import { computed, ref, watch } from "vue";
+
+// 错误 - 使用了 computed 但未导入
+const keyword = computed({ /* ... */ });
+```
 
 ## 核心 Hooks
 
