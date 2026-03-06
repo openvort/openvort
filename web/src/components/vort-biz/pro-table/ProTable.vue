@@ -569,9 +569,17 @@ const toPixelWidth = (column: TableColumn<T>): number => {
   return minColumnWidths.value[getColumnKey(column)] || 120;
 };
 
+const hasFixedLeft = computed(() => leafColumns.value.some(c => c.fixed === "left"));
+
+const selectionColWidth = computed(() => {
+  if (!props.rowSelection) return 0;
+  const w = props.rowSelection.columnWidth;
+  return typeof w === "number" ? w : parseInt(String(w || "48"), 10);
+});
+
 const fixedLeftOffsets = computed<Record<string, number>>(() => {
   const offsets: Record<string, number> = {};
-  let currentLeft = 0;
+  let currentLeft = hasFixedLeft.value && props.rowSelection ? selectionColWidth.value : 0;
   for (const column of leafColumns.value) {
     const key = getColumnKey(column);
     if (!key) continue;
@@ -591,7 +599,6 @@ const getFixedCellStyle = (column: TableColumn<T>, isHeader = false): Record<str
     position: "sticky",
     left: `${left}px`,
     zIndex: isHeader ? "6" : "3",
-    background: isHeader ? "var(--vort-table-header-bg, #fafafa)" : "#fff",
   };
 };
 
@@ -836,9 +843,9 @@ defineExpose({
             <tr v-for="(headerRow, rowIndex) in getHeaderRows" :key="rowIndex">
               <th
                 v-if="rowSelection && rowIndex === 0"
-                class="vort-pro-table-selection-column"
+                :class="['vort-pro-table-selection-column', hasFixedLeft && 'vort-pro-table-fixed-left']"
                 :rowspan="getHeaderRows.length"
-                :style="{ width: rowSelection.columnWidth || '48px' }"
+                :style="{ width: rowSelection.columnWidth || '48px', ...(hasFixedLeft ? { position: 'sticky', left: '0px', zIndex: '6' } : {}) }"
               >
                 <Checkbox
                   v-if="rowSelection.type !== 'radio'"
@@ -887,7 +894,7 @@ defineExpose({
           </template>
           <!-- 单级表头 -->
           <tr v-else>
-            <th v-if="rowSelection" class="vort-pro-table-selection-column" :style="{ width: rowSelection.columnWidth || '48px' }">
+            <th v-if="rowSelection" :class="['vort-pro-table-selection-column', hasFixedLeft && 'vort-pro-table-fixed-left']" :style="{ width: rowSelection.columnWidth || '48px', ...(hasFixedLeft ? { position: 'sticky', left: '0px', zIndex: '6' } : {}) }">
               <Checkbox
                 v-if="rowSelection.type !== 'radio'"
                 :checked="isAllSelected"
@@ -904,7 +911,7 @@ defineExpose({
                 column.sorter && 'vort-pro-table-cell-sortable',
                 column.headerClassName,
                 column.fixed === 'left' && 'vort-pro-table-fixed-left',
-                isLastFixedLeft(column) && showFixedLeftEdgeShadow && 'vort-pro-table-fixed-left-edge'
+                isLastFixedLeft(column) && 'vort-pro-table-fixed-left-edge'
               ]"
               :style="{ width: getResolvedWidth(column), ...getFixedCellStyle(column, true) }"
               @click="column.sorter ? handleSort(column) : undefined"
@@ -941,7 +948,7 @@ defineExpose({
             :key="getRowKey(record, index)"
             :class="['vort-pro-table-row', isRowSelected(record, index) && 'vort-pro-table-row-selected']"
           >
-            <td v-if="rowSelection" class="vort-pro-table-selection-column">
+            <td v-if="rowSelection" :class="['vort-pro-table-selection-column', hasFixedLeft && 'vort-pro-table-fixed-left']" :style="hasFixedLeft ? { position: 'sticky', left: '0px', zIndex: '3' } : {}">
               <Checkbox
                 :checked="isRowSelected(record, index)"
                 :disabled="rowSelection.getCheckboxProps?.(record)?.disabled"
@@ -957,7 +964,7 @@ defineExpose({
                 column.ellipsis && 'vort-pro-table-cell-ellipsis',
                 column.className,
                 column.fixed === 'left' && 'vort-pro-table-fixed-left',
-                isLastFixedLeft(column) && showFixedLeftEdgeShadow && 'vort-pro-table-fixed-left-edge'
+                isLastFixedLeft(column) && 'vort-pro-table-fixed-left-edge'
               ]"
               :style="getFixedCellStyle(column)"
             >
@@ -1266,12 +1273,19 @@ defineExpose({
 }
 
 .vort-pro-table-fixed-left {
-  /* 固定列本身不加阴影，避免每列都有分割线 */
+  background: #fff;
   box-shadow: none;
 }
 
+.vort-pro-table-thead .vort-pro-table-fixed-left {
+  background: var(--vort-table-header-bg, #fafafa);
+}
+
+.vort-pro-table-tbody tr:hover .vort-pro-table-fixed-left {
+  background: #fafafa;
+}
+
 .vort-pro-table-fixed-left-edge {
-  /* 仅冻结区最右边界显示阴影，贴近截图样式 */
   box-shadow: 1px 0 0 #e5e7eb, 8px 0 12px -8px rgba(15, 23, 42, 0.28);
 }
 
@@ -1279,7 +1293,15 @@ defineExpose({
   background: #e6f4ff;
 }
 
+.vort-pro-table-row-selected .vort-pro-table-fixed-left {
+  background: #e6f4ff;
+}
+
 .vort-pro-table-row-selected:hover {
+  background: #bae0ff;
+}
+
+.vort-pro-table-row-selected:hover .vort-pro-table-fixed-left {
   background: #bae0ff;
 }
 

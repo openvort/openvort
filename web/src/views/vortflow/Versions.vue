@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, computed } from "vue";
-import { Plus, UserRound, Search } from "lucide-vue-next";
+import { ref, onMounted } from "vue";
+import { useCrudPage } from "@/hooks";
+import { Plus, UserRound } from "lucide-vue-next";
 import { message } from "@openvort/vort-ui";
 import {
     getVortflowVersions, createVortflowVersion, updateVortflowVersion, deleteVortflowVersion,
@@ -21,32 +22,82 @@ interface VersionItem {
     created_at: string | null;
 }
 
-interface ProjectItem {
-    id: string;
-    name: string;
-}
+interface ProjectItem { id: string; name: string }
+interface MemberOption { id: string; name: string; avatarUrl: string }
 
-interface MemberOption {
-    id: string;
-    name: string;
-    avatarUrl: string;
-}
+type FilterParams = { page: number; size: number; keyword: string; status: string; owner_id: string };
 
-const loading = ref(true);
-const versions = ref<VersionItem[]>([]);
 const projects = ref<ProjectItem[]>([]);
-const keyword = ref("");
-const selectedOwnerId = ref("");
-const activeTab = ref("version-list");
 const memberOptions = ref<MemberOption[]>([]);
-const ownerDropdownOpen = ref(false);
-const ownerKeyword = ref("");
-const ownerGroupOpen = ref(true);
-const ownerDropdownRef = ref<HTMLElement | null>(null);
-const dialogOwnerDropdownOpen = ref(false);
-const dialogOwnerKeyword = ref("");
-const dialogOwnerGroupOpen = ref(true);
-const dialogOwnerDropdownRef = ref<HTMLElement | null>(null);
+const activeTab = ref("version-list");
+
+const statusOptions = [
+    { label: "全部", value: "" },
+    { label: "规划中", value: "planning" },
+    { label: "已发布", value: "released" },
+    { label: "已归档", value: "archived" },
+];
+const statusColorMap: Record<string, string> = { planning: "default", released: "green", archived: "default" };
+const statusLabels: Record<string, string> = { planning: "规划中", released: "已发布", archived: "已归档" };
+const stageLabelMap: Record<string, string> = { planning: "开发环境", released: "已发布", archived: "已归档" };
+
+const fetchList = async (params: FilterParams) => {
+    const res = await getVortflowVersions({
+        keyword: params.keyword, status: params.status, owner_id: params.owner_id,
+        page: params.page, page_size: params.size,
+    });
+    return { records: (res as any).items || [], total: (res as any).total || 0 };
+};
+
+const { listData, loading, total, filterParams, showPagination, loadData, onSearchSubmit, resetParams } =
+    useCrudPage<VersionItem, FilterParams>({
+        api: fetchList,
+        defaultParams: { page: 1, size: 20, keyword: "", status: "", owner_id: "" },
+    });
+
+const loadOptions = async () => {
+    try {
+        const [projRes, memberRes] = await Promise.all([
+            getVortflowProjects(),
+            getMembers({ search: "", role: "", page: 1, size: 100 }),
+        ]);
+        projects.value = (projRes as any)?.items || [];
+        const members = Array.isArray((memberRes as any)?.members) ? (memberRes as any).members : [];
+        memberOptions.value = members
+            .map((item: any) => ({
+                id: String(item?.id || ""),
+                name: String(item?.name || "").trim(),
+                avatarUrl: String(item?.avatar_url || item?.avatar || ""),
+            }))
+            .filter((m: MemberOption) => m.id && m.name);
+    } catch { /* silent */ }
+};
+
+const getMemberNameById = (id: string) => {
+    if (!id) return "待指派";
+    return memberOptions.value.find(m => m.id === id)?.name || "待指派";
+};
+
+const getMemberAvatarUrlById = (id: string) => {
+    if (!id) return "";
+    return memberOptions.value.find(m => m.id === id)?.avatarUrl || "";
+};
+
+const getVersionOwnerId = (item: VersionItem) => String(item.owner_id || "").trim();
+
+const formatDate = (iso: string | null) => {
+    if (!iso) return "-";
+    return iso.split("T")[0];
+};
+
+const getVersionProgress = (row: VersionItem): number => {
+    const explicit = Number(row.progress);
+    if (Number.isFinite(explicit) && explicit >= 0) return Math.min(100, Math.max(0, explicit));
+    const byStatus: Record<string, number> = { planning: 0, released: 100, archived: 100 };
+    return byStatus[row.status] ?? 0;
+};
+
+// Dialog
 const createDialogOpen = ref(false);
 const createFormLoading = ref(false);
 const versionDialogMode = ref<"create" | "edit">("create");
@@ -60,127 +111,15 @@ const createVersionForm = ref({
     release_log: "",
 });
 
-const statusColorMap: Record<string, string> = {
-    planning: "default", released: "success", archived: "default"
-};
-const statusLabels: Record<string, string> = {
-    planning: "规划中", released: "已发布", archived: "已归档"
-};
-
-const filteredVersions = computed(() => {
-    let list = versions.value;
-    if (selectedOwnerId.value === "__unassigned__") {
-        list = list.filter(v => !getVersionOwnerId(v));
-    } else if (selectedOwnerId.value) {
-        list = list.filter(v => getVersionOwnerId(v) === selectedOwnerId.value);
-    }
-    if (keyword.value.trim()) {
-        const k = keyword.value.trim().toLowerCase();
-        list = list.filter(v =>
-            v.name.toLowerCase().includes(k) ||
-            (v.description || "").toLowerCase().includes(k),
-        );
-    }
-    return list;
-});
-
-const filteredOwnerOptions = computed(() => {
-    const kw = ownerKeyword.value.trim().toLowerCase();
-    if (!kw) return memberOptions.value;
-    return memberOptions.value.filter(item => item.name.toLowerCase().includes(kw));
-});
-
-const filteredDialogOwnerOptions = computed(() => {
-    const kw = dialogOwnerKeyword.value.trim().toLowerCase();
-    if (!kw) return memberOptions.value;
-    return memberOptions.value.filter(item => item.name.toLowerCase().includes(kw));
-});
-
-const selectedOwnerText = computed(() => {
-    if (!selectedOwnerId.value) return "负责人";
-    if (selectedOwnerId.value === "__unassigned__") return "未指派";
-    return memberOptions.value.find(m => m.id === selectedOwnerId.value)?.name || "负责人";
-});
-
-const dialogSelectedOwnerText = computed(() => {
-    const ownerId = String(createVersionForm.value.owner_id || "");
-    if (!ownerId) return "请选择负责人";
-    return memberOptions.value.find(m => m.id === ownerId)?.name || "请选择负责人";
-});
-
-const stageLabelMap: Record<string, string> = {
-    planning: "开发环境",
-    released: "已发布",
-    archived: "已归档",
-};
-
-const progressByStatus: Record<string, number> = {
-    planning: 0,
-    released: 100,
-    archived: 100,
-};
-
-const projectNameById = (id: string) => {
-    const p = projects.value.find(p => p.id === id);
-    return p ? p.name : id;
-};
-
-const getVersionOwnerId = (item: VersionItem): string => {
-    return String(item.owner_id || "").trim();
-};
-
-const getMemberNameById = (memberId: string): string => {
-    if (!memberId) return "待指派";
-    return memberOptions.value.find(m => m.id === memberId)?.name || "待指派";
-};
-
-const getMemberAvatarUrlById = (memberId: string): string => {
-    if (!memberId) return "";
-    return memberOptions.value.find(m => m.id === memberId)?.avatarUrl || "";
-};
-
-const getAvatarLabel = (name: string): string => {
-    const normalized = String(name || "").trim();
-    if (!normalized) return "?";
-    return normalized.slice(0, 1).toUpperCase();
-};
-
-const loadData = async () => {
-    loading.value = true;
-    try {
-        const [verRes, projRes, memberRes] = await Promise.all([
-            getVortflowVersions({ page: 1, page_size: 100 }),
-            getVortflowProjects(),
-            getMembers({ search: "", role: "", page: 1, size: 50 }),
-        ]);
-        versions.value = ((verRes as any)?.items || []);
-        projects.value = ((projRes as any)?.items || []);
-        const members = Array.isArray((memberRes as any)?.members) ? (memberRes as any).members : [];
-        memberOptions.value = members
-            .map((item: any) => ({
-                id: String(item?.id || ""),
-                name: String(item?.name || "").trim(),
-                avatarUrl: String(item?.avatar_url || item?.avatar || ""),
-            }))
-            .filter((item: MemberOption) => item.id && item.name);
-    } catch { /* silent */ }
-    finally { loading.value = false; }
-};
-
 const handleAddVersion = () => {
     versionDialogMode.value = "create";
     editingVersionId.value = "";
     editingVersionStatus.value = "planning";
     createVersionForm.value = {
-        version_no: "",
-        title: "",
+        version_no: "", title: "",
         owner_id: memberOptions.value[0]?.id || "",
-        release_date: "",
-        release_log: "",
+        release_date: "", release_log: "",
     };
-    dialogOwnerDropdownOpen.value = false;
-    dialogOwnerKeyword.value = "";
-    dialogOwnerGroupOpen.value = true;
     createDialogOpen.value = true;
 };
 
@@ -195,9 +134,6 @@ const handleEditVersion = (v: VersionItem) => {
         release_date: (v.planned_release_at || v.release_date || "") ? String(v.planned_release_at || v.release_date).split("T")[0] : "",
         release_log: "",
     };
-    dialogOwnerDropdownOpen.value = false;
-    dialogOwnerKeyword.value = "";
-    dialogOwnerGroupOpen.value = true;
     createDialogOpen.value = true;
 };
 
@@ -205,18 +141,9 @@ const handleCreateVersion = async (andContinue = false) => {
     const projectId = projects.value[0]?.id;
     if (!projectId) return;
     const data = createVersionForm.value;
-    if (!String(data.version_no || "").trim()) {
-        message.warning("版本号必填");
-        return;
-    }
-    if (!String(data.title || "").trim()) {
-        message.warning("标题必填");
-        return;
-    }
-    if (!String(data.owner_id || "").trim()) {
-        message.warning("负责人必填");
-        return;
-    }
+    if (!String(data.version_no || "").trim()) { message.warning("版本号必填"); return; }
+    if (!String(data.title || "").trim()) { message.warning("标题必填"); return; }
+    if (!String(data.owner_id || "").trim()) { message.warning("负责人必填"); return; }
     createFormLoading.value = true;
     try {
         if (versionDialogMode.value === "create") {
@@ -226,18 +153,10 @@ const handleCreateVersion = async (andContinue = false) => {
                 description: String(data.title).trim(),
                 owner_id: data.owner_id || undefined,
                 planned_release_at: data.release_date || undefined,
-                progress: 0,
-                status: "planning",
+                progress: 0, status: "planning",
             });
-            await loadData();
             if (andContinue) {
-                createVersionForm.value = {
-                    version_no: "",
-                    title: "",
-                    owner_id: data.owner_id || "",
-                    release_date: "",
-                    release_log: "",
-                };
+                createVersionForm.value = { version_no: "", title: "", owner_id: data.owner_id || "", release_date: "", release_log: "" };
             } else {
                 createDialogOpen.value = false;
             }
@@ -250,12 +169,10 @@ const handleCreateVersion = async (andContinue = false) => {
                 planned_release_at: data.release_date || undefined,
                 status: editingVersionStatus.value,
             });
-            await loadData();
             createDialogOpen.value = false;
         }
-    } finally {
-        createFormLoading.value = false;
-    }
+        loadData();
+    } finally { createFormLoading.value = false; }
 };
 
 const handleDeleteVersion = async (v: VersionItem) => {
@@ -268,374 +185,187 @@ const handleReleaseVersion = async (v: VersionItem) => {
     loadData();
 };
 
-const formatDate = (iso: string | null) => {
-    if (!iso) return "-";
-    return iso.split("T")[0];
-};
-
-const getVersionProgress = (row: VersionItem): number => {
-    const explicit = Number(row.progress);
-    if (Number.isFinite(explicit) && explicit >= 0) return Math.min(100, Math.max(0, explicit));
-    return progressByStatus[row.status] ?? 0;
-};
-
-const resetFilters = () => {
-    selectedOwnerId.value = "";
-    keyword.value = "";
-};
-
-const selectOwner = (value: string) => {
-    selectedOwnerId.value = value;
-    ownerDropdownOpen.value = false;
-};
-
-const clearOwnerFilter = () => {
-    selectedOwnerId.value = "";
-    ownerDropdownOpen.value = false;
-};
-
-const selectUnassignedOwner = () => {
-    selectedOwnerId.value = "__unassigned__";
-    ownerDropdownOpen.value = false;
-};
-
-const ownerAvatarClass = (name: string) => {
-    const palette = [
-        "bg-emerald-500", "bg-sky-500", "bg-indigo-500", "bg-violet-500",
-        "bg-amber-500", "bg-rose-500", "bg-teal-500", "bg-cyan-500",
-    ];
-    const seed = name.split("").reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
-    return palette[seed % palette.length];
-};
-
-const onDocumentClick = (e: MouseEvent) => {
-    const target = e.target as Node;
-    if (ownerDropdownRef.value && !ownerDropdownRef.value.contains(target)) ownerDropdownOpen.value = false;
-    if (dialogOwnerDropdownRef.value && !dialogOwnerDropdownRef.value.contains(target)) dialogOwnerDropdownOpen.value = false;
-};
-
-const selectDialogOwner = (value: string) => {
-    createVersionForm.value.owner_id = value;
-    dialogOwnerDropdownOpen.value = false;
-};
-
-const handleCreateDialogOpenChange = (open: boolean) => {
-    createDialogOpen.value = open;
-    if (!open) {
-        dialogOwnerDropdownOpen.value = false;
-        dialogOwnerKeyword.value = "";
-    }
-};
-
 onMounted(async () => {
-    await loadData();
-    document.addEventListener("click", onDocumentClick);
-});
-
-onBeforeUnmount(() => {
-    document.removeEventListener("click", onDocumentClick);
+    await loadOptions();
+    loadData();
 });
 </script>
 
 <template>
     <div class="space-y-4">
+        <!-- 搜索卡片 -->
         <div class="bg-white rounded-xl p-6">
             <div class="flex items-center justify-between mb-4">
                 <div class="flex items-center gap-6">
-                    <h3 class="text-base font-medium text-gray-800 whitespace-nowrap leading-6">版本</h3>
+                    <h3 class="text-base font-medium text-gray-800 whitespace-nowrap leading-6">版本管理</h3>
                     <vort-tabs v-model:activeKey="activeTab" :hide-content="true">
                         <vort-tab-pane tab-key="version-list" tab="版本列表" />
                         <vort-tab-pane tab-key="release-plan" tab="发布计划" />
                     </vort-tabs>
                 </div>
+                <vort-button variant="primary" @click="handleAddVersion">
+                    <Plus :size="14" class="mr-1" /> 新建版本
+                </vort-button>
             </div>
-
-            <div v-if="activeTab === 'version-list'" class="mt-4">
-                <vort-spin :spinning="loading">
-                    <div class="bg-white rounded-xl px-5 py-3 mb-4">
-                        <div class="flex flex-wrap items-center gap-3 text-sm">
-                            <div class="text-gray-500 mr-2">
-                                共 <span class="text-gray-800 font-medium">{{ filteredVersions.length }}</span> 项
-                            </div>
-                            <div class="relative w-[220px]">
-                                <vort-input
-                                    v-model="keyword"
-                                    placeholder="请输入版本号/名称"
-                                    class="w-full"
-                                >
-                                    <template #prefix>
-                                        <Search :size="14" class="text-gray-400" />
-                                    </template>
-                                </vort-input>
-                            </div>
-                            <div ref="ownerDropdownRef" class="relative w-[130px]" @click.stop>
-                                <button
-                                    class="h-8 w-full px-3 rounded border border-slate-300 bg-white text-left flex items-center justify-between transition-colors hover:border-slate-400"
-                                    :class="{ 'border-blue-500 bg-white': ownerDropdownOpen }"
-                                    @click.stop="ownerDropdownOpen = !ownerDropdownOpen"
-                                >
-                                    <span
-                                        class="text-sm truncate"
-                                        :class="selectedOwnerText === '负责人' ? 'text-gray-400' : 'text-gray-700'"
-                                    >{{ selectedOwnerText }}</span>
-                                    <span class="text-gray-400 text-xs">▾</span>
-                                </button>
-                                <div v-if="ownerDropdownOpen" class="absolute z-30 mt-2 w-[270px] bg-white border border-gray-200 rounded-lg shadow-lg p-2.5 owner-dropdown-panel">
-                                    <div class="relative mb-2">
-                                        <input
-                                            v-model="ownerKeyword"
-                                            placeholder="搜索..."
-                                            class="w-full h-8 pl-2.5 pr-7 border border-gray-300 rounded-md text-sm"
-                                        />
-                                        <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">⌕</span>
-                                    </div>
-                                    <div class="max-h-[300px] overflow-auto space-y-1 owner-list">
-                                        <button
-                                            class="w-full text-left px-2 py-1.5 rounded-md text-sm text-slate-700 hover:bg-gray-50"
-                                            :class="{ 'bg-blue-50 text-blue-700': !selectedOwnerId }"
-                                            @click="clearOwnerFilter"
-                                        >
-                                            全部
-                                        </button>
-                                        <button
-                                            class="w-full text-left px-2 py-1.5 rounded-md text-sm text-slate-700 hover:bg-gray-50"
-                                            :class="{ 'bg-blue-50 text-blue-700': selectedOwnerId === '__unassigned__' }"
-                                            @click="selectUnassignedOwner"
-                                        >
-                                            未指派
-                                        </button>
-                                        <div class="mt-1">
-                                            <button
-                                                class="w-full flex items-center justify-between px-2 py-1.5 rounded-md bg-slate-100 text-sm text-slate-700"
-                                                @click="ownerGroupOpen = !ownerGroupOpen"
-                                            >
-                                                <span>全部成员（{{ filteredOwnerOptions.length }}）</span>
-                                                <span class="text-base leading-none">{{ ownerGroupOpen ? "⌃" : "⌄" }}</span>
-                                            </button>
-                                        </div>
-                                        <button
-                                            v-for="member in (ownerGroupOpen ? filteredOwnerOptions : [])"
-                                            :key="member.id"
-                                            class="w-full text-left px-2 py-1.5 rounded-md text-sm hover:bg-gray-50 flex items-center gap-2"
-                                            :class="{ 'bg-blue-50 text-blue-700': selectedOwnerId === member.id }"
-                                            @click="selectOwner(member.id)"
-                                        >
-                                            <span
-                                                class="w-5 h-5 rounded-full text-white text-[11px] flex items-center justify-center shrink-0"
-                                                :class="ownerAvatarClass(member.name)"
-                                            >
-                                                {{ member.name.slice(0, 1) }}
-                                            </span>
-                                            <span class="truncate text-slate-700">{{ member.name }}</span>
-                                        </button>
-                                        <div v-if="filteredOwnerOptions.length === 0" class="px-2 py-2 text-xs text-gray-400">暂无匹配成员</div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="flex items-center gap-2">
-                                <vort-button @click="resetFilters">重置</vort-button>
-                            </div>
-                            <div class="ml-auto">
-                                <vort-button variant="primary" @click="handleAddVersion">
-                                    <Plus :size="14" class="mr-1" /> 新建版本
-                                </vort-button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <vort-table :data-source="filteredVersions" :pagination="false">
-                        <vort-table-column label="版本号" :width="120">
-                            <template #default="{ row }">
-                                <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-50 text-blue-600 text-xs font-medium">
-                                    {{ row.name }}
-                                </span>
-                            </template>
-                        </vort-table-column>
-
-                        <vort-table-column label="版本名称" :min-width="220">
-                            <template #default="{ row }">
-                                <span class="text-sm text-gray-800">
-                                    {{ row.description || "-" }}
-                                </span>
-                            </template>
-                        </vort-table-column>
-
-                        <vort-table-column label="阶段" :width="120">
-                            <template #default="{ row }">
-                                <span class="text-sm text-gray-700">
-                                    {{ stageLabelMap[row.status] || statusLabels[row.status] || row.status }}
-                                </span>
-                            </template>
-                        </vort-table-column>
-
-                        <vort-table-column label="负责人" :width="140">
-                            <template #default="{ row }">
-                                <div class="flex items-center gap-1.5 text-sm text-gray-700">
-                                    <span class="w-5 h-5 rounded-full bg-sky-50 text-sky-600 inline-flex items-center justify-center overflow-hidden">
-                                        <img
-                                            v-if="getMemberAvatarUrlById(getVersionOwnerId(row))"
-                                            :src="getMemberAvatarUrlById(getVersionOwnerId(row))"
-                                            class="w-full h-full object-cover"
-                                        >
-                                        <UserRound v-else :size="12" />
-                                    </span>
-                                    {{ getMemberNameById(getVersionOwnerId(row)) }}
-                                </div>
-                            </template>
-                        </vort-table-column>
-
-                        <vort-table-column label="发布时间/实际发布时间" :width="210">
-                            <template #default="{ row }">
-                                <span class="text-sm text-gray-500">
-                                    {{ formatDate((row.planned_release_at || row.release_date || null) as any) }} / {{ formatDate((row.actual_release_at || null) as any) }}
-                                </span>
-                            </template>
-                        </vort-table-column>
-
-                        <vort-table-column label="进度" :width="170">
-                            <template #default="{ row }">
-                                <div class="flex items-center gap-2">
-                                    <div class="w-[110px] h-1.5 rounded-full bg-gray-100 overflow-hidden">
-                                        <div
-                                            class="h-full rounded-full bg-blue-500 transition-all"
-                                            :style="{ width: `${getVersionProgress(row)}%` }"
-                                        />
-                                    </div>
-                                    <span class="text-xs text-gray-500">{{ getVersionProgress(row) }}%</span>
-                                </div>
-                            </template>
-                        </vort-table-column>
-
-                        <vort-table-column label="操作" :width="170" fixed="right">
-                            <template #default="{ row }">
-                                <div class="flex items-center gap-2 whitespace-nowrap">
-                                    <a
-                                        v-if="row.status === 'planning'"
-                                        class="text-sm text-blue-600 cursor-pointer"
-                                        @click="handleReleaseVersion(row)"
-                                    >
-                                        发布
-                                    </a>
-                                    <a class="text-sm text-blue-600 cursor-pointer" @click="handleEditVersion(row)">编辑</a>
-                                    <vort-popconfirm title="确认删除该版本？" @confirm="handleDeleteVersion(row)">
-                                        <a class="text-sm text-red-500 cursor-pointer">删除</a>
-                                    </vort-popconfirm>
-                                </div>
-                            </template>
-                        </vort-table-column>
-                    </vort-table>
-
-                    <div v-if="filteredVersions.length === 0" class="py-12 text-center text-sm text-gray-400">
-                        暂无版本数据
-                    </div>
-                </vort-spin>
-            </div>
-
-            <div v-else class="mt-6 py-12 text-center text-sm text-gray-400">
-                发布计划模块待上线
+            <div v-if="activeTab === 'version-list'" class="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4">
+                <div class="flex items-center gap-2 w-full sm:w-auto">
+                    <span class="text-sm text-gray-500 whitespace-nowrap">关键词</span>
+                    <vort-input-search
+                        v-model="filterParams.keyword"
+                        placeholder="版本号/名称"
+                        allow-clear
+                        class="flex-1 sm:w-[200px]"
+                        @search="onSearchSubmit"
+                        @keyup.enter="onSearchSubmit"
+                    />
+                </div>
+                <div class="flex items-center gap-2 w-full sm:w-auto">
+                    <span class="text-sm text-gray-500 whitespace-nowrap">状态</span>
+                    <vort-select v-model="filterParams.status" placeholder="全部" allow-clear class="flex-1 sm:w-[120px]" @change="onSearchSubmit">
+                        <vort-select-option v-for="opt in statusOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</vort-select-option>
+                    </vort-select>
+                </div>
+                <div class="flex items-center gap-2 w-full sm:w-auto">
+                    <span class="text-sm text-gray-500 whitespace-nowrap">负责人</span>
+                    <vort-select v-model="filterParams.owner_id" placeholder="全部" allow-clear class="flex-1 sm:w-[140px]" @change="onSearchSubmit">
+                        <vort-select-option v-for="m in memberOptions" :key="m.id" :value="m.id">{{ m.name }}</vort-select-option>
+                    </vort-select>
+                </div>
+                <div class="flex items-center gap-2">
+                    <vort-button variant="primary" @click="onSearchSubmit">查询</vort-button>
+                    <vort-button @click="resetParams">重置</vort-button>
+                </div>
             </div>
         </div>
 
-        <!-- 新建版本弹窗 -->
+        <!-- 表格卡片 -->
+        <div v-if="activeTab === 'version-list'" class="bg-white rounded-xl p-6">
+            <vort-table :data-source="listData" :loading="loading" :pagination="false">
+                <vort-table-column label="版本号" :width="120">
+                    <template #default="{ row }">
+                        <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-50 text-blue-600 text-xs font-medium">
+                            {{ row.name }}
+                        </span>
+                    </template>
+                </vort-table-column>
+
+                <vort-table-column label="版本名称" :min-width="220">
+                    <template #default="{ row }">
+                        <span class="text-sm text-gray-800">{{ row.description || "-" }}</span>
+                    </template>
+                </vort-table-column>
+
+                <vort-table-column label="阶段" :width="120">
+                    <template #default="{ row }">
+                        <vort-tag :color="statusColorMap[row.status] || 'default'">
+                            {{ stageLabelMap[row.status] || statusLabels[row.status] || row.status }}
+                        </vort-tag>
+                    </template>
+                </vort-table-column>
+
+                <vort-table-column label="负责人" :width="140">
+                    <template #default="{ row }">
+                        <div class="flex items-center gap-1.5 text-sm text-gray-700">
+                            <span class="w-5 h-5 rounded-full bg-sky-50 text-sky-600 inline-flex items-center justify-center overflow-hidden">
+                                <img
+                                    v-if="getMemberAvatarUrlById(getVersionOwnerId(row))"
+                                    :src="getMemberAvatarUrlById(getVersionOwnerId(row))"
+                                    class="w-full h-full object-cover"
+                                >
+                                <UserRound v-else :size="12" />
+                            </span>
+                            {{ getMemberNameById(getVersionOwnerId(row)) }}
+                        </div>
+                    </template>
+                </vort-table-column>
+
+                <vort-table-column label="发布时间/实际发布时间" :width="210">
+                    <template #default="{ row }">
+                        <span class="text-sm text-gray-500">
+                            {{ formatDate((row.planned_release_at || row.release_date || null) as any) }} / {{ formatDate((row.actual_release_at || null) as any) }}
+                        </span>
+                    </template>
+                </vort-table-column>
+
+                <vort-table-column label="进度" :width="170">
+                    <template #default="{ row }">
+                        <div class="flex items-center gap-2">
+                            <div class="w-[110px] h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                                <div class="h-full rounded-full bg-blue-500 transition-all" :style="{ width: `${getVersionProgress(row)}%` }" />
+                            </div>
+                            <span class="text-xs text-gray-500">{{ getVersionProgress(row) }}%</span>
+                        </div>
+                    </template>
+                </vort-table-column>
+
+                <vort-table-column label="操作" :width="170" fixed="right">
+                    <template #default="{ row }">
+                        <div class="flex items-center gap-2 whitespace-nowrap">
+                            <a v-if="row.status === 'planning'" class="text-sm text-blue-600 cursor-pointer" @click="handleReleaseVersion(row)">发布</a>
+                            <vort-divider v-if="row.status === 'planning'" type="vertical" />
+                            <a class="text-sm text-blue-600 cursor-pointer" @click="handleEditVersion(row)">编辑</a>
+                            <vort-divider type="vertical" />
+                            <vort-popconfirm title="确认删除该版本？" @confirm="handleDeleteVersion(row)">
+                                <a class="text-sm text-red-500 cursor-pointer">删除</a>
+                            </vort-popconfirm>
+                        </div>
+                    </template>
+                </vort-table-column>
+            </vort-table>
+
+            <div v-if="showPagination" class="flex justify-end mt-4">
+                <vort-pagination
+                    v-model:current="filterParams.page"
+                    v-model:page-size="filterParams.size"
+                    :total="total"
+                    show-total-info
+                    show-size-changer
+                    @change="loadData"
+                />
+            </div>
+        </div>
+
+        <!-- 发布计划占位 -->
+        <div v-if="activeTab === 'release-plan'" class="bg-white rounded-xl p-6">
+            <div class="py-12 text-center text-sm text-gray-400">发布计划模块待上线</div>
+        </div>
+
+        <!-- 新建/编辑版本弹窗 -->
         <vort-dialog
             :open="createDialogOpen"
             :title="versionDialogMode === 'edit' ? '编辑版本' : '新建版本'"
-            :width="1000"
+            :width="700"
             :centered="true"
-            @update:open="handleCreateDialogOpenChange"
+            @update:open="createDialogOpen = $event"
         >
-            <div class="space-y-4 px-2 version-create-dialog">
-                <div class="version-create-row version-create-row-top">
-                    <div class="version-field">
-                        <div class="text-sm font-semibold text-slate-700 mb-2 whitespace-nowrap">版本号 <span class="text-red-500">*</span></div>
-                        <vort-input v-model="createVersionForm.version_no" placeholder="请输入版本号" class="w-full" />
-                        <div v-if="!createVersionForm.version_no" class="text-xs text-red-500 mt-1">版本号必填</div>
-                    </div>
-                    <div class="version-field">
-                        <div class="text-sm font-semibold text-slate-700 mb-2 whitespace-nowrap">标题</div>
-                        <vort-input v-model="createVersionForm.title" placeholder="请输入标题" class="w-full" />
-                    </div>
+            <vort-form label-width="90px">
+                <div class="grid grid-cols-2 gap-x-4">
+                    <vort-form-item label="版本号" required>
+                        <vort-input v-model="createVersionForm.version_no" placeholder="请输入版本号" />
+                    </vort-form-item>
+                    <vort-form-item label="标题" required>
+                        <vort-input v-model="createVersionForm.title" placeholder="请输入标题" />
+                    </vort-form-item>
                 </div>
-
-                <div class="version-create-row version-create-row-mid">
-                    <div class="version-field">
-                        <div class="text-sm font-semibold text-slate-700 mb-2 whitespace-nowrap">负责人 <span class="text-red-500">*</span></div>
-                        <div ref="dialogOwnerDropdownRef" class="relative w-full" @click.stop>
-                            <button
-                                type="button"
-                                class="h-8 w-full px-3 rounded border border-slate-300 bg-white text-left flex items-center justify-between transition-colors hover:border-slate-400"
-                                :class="{ 'border-blue-500 bg-white': dialogOwnerDropdownOpen }"
-                                @click.stop="dialogOwnerDropdownOpen = !dialogOwnerDropdownOpen"
-                            >
-                                <span
-                                    class="text-sm truncate"
-                                    :class="dialogSelectedOwnerText === '请选择负责人' ? 'text-gray-400' : 'text-gray-700'"
-                                >{{ dialogSelectedOwnerText }}</span>
-                                <span class="text-gray-400 text-xs">▾</span>
-                            </button>
-                            <div
-                                v-if="dialogOwnerDropdownOpen"
-                                class="absolute z-40 mt-2 w-[270px] bg-white border border-gray-200 rounded-lg shadow-lg p-2.5 owner-dropdown-panel"
-                            >
-                                <div class="relative mb-2">
-                                    <input
-                                        v-model="dialogOwnerKeyword"
-                                        placeholder="搜索..."
-                                        class="w-full h-8 pl-2.5 pr-7 border border-gray-300 rounded-md text-sm"
-                                    >
-                                    <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">⌕</span>
-                                </div>
-                                <div class="max-h-[300px] overflow-auto space-y-1 owner-list">
-                                    <div class="mt-1">
-                                        <button
-                                            class="w-full flex items-center justify-between px-2 py-1.5 rounded-md bg-slate-100 text-sm text-slate-700"
-                                            @click="dialogOwnerGroupOpen = !dialogOwnerGroupOpen"
-                                        >
-                                            <span>全部成员（{{ filteredDialogOwnerOptions.length }}）</span>
-                                            <span class="text-base leading-none">{{ dialogOwnerGroupOpen ? "⌃" : "⌄" }}</span>
-                                        </button>
-                                    </div>
-                                    <button
-                                        v-for="member in (dialogOwnerGroupOpen ? filteredDialogOwnerOptions : [])"
-                                        :key="member.id"
-                                        class="w-full text-left px-2 py-1.5 rounded-md text-sm hover:bg-gray-50 flex items-center gap-2"
-                                        :class="{ 'bg-blue-50 text-blue-700': createVersionForm.owner_id === member.id }"
-                                        @click="selectDialogOwner(member.id)"
-                                    >
-                                        <span
-                                            class="w-5 h-5 rounded-full text-white text-[11px] flex items-center justify-center shrink-0 overflow-hidden"
-                                            :class="ownerAvatarClass(member.name)"
-                                        >
-                                            <img
-                                                v-if="member.avatarUrl"
-                                                :src="member.avatarUrl"
-                                                class="w-full h-full object-cover"
-                                            >
-                                            <template v-else>{{ getAvatarLabel(member.name) }}</template>
-                                        </span>
-                                        <span class="truncate text-slate-700">{{ member.name }}</span>
-                                    </button>
-                                    <div v-if="filteredDialogOwnerOptions.length === 0" class="px-2 py-2 text-xs text-gray-400">暂无匹配成员</div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="version-field">
-                        <div class="text-sm font-semibold text-slate-700 mb-2 whitespace-nowrap">发布时间</div>
+                <div class="grid grid-cols-2 gap-x-4">
+                    <vort-form-item label="负责人" required>
+                        <vort-select v-model="createVersionForm.owner_id" placeholder="请选择负责人" class="w-full">
+                            <vort-select-option v-for="m in memberOptions" :key="m.id" :value="m.id">{{ m.name }}</vort-select-option>
+                        </vort-select>
+                    </vort-form-item>
+                    <vort-form-item label="发布时间">
                         <vort-date-picker
                             v-model="createVersionForm.release_date"
                             value-format="YYYY-MM-DD"
                             placeholder="请选择发布时间"
                             class="w-full"
                         />
-                    </div>
+                    </vort-form-item>
                 </div>
-
-                <div class="version-field">
-                    <div class="text-sm font-semibold text-slate-700 mb-2 whitespace-nowrap">发布日志</div>
-                    <vort-textarea v-model="createVersionForm.release_log" placeholder="请输入发布日志" :rows="8" class="w-full" />
-                </div>
-            </div>
+                <vort-form-item label="发布日志">
+                    <vort-textarea v-model="createVersionForm.release_log" placeholder="请输入发布日志" :rows="6" />
+                </vort-form-item>
+            </vort-form>
 
             <template #footer>
                 <div class="flex justify-end gap-3">
@@ -647,39 +377,3 @@ onBeforeUnmount(() => {
         </vort-dialog>
     </div>
 </template>
-
-<style scoped>
-:deep(.version-filter-select .vort-select-selector) {
-    height: 32px;
-    border: 1px solid transparent;
-    background: #f8fafc;
-    box-shadow: none;
-}
-
-:deep(.version-filter-select.vort-select-focused .vort-select-selector) {
-    border-color: #3b82f6;
-    background: #ffffff;
-}
-
-:deep(.version-filter-select .vort-select-selection-placeholder),
-:deep(.version-filter-select .vort-select-selection-item) {
-    white-space: nowrap;
-}
-
-.version-create-row {
-    display: grid;
-    gap: 16px;
-}
-
-.version-create-row-top {
-    grid-template-columns: 220px minmax(0, 1fr);
-}
-
-.version-create-row-mid {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-}
-
-.version-field {
-    min-width: 0;
-}
-</style>

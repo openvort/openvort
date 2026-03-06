@@ -8,6 +8,8 @@ import TokenChartWidget from "./widgets/TokenChartWidget.vue";
 import UsageChartWidget from "./widgets/UsageChartWidget.vue";
 import RecentChatsWidget from "./widgets/RecentChatsWidget.vue";
 import ShortcutsWidget from "./widgets/ShortcutsWidget.vue";
+import ProjectSummaryWidget from "./widgets/ProjectSummaryWidget.vue";
+import SystemInfoWidget from "./widgets/SystemInfoWidget.vue";
 import WidgetCustomize from "./WidgetCustomize.vue";
 import type { WidgetConfig } from "./WidgetCustomize.vue";
 
@@ -23,13 +25,14 @@ const stats = ref({
     totalOutputTokens: 0,
     sessionUsage: [] as any[],
     recentMessages: [] as { user: string; content: string; time: string }[],
+    activeSessions: 0,
 });
 
 onMounted(async () => {
     try {
         const res: any = await getDashboard();
         if (res) Object.assign(stats.value, res);
-    } catch { /* 后端未就绪时使用默认值 */ }
+    } catch { /* fallback to defaults */ }
 });
 
 // ---- Widget 系统 ----
@@ -38,10 +41,12 @@ const STORAGE_KEY = "openvort_overview_widgets";
 
 const defaultWidgets: WidgetConfig[] = [
     { id: "shortcuts", title: "快捷入口", description: "常用功能快速跳转", visible: true, span: "full" },
-    { id: "stats", title: "统计卡片", description: "Agent 状态、消息数、Token 用量", visible: true, span: "full" },
+    { id: "stats", title: "统计卡片", description: "Agent 状态、消息数、Token 用量、插件/通道数", visible: true, span: "full" },
+    { id: "projectSummary", title: "项目管理概览", description: "VortFlow 需求/任务/缺陷统计与进度", visible: true, span: "full" },
     { id: "tokenChart", title: "Token 用量分布", description: "Input/Output Token 饼图", visible: true, span: "half" },
     { id: "usageChart", title: "会话用量 Top 10", description: "按会话统计的 Token 用量", visible: true, span: "half" },
-    { id: "recentChats", title: "最近对话", description: "最近的对话记录", visible: true, span: "full" },
+    { id: "recentChats", title: "最近对话", description: "最近的对话记录", visible: true, span: "half" },
+    { id: "systemInfo", title: "系统信息", description: "版本、LLM 模型、系统管理入口", visible: true, span: "half" },
 ];
 
 function loadWidgets(): WidgetConfig[] {
@@ -49,13 +54,11 @@ function loadWidgets(): WidgetConfig[] {
         const raw = localStorage.getItem(STORAGE_KEY);
         if (raw) {
             const saved: WidgetConfig[] = JSON.parse(raw);
-            // 合并：保留已保存的顺序和配置，补充新增的 widget
             const knownIds = new Set(saved.map(w => w.id));
             const merged = [...saved];
             for (const dw of defaultWidgets) {
                 if (!knownIds.has(dw.id)) merged.push({ ...dw });
             }
-            // 移除已删除的 widget
             const validIds = new Set(defaultWidgets.map(w => w.id));
             return merged.filter(w => validIds.has(w.id));
         }
@@ -73,15 +76,6 @@ function handleSaveWidgets(updated: WidgetConfig[]) {
     widgets.value = updated;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
 }
-
-// widget id → 组件映射
-const widgetComponents: Record<string, any> = {
-    shortcuts: ShortcutsWidget,
-    stats: StatsWidget,
-    tokenChart: TokenChartWidget,
-    usageChart: UsageChartWidget,
-    recentChats: RecentChatsWidget,
-};
 </script>
 
 <template>
@@ -97,20 +91,17 @@ const widgetComponents: Record<string, any> = {
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <template v-for="widget in visibleWidgets" :key="widget.id">
                 <div :class="widget.span === 'full' ? 'lg:col-span-2' : ''">
-                    <!-- shortcuts -->
                     <ShortcutsWidget v-if="widget.id === 'shortcuts'" />
-                    <!-- stats -->
                     <StatsWidget v-else-if="widget.id === 'stats'" :data="stats" />
-                    <!-- tokenChart -->
+                    <ProjectSummaryWidget v-else-if="widget.id === 'projectSummary'" />
                     <TokenChartWidget v-else-if="widget.id === 'tokenChart'"
                         :input-tokens="stats.totalInputTokens"
                         :output-tokens="stats.totalOutputTokens" />
-                    <!-- usageChart -->
                     <UsageChartWidget v-else-if="widget.id === 'usageChart'"
                         :session-usage="stats.sessionUsage" />
-                    <!-- recentChats -->
                     <RecentChatsWidget v-else-if="widget.id === 'recentChats'"
                         :messages="stats.recentMessages" />
+                    <SystemInfoWidget v-else-if="widget.id === 'systemInfo'" />
                 </div>
             </template>
         </div>

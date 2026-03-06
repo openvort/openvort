@@ -8,7 +8,8 @@ import {
     getVortgitRepoCommits, getVortgitRepoBranches,
     getVortflowProjects,
 } from "@/api";
-import { Plus, RefreshCw, Download, GitCommit, GitBranch } from "lucide-vue-next";
+import { Plus, RefreshCw, Download, GitCommit, GitBranch, ChevronDown, ChevronRight } from "lucide-vue-next";
+import { useLocalStorage } from "@vueuse/core";
 import { message } from "@openvort/vort-ui";
 
 interface RepoItem {
@@ -89,6 +90,22 @@ const groupByOptions = [
     { label: "按平台", value: "provider" },
     { label: "按类型", value: "type" },
 ];
+
+const collapsedGroups = useLocalStorage<Record<string, string[]>>("vortgit-repos-collapsed-groups", {});
+
+const isGroupCollapsed = (label: string) => {
+    return collapsedGroups.value[groupBy.value]?.includes(label) ?? false;
+};
+
+const toggleGroup = (label: string) => {
+    const key = groupBy.value;
+    const current = collapsedGroups.value[key] || [];
+    if (current.includes(label)) {
+        collapsedGroups.value = { ...collapsedGroups.value, [key]: current.filter(l => l !== label) };
+    } else {
+        collapsedGroups.value = { ...collapsedGroups.value, [key]: [...current, label] };
+    }
+};
 
 const groupedRepos = computed(() => {
     const groups = new Map<string, RepoItem[]>();
@@ -406,12 +423,13 @@ onActivated(() => {
             </div>
             <div v-else class="space-y-6">
                 <div v-for="group in groupedRepos" :key="group.label">
-                    <div class="flex items-center gap-2.5 mb-3">
+                    <div class="flex items-center gap-2.5 mb-3 cursor-pointer select-none group/header" @click="toggleGroup(group.label)">
+                        <component :is="isGroupCollapsed(group.label) ? ChevronRight : ChevronDown" :size="16" class="text-gray-400 group-hover/header:text-blue-500 transition-colors shrink-0" />
                         <div class="w-1 h-4 rounded-full bg-blue-500"></div>
                         <h4 class="text-sm font-semibold text-gray-800">{{ group.label }}</h4>
                         <span class="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{{ group.items.length }} 个仓库</span>
                     </div>
-                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div v-show="!isGroupCollapsed(group.label)" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         <div
                             v-for="repo in group.items"
                             :key="repo.id"

@@ -1096,6 +1096,8 @@ async def generate_vortflow_description(
 async def list_iterations(
     project_id: str = Query("", description="按项目过滤"),
     status: str = Query("", description="按状态过滤"),
+    keyword: str = Query("", description="按名称/目标搜索"),
+    owner_id: str = Query("", description="按负责人过滤"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):
@@ -1109,6 +1111,14 @@ async def list_iterations(
         if status:
             stmt = stmt.where(FlowIteration.status == status)
             count_stmt = count_stmt.where(FlowIteration.status == status)
+        if keyword:
+            like = f"%{keyword}%"
+            cond = FlowIteration.name.ilike(like) | FlowIteration.goal.ilike(like)
+            stmt = stmt.where(cond)
+            count_stmt = count_stmt.where(cond)
+        if owner_id:
+            stmt = stmt.where(FlowIteration.owner_id == owner_id)
+            count_stmt = count_stmt.where(FlowIteration.owner_id == owner_id)
         total = (await session.execute(count_stmt)).scalar_one()
         stmt = stmt.offset((page - 1) * page_size).limit(page_size)
         rows = (await session.execute(stmt)).scalars().all()
@@ -1331,6 +1341,8 @@ async def remove_iteration_task(iteration_id: str, task_id: str):
 async def list_versions(
     project_id: str = Query("", description="按项目过滤"),
     status: str = Query("", description="按状态过滤"),
+    keyword: str = Query("", description="按版本号/名称搜索"),
+    owner_id: str = Query("", description="按负责人过滤"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):
@@ -1344,6 +1356,14 @@ async def list_versions(
         if status:
             stmt = stmt.where(FlowVersion.status == status)
             count_stmt = count_stmt.where(FlowVersion.status == status)
+        if keyword:
+            like = f"%{keyword}%"
+            cond = FlowVersion.name.ilike(like) | FlowVersion.description.ilike(like)
+            stmt = stmt.where(cond)
+            count_stmt = count_stmt.where(cond)
+        if owner_id:
+            stmt = stmt.where(FlowVersion.owner_id == owner_id)
+            count_stmt = count_stmt.where(FlowVersion.owner_id == owner_id)
         total = (await session.execute(count_stmt)).scalar_one()
         stmt = stmt.offset((page - 1) * page_size).limit(page_size)
         rows = (await session.execute(stmt)).scalars().all()

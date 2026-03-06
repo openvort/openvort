@@ -1155,7 +1155,7 @@ export function generateVortflowDescriptionPrompt(entityType: string, projectNam
 // -- Iteration 迭代 --
 
 /** VortFlow 迭代列表 */
-export function getVortflowIterations(params: { project_id?: string; status?: string; page?: number; page_size?: number }) {
+export function getVortflowIterations(params: { project_id?: string; status?: string; keyword?: string; owner_id?: string; page?: number; page_size?: number }) {
     return request.get("/vortflow/iterations", { params });
 }
 
@@ -1229,7 +1229,7 @@ export function removeVortflowIterationTask(iterationId: string, taskId: string)
 // -- Version 版本 --
 
 /** VortFlow 版本列表 */
-export function getVortflowVersions(params: { project_id?: string; status?: string; page?: number; page_size?: number }) {
+export function getVortflowVersions(params: { project_id?: string; status?: string; keyword?: string; owner_id?: string; page?: number; page_size?: number }) {
     return request.get("/vortflow/versions", { params });
 }
 

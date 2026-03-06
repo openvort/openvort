@@ -1,5 +1,8 @@
 """仪表盘路由"""
 
+import time
+from datetime import datetime, timezone
+
 from fastapi import APIRouter
 
 from openvort.web.deps import get_registry, get_session_store
@@ -16,11 +19,11 @@ async def dashboard():
     channels = registry.list_channels()
     tools = registry.list_tools()
 
-    # 统计消息数和 token 用量
     total_messages = 0
     total_input_tokens = 0
     total_output_tokens = 0
-    session_usage = []  # 每个 session 的用量
+    session_usage = []
+    recent_messages = []
 
     for key, session in session_store._sessions.items():
         total_messages += len(session.messages)
@@ -36,8 +39,21 @@ async def dashboard():
                 "messages": len(session.messages),
             })
 
-    # 按 output_tokens 降序排列
+        # Collect recent user messages for display
+        for msg in reversed(session.messages):
+            if msg.get("role") == "user" and isinstance(msg.get("content"), str):
+                content = msg["content"][:120]
+                updated = datetime.fromtimestamp(session.updated_at, tz=timezone.utc)
+                recent_messages.append({
+                    "user": session.user_id,
+                    "content": content,
+                    "time": updated.strftime("%m-%d %H:%M"),
+                    "timestamp": session.updated_at,
+                })
+                break
+
     session_usage.sort(key=lambda x: x["output_tokens"], reverse=True)
+    recent_messages.sort(key=lambda x: x["timestamp"], reverse=True)
 
     return {
         "agentStatus": "running",
@@ -48,6 +64,9 @@ async def dashboard():
         "totalTools": len(tools),
         "totalInputTokens": total_input_tokens,
         "totalOutputTokens": total_output_tokens,
-        "sessionUsage": session_usage[:20],  # Top 20
-        "recentMessages": [],
+        "sessionUsage": session_usage[:20],
+        "recentMessages": recent_messages[:10],
+        "pluginNames": [p.name for p in plugins],
+        "channelNames": [c.name for c in channels],
+        "activeSessions": len(session_store._sessions),
     }
