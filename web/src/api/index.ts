@@ -1141,12 +1141,29 @@ export function getVortflowIteration(id: string) {
 }
 
 /** VortFlow 创建迭代 */
-export function createVortflowIteration(data: { project_id: string; name: string; goal?: string; start_date?: string; end_date?: string; status?: string }) {
+export function createVortflowIteration(data: {
+    project_id: string;
+    name: string;
+    goal?: string;
+    owner_id?: string;
+    start_date?: string;
+    end_date?: string;
+    status?: string;
+    estimate_hours?: number;
+}) {
     return request.post("/vortflow/iterations", data);
 }
 
 /** VortFlow 更新迭代 */
-export function updateVortflowIteration(id: string, data: { name?: string; goal?: string; start_date?: string; end_date?: string; status?: string }) {
+export function updateVortflowIteration(id: string, data: {
+    name?: string;
+    goal?: string;
+    owner_id?: string;
+    start_date?: string;
+    end_date?: string;
+    status?: string;
+    estimate_hours?: number;
+}) {
     return request.put(`/vortflow/iterations/${id}`, data);
 }
 

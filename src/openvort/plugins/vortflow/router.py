@@ -128,17 +128,21 @@ class IterationCreate(BaseModel):
     project_id: str
     name: str
     goal: str = ""
+    owner_id: str | None = None
     start_date: str | None = None
     end_date: str | None = None
     status: str = "planning"
+    estimate_hours: float | None = None
 
 
 class IterationUpdate(BaseModel):
     name: str | None = None
     goal: str | None = None
+    owner_id: str | None = None
     start_date: str | None = None
     end_date: str | None = None
     status: str | None = None
+    estimate_hours: float | None = None
 
 
 class VersionCreate(BaseModel):
@@ -267,9 +271,11 @@ def _milestone_dict(r: FlowMilestone) -> dict:
 def _iteration_dict(r: FlowIteration) -> dict:
     return {
         "id": r.id, "project_id": r.project_id, "name": r.name, "goal": r.goal,
+        "owner_id": r.owner_id,
         "start_date": r.start_date.isoformat() if r.start_date else None,
         "end_date": r.end_date.isoformat() if r.end_date else None,
         "status": r.status,
+        "estimate_hours": r.estimate_hours,
         "created_at": r.created_at.isoformat() if r.created_at else None,
         "updated_at": r.updated_at.isoformat() if r.updated_at else None,
     }
@@ -1125,8 +1131,10 @@ async def create_iteration(body: IterationCreate):
     async with sf() as session:
         i = FlowIteration(
             project_id=body.project_id, name=body.name, goal=body.goal,
+            owner_id=body.owner_id,
             start_date=_parse_dt(body.start_date), end_date=_parse_dt(body.end_date),
             status=body.status,
+            estimate_hours=body.estimate_hours,
         )
         session.add(i)
         await session.flush()
@@ -1144,7 +1152,7 @@ async def update_iteration(iteration_id: str, body: IterationUpdate):
         if not i:
             return {"error": "迭代不存在"}
         changes = {}
-        for field in ["name", "goal", "status"]:
+        for field in ["name", "goal", "status", "owner_id", "estimate_hours"]:
             val = getattr(body, field)
             if val is not None:
                 changes[field] = val

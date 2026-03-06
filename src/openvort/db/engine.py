@@ -86,15 +86,26 @@ async def init_db(database_url: str) -> None:
                 project_id VARCHAR(32) REFERENCES flow_projects(id),
                 name VARCHAR(200) NOT NULL,
                 goal TEXT DEFAULT '',
+                owner_id VARCHAR(32),
                 start_date TIMESTAMP,
                 end_date TIMESTAMP,
                 status VARCHAR(32) DEFAULT 'planning',
+                estimate_hours DOUBLE PRECISION,
                 created_at TIMESTAMP DEFAULT now(),
                 updated_at TIMESTAMP DEFAULT now()
             )
         """))
         await conn.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_flow_iterations_project_id ON flow_iterations(project_id)"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE IF EXISTS flow_iterations ADD COLUMN IF NOT EXISTS owner_id VARCHAR(32)"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE IF EXISTS flow_iterations ADD COLUMN IF NOT EXISTS estimate_hours DOUBLE PRECISION"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_flow_iterations_owner_id ON flow_iterations(owner_id)"
         ))
 
         await conn.execute(text("""

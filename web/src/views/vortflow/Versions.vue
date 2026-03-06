@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, computed } from "vue";
-import { Plus, Settings, Trash2, Rocket, MoreHorizontal, UserRound, Search } from "lucide-vue-next";
+import { Plus, UserRound, Search } from "lucide-vue-next";
 import { message } from "@openvort/vort-ui";
 import {
     getVortflowVersions, createVortflowVersion, updateVortflowVersion, deleteVortflowVersion,
@@ -312,9 +312,6 @@ onBeforeUnmount(() => {
                         <vort-tab-pane tab-key="release-plan" tab="发布计划" />
                     </vort-tabs>
                 </div>
-                <vort-button v-if="activeTab === 'version-list'" variant="primary" @click="handleAddVersion">
-                    <Plus :size="14" class="mr-1" /> 新建版本
-                </vort-button>
             </div>
 
             <div v-if="activeTab === 'version-list'" class="mt-4">
@@ -399,8 +396,13 @@ onBeforeUnmount(() => {
                                     </div>
                                 </div>
                             </div>
-                            <div class="ml-auto flex items-center gap-2">
+                            <div class="flex items-center gap-2">
                                 <vort-button @click="resetFilters">重置</vort-button>
+                            </div>
+                            <div class="ml-auto">
+                                <vort-button variant="primary" @click="handleAddVersion">
+                                    <Plus :size="14" class="mr-1" /> 新建版本
+                                </vort-button>
                             </div>
                         </div>
                     </div>
@@ -476,19 +478,12 @@ onBeforeUnmount(() => {
                                         class="text-sm text-blue-600 cursor-pointer"
                                         @click="handleReleaseVersion(row)"
                                     >
-                                        <Rocket :size="12" class="inline mr-1" />发布
+                                        发布
                                     </a>
-                                    <a class="text-sm text-blue-600 cursor-pointer" @click="handleEditVersion(row)">
-                                        <Settings :size="12" class="inline mr-1" />编辑
-                                    </a>
+                                    <a class="text-sm text-blue-600 cursor-pointer" @click="handleEditVersion(row)">编辑</a>
                                     <vort-popconfirm title="确认删除该版本？" @confirm="handleDeleteVersion(row)">
-                                        <a class="text-sm text-red-500 cursor-pointer">
-                                            <Trash2 :size="12" class="inline mr-1" />删除
-                                        </a>
+                                        <a class="text-sm text-red-500 cursor-pointer">删除</a>
                                     </vort-popconfirm>
-                                    <a class="text-gray-400 cursor-default">
-                                        <MoreHorizontal :size="14" />
-                                    </a>
                                 </div>
                             </template>
                         </vort-table-column>

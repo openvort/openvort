@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, onBeforeUnmount } from "vue";
 import { z } from "zod";
-import { useRouter } from "vue-router";
 import { Repeat, Plus, Search, Info } from "lucide-vue-next";
 import {
     getVortflowIterations, createVortflowIteration, updateVortflowIteration, deleteVortflowIteration,
@@ -36,7 +35,6 @@ interface MemberOption {
     avatarUrl?: string;
 }
 
-const router = useRouter();
 const loading = ref(true);
 const iterations = ref<IterationItem[]>([]);
 const projects = ref<ProjectItem[]>([]);
@@ -204,6 +202,7 @@ const handleEditIteration = (i: IterationItem) => {
 const handleSaveIteration = async (andContinue = false) => {
     try { await formRef.value?.validate(); } catch { return; }
     const r = currentIteration.value;
+    const estimateHours = typeof r.estimate_hours === "number" ? r.estimate_hours : undefined;
     formLoading.value = true;
     try {
         if (drawerMode.value === "add") {
@@ -211,9 +210,11 @@ const handleSaveIteration = async (andContinue = false) => {
                 project_id: r.project_id!,
                 name: r.name!,
                 goal: r.goal || "",
+                owner_id: r.owner_id || undefined,
                 start_date: r.start_date || undefined,
                 end_date: r.end_date || undefined,
                 status: r.status || "planning",
+                estimate_hours: estimateHours,
             });
             if (!andContinue) drawerVisible.value = false;
             else {
@@ -233,9 +234,11 @@ const handleSaveIteration = async (andContinue = false) => {
             await updateVortflowIteration(r.id!, {
                 name: r.name,
                 goal: r.goal,
+                owner_id: r.owner_id || undefined,
                 start_date: r.start_date || undefined,
                 end_date: r.end_date || undefined,
                 status: r.status,
+                estimate_hours: estimateHours,
             });
             drawerVisible.value = false;
         }
@@ -246,10 +249,6 @@ const handleSaveIteration = async (andContinue = false) => {
 const handleDeleteIteration = async (i: IterationItem) => {
     await deleteVortflowIteration(i.id);
     loadData();
-};
-
-const handleViewStories = (i: IterationItem) => {
-    router.push(`/vortflow/iterations/${i.id}/stories`);
 };
 
 const ownerName = (i: IterationItem) => i.owner_name || memberNameById(iterationOwnerId(i)) || "未分配";
@@ -450,14 +449,14 @@ onBeforeUnmount(() => {
             </div>
 
             <div class="bg-white rounded-xl overflow-hidden">
-                <div class="grid grid-cols-[2.2fr_0.9fr_1fr_1.8fr_1.4fr_1.4fr_1fr] px-6 py-3 text-xs text-gray-500 border-b border-gray-100 bg-gray-50">
+                <div class="grid grid-cols-[2.2fr_0.9fr_1fr_1.8fr_1.4fr_1.4fr_1fr] px-6 py-3 text-sm text-gray-500 border-b border-gray-100">
                     <span>标题</span>
                     <span>状态</span>
                     <span>负责人</span>
                     <span>开始时间/结束时间</span>
                     <span>工作项进度</span>
                     <span>工时报表</span>
-                    <span class="text-right">操作</span>
+                    <span>操作</span>
                 </div>
 
                 <div v-if="filteredIterations.length > 0">
@@ -494,26 +493,27 @@ onBeforeUnmount(() => {
                         </div>
 
                         <div class="min-w-0 pr-3">
-                            <div class="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                                <div class="h-full bg-gray-300 rounded-full" :style="{ width: `${storyProgressPercent(i)}%` }" />
+                            <div class="flex items-center gap-2">
+                                <div class="w-[96px] h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                    <div class="h-full bg-gray-300 rounded-full" :style="{ width: `${storyProgressPercent(i)}%` }" />
+                                </div>
+                                <div class="text-xs text-gray-400 whitespace-nowrap">{{ storyProgressText(i) }}</div>
                             </div>
-                            <div class="mt-1 text-xs text-gray-400 whitespace-nowrap">{{ storyProgressText(i) }}</div>
                         </div>
 
                         <div class="min-w-0 pl-3">
-                            <div class="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                                <div class="h-full bg-green-500 rounded-full" :style="{ width: `${effortPercent(i)}%` }" />
+                            <div class="flex items-center gap-2">
+                                <div class="w-[96px] h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                    <div class="h-full bg-green-500 rounded-full" :style="{ width: `${effortPercent(i)}%` }" />
+                                </div>
+                                <div class="text-xs text-gray-400 whitespace-nowrap">{{ effortText(i) }}</div>
                             </div>
-                            <div class="mt-1 text-xs text-gray-400 whitespace-nowrap">{{ effortText(i) }}</div>
                         </div>
 
-                        <div class="flex items-center justify-end gap-2 whitespace-nowrap">
-                            <a class="text-xs text-blue-600 cursor-pointer" @click="handleViewStories(i)">详情</a>
-                            <vort-divider type="vertical" />
-                            <a class="text-xs text-blue-600 cursor-pointer" @click="handleEditIteration(i)">编辑</a>
-                            <vort-divider type="vertical" />
+                        <div class="flex items-center gap-2 whitespace-nowrap">
+                            <a class="text-sm text-blue-600 cursor-pointer" @click="handleEditIteration(i)">编辑</a>
                             <vort-popconfirm title="确认删除该迭代？" @confirm="handleDeleteIteration(i)">
-                                <a class="text-xs text-red-500 cursor-pointer">删除</a>
+                                <a class="text-sm text-red-500 cursor-pointer">删除</a>
                             </vort-popconfirm>
                         </div>
                     </div>
