@@ -2,7 +2,7 @@
 import { ref, onMounted, computed, onBeforeUnmount } from "vue";
 import { z } from "zod";
 import { useRouter } from "vue-router";
-import { Repeat, Plus, Search } from "lucide-vue-next";
+import { Repeat, Plus, Search, Info } from "lucide-vue-next";
 import {
     createVortflowIteration, updateVortflowIteration, deleteVortflowIteration,
     getVortflowProjects, getMembers,
@@ -49,6 +49,24 @@ const ownerDropdownOpen = ref(false);
 const ownerKeyword = ref("");
 const ownerDropdownRef = ref<HTMLElement | null>(null);
 const ownerGroupOpen = ref(true);
+
+// Form owner dropdown (for 新建/编辑 iteration)
+const formOwnerDropdownOpen = ref(false);
+const formOwnerKeyword = ref("");
+const formOwnerGroupOpen = ref(true);
+const formOwnerDropdownRef = ref<HTMLElement | null>(null);
+
+const formFilteredOwnerOptions = computed(() => {
+    const kw = formOwnerKeyword.value.trim().toLowerCase();
+    if (!kw) return memberOptions.value;
+    return memberOptions.value.filter(item => item.name.toLowerCase().includes(kw));
+});
+
+const formSelectedOwnerText = computed(() => {
+    const id = currentIteration.value?.owner_id || currentIteration.value?.assignee_id || "";
+    if (!id) return "请选择负责人";
+    return memberOptions.value.find(m => m.id === id)?.name || "请选择负责人";
+});
 
 const statusColorMap: Record<string, string> = {
     planning: "default", active: "processing", completed: "green"
@@ -136,18 +154,22 @@ const formLoading = ref(false);
 
 const iterationValidationSchema = z.object({
     project_id: z.string().min(1, "请选择项目"),
-    name: z.string().min(1, "迭代名称不能为空"),
+    name: z.string().min(1, "标题必填"),
+    owner_id: z.string().optional(),
     goal: z.string().optional(),
     start_date: z.string().optional(),
     end_date: z.string().optional(),
+    estimate_hours: z.union([z.number(), z.string()]).optional(),
+    use_doc_template: z.boolean().optional(),
     status: z.string().optional(),
 });
 
 const handleAddIteration = () => {
     drawerMode.value = "add";
-    drawerTitle.value = "新增迭代";
-    currentIteration.value = { status: "planning" };
+    drawerTitle.value = "新建迭代";
+    currentIteration.value = { status: "planning", use_doc_template: true, owner_id: "" };
     drawerVisible.value = true;
+    formOwnerDropdownOpen.value = false;
 };
 
 const handleEditIteration = (i: IterationItem) => {
@@ -155,13 +177,15 @@ const handleEditIteration = (i: IterationItem) => {
     drawerTitle.value = "编辑迭代";
     currentIteration.value = {
         ...i,
+        owner_id: i.owner_id || i.assignee_id || i.pm_id || "",
         start_date: i.start_date ? i.start_date.split("T")[0] : "",
         end_date: i.end_date ? i.end_date.split("T")[0] : "",
     };
     drawerVisible.value = true;
+    formOwnerDropdownOpen.value = false;
 };
 
-const handleSaveIteration = async () => {
+const handleSaveIteration = async (andContinue = false) => {
     try { await formRef.value?.validate(); } catch { return; }
     const r = currentIteration.value;
     formLoading.value = true;
@@ -175,6 +199,20 @@ const handleSaveIteration = async () => {
                 end_date: r.end_date || undefined,
                 status: r.status || "planning",
             });
+            if (!andContinue) drawerVisible.value = false;
+            else {
+                currentIteration.value = {
+                    project_id: r.project_id,
+                    status: "planning",
+                    use_doc_template: r.use_doc_template ?? true,
+                    owner_id: r.owner_id || "",
+                    name: "",
+                    goal: "",
+                    start_date: "",
+                    end_date: "",
+                    estimate_hours: undefined,
+                };
+            }
         } else {
             await updateVortflowIteration(r.id!, {
                 name: r.name,
@@ -183,8 +221,8 @@ const handleSaveIteration = async () => {
                 end_date: r.end_date || undefined,
                 status: r.status,
             });
+            drawerVisible.value = false;
         }
-        drawerVisible.value = false;
         loadData();
     } finally { formLoading.value = false; }
 };
@@ -260,9 +298,25 @@ const ownerAvatarClass = (name: string) => {
 };
 
 const onDocumentClick = (e: MouseEvent) => {
-    if (!ownerDropdownRef.value) return;
     const target = e.target as Node;
-    if (!ownerDropdownRef.value.contains(target)) ownerDropdownOpen.value = false;
+    if (ownerDropdownRef.value && !ownerDropdownRef.value.contains(target)) ownerDropdownOpen.value = false;
+    if (formOwnerDropdownRef.value && !formOwnerDropdownRef.value.contains(target)) formOwnerDropdownOpen.value = false;
+};
+
+const formSelectOwner = (id: string) => {
+    currentIteration.value = { ...currentIteration.value, owner_id: id };
+    formOwnerDropdownOpen.value = false;
+};
+
+const formClearOwner = () => {
+    currentIteration.value = { ...currentIteration.value, owner_id: "" };
+    formOwnerDropdownOpen.value = false;
+};
+
+const formOwnerAvatarClass = (name: string) => {
+    const palette = ["bg-emerald-500", "bg-sky-500", "bg-indigo-500", "bg-violet-500", "bg-amber-500", "bg-rose-500", "bg-teal-500", "bg-cyan-500"];
+    const seed = name.split("").reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+    return palette[seed % palette.length];
 };
 
 onMounted(async () => {
@@ -303,7 +357,10 @@ onBeforeUnmount(() => {
                             :class="{ 'border-blue-500 bg-white': ownerDropdownOpen }"
                             @click.stop="ownerDropdownOpen = !ownerDropdownOpen"
                         >
-                            <span class="text-sm text-gray-700 truncate">{{ selectedOwnerText }}</span>
+                            <span
+                                class="text-sm truncate"
+                                :class="selectedOwnerText === '负责人' ? 'text-gray-400' : 'text-gray-700'"
+                            >{{ selectedOwnerText }}</span>
                             <span class="text-gray-400 text-xs">▾</span>
                         </button>
                         <div v-if="ownerDropdownOpen" class="absolute z-30 mt-2 w-[390px] bg-white border border-gray-200 rounded-xl shadow-lg p-4 owner-dropdown-panel">
@@ -455,27 +512,103 @@ onBeforeUnmount(() => {
             </div>
         </div>
 
-        <!-- Drawer -->
-        <vort-drawer :open="drawerVisible" :title="drawerTitle" :width="500" @update:open="drawerVisible = $event">
-            <vort-form ref="formRef" :model="currentIteration" :rules="iterationValidationSchema" label-width="80px">
-                <vort-form-item label="所属项目" name="project_id" required>
-                    <vort-select v-model="currentIteration.project_id" placeholder="请选择项目" :disabled="drawerMode === 'edit'" class="w-full">
+        <!-- 新建/编辑迭代 - 居中弹窗 -->
+        <vort-dialog
+            :open="drawerVisible"
+            :title="drawerTitle"
+            :width="600"
+            :centered="true"
+            @update:open="drawerVisible = $event"
+        >
+            <vort-form ref="formRef" :model="currentIteration" :rules="iterationValidationSchema" label-width="90px" class="iteration-form">
+                <vort-form-item v-if="drawerMode === 'add'" label="所属项目" name="project_id" required>
+                    <vort-select v-model="currentIteration.project_id" placeholder="请选择项目" class="w-full">
                         <vort-select-option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name }}</vort-select-option>
                     </vort-select>
                 </vort-form-item>
-                <vort-form-item label="迭代名称" name="name" required>
-                    <vort-input v-model="currentIteration.name" placeholder="如：Sprint 1" />
-                </vort-form-item>
+
+                <div class="grid grid-cols-2 gap-x-4">
+                    <vort-form-item label="标题" name="name" required>
+                        <vort-input v-model="currentIteration.name" placeholder="请输入标题" class="w-full" />
+                    </vort-form-item>
+                    <vort-form-item label="负责人" name="owner_id" required>
+                        <div ref="formOwnerDropdownRef" class="relative w-full" @click.stop>
+                            <button
+                                type="button"
+                                class="h-10 w-full px-3 rounded border border-slate-300 bg-white text-left flex items-center gap-2 hover:border-slate-400"
+                                :class="{ 'border-blue-500': formOwnerDropdownOpen }"
+                                @click="formOwnerDropdownOpen = !formOwnerDropdownOpen"
+                            >
+                                <span
+                                    v-if="currentIteration.owner_id"
+                                    class="w-7 h-7 rounded-full flex items-center justify-center text-white text-sm shrink-0"
+                                    :class="formOwnerAvatarClass(memberNameById(currentIteration.owner_id))"
+                                >
+                                    {{ memberNameById(currentIteration.owner_id).slice(0, 1) }}
+                                </span>
+                                <span class="text-sm truncate" :class="currentIteration.owner_id ? 'text-gray-700' : 'text-gray-400'">
+                                    {{ formSelectedOwnerText }}
+                                </span>
+                                <span class="ml-auto text-gray-400 text-xs">▾</span>
+                            </button>
+                            <div v-if="formOwnerDropdownOpen" class="absolute z-50 mt-1 w-full min-w-[240px] bg-white border border-gray-200 rounded-lg shadow-lg p-3">
+                                <input
+                                    v-model="formOwnerKeyword"
+                                    placeholder="搜索..."
+                                    class="w-full h-9 pl-3 pr-8 border border-gray-300 rounded-md text-sm mb-2"
+                                />
+                                <div class="max-h-48 overflow-auto space-y-0.5">
+                                    <button type="button" class="w-full text-left px-2 py-1.5 rounded text-sm hover:bg-gray-50" @click="formClearOwner">全部</button>
+                                    <button
+                                        v-for="m in formFilteredOwnerOptions"
+                                        :key="m.id"
+                                        type="button"
+                                        class="w-full text-left px-2 py-1.5 rounded text-sm hover:bg-gray-50 flex items-center gap-2"
+                                        :class="{ 'bg-blue-50 text-blue-700': currentIteration.owner_id === m.id }"
+                                        @click="formSelectOwner(m.id)"
+                                    >
+                                        <span class="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs shrink-0" :class="formOwnerAvatarClass(m.name)">
+                                            {{ m.name.slice(0, 1) }}
+                                        </span>
+                                        <span class="truncate">{{ m.name }}</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </vort-form-item>
+                </div>
+
+                <div class="grid grid-cols-2 gap-x-4">
+                    <vort-form-item label="计划时间" name="start_date" required>
+                        <div class="flex items-center gap-2 w-full">
+                            <vort-date-picker v-model="currentIteration.start_date" value-format="YYYY-MM-DD" placeholder="开始日期" class="flex-1" />
+                            <span class="text-gray-400 text-sm">→</span>
+                            <vort-date-picker v-model="currentIteration.end_date" value-format="YYYY-MM-DD" placeholder="结束日期" class="flex-1" />
+                        </div>
+                    </vort-form-item>
+                    <vort-form-item label="工时规模" name="estimate_hours">
+                        <div class="flex items-center gap-2 w-full">
+                            <vort-input-number v-model="currentIteration.estimate_hours" placeholder="请输入工时规模" :min="0" class="flex-1" />
+                            <span class="text-gray-400 text-sm whitespace-nowrap">小时</span>
+                        </div>
+                    </vort-form-item>
+                </div>
+
                 <vort-form-item label="迭代目标" name="goal">
-                    <vort-textarea v-model="currentIteration.goal" placeholder="迭代目标描述" :rows="3" />
+                    <vort-textarea v-model="currentIteration.goal" placeholder="请输入迭代目标" :rows="4" class="w-full" />
                 </vort-form-item>
-                <vort-form-item label="开始日期" name="start_date">
-                    <vort-date-picker v-model="currentIteration.start_date" value-format="YYYY-MM-DD" placeholder="请选择开始日期" class="w-full" />
+
+                <vort-form-item v-if="drawerMode === 'add'" name="use_doc_template">
+                    <div class="flex items-center gap-1.5">
+                        <vort-checkbox v-model:checked="currentIteration.use_doc_template" />
+                        <span class="text-sm text-gray-700">使用文档模板</span>
+                        <vort-tooltip title="使用预设的文档模板创建迭代">
+                            <Info :size="14" class="text-gray-400 cursor-help" />
+                        </vort-tooltip>
+                    </div>
                 </vort-form-item>
-                <vort-form-item label="结束日期" name="end_date">
-                    <vort-date-picker v-model="currentIteration.end_date" value-format="YYYY-MM-DD" placeholder="请选择结束日期" class="w-full" />
-                </vort-form-item>
-                <vort-form-item label="状态" name="status">
+
+                <vort-form-item v-if="drawerMode === 'edit'" label="状态" name="status">
                     <vort-select v-model="currentIteration.status" class="w-full">
                         <vort-select-option value="planning">待开始</vort-select-option>
                         <vort-select-option value="active">进行中</vort-select-option>
@@ -483,11 +616,15 @@ onBeforeUnmount(() => {
                     </vort-select>
                 </vort-form-item>
             </vort-form>
-            <div class="flex justify-end gap-3 mt-6">
-                <vort-button @click="drawerVisible = false">取消</vort-button>
-                <vort-button variant="primary" :loading="formLoading" @click="handleSaveIteration">确定</vort-button>
-            </div>
-        </vort-drawer>
+
+            <template #footer>
+                <div class="flex justify-end gap-3">
+                    <vort-button @click="drawerVisible = false">取消</vort-button>
+                    <vort-button v-if="drawerMode === 'add'" @click="handleSaveIteration(true)">新建并继续</vort-button>
+                    <vort-button variant="primary" :loading="formLoading" @click="handleSaveIteration()">确定</vort-button>
+                </div>
+            </template>
+        </vort-dialog>
     </vort-spin>
 </template>
 

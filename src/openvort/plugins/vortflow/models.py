@@ -162,9 +162,11 @@ class FlowIteration(Base):
     project_id: Mapped[str] = mapped_column(String(32), ForeignKey("flow_projects.id"), index=True)
     name: Mapped[str] = mapped_column(String(200))  # Sprint 1, Sprint 2
     goal: Mapped[str] = mapped_column(Text, default="")  # 迭代目标
+    owner_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("members.id"), nullable=True)
     start_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     end_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     status: Mapped[str] = mapped_column(String(32), default="planning")  # planning/active/completed
+    estimate_hours: Mapped[float | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
