@@ -12,6 +12,12 @@ export interface MenuConfig {
 export const menuConfig: MenuConfig[] = [
     { title: "AI 助手", icon: "message-square", path: "/chat" },
     { title: "概览", icon: "home", path: "/overview" },
+    { title: "组织管理", icon: "users", path: "/contacts", label: "团队 & 扩展", requiredRole: "admin" },
+    { title: "定时任务", icon: "clock", path: "/schedules" },
+    { title: "汇报中心", icon: "file-bar-chart", path: "/reports" },
+    { title: "知识库", icon: "library", path: "/knowledge" },
+    { title: "Plugins 插件", icon: "puzzle", path: "/plugins", requiredRole: "admin" },
+    { title: "Skills 技能", icon: "book-open", path: "/skills", requiredRole: "admin" },
     {
         title: "VortFlow", icon: "kanban", label: "研发协作",
         children: [
@@ -31,11 +37,6 @@ export const menuConfig: MenuConfig[] = [
             { title: "编码任务", icon: "terminal-square", path: "/vortgit/code-tasks" },
         ],
     },
-    { title: "组织管理", icon: "users", path: "/contacts", label: "团队 & 扩展", requiredRole: "admin" },
-    { title: "定时任务", icon: "clock", path: "/schedules" },
-    { title: "汇报中心", icon: "file-bar-chart", path: "/reports" },
-    { title: "Plugins 插件", icon: "puzzle", path: "/plugins", requiredRole: "admin" },
-    { title: "Skills 技能", icon: "book-open", path: "/skills", requiredRole: "admin" },
     {
         title: "系统管理", icon: "wrench", label: "系统", requiredRole: "admin",
         children: [

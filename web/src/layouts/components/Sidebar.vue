@@ -8,7 +8,7 @@ import {
     CheckCircle, User, Settings, ChevronDown, PanelLeftClose, PanelLeftOpen,
     MessageSquare, Puzzle, Radio, Users, Clock, BookOpen, Webhook, GitBranch, Cpu,
     Kanban, LayoutDashboard, ListChecks, CheckSquare, Bug, Milestone,
-    Wrench, FolderGit2, Server, Shield, Sparkles
+    Wrench, FolderGit2, Server, Shield, Sparkles, Library
 } from "lucide-vue-next";
 
 const props = defineProps<{ isMobile?: boolean }>();
@@ -76,7 +76,7 @@ const iconMap: Record<string, any> = {
     kanban: Kanban, "layout-dashboard": LayoutDashboard, "list-checks": ListChecks,
     "check-square": CheckSquare, bug: Bug, milestone: Milestone,
     wrench: Wrench, "folder-git-2": FolderGit2, server: Server, shield: Shield,
-    sparkles: Sparkles,
+    sparkles: Sparkles, library: Library,
 };
 
 const filterByRole = (items: MenuConfig[]) => {
@@ -167,12 +167,15 @@ const handleMenuToggle = (title: string, event: Event) => {
 
 <template>
     <aside
-        class="flex flex-col h-full bg-white border-r border-gray-100 flex-shrink-0"
+        class="flex flex-col h-full bg-white border-r border-gray-100 flex-shrink-0 transition-transform duration-300"
         :style="{
             '--collapse-progress': collapseProgress,
             width: props.isMobile ? '220px' : `${64 + 156 * collapseProgress}px`
         }"
-        :class="props.isMobile && !appStore.mobileSidebarOpen ? '-translate-x-full' : 'translate-x-0'"
+        :class="[
+            props.isMobile ? 'fixed inset-y-0 left-0 z-50' : '',
+            props.isMobile && !appStore.mobileSidebarOpen ? '-translate-x-full' : 'translate-x-0'
+        ]"
     >
         <!-- Logo -->
         <div class="flex items-center h-[56px] px-4 border-b border-gray-100 flex-shrink-0 overflow-hidden">
@@ -227,7 +230,7 @@ const handleMenuToggle = (title: string, event: Event) => {
                     >
                         <component :is="iconMap[item.icon]" v-if="iconMap[item.icon]" :size="18" class="flex-shrink-0" />
                         <span
-                            class="ml-3 text-[14px] truncate overflow-hidden"
+                            class="ml-3 text-[14px] leading-5 truncate overflow-hidden"
                             :style="{
                                 maxWidth: `${140 * collapseProgress}px`,
                                 opacity: collapseProgress,
@@ -249,7 +252,7 @@ const handleMenuToggle = (title: string, event: Event) => {
                         >
                             <component :is="iconMap[item.icon]" v-if="iconMap[item.icon]" :size="18" class="flex-shrink-0" />
                             <span
-                                class="ml-3 text-[14px] flex-1 truncate overflow-hidden"
+                                class="ml-3 text-[14px] leading-5 flex-1 truncate overflow-hidden"
                                 :style="{
                                     maxWidth: `${100 * collapseProgress}px`,
                                     opacity: collapseProgress,

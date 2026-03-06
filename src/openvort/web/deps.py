@@ -20,6 +20,7 @@ _build_context_fn = None  # async (channel, user_id) -> RequestContext
 _skill_loader = None  # SkillLoader
 _config_service = None  # ConfigService
 _schedule_service = None  # ScheduleService
+_embedding_service = None  # EmbeddingService
 
 
 def set_runtime(
@@ -32,8 +33,9 @@ def set_runtime(
     skill_loader=None,
     config_service=None,
     schedule_service=None,
+    embedding_service=None,
 ):
-    global _agent, _registry, _session_store, _session_factory, _auth_service, _build_context_fn, _skill_loader, _config_service, _schedule_service
+    global _agent, _registry, _session_store, _session_factory, _auth_service, _build_context_fn, _skill_loader, _config_service, _schedule_service, _embedding_service
     _agent = agent
     _registry = registry
     _session_store = session_store
@@ -43,6 +45,7 @@ def set_runtime(
     _skill_loader = skill_loader
     _config_service = config_service
     _schedule_service = schedule_service
+    _embedding_service = embedding_service
 
 
 def get_agent() -> AgentRuntime:
@@ -90,3 +93,8 @@ def get_config_service():
 def get_schedule_service():
     """获取 ScheduleService 实例（可能为 None）"""
     return _schedule_service
+
+
+def get_embedding_service():
+    """获取 EmbeddingService 实例（可能为 None）"""
+    return _embedding_service

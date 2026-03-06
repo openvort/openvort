@@ -1,11 +1,37 @@
 """企业微信通道工具 — 让 AI 能主动发送企微消息"""
 
+import asyncio
 import json
+import subprocess
+import tempfile
+from pathlib import Path
 
 from openvort.plugin.base import BaseTool
 from openvort.utils.logging import get_logger
 
 log = get_logger("channels.wecom.tools")
+
+
+async def _mp3_to_amr(mp3_data: bytes) -> bytes:
+    """Convert MP3 audio to AMR format using ffmpeg."""
+    def _convert():
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f_in:
+            f_in.write(mp3_data)
+            in_path = f_in.name
+        out_path = in_path.replace(".mp3", ".amr")
+        try:
+            subprocess.run(
+                ["ffmpeg", "-y", "-i", in_path,
+                 "-c:a", "libopencore_amrnb", "-ar", "8000", "-ac", "1",
+                 "-b:a", "12.2k", out_path],
+                capture_output=True, check=True, timeout=30,
+            )
+            return Path(out_path).read_bytes()
+        finally:
+            Path(in_path).unlink(missing_ok=True)
+            Path(out_path).unlink(missing_ok=True)
+
+    return await asyncio.get_running_loop().run_in_executor(None, _convert)
 
 
 class SendWeComMessageTool(BaseTool):
@@ -62,3 +88,79 @@ class SendWeComMessageTool(BaseTool):
         except Exception as e:
             log.error(f"发送企微消息失败: {e}")
             return json.dumps({"ok": False, "message": f"发送失败: {e}"}, ensure_ascii=False)
+
+
+class SendWeComVoiceTool(BaseTool):
+    """通过企业微信给指定用户发送语音消息（TTS 合成）"""
+
+    name = "wecom_send_voice"
+    description = (
+        "通过企业微信给指定用户发送语音消息。"
+        "需要提供用户的企微 user_id 和要朗读的文字内容。"
+        "系统会自动将文字转为语音后发送。"
+        "适合简短的问候、提醒、通知等场景（建议文本不超过200字）。"
+        "当用户通过语音发送消息时（消息以 [语音消息] 开头），优先使用此工具以语音方式回复。"
+    )
+    required_permission = "wecom.send"
+
+    def __init__(self, channel=None, tts_service=None):
+        self._channel = channel
+        self._tts_service = tts_service
+
+    def set_channel(self, channel) -> None:
+        self._channel = channel
+
+    def set_tts_service(self, tts_service) -> None:
+        self._tts_service = tts_service
+
+    def input_schema(self) -> dict:
+        return {
+            "type": "object",
+            "properties": {
+                "user_id": {
+                    "type": "string",
+                    "description": "企业微信用户 ID（可通过 contacts_search 工具搜索成员获取其企微身份的 user_id）",
+                },
+                "text": {
+                    "type": "string",
+                    "description": "要转为语音发送的文字内容（建议不超过200字）",
+                },
+            },
+            "required": ["user_id", "text"],
+        }
+
+    async def execute(self, params: dict) -> str:
+        user_id = params.get("user_id", "").strip()
+        text = params.get("text", "").strip()
+
+        if not user_id:
+            return json.dumps({"ok": False, "message": "缺少 user_id 参数"}, ensure_ascii=False)
+        if not text:
+            return json.dumps({"ok": False, "message": "缺少 text 参数"}, ensure_ascii=False)
+        if not self._channel:
+            return json.dumps({"ok": False, "message": "企微通道未初始化"}, ensure_ascii=False)
+        if not self._channel.is_configured():
+            return json.dumps({"ok": False, "message": "企微通道未配置"}, ensure_ascii=False)
+        if not self._tts_service or not self._tts_service.available:
+            return json.dumps({"ok": False, "message": "TTS 服务未配置"}, ensure_ascii=False)
+
+        try:
+            audio_bytes = await self._tts_service.synthesize(text)
+            log.info(f"TTS 合成完成: {len(audio_bytes)} bytes (mp3)")
+
+            audio_bytes = await _mp3_to_amr(audio_bytes)
+            log.info(f"转换为 AMR: {len(audio_bytes)} bytes")
+
+            media_result = await self._channel.api.upload_media(
+                "voice", audio_bytes, "voice.amr"
+            )
+            media_id = media_result.get("media_id")
+            if not media_id:
+                return json.dumps({"ok": False, "message": "上传语音文件失败"}, ensure_ascii=False)
+
+            await self._channel.api.send_voice(media_id, touser=user_id)
+            log.info(f"已发送企微语音: {user_id} <- {text[:50]}")
+            return json.dumps({"ok": True, "message": f"已成功发送语音消息给 {user_id}"}, ensure_ascii=False)
+        except Exception as e:
+            log.error(f"发送企微语音失败: {e}")
+            return json.dumps({"ok": False, "message": f"发送语音失败: {e}"}, ensure_ascii=False)

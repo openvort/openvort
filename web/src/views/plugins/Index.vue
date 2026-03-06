@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from "vue";
-import { getPlugins, getPluginDetail, updatePlugin, togglePlugin, installPlugin, uploadPlugin, deletePlugin } from "@/api";
-import { Puzzle, Wrench, CheckCircle, XCircle, Settings, Plus, Upload, Trash2, ChevronDown, ChevronRight } from "lucide-vue-next";
-import { message, dialog } from "@/components/vort";
+import { getPlugins, getPluginDetail, updatePlugin, installPlugin, uninstallPlugin, pipInstallPlugin, uploadPlugin, deletePlugin } from "@/api";
+import { Puzzle, Wrench, Plus, Upload, Trash2, ChevronDown, ChevronRight, Download } from "lucide-vue-next";
+import { message, dialog } from "@openvort/vort-ui";
 import { usePluginStore } from "@/stores/modules/plugin";
 
 interface PluginTool {
@@ -29,6 +29,7 @@ interface PluginInfo {
     core: boolean;
     status: string;
     enabled: boolean;
+    installed: boolean;
     has_config: boolean;
     tools: PluginTool[];
 }
@@ -36,15 +37,12 @@ interface PluginInfo {
 const plugins = ref<PluginInfo[]>([]);
 const loading = ref(false);
 
-// 搜索和筛选
+const activeTab = ref<"installed" | "available">("installed");
 const searchQuery = ref("");
 const filterSource = ref<"all" | "builtin" | "pip" | "local">("all");
-const filterStatus = ref<"all" | "enabled" | "disabled">("all");
 
-// 筛选后的插件列表
-const filteredPlugins = computed(() => {
-    return plugins.value.filter((plugin) => {
-        // 搜索过滤
+const applyFilters = (list: PluginInfo[]) => {
+    return list.filter((plugin) => {
         const query = searchQuery.value.toLowerCase().trim();
         if (query) {
             const matchName = plugin.name.toLowerCase().includes(query);
@@ -57,22 +55,27 @@ const filteredPlugins = computed(() => {
                 return false;
             }
         }
-        // 来源筛选
         if (filterSource.value !== "all" && plugin.source !== filterSource.value) {
-            return false;
-        }
-        // 状态筛选
-        if (filterStatus.value === "enabled" && !plugin.enabled) {
-            return false;
-        }
-        if (filterStatus.value === "disabled" && plugin.enabled) {
             return false;
         }
         return true;
     });
+};
+
+const installedPlugins = computed(() => {
+    const list = plugins.value.filter((p) => p.installed);
+    return applyFilters(list).sort((a, b) => {
+        if (a.core !== b.core) return a.core ? 1 : -1;
+        return a.display_name.localeCompare(b.display_name);
+    });
 });
 
-// 配置抽屉
+const availablePlugins = computed(() => {
+    const list = plugins.value.filter((p) => !p.installed);
+    return applyFilters(list).sort((a, b) => a.display_name.localeCompare(b.display_name));
+});
+
+// Config drawer
 const drawerOpen = ref(false);
 const drawerLoading = ref(false);
 const saving = ref(false);
@@ -80,13 +83,12 @@ const currentPlugin = ref<string>("");
 const configSchema = ref<ConfigField[]>([]);
 const configForm = ref<Record<string, string>>({});
 
-// 工具列表折叠状态
-const collapsedTools = ref<Record<string, boolean>>({});
+// Tool list collapse state
+const expandedTools = ref<Record<string, boolean>>({});
 const toggleTools = (pluginName: string) => {
-    collapsedTools.value[pluginName] = !collapsedTools.value[pluginName];
+    expandedTools.value[pluginName] = !expandedTools.value[pluginName];
 };
 
-// 加载插件列表
 const loadPlugins = async () => {
     loading.value = true;
     try {
@@ -97,21 +99,38 @@ const loadPlugins = async () => {
 };
 
 const needRestart = ref(false);
-
 const pluginStore = usePluginStore();
 
-const handleToggle = async (plugin: PluginInfo) => {
+const handleInstall = async (plugin: PluginInfo) => {
     try {
-        const res: any = await togglePlugin(plugin.name);
-        plugin.enabled = res.enabled;
-        message.success(res.enabled ? "已启用" : "已禁用");
+        await installPlugin(plugin.name);
+        plugin.installed = true;
+        plugin.enabled = true;
+        message.success(`已安装「${plugin.display_name}」`);
         pluginStore.fetchExtensions();
     } catch {
-        message.error("操作失败");
+        message.error("安装失败");
     }
 };
 
-// 打开配置抽屉
+const handleUninstall = (plugin: PluginInfo) => {
+    dialog.confirm({
+        title: "确认卸载",
+        content: `确定要卸载插件「${plugin.display_name}」吗？卸载后其工具将不再对 AI 可用，配置将被保留。`,
+        onOk: async () => {
+            try {
+                await uninstallPlugin(plugin.name);
+                plugin.installed = false;
+                plugin.enabled = false;
+                message.success(`已卸载「${plugin.display_name}」`);
+                pluginStore.fetchExtensions();
+            } catch {
+                message.error("卸载失败");
+            }
+        },
+    });
+};
+
 const openConfig = async (name: string) => {
     currentPlugin.value = name;
     drawerOpen.value = true;
@@ -131,7 +150,6 @@ const openConfig = async (name: string) => {
     }
 };
 
-// 保存配置
 const handleSave = async () => {
     saving.value = true;
     try {
@@ -146,20 +164,20 @@ const handleSave = async () => {
     }
 };
 
-// 添加插件弹窗
+// Add plugin dialog (pip / upload)
 const addDialogOpen = ref(false);
 const installMode = ref<"pip" | "upload">("pip");
 const packageName = ref("");
 const installing = ref(false);
 
-const handleInstall = async () => {
+const handlePipInstall = async () => {
     if (!packageName.value.trim()) {
         message.error("请输入包名");
         return;
     }
     installing.value = true;
     try {
-        const res: any = await installPlugin(packageName.value.trim());
+        const res: any = await pipInstallPlugin(packageName.value.trim());
         message.success(res.message || "安装成功，需重启服务生效");
         needRestart.value = true;
         addDialogOpen.value = false;
@@ -192,11 +210,10 @@ const onFileChange = (e: Event) => {
     }
 };
 
-// 删除本地插件
 const handleDelete = (plugin: PluginInfo) => {
     dialog.confirm({
         title: "确认删除",
-        content: `确定要删除插件「${plugin.display_name}」吗？重启后生效。`,
+        content: `确定要删除插件「${plugin.display_name}」吗？此操作将删除插件文件和配置，重启后生效。`,
         onOk: async () => {
             try {
                 await deletePlugin(plugin.name);
@@ -216,13 +233,10 @@ onMounted(loadPlugins);
 <template>
     <div class="space-y-6">
         <div class="flex items-center justify-between">
-            <h2 class="text-lg font-medium text-gray-800">插件管理</h2>
-            <VortButton variant="primary" @click="addDialogOpen = true">
-                <Plus :size="14" class="mr-1" /> 添加插件
-            </VortButton>
+            <h2 class="text-lg font-medium text-gray-800">插件中心</h2>
         </div>
 
-        <!-- 搜索和筛选 -->
+        <!-- Search & filter -->
         <div class="flex flex-wrap items-center gap-3">
             <VortInputSearch
                 v-model="searchQuery"
@@ -236,14 +250,6 @@ onMounted(loadPlugins);
                 <VortSelectOption value="pip">pip</VortSelectOption>
                 <VortSelectOption value="local">本地</VortSelectOption>
             </VortSelect>
-            <VortSelect v-model="filterStatus" class="w-28">
-                <VortSelectOption value="all">全部状态</VortSelectOption>
-                <VortSelectOption value="enabled">已启用</VortSelectOption>
-                <VortSelectOption value="disabled">已禁用</VortSelectOption>
-            </VortSelect>
-            <span v-if="filteredPlugins.length !== plugins.length" class="text-xs text-gray-400">
-                {{ filteredPlugins.length }} / {{ plugins.length }}
-            </span>
         </div>
 
         <VortAlert
@@ -257,77 +263,137 @@ onMounted(loadPlugins);
         </VortAlert>
 
         <VortSpin :spinning="loading">
-            <div v-if="plugins.length === 0 && !loading" class="text-center py-12 text-gray-400 text-sm">
-                暂无已加载的插件
-            </div>
-            <div v-else-if="filteredPlugins.length === 0" class="text-center py-12 text-gray-400 text-sm">
-                没有匹配的插件
-            </div>
-            <div v-else class="masonry-grid">
-                <vort-card v-for="plugin in filteredPlugins" :key="plugin.name" class="masonry-item" :shadow="false" padding="small">
-                    <div class="flex items-center justify-between mb-4">
-                        <div class="flex items-center">
-                            <div class="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center mr-3">
-                                <Puzzle :size="20" class="text-blue-600" />
-                            </div>
-                            <div>
-                                <h3 class="text-sm font-medium text-gray-800">{{ plugin.display_name }}</h3>
-                                <p class="text-xs text-gray-400">{{ plugin.name }} v{{ plugin.version }}</p>
-                            </div>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <VortTag :color="{ builtin: 'blue', pip: 'cyan', local: 'purple' }[plugin.source] || 'default'" size="small">
-                                {{ { builtin: '内置', pip: 'pip', local: '本地' }[plugin.source] || plugin.source }}
-                            </VortTag>
-                            <VortTag v-if="plugin.core" color="geekblue" size="small">核心</VortTag>
-                            <VortButton v-if="plugin.has_config" size="small" variant="text" @click="openConfig(plugin.name)">
-                                <Settings :size="14" />
-                            </VortButton>
-                            <VortTooltip v-if="plugin.core" title="核心插件不可禁用">
-                                <VortSwitch :checked="true" disabled size="small" />
-                            </VortTooltip>
-                            <VortSwitch
-                                v-else
-                                :checked="plugin.enabled"
-                                size="small"
-                                @change="handleToggle(plugin)"
-                            />
-                        </div>
+            <VortTabs v-model:activeKey="activeTab">
+                <VortTabPane tab-key="installed" :tab="`已安装 (${installedPlugins.length})`">
+                    <div v-if="installedPlugins.length === 0" class="text-center py-12 text-gray-400 text-sm">
+                        暂无已安装的插件
                     </div>
-
-                    <p v-if="plugin.description" class="text-xs text-gray-500 mb-3">{{ plugin.description }}</p>
-
-                    <div v-if="plugin.tools.length" class="mt-3 pt-3 border-t border-gray-100">
-                        <button
-                            class="flex items-center gap-1 text-xs text-gray-500 font-medium hover:text-blue-600 transition-colors"
-                            @click="toggleTools(plugin.name)"
-                        >
-                            <component :is="collapsedTools[plugin.name] ? ChevronRight : ChevronDown" :size="12" />
-                            工具列表 ({{ plugin.tools.length }})
-                        </button>
-                        <div v-show="!collapsedTools[plugin.name]" class="mt-2 space-y-2">
-                            <div v-for="tool in plugin.tools" :key="tool.name"
-                                class="flex items-start gap-2 p-2 rounded bg-gray-50 text-xs">
-                                <Wrench :size="12" class="text-gray-400 mt-0.5 flex-shrink-0" />
-                                <div>
-                                    <span class="font-medium text-gray-700">{{ tool.name }}</span>
-                                    <p class="text-gray-400 mt-0.5">{{ tool.description }}</p>
+                    <div v-else class="masonry-grid">
+                        <vort-card v-for="plugin in installedPlugins" :key="plugin.name" class="masonry-item" :shadow="false" padding="small">
+                            <div class="flex items-center justify-between mb-4">
+                                <div class="flex items-center">
+                                    <div class="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center mr-3">
+                                        <Puzzle :size="20" class="text-blue-600" />
+                                    </div>
+                                    <div>
+                                        <h3 class="text-sm font-medium text-gray-800 flex items-center gap-1">
+                                            {{ plugin.display_name }}
+                                            <VortTag v-if="plugin.core" color="volcano" size="small" :bordered="false">核心</VortTag>
+                                            <VortTag v-else :color="{ builtin: 'blue', pip: 'cyan', local: 'purple' }[plugin.source] || 'default'" size="small" :bordered="false">
+                                                {{ { builtin: '内置', pip: 'pip', local: '本地' }[plugin.source] || plugin.source }}
+                                            </VortTag>
+                                        </h3>
+                                        <p class="text-xs text-gray-400">{{ plugin.name }} v{{ plugin.version }}</p>
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-1">
+                                    <VortButton v-if="plugin.has_config" size="small" @click="openConfig(plugin.name)">设置</VortButton>
+                                    <VortTooltip v-if="plugin.core" title="核心插件不可禁用">
+                                        <VortButton size="small" disabled>禁用</VortButton>
+                                    </VortTooltip>
+                                    <VortButton v-else size="small" @click="handleUninstall(plugin)">禁用</VortButton>
+                                    <VortTooltip v-if="plugin.core" title="核心插件不可卸载">
+                                        <VortButton size="small" disabled>卸载</VortButton>
+                                    </VortTooltip>
+                                    <VortButton v-else size="small" @click="handleUninstall(plugin)">卸载</VortButton>
                                 </div>
                             </div>
+
+                            <p v-if="plugin.description" class="text-xs text-gray-500 mb-3">{{ plugin.description }}</p>
+
+                            <div v-if="plugin.tools.length" class="mt-3 pt-3 border-t border-gray-100">
+                                <button
+                                    class="flex items-center gap-1 text-xs text-gray-500 font-medium hover:text-blue-600 transition-colors"
+                                    @click="toggleTools(plugin.name)"
+                                >
+                                    <component :is="expandedTools[plugin.name] ? ChevronDown : ChevronRight" :size="12" />
+                                    工具列表 ({{ plugin.tools.length }})
+                                </button>
+                                <div v-show="expandedTools[plugin.name]" class="mt-2 space-y-2">
+                                    <div v-for="tool in plugin.tools" :key="tool.name"
+                                        class="flex items-start gap-2 p-2 rounded bg-gray-50 text-xs">
+                                        <Wrench :size="12" class="text-gray-400 mt-0.5 flex-shrink-0" />
+                                        <div>
+                                            <span class="font-medium text-gray-700">{{ tool.name }}</span>
+                                            <p class="text-gray-400 mt-0.5">{{ tool.description }}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </vort-card>
+                    </div>
+                </VortTabPane>
+
+                <VortTabPane tab-key="available" :tab="`未安装 (${availablePlugins.length})`">
+                    <div class="masonry-grid">
+                        <vort-card v-for="plugin in availablePlugins" :key="plugin.name" class="masonry-item" :shadow="false" padding="small">
+                            <div class="flex items-center justify-between mb-4">
+                                <div class="flex items-center">
+                                    <div class="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center mr-3">
+                                        <Puzzle :size="20" class="text-gray-400" />
+                                    </div>
+                                    <div>
+                                        <h3 class="text-sm font-medium text-gray-800 flex items-center gap-1">
+                                            {{ plugin.display_name }}
+                                            <VortTag :color="{ builtin: 'blue', pip: 'cyan', local: 'purple' }[plugin.source] || 'default'" size="small" :bordered="false">
+                                                {{ { builtin: '内置', pip: 'pip', local: '本地' }[plugin.source] || plugin.source }}
+                                            </VortTag>
+                                        </h3>
+                                        <p class="text-xs text-gray-400">{{ plugin.name }} v{{ plugin.version }}</p>
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <VortButton size="small" variant="primary" @click="handleInstall(plugin)">
+                                        <Download :size="14" class="mr-1" /> 安装
+                                    </VortButton>
+                                </div>
+                            </div>
+
+                            <p v-if="plugin.description" class="text-xs text-gray-500 mb-3">{{ plugin.description }}</p>
+
+                            <div v-if="plugin.tools.length" class="mt-3 pt-3 border-t border-gray-100">
+                                <button
+                                    class="flex items-center gap-1 text-xs text-gray-500 font-medium hover:text-blue-600 transition-colors"
+                                    @click="toggleTools(plugin.name)"
+                                >
+                                    <component :is="expandedTools[plugin.name] ? ChevronDown : ChevronRight" :size="12" />
+                                    工具列表 ({{ plugin.tools.length }})
+                                </button>
+                                <div v-show="expandedTools[plugin.name]" class="mt-2 space-y-2">
+                                    <div v-for="tool in plugin.tools" :key="tool.name"
+                                        class="flex items-start gap-2 p-2 rounded bg-gray-50 text-xs">
+                                        <Wrench :size="12" class="text-gray-400 mt-0.5 flex-shrink-0" />
+                                        <div>
+                                            <span class="font-medium text-gray-700">{{ tool.name }}</span>
+                                            <p class="text-gray-400 mt-0.5">{{ tool.description }}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div v-if="plugin.source === 'local'" class="mt-4 pt-3 border-t border-gray-100 flex justify-end">
+                                <VortButton size="small" variant="text" danger @click="handleDelete(plugin)">
+                                    <Trash2 :size="14" class="mr-1" /> 删除
+                                </VortButton>
+                            </div>
+                        </vort-card>
+
+                        <!-- Add third-party plugin card -->
+                        <div
+                            class="masonry-item bg-white rounded-xl border-2 border-dashed border-gray-200 flex items-center justify-center cursor-pointer hover:border-blue-400 transition-colors min-h-[120px]"
+                            @click="addDialogOpen = true"
+                        >
+                            <div class="text-center text-gray-400">
+                                <Plus :size="24" class="mx-auto mb-1" />
+                                <span class="text-sm">添加第三方插件</span>
+                            </div>
                         </div>
                     </div>
-
-                    <div v-if="plugin.source === 'local'" class="mt-4 pt-3 border-t border-gray-100 flex justify-end">
-                        <VortButton size="small" variant="text" danger @click="handleDelete(plugin)">
-                            <Trash2 :size="14" class="mr-1" /> 删除
-                        </VortButton>
-                    </div>
-
-                </vort-card>
-            </div>
+                </VortTabPane>
+            </VortTabs>
         </VortSpin>
 
-        <!-- 配置抽屉 -->
+        <!-- Config drawer -->
         <VortDrawer :open="drawerOpen" title="插件配置" :width="480" @update:open="drawerOpen = $event">
             <VortSpin :spinning="drawerLoading">
                 <VortForm v-if="configSchema.length" label-width="100px">
@@ -366,8 +432,8 @@ onMounted(loadPlugins);
             </template>
         </VortDrawer>
 
-        <!-- 添加插件弹窗 -->
-        <VortDialog :open="addDialogOpen" title="添加插件" @update:open="addDialogOpen = $event">
+        <!-- Add plugin dialog -->
+        <VortDialog :open="addDialogOpen" title="添加第三方插件" @update:open="addDialogOpen = $event">
             <div class="space-y-4">
                 <VortRadioGroup v-model="installMode">
                     <VortRadioButton value="pip">pip 安装</VortRadioButton>
@@ -376,7 +442,7 @@ onMounted(loadPlugins);
 
                 <div v-if="installMode === 'pip'">
                     <p class="text-xs text-gray-400 mb-2">输入 PyPI 包名，如 openvort-plugin-gitlab</p>
-                    <VortInput v-model="packageName" placeholder="包名" @keyup.enter="handleInstall" />
+                    <VortInput v-model="packageName" placeholder="包名" @keyup.enter="handlePipInstall" />
                 </div>
 
                 <div v-else>
@@ -398,7 +464,7 @@ onMounted(loadPlugins);
                         v-if="installMode === 'pip'"
                         variant="primary"
                         :loading="installing"
-                        @click="handleInstall"
+                        @click="handlePipInstall"
                     >安装</VortButton>
                 </div>
             </template>

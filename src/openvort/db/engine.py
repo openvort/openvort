@@ -36,6 +36,11 @@ async def init_db(database_url: str) -> None:
         pass
 
     try:
+        import openvort.plugins.knowledge.models  # noqa: F401
+    except ImportError:
+        pass
+
+    try:
         import openvort.plugins.vortflow.models  # noqa: F401
     except ImportError:
         pass
@@ -57,6 +62,15 @@ async def init_db(database_url: str) -> None:
 
     _engine = create_async_engine(database_url, echo=False)
     _session_factory = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
+
+    # Enable pgvector extension for knowledge base (optional — skip if not installed on server)
+    _pgvector_available = False
+    try:
+        async with _engine.begin() as conn:
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        _pgvector_available = True
+    except Exception as e:
+        log.warning(f"pgvector 扩展不可用，知识库向量检索功能将不可用: {e}")
 
     # Backward-compatible lightweight migration for VortFlow editable fields.
     async with _engine.begin() as conn:
@@ -190,6 +204,53 @@ async def init_db(database_url: str) -> None:
         await conn.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_flow_iteration_tasks_task_id ON flow_iteration_tasks(task_id)"
         ))
+
+    # Knowledge base tables (requires pgvector for kb_chunks.embedding column)
+    try:
+        async with _engine.begin() as conn:
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS kb_documents (
+                    id VARCHAR(32) PRIMARY KEY,
+                    title VARCHAR(200) NOT NULL,
+                    file_name VARCHAR(500) DEFAULT '',
+                    file_type VARCHAR(20) NOT NULL,
+                    file_size INTEGER DEFAULT 0,
+                    content TEXT DEFAULT '',
+                    status VARCHAR(20) DEFAULT 'pending',
+                    error_message TEXT DEFAULT '',
+                    chunk_count INTEGER DEFAULT 0,
+                    owner_id VARCHAR(32) DEFAULT '',
+                    created_at TIMESTAMP DEFAULT now(),
+                    updated_at TIMESTAMP DEFAULT now()
+                )
+            """))
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_kb_documents_status ON kb_documents(status)"
+            ))
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_kb_documents_file_type ON kb_documents(file_type)"
+            ))
+
+            if _pgvector_available:
+                await conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS kb_chunks (
+                        id VARCHAR(32) PRIMARY KEY,
+                        document_id VARCHAR(32) REFERENCES kb_documents(id),
+                        chunk_index INTEGER DEFAULT 0,
+                        content TEXT DEFAULT '',
+                        embedding vector(1024),
+                        token_count INTEGER DEFAULT 0,
+                        metadata_json TEXT DEFAULT '{}',
+                        created_at TIMESTAMP DEFAULT now()
+                    )
+                """))
+                await conn.execute(text(
+                    "CREATE INDEX IF NOT EXISTS ix_kb_chunks_document_id ON kb_chunks(document_id)"
+                ))
+            else:
+                log.warning("跳过 kb_chunks 表创建（需要 pgvector 扩展）")
+    except Exception as e:
+        log.warning(f"知识库表创建失败: {e}")
 
     log.info(f"数据库已初始化: {database_url.split('://')[0]}")
 

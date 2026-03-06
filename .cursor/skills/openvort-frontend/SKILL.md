@@ -69,8 +69,8 @@ import { VortButton, VortInput } from "@/components/vort-ui";
 ```vue
 <template>
     <!-- VortButton 和 VortInput 由 unplugin-vue-components 自动解析，无需 import -->
-    <VortButton variant="primary">提交</VortButton>
-    <VortInput v-model="keyword" placeholder="请输入关键词" />
+    <vort-button variant="primary">提交</vort-button>
+    <vort-input v-model="keyword" placeholder="请输入关键词" />
 </template>
 ```
 

@@ -366,6 +366,29 @@ async def _start_service(relay_url: str | None, poll_db_json: str | None, web_fl
     else:
         log.info("未配置 ASR Provider，语音消息将无法识别")
 
+    # 初始化 TTS 服务（用于语音消息发送）
+    from openvort.services.tts import TTSService
+    tts_service = TTSService(session_factory)
+    await tts_service.load_providers()
+    if tts_service.available:
+        log.info("TTS 服务已就绪，语音发送功能可用")
+    else:
+        log.info("未配置 TTS Provider，语音发送功能不可用")
+
+    # 初始化 Embedding 服务（用于知识库向量检索）
+    from openvort.services.embedding import EmbeddingService
+    embedding_service = EmbeddingService(session_factory)
+    await embedding_service.load_providers()
+    if embedding_service.available:
+        log.info("Embedding 服务已就绪，知识库检索功能可用")
+    else:
+        log.info("未配置 Embedding Provider，知识库检索功能不可用")
+
+    # 将 TTS 服务注入到 wecom_send_voice 工具
+    voice_tool = registry.get_tool("wecom_send_voice")
+    if voice_tool and hasattr(voice_tool, "set_tts_service"):
+        voice_tool.set_tts_service(tts_service)
+
     # 配置 Channel
     channels = registry.list_channels()
     for ch in channels:
@@ -597,7 +620,8 @@ async def _start_service(relay_url: str | None, poll_db_json: str | None, web_fl
             set_runtime(agent, registry, session_store, session_factory,
                         auth_service=auth_service, build_context_fn=build_context,
                         skill_loader=skill_loader, config_service=config_service,
-                        schedule_service=schedule_service)
+                        schedule_service=schedule_service,
+                        embedding_service=embedding_service)
             install_log_handler()
 
             web_app = create_app()

@@ -38,6 +38,8 @@ const routes: RouteRecordRaw[] = [
             { path: "vortgit/repos", name: "vortgit-repos", component: () => import("@/views/vortgit/Repos.vue"), meta: { title: "代码仓库" } },
             { path: "vortgit/code-tasks", name: "vortgit-code-tasks", component: () => import("@/views/vortgit/CodeTasks.vue"), meta: { title: "编码任务" } },
             { path: "vortgit/providers", name: "vortgit-providers", component: () => import("@/views/vortgit/Providers.vue"), meta: { title: "平台管理" } },
+            // 知识库
+            { path: "knowledge", name: "knowledge", component: () => import("@/views/knowledge/Index.vue"), meta: { title: "知识库" } },
             // 仅管理员
             { path: "contacts", name: "contacts", component: () => import("@/views/contacts/Index.vue"), meta: { title: "组织管理", requiredRole: "admin" } },
             { path: "plugins", name: "plugins", component: () => import("@/views/plugins/Index.vue"), meta: { title: "插件管理", requiredRole: "admin" } },

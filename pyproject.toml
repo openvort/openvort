@@ -44,6 +44,9 @@ dependencies = [
     "python-multipart>=0.0.9",
     "aiohttp>=3.9",
     "dashscope>=1.20",
+    "pgvector>=0.3",
+    "pypdf>=4.0",
+    "python-docx>=1.0",
 ]
 
 [project.optional-dependencies]
@@ -73,6 +76,7 @@ schedule = "openvort.plugins.schedule:SchedulePlugin"
 report = "openvort.plugins.report:ReportPlugin"
 system = "openvort.plugins.system:SystemPlugin"
 browser = "openvort.plugins.browser:BrowserPlugin"
+knowledge = "openvort.plugins.knowledge:KnowledgePlugin"
 
 [project.urls]
 Homepage = "https://github.com/nicekate/openvort"

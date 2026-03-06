@@ -62,6 +62,7 @@ async def list_plugins():
             "core": p.core,
             "status": "ready",
             "enabled": enabled,
+            "installed": enabled,
             "has_config": len(p.get_config_schema()) > 0,
             "tools": tools,
         })
@@ -202,6 +203,7 @@ async def get_plugin_detail(name: str):
         "core": plugin.core,
         "status": "ready",
         "enabled": enabled,
+        "installed": enabled,
         "config_schema": plugin.get_config_schema(),
         "config": plugin.get_current_config(),
         "tools": tools,
@@ -258,16 +260,41 @@ async def update_plugin(name: str, req: UpdatePluginRequest):
     return {"success": True}
 
 
-@router.post("/{name}/toggle")
-async def toggle_plugin(name: str):
-    """启用/禁用插件（立即生效：注册/移除 Tools 和 Prompts）"""
+@router.post("/{name}/install")
+async def install_plugin_action(name: str):
+    """安装插件（立即生效：注册 Tools 和 Prompts）"""
+    registry = get_registry()
+    plugin = registry.get_plugin(name)
+    if not plugin:
+        raise HTTPException(status_code=404, detail=f"插件 '{name}' 不存在")
+
+    session_factory = get_db_session_factory()
+    async with session_factory() as session:
+        result = await session.execute(
+            select(PluginConfig).where(PluginConfig.plugin_name == name)
+        )
+        config_row = result.scalar_one_or_none()
+        if config_row is None:
+            config_row = PluginConfig(plugin_name=name, config_data="{}", enabled=True)
+            session.add(config_row)
+        else:
+            config_row.enabled = True
+        await session.commit()
+
+    registry.enable_plugin(name)
+    return {"success": True, "installed": True}
+
+
+@router.post("/{name}/uninstall")
+async def uninstall_plugin_action(name: str):
+    """卸载插件（立即生效：移除 Tools 和 Prompts，保留配置）"""
     registry = get_registry()
     plugin = registry.get_plugin(name)
     if not plugin:
         raise HTTPException(status_code=404, detail=f"插件 '{name}' 不存在")
 
     if plugin.core:
-        raise HTTPException(status_code=400, detail=f"核心插件 '{name}' 不可禁用")
+        raise HTTPException(status_code=400, detail=f"核心插件 '{name}' 不可卸载")
 
     session_factory = get_db_session_factory()
     async with session_factory() as session:
@@ -279,17 +306,11 @@ async def toggle_plugin(name: str):
             config_row = PluginConfig(plugin_name=name, config_data="{}", enabled=False)
             session.add(config_row)
         else:
-            config_row.enabled = not config_row.enabled
+            config_row.enabled = False
         await session.commit()
-        await session.refresh(config_row)
-        new_enabled = config_row.enabled
 
-    if new_enabled:
-        registry.enable_plugin(name)
-    else:
-        registry.disable_plugin(name)
-
-    return {"success": True, "enabled": new_enabled, "restart_required": False}
+    registry.disable_plugin(name)
+    return {"success": True, "installed": False}
 
 
 @router.delete("/{name}")

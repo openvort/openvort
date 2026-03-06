@@ -48,6 +48,7 @@ declare module 'vue' {
     VortSelect: typeof import('@/components/vort/select')['Select']
     VortSelectOption: typeof import('@/components/vort/select')['SelectOption']
     VortSpin: typeof import('@/components/vort/spin')['Spin']
+    VortStatistic: typeof import('@/components/vort/statistic')['Statistic']
     VortSwitch: typeof import('@/components/vort/switch')['Switch']
     VortTable: typeof import('@/components/vort/table')['Table']
     VortTableColumn: typeof import('@/components/vort/table')['TableColumn']
@@ -59,5 +60,6 @@ declare module 'vue' {
     VortTimelineItem: typeof import('@/components/vort/timeline')['TimelineItem']
     VortTimePicker: typeof import('@/components/vort/time-picker')['TimePicker']
     VortTooltip: typeof import('@/components/vort/tooltip')['Tooltip']
+    VortUploadDragger: typeof import('@/components/vort/upload')['UploadDragger']
   }
 }

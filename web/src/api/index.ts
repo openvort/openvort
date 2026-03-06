@@ -490,13 +490,18 @@ export function updatePlugin(name: string, config: Record<string, any>) {
     return request.put(`/admin/plugins/${name}`, { config });
 }
 
-/** 启用/禁用插件 */
-export function togglePlugin(name: string) {
-    return request.post(`/admin/plugins/${name}/toggle`);
+/** 安装插件（启用） */
+export function installPlugin(name: string) {
+    return request.post(`/admin/plugins/${name}/install`);
 }
 
-/** pip 安装插件 */
-export function installPlugin(packageName: string) {
+/** 卸载插件（禁用，保留配置） */
+export function uninstallPlugin(name: string) {
+    return request.post(`/admin/plugins/${name}/uninstall`);
+}
+
+/** pip 安装第三方插件包 */
+export function pipInstallPlugin(packageName: string) {
     return request.post("/admin/plugins/install", { package_name: packageName });
 }
 
@@ -1497,6 +1502,54 @@ export function reviewReport(id: string, data: { status: string; comment?: strin
 /** 汇报统计 */
 export function getReportStats(params?: { reviewer_id?: string; since?: string; until?: string }) {
     return request.get("/reports/stats", { params });
+}
+
+// ==================== 知识库 ====================
+
+/** 知识库文档列表 */
+export function getKBDocuments(params?: { page?: number; page_size?: number; keyword?: string; status?: string }) {
+    return request.get("/knowledge/documents", { params });
+}
+
+/** 上传知识库文档 */
+export function uploadKBDocument(file: File, title?: string) {
+    const formData = new FormData();
+    formData.append("file", file);
+    if (title) formData.append("title", title);
+    return request.post("/knowledge/documents", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+        timeout: 60000,
+    });
+}
+
+/** 创建文本/QA 文档 */
+export function createKBTextDocument(data: { title: string; content: string; file_type?: string }) {
+    return request.post("/knowledge/documents/text", data);
+}
+
+/** 知识库文档详情 */
+export function getKBDocument(id: string) {
+    return request.get(`/knowledge/documents/${id}`);
+}
+
+/** 删除知识库文档 */
+export function deleteKBDocument(id: string) {
+    return request.delete(`/knowledge/documents/${id}`);
+}
+
+/** 重新索引知识库文档 */
+export function reindexKBDocument(id: string) {
+    return request.post(`/knowledge/documents/${id}/reindex`);
+}
+
+/** 知识库搜索 */
+export function searchKB(query: string, top_k: number = 5) {
+    return request.post("/knowledge/search", { query, top_k });
+}
+
+/** 知识库统计 */
+export function getKBStats() {
+    return request.get("/knowledge/stats");
 }
 
 // ==================== 系统升级 & 备份 ====================

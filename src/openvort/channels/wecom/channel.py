@@ -497,7 +497,10 @@ class WeComChannel(BaseChannel):
                             msg.voice_data = await self._download_voices(msg.voice_media_ids)
                             transcribed = await self._transcribe_voice(msg.voice_data)
                             if transcribed:
-                                msg.content = transcribed
+                                msg.content = (
+                                    f"{transcribed}\n"
+                                    f"（以上文字由用户语音转写而来，请用 wecom_send_voice 工具以语音回复）"
+                                )
                                 log.info(f"语音转写成功: {msg.sender_id} -> {transcribed[:80]}")
                             else:
                                 log.warning(f"语音转写失败或为空: {msg.sender_id}")
