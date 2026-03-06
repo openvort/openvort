@@ -613,6 +613,47 @@ const isLastFixedLeft = (column: TableColumn<T>): boolean => {
 const tableWrapperRef = ref<HTMLElement | null>(null);
 const showFixedLeftEdgeShadow = ref(false);
 
+// Sticky bottom scrollbar
+const stickyScrollRef = ref<HTMLElement | null>(null);
+const tableContentWidth = ref(0);
+const scrollContainerWidth = ref(0);
+let isSyncingScroll = false;
+let contentResizeObserver: ResizeObserver | null = null;
+
+const hasHorizontalOverflow = computed(() => {
+  return tableContentWidth.value > scrollContainerWidth.value + 1;
+});
+
+const tableMinWidth = computed(() => {
+  let total = 0;
+  if (props.rowSelection) {
+    const w = props.rowSelection.columnWidth;
+    total += typeof w === "number" ? w : parseInt(String(w || "48"), 10);
+  }
+  for (const column of leafColumns.value) {
+    total += toPixelWidth(column);
+  }
+  return total;
+});
+
+const updateContentWidth = () => {
+  const el = tableWrapperRef.value;
+  if (!el) return;
+  tableContentWidth.value = el.scrollWidth;
+  scrollContainerWidth.value = el.clientWidth;
+};
+
+const handleStickyScroll = () => {
+  if (isSyncingScroll) return;
+  isSyncingScroll = true;
+  const wrapper = tableWrapperRef.value;
+  const sticky = stickyScrollRef.value;
+  if (wrapper && sticky) {
+    wrapper.scrollLeft = sticky.scrollLeft;
+  }
+  requestAnimationFrame(() => { isSyncingScroll = false; });
+};
+
 const updateFixedLeftEdgeShadow = () => {
   const wrapper = tableWrapperRef.value;
   if (!wrapper) {
@@ -624,17 +665,37 @@ const updateFixedLeftEdgeShadow = () => {
 
 const handleTableWrapperScroll = () => {
   updateFixedLeftEdgeShadow();
+  if (isSyncingScroll) return;
+  isSyncingScroll = true;
+  const sticky = stickyScrollRef.value;
+  const wrapper = tableWrapperRef.value;
+  if (sticky && wrapper) {
+    sticky.scrollLeft = wrapper.scrollLeft;
+  }
+  requestAnimationFrame(() => { isSyncingScroll = false; });
 };
 
 onMounted(() => {
   nextTick(() => {
     updateFixedLeftEdgeShadow();
+    updateContentWidth();
+
+    const el = tableWrapperRef.value;
+    if (el) {
+      contentResizeObserver = new ResizeObserver(() => {
+        updateContentWidth();
+      });
+      contentResizeObserver.observe(el);
+      const table = el.querySelector(".vort-pro-table");
+      if (table) contentResizeObserver.observe(table);
+    }
   });
 });
 
 watch([leafColumns, tableData], () => {
   nextTick(() => {
     updateFixedLeftEdgeShadow();
+    updateContentWidth();
   });
 }, { deep: true });
 
@@ -686,6 +747,8 @@ const onResizeEnd = () => {
 onBeforeUnmount(() => {
   document.removeEventListener("mousemove", onResizeMove);
   document.removeEventListener("mouseup", onResizeEnd);
+  contentResizeObserver?.disconnect();
+  contentResizeObserver = null;
 });
 
 // ==================== 暴露方法 ====================
@@ -756,7 +819,7 @@ defineExpose({
       <!-- 表格主体 -->
       <div class="vort-pro-table-wrapper">
         <div ref="tableWrapperRef" class="vort-pro-table-scroll" @scroll="handleTableWrapperScroll">
-        <table class="vort-pro-table">
+        <table class="vort-pro-table" :style="{ minWidth: tableMinWidth + 'px' }">
         <colgroup>
           <col v-if="rowSelection" :style="{ width: rowSelection.columnWidth || '48px' }" />
           <col
@@ -913,6 +976,14 @@ defineExpose({
         </tbody>
         </table>
         </div>
+        <div
+          ref="stickyScrollRef"
+          v-show="hasHorizontalOverflow"
+          class="vort-pro-table-sticky-scrollbar"
+          @scroll="handleStickyScroll"
+        >
+          <div :style="{ width: tableContentWidth + 'px', height: '1px' }"></div>
+        </div>
       </div>
 
       <!-- 分页 -->
@@ -1035,6 +1106,38 @@ defineExpose({
 .vort-pro-table-scroll {
   overflow-x: auto;
   overflow-y: hidden;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.vort-pro-table-sticky-scrollbar {
+  position: sticky;
+  bottom: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  height: 14px;
+  z-index: 10;
+  background: var(--vort-bg-elevated, #fff);
+
+  &::-webkit-scrollbar {
+    height: 8px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 4px;
+
+    &:hover {
+      background: rgba(0, 0, 0, 0.25);
+    }
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
 }
 
 .vort-pro-table {

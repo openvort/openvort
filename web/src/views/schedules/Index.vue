@@ -58,14 +58,12 @@ const isAdmin = computed(() => userStore.isAdmin);
 const activeTab = ref("my");
 
 const scheduleTypeFilterOptions = [
-    { label: "全部", value: "" },
     { label: "Cron 定时", value: "cron" },
     { label: "固定间隔", value: "interval" },
     { label: "一次性", value: "once" },
 ];
 
 const statusFilterOptions = [
-    { label: "全部", value: "" },
     { label: "成功", value: "success" },
     { label: "失败", value: "failed" },
     { label: "待执行", value: "pending" },
