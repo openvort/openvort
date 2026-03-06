@@ -43,6 +43,10 @@ const ownerDropdownOpen = ref(false);
 const ownerKeyword = ref("");
 const ownerGroupOpen = ref(true);
 const ownerDropdownRef = ref<HTMLElement | null>(null);
+const dialogOwnerDropdownOpen = ref(false);
+const dialogOwnerKeyword = ref("");
+const dialogOwnerGroupOpen = ref(true);
+const dialogOwnerDropdownRef = ref<HTMLElement | null>(null);
 const createDialogOpen = ref(false);
 const createFormLoading = ref(false);
 const versionDialogMode = ref<"create" | "edit">("create");
@@ -86,10 +90,22 @@ const filteredOwnerOptions = computed(() => {
     return memberOptions.value.filter(item => item.name.toLowerCase().includes(kw));
 });
 
+const filteredDialogOwnerOptions = computed(() => {
+    const kw = dialogOwnerKeyword.value.trim().toLowerCase();
+    if (!kw) return memberOptions.value;
+    return memberOptions.value.filter(item => item.name.toLowerCase().includes(kw));
+});
+
 const selectedOwnerText = computed(() => {
     if (!selectedOwnerId.value) return "负责人";
     if (selectedOwnerId.value === "__unassigned__") return "未指派";
     return memberOptions.value.find(m => m.id === selectedOwnerId.value)?.name || "负责人";
+});
+
+const dialogSelectedOwnerText = computed(() => {
+    const ownerId = String(createVersionForm.value.owner_id || "");
+    if (!ownerId) return "请选择负责人";
+    return memberOptions.value.find(m => m.id === ownerId)?.name || "请选择负责人";
 });
 
 const stageLabelMap: Record<string, string> = {
@@ -162,6 +178,9 @@ const handleAddVersion = () => {
         release_date: "",
         release_log: "",
     };
+    dialogOwnerDropdownOpen.value = false;
+    dialogOwnerKeyword.value = "";
+    dialogOwnerGroupOpen.value = true;
     createDialogOpen.value = true;
 };
 
@@ -176,6 +195,9 @@ const handleEditVersion = (v: VersionItem) => {
         release_date: (v.planned_release_at || v.release_date || "") ? String(v.planned_release_at || v.release_date).split("T")[0] : "",
         release_log: "",
     };
+    dialogOwnerDropdownOpen.value = false;
+    dialogOwnerKeyword.value = "";
+    dialogOwnerGroupOpen.value = true;
     createDialogOpen.value = true;
 };
 
@@ -289,6 +311,20 @@ const ownerAvatarClass = (name: string) => {
 const onDocumentClick = (e: MouseEvent) => {
     const target = e.target as Node;
     if (ownerDropdownRef.value && !ownerDropdownRef.value.contains(target)) ownerDropdownOpen.value = false;
+    if (dialogOwnerDropdownRef.value && !dialogOwnerDropdownRef.value.contains(target)) dialogOwnerDropdownOpen.value = false;
+};
+
+const selectDialogOwner = (value: string) => {
+    createVersionForm.value.owner_id = value;
+    dialogOwnerDropdownOpen.value = false;
+};
+
+const handleCreateDialogOpenChange = (open: boolean) => {
+    createDialogOpen.value = open;
+    if (!open) {
+        dialogOwnerDropdownOpen.value = false;
+        dialogOwnerKeyword.value = "";
+    }
 };
 
 onMounted(async () => {
@@ -506,7 +542,7 @@ onBeforeUnmount(() => {
             :title="versionDialogMode === 'edit' ? '编辑版本' : '新建版本'"
             :width="1000"
             :centered="true"
-            @update:open="createDialogOpen = $event"
+            @update:open="handleCreateDialogOpenChange"
         >
             <div class="space-y-4 px-2 version-create-dialog">
                 <div class="version-create-row version-create-row-top">
@@ -524,27 +560,65 @@ onBeforeUnmount(() => {
                 <div class="version-create-row version-create-row-mid">
                     <div class="version-field">
                         <div class="text-sm font-semibold text-slate-700 mb-2 whitespace-nowrap">负责人 <span class="text-red-500">*</span></div>
-                        <vort-select v-model="createVersionForm.owner_id" placeholder="请选择负责人" class="w-full">
-                            <vort-select-option
-                                v-for="m in memberOptions"
-                                :key="m.id"
-                                :value="m.id"
+                        <div ref="dialogOwnerDropdownRef" class="relative w-full" @click.stop>
+                            <button
+                                type="button"
+                                class="h-8 w-full px-3 rounded border border-slate-300 bg-white text-left flex items-center justify-between transition-colors hover:border-slate-400"
+                                :class="{ 'border-blue-500 bg-white': dialogOwnerDropdownOpen }"
+                                @click.stop="dialogOwnerDropdownOpen = !dialogOwnerDropdownOpen"
                             >
-                                <div class="flex items-center gap-2">
-                                    <span
-                                        class="w-5 h-5 rounded-full bg-sky-50 text-sky-600 inline-flex items-center justify-center text-[11px] overflow-hidden"
+                                <span
+                                    class="text-sm truncate"
+                                    :class="dialogSelectedOwnerText === '请选择负责人' ? 'text-gray-400' : 'text-gray-700'"
+                                >{{ dialogSelectedOwnerText }}</span>
+                                <span class="text-gray-400 text-xs">▾</span>
+                            </button>
+                            <div
+                                v-if="dialogOwnerDropdownOpen"
+                                class="absolute z-40 mt-2 w-[270px] bg-white border border-gray-200 rounded-lg shadow-lg p-2.5 owner-dropdown-panel"
+                            >
+                                <div class="relative mb-2">
+                                    <input
+                                        v-model="dialogOwnerKeyword"
+                                        placeholder="搜索..."
+                                        class="w-full h-8 pl-2.5 pr-7 border border-gray-300 rounded-md text-sm"
                                     >
-                                        <img
-                                            v-if="m.avatarUrl"
-                                            :src="m.avatarUrl"
-                                            class="w-full h-full object-cover"
-                                        >
-                                        <template v-else>{{ getAvatarLabel(m.name) }}</template>
-                                    </span>
-                                    <span class="text-sm text-gray-700">{{ m.name }}</span>
+                                    <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">⌕</span>
                                 </div>
-                            </vort-select-option>
-                        </vort-select>
+                                <div class="max-h-[300px] overflow-auto space-y-1 owner-list">
+                                    <div class="mt-1">
+                                        <button
+                                            class="w-full flex items-center justify-between px-2 py-1.5 rounded-md bg-slate-100 text-sm text-slate-700"
+                                            @click="dialogOwnerGroupOpen = !dialogOwnerGroupOpen"
+                                        >
+                                            <span>全部成员（{{ filteredDialogOwnerOptions.length }}）</span>
+                                            <span class="text-base leading-none">{{ dialogOwnerGroupOpen ? "⌃" : "⌄" }}</span>
+                                        </button>
+                                    </div>
+                                    <button
+                                        v-for="member in (dialogOwnerGroupOpen ? filteredDialogOwnerOptions : [])"
+                                        :key="member.id"
+                                        class="w-full text-left px-2 py-1.5 rounded-md text-sm hover:bg-gray-50 flex items-center gap-2"
+                                        :class="{ 'bg-blue-50 text-blue-700': createVersionForm.owner_id === member.id }"
+                                        @click="selectDialogOwner(member.id)"
+                                    >
+                                        <span
+                                            class="w-5 h-5 rounded-full text-white text-[11px] flex items-center justify-center shrink-0 overflow-hidden"
+                                            :class="ownerAvatarClass(member.name)"
+                                        >
+                                            <img
+                                                v-if="member.avatarUrl"
+                                                :src="member.avatarUrl"
+                                                class="w-full h-full object-cover"
+                                            >
+                                            <template v-else>{{ getAvatarLabel(member.name) }}</template>
+                                        </span>
+                                        <span class="truncate text-slate-700">{{ member.name }}</span>
+                                    </button>
+                                    <div v-if="filteredDialogOwnerOptions.length === 0" class="px-2 py-2 text-xs text-gray-400">暂无匹配成员</div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     <div class="version-field">
                         <div class="text-sm font-semibold text-slate-700 mb-2 whitespace-nowrap">发布时间</div>
