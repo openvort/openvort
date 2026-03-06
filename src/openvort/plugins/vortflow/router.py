@@ -128,35 +128,39 @@ class IterationCreate(BaseModel):
     project_id: str
     name: str
     goal: str = ""
-    owner_id: str | None = None
     start_date: str | None = None
     end_date: str | None = None
     status: str = "planning"
-    estimate_hours: float | None = None
 
 
 class IterationUpdate(BaseModel):
     name: str | None = None
     goal: str | None = None
-    owner_id: str | None = None
     start_date: str | None = None
     end_date: str | None = None
     status: str | None = None
-    estimate_hours: float | None = None
 
 
 class VersionCreate(BaseModel):
     project_id: str
     name: str
     description: str = ""
-    release_date: str | None = None
+    owner_id: str | None = None
+    planned_release_at: str | None = None
+    actual_release_at: str | None = None
+    progress: int = 0
+    release_date: str | None = None  # backward compatibility
     status: str = "planning"
 
 
 class VersionUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
-    release_date: str | None = None
+    owner_id: str | None = None
+    planned_release_at: str | None = None
+    actual_release_at: str | None = None
+    progress: int | None = None
+    release_date: str | None = None  # backward compatibility
     status: str | None = None
 
 
@@ -263,11 +267,9 @@ def _milestone_dict(r: FlowMilestone) -> dict:
 def _iteration_dict(r: FlowIteration) -> dict:
     return {
         "id": r.id, "project_id": r.project_id, "name": r.name, "goal": r.goal,
-        "owner_id": r.owner_id,
         "start_date": r.start_date.isoformat() if r.start_date else None,
         "end_date": r.end_date.isoformat() if r.end_date else None,
         "status": r.status,
-        "estimate_hours": r.estimate_hours,
         "created_at": r.created_at.isoformat() if r.created_at else None,
         "updated_at": r.updated_at.isoformat() if r.updated_at else None,
     }
@@ -277,6 +279,10 @@ def _version_dict(r: FlowVersion) -> dict:
     return {
         "id": r.id, "project_id": r.project_id, "name": r.name,
         "description": r.description,
+        "owner_id": r.owner_id,
+        "planned_release_at": r.planned_release_at.isoformat() if r.planned_release_at else None,
+        "actual_release_at": r.actual_release_at.isoformat() if r.actual_release_at else None,
+        "progress": r.progress,
         "release_date": r.release_date.isoformat() if r.release_date else None,
         "status": r.status,
         "created_at": r.created_at.isoformat() if r.created_at else None,
@@ -1119,9 +1125,8 @@ async def create_iteration(body: IterationCreate):
     async with sf() as session:
         i = FlowIteration(
             project_id=body.project_id, name=body.name, goal=body.goal,
-            owner_id=body.owner_id,
             start_date=_parse_dt(body.start_date), end_date=_parse_dt(body.end_date),
-            status=body.status, estimate_hours=body.estimate_hours,
+            status=body.status,
         )
         session.add(i)
         await session.flush()
@@ -1139,7 +1144,7 @@ async def update_iteration(iteration_id: str, body: IterationUpdate):
         if not i:
             return {"error": "迭代不存在"}
         changes = {}
-        for field in ["name", "goal", "status", "owner_id", "estimate_hours"]:
+        for field in ["name", "goal", "status"]:
             val = getattr(body, field)
             if val is not None:
                 changes[field] = val
@@ -1323,7 +1328,7 @@ async def list_versions(
 ):
     sf = get_session_factory()
     async with sf() as session:
-        stmt = select(FlowVersion).order_by(FlowVersion.created_at.desc())
+        stmt = select(FlowVersion).order_by(FlowVersion.created_at.desc(), FlowVersion.id.desc())
         count_stmt = select(func.count()).select_from(FlowVersion)
         if project_id:
             stmt = stmt.where(FlowVersion.project_id == project_id)
@@ -1351,10 +1356,16 @@ async def get_version(version_id: str):
 async def create_version(body: VersionCreate):
     sf = get_session_factory()
     async with sf() as session:
+        planned_release = _parse_dt(body.planned_release_at) or _parse_dt(body.release_date)
+        actual_release = _parse_dt(body.actual_release_at)
         v = FlowVersion(
             project_id=body.project_id, name=body.name,
             description=body.description,
-            release_date=_parse_dt(body.release_date),
+            owner_id=body.owner_id,
+            planned_release_at=planned_release,
+            actual_release_at=actual_release,
+            progress=max(0, min(100, int(body.progress or 0))),
+            release_date=planned_release,
             status=body.status,
         )
         session.add(v)
@@ -1373,14 +1384,21 @@ async def update_version(version_id: str, body: VersionUpdate):
         if not v:
             return {"error": "版本不存在"}
         changes = {}
-        for field in ["name", "description", "status"]:
+        for field in ["name", "description", "status", "owner_id", "progress"]:
             val = getattr(body, field)
             if val is not None:
+                if field == "progress":
+                    val = max(0, min(100, int(val)))
                 changes[field] = val
                 setattr(v, field, val)
-        if body.release_date is not None:
-            v.release_date = _parse_dt(body.release_date)
-            changes["release_date"] = body.release_date
+        if body.planned_release_at is not None or body.release_date is not None:
+            planned = _parse_dt(body.planned_release_at) if body.planned_release_at is not None else _parse_dt(body.release_date)
+            v.planned_release_at = planned
+            v.release_date = planned
+            changes["planned_release_at"] = body.planned_release_at or body.release_date
+        if body.actual_release_at is not None:
+            v.actual_release_at = _parse_dt(body.actual_release_at)
+            changes["actual_release_at"] = body.actual_release_at
         if changes:
             await _log_event(session, "version", version_id, "updated", changes)
         await session.commit()
@@ -1413,7 +1431,9 @@ async def release_version(version_id: str):
         if v.status == "released":
             return {"error": "版本已发布"}
         v.status = "released"
-        v.release_date = datetime.utcnow()
+        v.actual_release_at = datetime.utcnow()
+        v.release_date = v.actual_release_at
+        v.progress = 100
         await _log_event(session, "version", version_id, "released", {"name": v.name})
         await session.commit()
         await session.refresh(v)

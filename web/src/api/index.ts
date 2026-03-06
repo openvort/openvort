@@ -1198,12 +1198,31 @@ export function getVortflowVersion(id: string) {
 }
 
 /** VortFlow 创建版本 */
-export function createVortflowVersion(data: { project_id: string; name: string; description?: string; release_date?: string; status?: string }) {
+export function createVortflowVersion(data: {
+    project_id: string;
+    name: string;
+    description?: string;
+    owner_id?: string;
+    planned_release_at?: string;
+    actual_release_at?: string;
+    progress?: number;
+    release_date?: string;
+    status?: string;
+}) {
     return request.post("/vortflow/versions", data);
 }
 
 /** VortFlow 更新版本 */
-export function updateVortflowVersion(id: string, data: { name?: string; description?: string; release_date?: string; status?: string }) {
+export function updateVortflowVersion(id: string, data: {
+    name?: string;
+    description?: string;
+    owner_id?: string;
+    planned_release_at?: string;
+    actual_release_at?: string;
+    progress?: number;
+    release_date?: string;
+    status?: string;
+}) {
     return request.put(`/vortflow/versions/${id}`, data);
 }
 

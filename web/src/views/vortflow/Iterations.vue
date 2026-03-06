@@ -4,7 +4,7 @@ import { z } from "zod";
 import { useRouter } from "vue-router";
 import { Repeat, Plus, Search, Info } from "lucide-vue-next";
 import {
-    createVortflowIteration, updateVortflowIteration, deleteVortflowIteration,
+    getVortflowIterations, createVortflowIteration, updateVortflowIteration, deleteVortflowIteration,
     getVortflowProjects, getMembers,
 } from "@/api";
 
@@ -138,8 +138,24 @@ const loadMemberOptions = async () => {
 const loadData = async () => {
     loading.value = true;
     try {
-        const projRes = await getVortflowProjects();
+        const [iterRes, projRes] = await Promise.all([
+            getVortflowIterations({ page: 1, page_size: 100 }),
+            getVortflowProjects(),
+        ]);
+        const list = ((iterRes as any)?.items || []) as IterationItem[];
+        iterations.value = list;
         projects.value = ((projRes as any)?.items || []);
+        const metrics: Record<string, { total: number; done: number }> = {};
+        list.forEach((item, index) => {
+            const presets = [
+                { total: 4, done: 0 },
+                { total: 5, done: 0 },
+                { total: 15, done: 15 },
+                { total: 16, done: 16 },
+            ];
+            metrics[item.id] = presets[index % presets.length];
+        });
+        storyMetrics.value = metrics;
     } catch { /* silent */ }
     finally { loading.value = false; }
 };
@@ -363,25 +379,25 @@ onBeforeUnmount(() => {
                             >{{ selectedOwnerText }}</span>
                             <span class="text-gray-400 text-xs">▾</span>
                         </button>
-                        <div v-if="ownerDropdownOpen" class="absolute z-30 mt-2 w-[390px] bg-white border border-gray-200 rounded-xl shadow-lg p-4 owner-dropdown-panel">
-                            <div class="relative mb-3">
+                        <div v-if="ownerDropdownOpen" class="absolute z-30 mt-2 w-[270px] bg-white border border-gray-200 rounded-lg shadow-lg p-2.5 owner-dropdown-panel">
+                            <div class="relative mb-2">
                                 <input
                                     v-model="ownerKeyword"
                                     placeholder="搜索..."
-                                    class="w-full h-12 pl-4 pr-10 border border-gray-300 rounded-lg text-sm"
+                                    class="w-full h-8 pl-2.5 pr-7 border border-gray-300 rounded-md text-sm"
                                 />
-                                <span class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-base">⌕</span>
+                                <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">⌕</span>
                             </div>
-                            <div class="max-h-[520px] overflow-auto space-y-1 owner-list">
+                            <div class="max-h-[300px] overflow-auto space-y-1 owner-list">
                                 <button
-                                    class="w-full text-left px-3 py-2.5 rounded-md text-sm text-slate-700 hover:bg-gray-50"
+                                    class="w-full text-left px-2 py-1.5 rounded-md text-sm text-slate-700 hover:bg-gray-50"
                                     :class="{ 'bg-blue-50 text-blue-700': !selectedOwnerId }"
                                     @click="clearOwnerFilter"
                                 >
                                     全部
                                 </button>
                                 <button
-                                    class="w-full text-left px-3 py-2.5 rounded-md text-sm text-slate-700 hover:bg-gray-50"
+                                    class="w-full text-left px-2 py-1.5 rounded-md text-sm text-slate-700 hover:bg-gray-50"
                                     :class="{ 'bg-blue-50 text-blue-700': selectedOwnerId === '__unassigned__' }"
                                     @click="selectUnassignedOwner"
                                 >
@@ -389,7 +405,7 @@ onBeforeUnmount(() => {
                                 </button>
                                 <div class="mt-1">
                                     <button
-                                        class="w-full flex items-center justify-between px-3 py-2 rounded-md bg-slate-100 text-sm text-slate-700"
+                                        class="w-full flex items-center justify-between px-2 py-1.5 rounded-md bg-slate-100 text-sm text-slate-700"
                                         @click="ownerGroupOpen = !ownerGroupOpen"
                                     >
                                         <span>全部成员（{{ filteredOwnerOptions.length }}）</span>
@@ -399,12 +415,12 @@ onBeforeUnmount(() => {
                                 <button
                                     v-for="member in (ownerGroupOpen ? filteredOwnerOptions : [])"
                                     :key="member.id"
-                                    class="w-full text-left px-3 py-2.5 rounded-md text-sm hover:bg-gray-50 flex items-center gap-3"
+                                    class="w-full text-left px-2 py-1.5 rounded-md text-sm hover:bg-gray-50 flex items-center gap-2"
                                     :class="{ 'bg-blue-50 text-blue-700': selectedOwnerId === member.id }"
                                     @click="selectOwner(member.id)"
                                 >
                                     <span
-                                        class="w-8 h-8 rounded-full text-white text-base flex items-center justify-center shrink-0"
+                                        class="w-5 h-5 rounded-full text-white text-[11px] flex items-center justify-center shrink-0"
                                         :class="ownerAvatarClass(member.name)"
                                     >
                                         {{ member.name.slice(0, 1) }}
@@ -434,7 +450,7 @@ onBeforeUnmount(() => {
             </div>
 
             <div class="bg-white rounded-xl overflow-hidden">
-                <div class="grid grid-cols-[2.4fr_0.9fr_1.1fr_2fr_1.2fr_1.1fr_1fr] px-6 py-3 text-xs text-gray-500 border-b border-gray-100 bg-gray-50">
+                <div class="grid grid-cols-[2.2fr_0.9fr_1fr_1.8fr_1.4fr_1.4fr_1fr] px-6 py-3 text-xs text-gray-500 border-b border-gray-100 bg-gray-50">
                     <span>标题</span>
                     <span>状态</span>
                     <span>负责人</span>
@@ -448,7 +464,7 @@ onBeforeUnmount(() => {
                     <div
                         v-for="i in filteredIterations"
                         :key="i.id"
-                        class="grid grid-cols-[2.4fr_0.9fr_1.1fr_2fr_1.2fr_1.1fr_1fr] px-6 py-4 border-b border-gray-50 items-center text-sm"
+                        class="grid grid-cols-[2.2fr_0.9fr_1fr_1.8fr_1.4fr_1.4fr_1fr] px-6 py-4 border-b border-gray-50 items-center text-sm"
                     >
                         <div class="flex items-center gap-3 min-w-0">
                             <div class="w-8 h-8 rounded-md bg-blue-100 text-blue-700 text-xs font-semibold flex items-center justify-center shrink-0">
@@ -477,18 +493,18 @@ onBeforeUnmount(() => {
                             {{ formatDate(i.start_date) }} - {{ formatDate(i.end_date) }}
                         </div>
 
-                        <div>
+                        <div class="min-w-0 pr-3">
                             <div class="h-1.5 bg-gray-100 rounded-full overflow-hidden">
                                 <div class="h-full bg-gray-300 rounded-full" :style="{ width: `${storyProgressPercent(i)}%` }" />
                             </div>
-                            <div class="mt-1 text-xs text-gray-400">{{ storyProgressText(i) }}</div>
+                            <div class="mt-1 text-xs text-gray-400 whitespace-nowrap">{{ storyProgressText(i) }}</div>
                         </div>
 
-                        <div>
+                        <div class="min-w-0 pl-3">
                             <div class="h-1.5 bg-gray-100 rounded-full overflow-hidden">
                                 <div class="h-full bg-green-500 rounded-full" :style="{ width: `${effortPercent(i)}%` }" />
                             </div>
-                            <div class="mt-1 text-xs text-gray-400">{{ effortText(i) }}</div>
+                            <div class="mt-1 text-xs text-gray-400 whitespace-nowrap">{{ effortText(i) }}</div>
                         </div>
 
                         <div class="flex items-center justify-end gap-2 whitespace-nowrap">
@@ -516,7 +532,7 @@ onBeforeUnmount(() => {
         <vort-dialog
             :open="drawerVisible"
             :title="drawerTitle"
-            :width="600"
+            :width="800"
             :centered="true"
             @update:open="drawerVisible = $event"
         >

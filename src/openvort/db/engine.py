@@ -112,6 +112,21 @@ async def init_db(database_url: str) -> None:
         await conn.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_flow_versions_project_id ON flow_versions(project_id)"
         ))
+        await conn.execute(text(
+            "ALTER TABLE IF EXISTS flow_versions ADD COLUMN IF NOT EXISTS owner_id VARCHAR(32)"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE IF EXISTS flow_versions ADD COLUMN IF NOT EXISTS planned_release_at TIMESTAMP"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE IF EXISTS flow_versions ADD COLUMN IF NOT EXISTS actual_release_at TIMESTAMP"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE IF EXISTS flow_versions ADD COLUMN IF NOT EXISTS progress INTEGER DEFAULT 0"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_flow_versions_owner_id ON flow_versions(owner_id)"
+        ))
 
         await conn.execute(text("""
             CREATE TABLE IF NOT EXISTS flow_version_stories (
