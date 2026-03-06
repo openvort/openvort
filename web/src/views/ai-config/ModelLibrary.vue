@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
-import { Plus, RefreshCw, Search } from "lucide-vue-next";
+import { Plus, RefreshCw, Search, Zap } from "lucide-vue-next";
 import { createModel, deleteModel, getModels, testModel, updateModel, fetchAvailableModels, batchTestModels, getSettings } from "@/api";
 import { message } from "@openvort/vort-ui";
 
@@ -37,6 +37,144 @@ function apiFormatLabel(val: string): string {
     return apiFormatOptions.find((o) => o.value === val)?.label || val;
 }
 
+const providerColorMap: Record<string, string> = {
+    anthropic: "purple",
+    openai: "green",
+    deepseek: "blue",
+    qwen: "orange",
+    zhipu: "cyan",
+    moonshot: "volcano",
+    custom: "default",
+};
+
+interface ModelPreset {
+    name: string;
+    provider: string;
+    model: string;
+    api_base: string;
+    max_tokens: number;
+    description: string;
+    key_guide: string;
+    key_url: string;
+    group: "international" | "domestic";
+}
+
+const modelPresets: ModelPreset[] = [
+    {
+        name: "Claude Sonnet 4",
+        provider: "anthropic",
+        model: "claude-sonnet-4-20250514",
+        api_base: "",
+        max_tokens: 8192,
+        description: "Anthropic 推荐模型，智能与速度的最佳平衡，适合大多数场景",
+        key_guide: "前往 Anthropic Console 创建 API Key",
+        key_url: "https://console.anthropic.com/settings/keys",
+        group: "international",
+    },
+    {
+        name: "Claude Opus 4",
+        provider: "anthropic",
+        model: "claude-opus-4-20250514",
+        api_base: "",
+        max_tokens: 8192,
+        description: "Anthropic 最强模型，卓越的推理与编码能力，适合复杂任务",
+        key_guide: "前往 Anthropic Console 创建 API Key",
+        key_url: "https://console.anthropic.com/settings/keys",
+        group: "international",
+    },
+    {
+        name: "GPT-4o",
+        provider: "openai",
+        model: "gpt-4o",
+        api_base: "",
+        max_tokens: 4096,
+        description: "OpenAI 多模态旗舰模型，支持文本、图像和音频",
+        key_guide: "前往 OpenAI Platform 创建 API Key",
+        key_url: "https://platform.openai.com/api-keys",
+        group: "international",
+    },
+    {
+        name: "GPT-4.1",
+        provider: "openai",
+        model: "gpt-4.1-2025-04-14",
+        api_base: "",
+        max_tokens: 8192,
+        description: "OpenAI 最新模型，编码和指令遵循能力大幅提升",
+        key_guide: "前往 OpenAI Platform 创建 API Key",
+        key_url: "https://platform.openai.com/api-keys",
+        group: "international",
+    },
+    {
+        name: "DeepSeek Chat (V3)",
+        provider: "deepseek",
+        model: "deepseek-chat",
+        api_base: "https://api.deepseek.com",
+        max_tokens: 4096,
+        description: "深度求索通用对话模型，性价比极高，中文能力出色",
+        key_guide: "前往 DeepSeek 开放平台获取 API Key",
+        key_url: "https://platform.deepseek.com/api_keys",
+        group: "domestic",
+    },
+    {
+        name: "DeepSeek Reasoner (R1)",
+        provider: "deepseek",
+        model: "deepseek-reasoner",
+        api_base: "https://api.deepseek.com",
+        max_tokens: 4096,
+        description: "深度求索推理模型，强化思维链推理能力",
+        key_guide: "前往 DeepSeek 开放平台获取 API Key",
+        key_url: "https://platform.deepseek.com/api_keys",
+        group: "domestic",
+    },
+    {
+        name: "通义千问 Max",
+        provider: "qwen",
+        model: "qwen-max",
+        api_base: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        max_tokens: 4096,
+        description: "阿里旗舰模型，综合能力强，适合复杂场景",
+        key_guide: "前往阿里云百炼平台获取 API Key",
+        key_url: "https://bailian.console.aliyun.com/",
+        group: "domestic",
+    },
+    {
+        name: "通义千问 Plus",
+        provider: "qwen",
+        model: "qwen-plus",
+        api_base: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        max_tokens: 4096,
+        description: "阿里增强模型，均衡性能与成本，日常使用推荐",
+        key_guide: "前往阿里云百炼平台获取 API Key",
+        key_url: "https://bailian.console.aliyun.com/",
+        group: "domestic",
+    },
+    {
+        name: "智谱 GLM-4 Plus",
+        provider: "zhipu",
+        model: "glm-4-plus",
+        api_base: "https://open.bigmodel.cn/api/paas/v4",
+        max_tokens: 4096,
+        description: "智谱高性能模型，中文理解与生成能力出色",
+        key_guide: "前往智谱 AI 开放平台获取 API Key",
+        key_url: "https://open.bigmodel.cn/usercenter/apikeys",
+        group: "domestic",
+    },
+    {
+        name: "Moonshot (Kimi)",
+        provider: "moonshot",
+        model: "moonshot-v1-8k",
+        api_base: "https://api.moonshot.cn/v1",
+        max_tokens: 4096,
+        description: "月之暗面 Kimi 模型，支持超长上下文",
+        key_guide: "前往 Moonshot 开放平台获取 API Key",
+        key_url: "https://platform.moonshot.cn/console/api-keys",
+        group: "domestic",
+    },
+];
+
+const internationalPresets = modelPresets.filter((p) => p.group === "international");
+const domesticPresets = modelPresets.filter((p) => p.group === "domestic");
+
 const loading = ref(false);
 const saving = ref(false);
 const dialogOpen = ref(false);
@@ -60,6 +198,10 @@ const defaultForm = (): ModelItem => ({
 });
 
 const form = ref<ModelItem>(defaultForm());
+
+const quickAddOpen = ref(false);
+const selectedPreset = ref<ModelPreset | null>(null);
+const quickAddKey = ref("");
 
 const settings = ref<Record<string, any>>({});
 
@@ -204,6 +346,50 @@ async function handleSave() {
     }
 }
 
+function openQuickAdd() {
+    quickAddOpen.value = true;
+    selectedPreset.value = null;
+    quickAddKey.value = "";
+}
+
+function selectPreset(preset: ModelPreset) {
+    selectedPreset.value = preset;
+    quickAddKey.value = "";
+}
+
+async function submitQuickAdd() {
+    if (!selectedPreset.value) return;
+    if (!quickAddKey.value.trim()) {
+        message.error("请输入 API Key");
+        return;
+    }
+    saving.value = true;
+    try {
+        const p = selectedPreset.value;
+        const ret: any = await createModel({
+            name: p.name,
+            provider: p.provider,
+            model: p.model,
+            api_key: quickAddKey.value.trim(),
+            api_base: p.api_base,
+            max_tokens: p.max_tokens,
+            timeout: 120,
+            enabled: true,
+        });
+        if (ret && ret.success === false) {
+            message.error(ret.error || "创建失败");
+            return;
+        }
+        message.success(`${p.name} 添加成功`);
+        quickAddOpen.value = false;
+        await loadData();
+    } catch {
+        message.error("添加失败");
+    } finally {
+        saving.value = false;
+    }
+}
+
 async function handleToggle(row: ModelItem) {
     try {
         const ret: any = await updateModel(row.id, { enabled: !row.enabled });
@@ -341,6 +527,9 @@ onMounted(loadData);
             <div class="flex items-center gap-2">
                 <VortButton :loading="batchTesting" @click="handleBatchTest">
                     <RefreshCw :size="14" class="mr-1" /> 批量测试
+                </VortButton>
+                <VortButton @click="openQuickAdd">
+                    <Zap :size="14" class="mr-1" /> 快速添加
                 </VortButton>
                 <VortButton variant="primary" @click="handleAdd">
                     <Plus :size="14" class="mr-1" /> 新增模型
@@ -496,6 +685,82 @@ onMounted(loadData);
             <template #footer>
                 <VortButton @click="dialogOpen = false">取消</VortButton>
                 <VortButton variant="primary" :loading="saving" @click="handleSave" class="ml-3">确定</VortButton>
+            </template>
+        </VortDialog>
+
+        <VortDialog :open="quickAddOpen" title="快速添加模型" :width="680" @update:open="quickAddOpen = $event">
+            <template v-if="selectedPreset">
+                <div class="mb-4">
+                    <a class="text-sm text-blue-600 cursor-pointer hover:text-blue-700" @click="selectedPreset = null">
+                        ← 返回模型列表
+                    </a>
+                </div>
+                <div class="bg-gray-50 rounded-lg p-4 mb-5">
+                    <div class="flex items-center gap-2 mb-1.5">
+                        <span class="font-medium text-gray-800">{{ selectedPreset.name }}</span>
+                        <VortTag :color="providerColorMap[selectedPreset.provider] || 'default'" size="small">
+                            {{ providerOptions.find((o) => o.value === selectedPreset!.provider)?.label || selectedPreset.provider }}
+                        </VortTag>
+                    </div>
+                    <p class="text-sm text-gray-500 mb-2">{{ selectedPreset.description }}</p>
+                    <div class="text-xs text-gray-400 space-y-0.5">
+                        <div>模型：<span class="font-mono">{{ selectedPreset.model }}</span></div>
+                        <div v-if="selectedPreset.api_base">API Base：<span class="font-mono">{{ selectedPreset.api_base }}</span></div>
+                        <div>Max Tokens：{{ selectedPreset.max_tokens }}</div>
+                    </div>
+                </div>
+                <VortForm label-width="90px">
+                    <VortFormItem label="API Key" required>
+                        <VortInputPassword v-model="quickAddKey" placeholder="粘贴你的 API Key" class="w-full" />
+                    </VortFormItem>
+                </VortForm>
+                <div class="mt-3 flex items-center gap-1 text-sm">
+                    <span class="text-gray-400">还没有 Key？</span>
+                    <a :href="selectedPreset.key_url" target="_blank" rel="noopener" class="text-blue-600 hover:text-blue-700">
+                        {{ selectedPreset.key_guide }} →
+                    </a>
+                </div>
+            </template>
+            <template v-else>
+                <p class="text-sm text-gray-500 mb-5">
+                    选择要对接的模型，只需填入 API Key 即可完成配置。其他参数已自动填充，添加后也可随时修改。
+                </p>
+                <h4 class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">国外模型</h4>
+                <div class="grid grid-cols-2 gap-3 mb-5">
+                    <div
+                        v-for="p in internationalPresets"
+                        :key="p.model"
+                        class="border border-gray-200 rounded-lg p-3 cursor-pointer hover:border-blue-400 hover:shadow-sm transition-all group"
+                        @click="selectPreset(p)"
+                    >
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="font-medium text-sm text-gray-800 group-hover:text-blue-600 transition-colors">{{ p.name }}</span>
+                            <VortTag :color="providerColorMap[p.provider] || 'default'" size="small" :bordered="false">{{ p.provider }}</VortTag>
+                        </div>
+                        <p class="text-xs text-gray-400 leading-relaxed">{{ p.description }}</p>
+                    </div>
+                </div>
+                <h4 class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">国内模型</h4>
+                <div class="grid grid-cols-2 gap-3">
+                    <div
+                        v-for="p in domesticPresets"
+                        :key="p.model"
+                        class="border border-gray-200 rounded-lg p-3 cursor-pointer hover:border-blue-400 hover:shadow-sm transition-all group"
+                        @click="selectPreset(p)"
+                    >
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="font-medium text-sm text-gray-800 group-hover:text-blue-600 transition-colors">{{ p.name }}</span>
+                            <VortTag :color="providerColorMap[p.provider] || 'default'" size="small" :bordered="false">{{ p.provider }}</VortTag>
+                        </div>
+                        <p class="text-xs text-gray-400 leading-relaxed">{{ p.description }}</p>
+                    </div>
+                </div>
+            </template>
+            <template #footer>
+                <VortButton @click="quickAddOpen = false">取消</VortButton>
+                <VortButton v-if="selectedPreset" variant="primary" :loading="saving" @click="submitQuickAdd" class="ml-3">
+                    添加模型
+                </VortButton>
             </template>
         </VortDialog>
     </div>

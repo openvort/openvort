@@ -6,10 +6,12 @@ import {
     getReportTemplates, createReportTemplate, deleteReportTemplate,
     getReportRules, createReportRule, deleteReportRule,
     getReportStats, getMembers, generateReportContentPrompt,
+    getReportingRelations, createReportingRelation, deleteReportingRelation,
 } from "@/api";
 import {
     Plus, FileText, Send, CheckCircle, XCircle, Clock,
     BarChart3, Settings, ChevronLeft, ChevronRight, Eye, Bot,
+    ArrowRight,
 } from "lucide-vue-next";
 import { message } from "@openvort/vort-ui";
 import { useUserStore } from "@/stores";
@@ -206,16 +208,15 @@ async function handleSubmit() {
 }
 
 // AI 生成汇报内容
-async function handleAiGenerateContent() {
-    if (!submitForm.value.report_type) {
+async function handleAiGenerateContent(reportType?: string, reportDate?: string) {
+    const type = reportType || submitForm.value.report_type;
+    const date = reportDate || submitForm.value.report_date || new Date().toISOString().slice(0, 10);
+    if (!type) {
         message.warning("请先选择汇报类型");
         return;
     }
     try {
-        const res: any = await generateReportContentPrompt(
-            submitForm.value.report_type,
-            submitForm.value.report_date || new Date().toISOString().slice(0, 10)
-        );
+        const res: any = await generateReportContentPrompt(type, date);
         if (res?.prompt) {
             submitDialogOpen.value = false;
             router.push({ name: "chat", query: { prompt: res.prompt } });
@@ -348,6 +349,111 @@ async function handleDeleteRule(id: string) {
     } catch { message.error("删除失败"); }
 }
 
+// ---- 汇报关系 ----
+
+interface RelationItem {
+    id: number;
+    reporter_id: string;
+    reporter_name: string;
+    supervisor_id: string;
+    supervisor_name: string;
+    relation_type: string;
+    is_primary: boolean;
+    created_at: string;
+}
+
+const relations = ref<RelationItem[]>([]);
+const loadingRelations = ref(false);
+
+const relationDialogOpen = ref(false);
+const relationForm = ref({ reporter_id: "", supervisor_id: "", relation_type: "direct" });
+const savingRelation = ref(false);
+const relationMemberSearch = ref("");
+const relationMemberResults = ref<MemberItem[]>([]);
+
+const relationTypeOptions = [
+    { label: "直属", value: "direct" },
+    { label: "虚线", value: "dotted" },
+    { label: "职能", value: "functional" },
+];
+
+const relationTypeLabel = (val: string) => relationTypeOptions.find(o => o.value === val)?.label || val;
+
+async function loadRelations() {
+    loadingRelations.value = true;
+    try {
+        const res: any = await getReportingRelations();
+        relations.value = res?.relations || [];
+    } catch { /* ignore */ }
+    finally { loadingRelations.value = false; }
+}
+
+function openRelationDialog() {
+    relationForm.value = { reporter_id: "", supervisor_id: "", relation_type: "direct" };
+    relationMemberSearch.value = "";
+    relationMemberResults.value = [];
+    relationDialogOpen.value = true;
+}
+
+async function searchRelationMembers() {
+    if (!relationMemberSearch.value.trim()) return;
+    try {
+        const res: any = await getMembers({ search: relationMemberSearch.value, size: 20 });
+        relationMemberResults.value = res?.members || [];
+    } catch { relationMemberResults.value = []; }
+}
+
+async function handleSaveRelation() {
+    if (!relationForm.value.reporter_id || !relationForm.value.supervisor_id) {
+        message.error("请选择汇报人和上级");
+        return;
+    }
+    savingRelation.value = true;
+    try {
+        const res: any = await createReportingRelation(relationForm.value);
+        if (res?.success) {
+            message.success("汇报关系已创建");
+            relationDialogOpen.value = false;
+            await loadRelations();
+        } else { message.error(res?.error || "创建失败"); }
+    } catch { message.error("创建失败"); }
+    finally { savingRelation.value = false; }
+}
+
+async function handleDeleteRelation(id: number) {
+    try {
+        const res: any = await deleteReportingRelation(id);
+        if (res?.success) {
+            message.success("已删除");
+            await loadRelations();
+        } else { message.error("删除失败"); }
+    } catch { message.error("删除失败"); }
+}
+
+// ---- 头像工具 ----
+
+const AVATAR_COLORS = [
+    'bg-blue-500', 'bg-green-500', 'bg-purple-500', 'bg-orange-500',
+    'bg-pink-500', 'bg-teal-500', 'bg-indigo-500', 'bg-red-400',
+    'bg-cyan-500', 'bg-amber-500',
+];
+
+function getInitial(name: string): string {
+    if (!name) return '?';
+    const trimmed = name.trim();
+    const first = trimmed.charAt(0);
+    return /[a-zA-Z]/.test(first) ? first.toUpperCase() : first;
+}
+
+function getAvatarColor(name: string): string {
+    if (!name) return AVATAR_COLORS[0];
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) {
+        hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+
 // ---- Init ----
 
 onMounted(() => {
@@ -356,6 +462,7 @@ onMounted(() => {
     loadStats();
     loadTemplates();
     loadRules();
+    loadRelations();
 });
 </script>
 
@@ -399,9 +506,12 @@ onMounted(() => {
                                 <VortSelectOption v-for="opt in statusOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</VortSelectOption>
                             </VortSelect>
                         </div>
-                        <VortButton variant="primary" @click="openSubmitDialog">
-                            <Plus :size="14" class="mr-1" /> 写汇报
-                        </VortButton>
+                        <div class="flex items-center gap-2">
+                            <AiAssistButton prompt="我想写一份日报/周报/月报，请引导我完成。请先询问我要写哪种类型的汇报，然后帮我梳理和生成汇报内容。" />
+                            <VortButton variant="primary" @click="openSubmitDialog">
+                                <Plus :size="14" class="mr-1" /> 写汇报
+                            </VortButton>
+                        </div>
                     </div>
 
                     <VortSpin :spinning="loadingMy">
@@ -460,6 +570,52 @@ onMounted(() => {
                         </div>
                         <div v-else class="text-gray-400 text-sm text-center py-16">
                             暂无下属汇报
+                        </div>
+                    </VortSpin>
+                </VortTabPane>
+
+                <!-- 汇报关系 -->
+                <VortTabPane v-if="isAdmin" tab-key="reporting" tab="汇报关系">
+                    <div class="flex items-center justify-between mb-4">
+                        <h4 class="text-base font-medium text-gray-800">汇报关系</h4>
+                        <div class="flex items-center gap-2">
+                            <AiAssistButton prompt="我想添加一条汇报关系，请引导我完成。需要设置汇报人（下级）、上级、以及关系类型（直属/虚线/职能）。" />
+                            <VortButton variant="primary" @click="openRelationDialog">
+                                <Plus :size="14" class="mr-1" /> 新增
+                            </VortButton>
+                        </div>
+                    </div>
+
+                    <VortSpin :spinning="loadingRelations">
+                        <div v-if="relations.length" class="space-y-2">
+                            <div
+                                v-for="r in relations" :key="r.id"
+                                class="flex items-center justify-between px-5 py-3.5 rounded-lg border border-gray-100 hover:bg-gray-50"
+                            >
+                                <div class="flex items-center gap-3 text-sm">
+                                    <span
+                                        class="inline-flex items-center justify-center w-7 h-7 rounded-full text-white text-xs font-medium flex-shrink-0"
+                                        :class="getAvatarColor(r.reporter_name)"
+                                    >{{ getInitial(r.reporter_name) }}</span>
+                                    <span class="font-medium text-gray-800">{{ r.reporter_name }}</span>
+                                    <ArrowRight :size="14" class="text-gray-400" />
+                                    <span
+                                        class="inline-flex items-center justify-center w-7 h-7 rounded-full text-white text-xs font-medium flex-shrink-0"
+                                        :class="getAvatarColor(r.supervisor_name)"
+                                    >{{ getInitial(r.supervisor_name) }}</span>
+                                    <span class="font-medium text-gray-800">{{ r.supervisor_name }}</span>
+                                    <VortTag :color="r.relation_type === 'direct' ? 'blue' : r.relation_type === 'dotted' ? 'orange' : 'cyan'" size="small">
+                                        {{ relationTypeLabel(r.relation_type) }}
+                                    </VortTag>
+                                    <VortTag v-if="r.is_primary" color="green" size="small">主要</VortTag>
+                                </div>
+                                <VortPopconfirm title="确认删除此汇报关系？" @confirm="handleDeleteRelation(r.id)">
+                                    <a class="text-sm text-red-500 cursor-pointer">删除</a>
+                                </VortPopconfirm>
+                            </div>
+                        </div>
+                        <div v-else class="text-gray-400 text-sm text-center py-16">
+                            暂无汇报关系，点击右上角「新增」添加
                         </div>
                     </VortSpin>
                 </VortTabPane>
@@ -669,6 +825,64 @@ onMounted(() => {
                         <VortSelectOption value="daily">日报</VortSelectOption>
                         <VortSelectOption value="weekly">周报</VortSelectOption>
                         <VortSelectOption value="monthly">月报</VortSelectOption>
+                    </VortSelect>
+                </div>
+            </div>
+        </VortDialog>
+
+        <!-- 新增汇报关系弹窗 -->
+        <VortDialog
+            :open="relationDialogOpen"
+            title="新增汇报关系"
+            :ok-text="'创建'"
+            :confirm-loading="savingRelation"
+            @update:open="relationDialogOpen = $event"
+            @ok="handleSaveRelation"
+        >
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">搜索成员</label>
+                    <VortInputSearch
+                        v-model="relationMemberSearch"
+                        placeholder="输入姓名搜索"
+                        @search="searchRelationMembers"
+                        @press-enter="searchRelationMembers"
+                    />
+                </div>
+                <div v-if="relationMemberResults.length" class="max-h-40 overflow-y-auto border border-gray-100 rounded-lg p-2 space-y-1">
+                    <div
+                        v-for="m in relationMemberResults" :key="m.id"
+                        class="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-gray-50 text-sm"
+                    >
+                        <span class="font-medium text-gray-800">{{ m.name }}</span>
+                        <div class="flex items-center gap-1">
+                            <VortButton size="small" @click="relationForm.reporter_id = m.id; message.info(`已选为汇报人: ${m.name}`)">
+                                设为汇报人
+                            </VortButton>
+                            <VortButton size="small" @click="relationForm.supervisor_id = m.id; message.info(`已选为上级: ${m.name}`)">
+                                设为上级
+                            </VortButton>
+                        </div>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">汇报人（下级）</label>
+                        <div class="text-sm text-gray-800 px-3 py-2 bg-gray-50 rounded-lg min-h-[36px]">
+                            {{ relationMemberResults.find(m => m.id === relationForm.reporter_id)?.name || '未选择' }}
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">上级</label>
+                        <div class="text-sm text-gray-800 px-3 py-2 bg-gray-50 rounded-lg min-h-[36px]">
+                            {{ relationMemberResults.find(m => m.id === relationForm.supervisor_id)?.name || '未选择' }}
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">关系类型</label>
+                    <VortSelect v-model="relationForm.relation_type" style="width: 100%">
+                        <VortSelectOption v-for="opt in relationTypeOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</VortSelectOption>
                     </VortSelect>
                 </div>
             </div>

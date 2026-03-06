@@ -612,8 +612,8 @@ const mapBackendItemToRow = (item: any, typeValue: WorkItemType, index: number):
         autoTags.add(tt);
     }
     if (typeValue === "需求" && item?.project_id) {
-        if (!tags.includes("需求")) tags.push("需求");
-        autoTags.add("需求");
+        // project_id presence no longer forces a "需求" tag;
+        // the work item type is already shown via the `type` column.
     }
     if (typeValue === "缺陷" && item?.severity) {
         const sv = `S${item.severity}`;

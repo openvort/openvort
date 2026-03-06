@@ -1115,7 +1115,7 @@ defineExpose({
 
 .vort-pro-table-sticky-scrollbar {
   position: sticky;
-  bottom: 0;
+  bottom: 8px;
   overflow-x: auto;
   overflow-y: hidden;
   height: 14px;

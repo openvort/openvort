@@ -23,12 +23,14 @@ class ReportPlugin(BasePlugin):
         from openvort.plugins.report.tools.manage import ReportManageTool
         from openvort.plugins.report.tools.query import ReportQueryTool
         from openvort.plugins.report.tools.submit import ReportSubmitTool
+        from openvort.plugins.report.tools.reporting_relation import ReportingRelationTool
 
         sf_getter = get_session_factory
         return [
             ReportManageTool(sf_getter),
             ReportSubmitTool(sf_getter),
             ReportQueryTool(sf_getter),
+            ReportingRelationTool(sf_getter),
         ]
 
     def get_api_router(self):

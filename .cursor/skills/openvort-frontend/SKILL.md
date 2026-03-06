@@ -591,6 +591,45 @@ const handleSave = () => { drawerVisible.value = false; loadData(); };
 | `vort-range-picker` | `v-model`, `value-format`, `format`, `:placeholder="['开始', '结束']"`, `allow-clear`, `disabled`, `:disabled-date`, `:show-time`, `separator`, `:presets`, `@change` |
 | `vort-tooltip` | `title` |
 
+### 10. AI 助手创建按钮（AiAssistButton）
+
+在页面操作栏添加"AI 助手创建"入口时，**必须使用 `AiAssistButton` 组件**，不要自行拼装按钮和路由跳转逻辑。
+
+组件已全局注册，无需 import，直接在模板中使用：
+
+```vue
+<AiAssistButton prompt="我想创建一个定时任务，请引导我完成设置。" />
+```
+
+| Prop | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `prompt` | `string` (必填) | — | 预填到 AI 对话的提示词，描述用户想做什么，引导 AI 开始对话 |
+| `label` | `string` | `"AI 助手创建"` | 按钮文字，一般无需修改 |
+
+**工作原理：** 点击后跳转到 `/chat` 页面，并通过 `query.prompt` 传入预填内容，AI 助手会根据 prompt 引导用户完成创建。
+
+**典型用法：** 放在操作栏，与"新增"按钮并列：
+
+```vue
+<div class="flex items-center gap-2">
+    <AiAssistButton prompt="我想写一份日报/周报/月报，请引导我完成。" />
+    <VortButton variant="primary" @click="openCreate">
+        <Plus :size="14" class="mr-1" /> 新增
+    </VortButton>
+</div>
+```
+
+**prompt 编写要点：**
+- 明确告诉 AI 用户想做什么（"我想创建一个…"）
+- 说明需要 AI 引导的步骤（"请引导我完成设置"）
+- 可列出需要填写的关键字段
+
+**已使用的页面参考：**
+- 定时任务 `schedules/Index.vue`
+- 任务管理 `vortflow/Tasks.vue`
+- 汇报中心 `reports/Index.vue`
+- 需求列表 `StoryList.vue`
+
 ## CSS 约定
 
 | 场景 | 类名 |

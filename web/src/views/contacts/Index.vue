@@ -12,14 +12,13 @@ import {
     getDepartmentTree, createDepartment,
     updateDepartment, deleteDepartment, addDepartmentMember,
     removeDepartmentMember, getChannels,
-    getReportingRelations, createReportingRelation, deleteReportingRelation,
     getOrgCalendar, createOrgCalendarEntry, deleteOrgCalendarEntry, syncHolidays, getWorkSettings, updateWorkSettings,
 } from "@/api";
 import {
     RefreshCw, Search, Shield, UserCheck, UserX, Key,
     AlertTriangle, Check, X, Link, Unlink, Lock, Trash2,
     ChevronDown, FolderTree, Plus, Pencil, UserPlus,
-    Download, ArrowRight, Calendar, CloudDownload,
+    Download, Calendar, CloudDownload,
 } from "lucide-vue-next";
 import { message, dialog } from "@openvort/vort-ui";
 import { DeptTree } from "@/components/vort-biz/dept-tree";
@@ -864,85 +863,6 @@ async function handleRemoveMemberFromDept(memberId: string) {
     } catch { message.error("移除失败"); }
 }
 
-// ---- 汇报关系 ----
-
-interface RelationItem {
-    id: number;
-    reporter_id: string;
-    reporter_name: string;
-    supervisor_id: string;
-    supervisor_name: string;
-    relation_type: string;
-    is_primary: boolean;
-    created_at: string;
-}
-
-const relations = ref<RelationItem[]>([]);
-const loadingRelations = ref(false);
-
-const relationDialogOpen = ref(false);
-const relationForm = ref({ reporter_id: "", supervisor_id: "", relation_type: "direct" });
-const savingRelation = ref(false);
-const relationMemberSearch = ref("");
-const relationMemberResults = ref<MemberItem[]>([]);
-
-const relationTypeOptions = [
-    { label: "直属", value: "direct" },
-    { label: "虚线", value: "dotted" },
-    { label: "职能", value: "functional" },
-];
-
-const relationTypeLabel = (val: string) => relationTypeOptions.find(o => o.value === val)?.label || val;
-
-async function loadRelations() {
-    loadingRelations.value = true;
-    try {
-        const res: any = await getReportingRelations();
-        relations.value = res?.relations || [];
-    } catch { /* ignore */ }
-    finally { loadingRelations.value = false; }
-}
-
-function openRelationDialog() {
-    relationForm.value = { reporter_id: "", supervisor_id: "", relation_type: "direct" };
-    relationDialogOpen.value = true;
-}
-
-async function searchRelationMembers() {
-    if (!relationMemberSearch.value.trim()) return;
-    try {
-        const res: any = await getMembers({ search: relationMemberSearch.value, size: 20 });
-        relationMemberResults.value = res?.members || [];
-    } catch { relationMemberResults.value = []; }
-}
-
-async function handleSaveRelation() {
-    if (!relationForm.value.reporter_id || !relationForm.value.supervisor_id) {
-        message.error("请选择汇报人和上级");
-        return;
-    }
-    savingRelation.value = true;
-    try {
-        const res: any = await createReportingRelation(relationForm.value);
-        if (res?.success) {
-            message.success("汇报关系已创建");
-            relationDialogOpen.value = false;
-            await loadRelations();
-        } else { message.error(res?.error || "创建失败"); }
-    } catch { message.error("创建失败"); }
-    finally { savingRelation.value = false; }
-}
-
-async function handleDeleteRelation(id: number) {
-    try {
-        const res: any = await deleteReportingRelation(id);
-        if (res?.success) {
-            message.success("已删除");
-            await loadRelations();
-        } else { message.error("删除失败"); }
-    } catch { message.error("删除失败"); }
-}
-
 // ---- 企业日历 ----
 
 interface CalendarEntry {
@@ -1146,7 +1066,6 @@ onMounted(() => {
     loadPermissions();
     loadDeptTree();
     loadChannels();
-    loadRelations();
     loadCalendar();
     loadWorkSettings();
     loadSkillOptions();
@@ -1552,48 +1471,6 @@ onMounted(() => {
                             <div v-else class="text-gray-400 text-sm text-center py-16">请选择一个角色查看详情</div>
                         </div>
                     </div>
-                </VortTabPane>
-
-                <VortTabPane tab-key="reporting" tab="汇报关系">
-                    <div class="flex items-center justify-between mb-4">
-                        <h4 class="text-base font-medium text-gray-800">汇报关系</h4>
-                        <VortButton variant="primary" @click="openRelationDialog">
-                            <Plus :size="14" class="mr-1" /> 新增
-                        </VortButton>
-                    </div>
-
-                    <VortSpin :spinning="loadingRelations">
-                        <div v-if="relations.length" class="space-y-2">
-                            <div
-                                v-for="r in relations" :key="r.id"
-                                class="flex items-center justify-between px-5 py-3.5 rounded-lg border border-gray-100 hover:bg-gray-50"
-                            >
-                                <div class="flex items-center gap-3 text-sm">
-                                    <span
-                                        class="inline-flex items-center justify-center w-7 h-7 rounded-full text-white text-xs font-medium flex-shrink-0"
-                                        :class="getAvatarColor(r.reporter_name)"
-                                    >{{ getInitial(r.reporter_name) }}</span>
-                                    <span class="font-medium text-gray-800">{{ r.reporter_name }}</span>
-                                    <ArrowRight :size="14" class="text-gray-400" />
-                                    <span
-                                        class="inline-flex items-center justify-center w-7 h-7 rounded-full text-white text-xs font-medium flex-shrink-0"
-                                        :class="getAvatarColor(r.supervisor_name)"
-                                    >{{ getInitial(r.supervisor_name) }}</span>
-                                    <span class="font-medium text-gray-800">{{ r.supervisor_name }}</span>
-                                    <VortTag :color="r.relation_type === 'direct' ? 'blue' : r.relation_type === 'dotted' ? 'orange' : 'cyan'" size="small">
-                                        {{ relationTypeLabel(r.relation_type) }}
-                                    </VortTag>
-                                    <VortTag v-if="r.is_primary" color="green" size="small">主要</VortTag>
-                                </div>
-                                <VortPopconfirm title="确认删除此汇报关系？" @confirm="handleDeleteRelation(r.id)">
-                                    <a class="text-sm text-red-500 cursor-pointer">删除</a>
-                                </VortPopconfirm>
-                            </div>
-                        </div>
-                        <div v-else class="text-gray-400 text-sm text-center py-16">
-                            暂无汇报关系，点击右上角「新增」添加
-                        </div>
-                    </VortSpin>
                 </VortTabPane>
 
                 <VortTabPane tab-key="calendar" tab="企业日历">
@@ -2032,64 +1909,6 @@ onMounted(() => {
                     </div>
                 </div>
                 <div v-else-if="addMemberSearch && !addMemberLoading" class="text-gray-400 text-sm text-center py-4">未找到匹配成员</div>
-            </div>
-        </VortDialog>
-
-        <!-- 新增汇报关系弹窗 -->
-        <VortDialog
-            :open="relationDialogOpen"
-            title="新增汇报关系"
-            :ok-text="'创建'"
-            :confirm-loading="savingRelation"
-            @update:open="relationDialogOpen = $event"
-            @ok="handleSaveRelation"
-        >
-            <div class="space-y-4">
-                <div>
-                    <label class="block text-xs text-gray-500 mb-1">搜索成员</label>
-                    <VortInputSearch
-                        v-model="relationMemberSearch"
-                        placeholder="输入姓名搜索"
-                        @search="searchRelationMembers"
-                        @press-enter="searchRelationMembers"
-                    />
-                </div>
-                <div v-if="relationMemberResults.length" class="max-h-40 overflow-y-auto border border-gray-100 rounded-lg p-2 space-y-1">
-                    <div
-                        v-for="m in relationMemberResults" :key="m.id"
-                        class="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-gray-50 text-sm"
-                    >
-                        <span class="font-medium text-gray-800">{{ m.name }}</span>
-                        <div class="flex items-center gap-1">
-                            <VortButton size="small" @click="relationForm.reporter_id = m.id; message.info(`已选为汇报人: ${m.name}`)">
-                                设为汇报人
-                            </VortButton>
-                            <VortButton size="small" @click="relationForm.supervisor_id = m.id; message.info(`已选为上级: ${m.name}`)">
-                                设为上级
-                            </VortButton>
-                        </div>
-                    </div>
-                </div>
-                <div class="grid grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-xs text-gray-500 mb-1">汇报人（下级）</label>
-                        <div class="text-sm text-gray-800 px-3 py-2 bg-gray-50 rounded-lg min-h-[36px]">
-                            {{ members.find(m => m.id === relationForm.reporter_id)?.name || '未选择' }}
-                        </div>
-                    </div>
-                    <div>
-                        <label class="block text-xs text-gray-500 mb-1">上级</label>
-                        <div class="text-sm text-gray-800 px-3 py-2 bg-gray-50 rounded-lg min-h-[36px]">
-                            {{ members.find(m => m.id === relationForm.supervisor_id)?.name || '未选择' }}
-                        </div>
-                    </div>
-                </div>
-                <div>
-                    <label class="block text-xs text-gray-500 mb-1">关系类型</label>
-                    <VortSelect v-model="relationForm.relation_type" style="width: 100%">
-                        <VortSelectOption v-for="opt in relationTypeOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</VortSelectOption>
-                    </VortSelect>
-                </div>
             </div>
         </VortDialog>
 
