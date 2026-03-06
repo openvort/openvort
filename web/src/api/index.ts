@@ -662,8 +662,15 @@ export function getCliToolUninstallUrl(toolName: string, token: string) {
 // ---- 定时任务（个人）----
 
 /** 我的任务列表 */
-export function getMySchedules() {
-    return request.get("/schedules");
+export function getMySchedules(params?: {
+    page?: number;
+    page_size?: number;
+    keyword?: string;
+    schedule_type?: string;
+    last_status?: string;
+    hide_done_once?: boolean;
+}) {
+    return request.get("/schedules", { params });
 }
 
 /** 创建个人任务 */
@@ -691,6 +698,11 @@ export function deleteMySchedule(jobId: string) {
     return request.delete(`/schedules/${jobId}`);
 }
 
+/** 批量删除个人任务 */
+export function batchDeleteMySchedules(jobIds: string[]) {
+    return request.post("/schedules/batch-delete", { job_ids: jobIds });
+}
+
 /** 启用/禁用个人任务 */
 export function toggleMySchedule(jobId: string) {
     return request.post(`/schedules/${jobId}/toggle`);
@@ -709,8 +721,15 @@ export function getScheduleExecutors() {
 // ---- 定时任务（管理员）----
 
 /** 所有任务列表 */
-export function getAdminSchedules() {
-    return request.get("/admin/schedules");
+export function getAdminSchedules(params?: {
+    page?: number;
+    page_size?: number;
+    keyword?: string;
+    schedule_type?: string;
+    last_status?: string;
+    hide_done_once?: boolean;
+}) {
+    return request.get("/admin/schedules", { params });
 }
 
 /** 创建团队任务 */
@@ -735,6 +754,11 @@ export function updateAdminSchedule(jobId: string, data: Record<string, any>) {
 /** 删除任意任务 */
 export function deleteAdminSchedule(jobId: string) {
     return request.delete(`/admin/schedules/${jobId}`);
+}
+
+/** 批量删除任务（管理员） */
+export function batchDeleteAdminSchedules(jobIds: string[]) {
+    return request.post("/admin/schedules/batch-delete", { job_ids: jobIds });
 }
 
 /** 启用/禁用任意任务 */

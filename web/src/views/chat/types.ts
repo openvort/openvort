@@ -64,6 +64,7 @@ export interface MentionMember {
     email: string;
     position?: string;
     department?: string;
+    is_virtual?: boolean;
 }
 
 export interface SlashCommand {

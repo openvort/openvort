@@ -5,7 +5,7 @@
 - admin_schedules_router: /api/admin/schedules — 管理员管理所有任务
 """
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel
 
 from openvort.web.app import require_auth
@@ -43,6 +43,10 @@ class UpdateJobRequest(BaseModel):
     enabled: bool | None = None
     visible: bool | None = None
     target_member_id: str | None = None  # 执行人（AI 员工 ID）
+
+
+class BatchDeleteJobsRequest(BaseModel):
+    job_ids: list[str]
 
 
 _scheduler_instance = None
@@ -90,12 +94,24 @@ def _is_admin(request: Request) -> bool:
 
 
 @schedules_router.get("")
-async def list_my_jobs(request: Request):
+async def list_my_jobs(
+    request: Request,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    keyword: str | None = Query(None),
+    schedule_type: str | None = Query(None),
+    last_status: str | None = Query(None),
+    hide_done_once: bool = Query(True),
+):
     """列出我的任务"""
     member_id = _get_member_id(request)
     service = _get_service()
-    jobs = await service.list_jobs(owner_id=member_id)
-    return {"jobs": jobs}
+    return await service.list_jobs(
+        owner_id=member_id,
+        page=page, page_size=page_size,
+        keyword=keyword, schedule_type=schedule_type,
+        last_status=last_status, hide_done_once=hide_done_once,
+    )
 
 
 @schedules_router.post("")
@@ -118,6 +134,15 @@ async def create_my_job(request: Request, req: CreateJobRequest):
         target_member_id=req.target_member_id or "",
     )
     return {"success": True, "job": job}
+
+
+@schedules_router.post("/batch-delete")
+async def batch_delete_my_jobs(request: Request, req: BatchDeleteJobsRequest):
+    """批量删除个人任务"""
+    member_id = _get_member_id(request)
+    service = _get_service()
+    count = await service.batch_delete_jobs(req.job_ids, owner_id=member_id)
+    return {"success": True, "count": count}
 
 
 @schedules_router.put("/{job_id}")
@@ -169,11 +194,21 @@ async def run_my_job(request: Request, job_id: str):
 
 
 @admin_schedules_router.get("")
-async def list_all_jobs():
+async def list_all_jobs(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    keyword: str | None = Query(None),
+    schedule_type: str | None = Query(None),
+    last_status: str | None = Query(None),
+    hide_done_once: bool = Query(True),
+):
     """列出所有任务"""
     service = _get_service()
-    jobs = await service.list_jobs()
-    return {"jobs": jobs}
+    return await service.list_jobs(
+        page=page, page_size=page_size,
+        keyword=keyword, schedule_type=schedule_type,
+        last_status=last_status, hide_done_once=hide_done_once,
+    )
 
 
 @admin_schedules_router.post("")
@@ -195,6 +230,14 @@ async def create_team_job(request: Request, req: CreateJobRequest):
         visible=req.visible,
     )
     return {"success": True, "job": job}
+
+
+@admin_schedules_router.post("/batch-delete")
+async def batch_delete_any_jobs(req: BatchDeleteJobsRequest):
+    """批量删除任务"""
+    service = _get_service()
+    count = await service.batch_delete_jobs(req.job_ids, is_admin=True)
+    return {"success": True, "count": count}
 
 
 @admin_schedules_router.put("/{job_id}")

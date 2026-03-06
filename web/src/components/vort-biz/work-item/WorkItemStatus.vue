@@ -71,36 +71,34 @@ const handleSelect = (value: Status) => {
         :disabled="disabled"
     >
         <slot>
-            <vort-button
-                class="h-8 min-w-[130px] px-3 border border-slate-300 rounded-md bg-white hover:border-slate-400 font-normal"
-                :class="{ 'border-blue-500 ring-1 ring-blue-200': open }"
-                :disabled="disabled"
-            >
+            <div class="status-cell-trigger" :class="{ 'is-disabled': disabled }">
                 <span class="status-badge" :class="statusClassMap[modelValue] || ''">
                     {{ modelValue || placeholder }}
                 </span>
-            </vort-button>
+            </div>
         </slot>
         <template #content>
-            <div class="w-[240px] p-3" @click.stop>
+            <div class="w-[240px]" @click.stop>
                 <div class="mb-2">
                     <vort-input v-model="keyword" placeholder="搜索..." class="w-full" size="small" />
                 </div>
                 <div class="max-h-[220px] overflow-y-auto pr-1">
-                    <vort-button
+                    <div
                         v-for="opt in filteredOptions"
                         :key="opt.value"
-                        class="w-full h-10 px-2 rounded-md flex items-center gap-2 text-left hover:bg-gray-50"
-                        variant="text"
-                        :class="{ 'bg-slate-100': modelValue === opt.value }"
-                        :disabled="disabled"
-                        @click.stop="handleSelect(opt.value)"
+                        class="w-full px-2 py-1 rounded-md hover:bg-gray-50 cursor-pointer"
+                        :class="{ 'bg-slate-100': modelValue === opt.value, 'is-disabled': disabled }"
+                        @click.stop="!disabled && handleSelect(opt.value)"
                     >
-                        <span class="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center text-[12px] text-gray-500">
-                            <span v-if="modelValue === opt.value">✓</span>
-                        </span>
-                        <span class="text-sm text-gray-700">{{ opt.label }}</span>
-                    </vort-button>
+                        <div class="flex items-center gap-3">
+                            <vort-checkbox
+                                :checked="modelValue === opt.value"
+                                @click.stop
+                                style="min-height: 24px;"
+                            />
+                            <span class="text-sm text-gray-700 leading-5">{{ opt.label }}</span>
+                        </div>
+                    </div>
                 </div>
             </div>
         </template>
@@ -108,6 +106,16 @@ const handleSelect = (value: Status) => {
 </template>
 
 <style scoped>
+.status-cell-trigger {
+    padding: 2px 8px;
+    cursor: pointer;
+}
+
+.status-cell-trigger.is-disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
 .status-badge {
     display: inline-flex;
     align-items: center;
@@ -115,5 +123,10 @@ const handleSelect = (value: Status) => {
     border-radius: 4px;
     font-size: 12px;
     border: 1px solid;
+}
+
+.is-disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
 }
 </style>

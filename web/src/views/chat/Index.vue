@@ -1515,6 +1515,15 @@ onUnmounted(() => {
                             </div>
                             <h2 class="text-base font-medium text-gray-800">{{ activeContact?.name }}</h2>
                             <span v-if="activeContact?.position" class="ml-2 text-xs text-gray-400">{{ activeContact.position }}</span>
+                            <vort-tag
+                                v-if="activeContact?.is_virtual"
+                                size="small"
+                                color="blue"
+                                :bordered="false"
+                                class="ml-1.5 flex-shrink-0"
+                            >
+                                AI 员工
+                            </vort-tag>
                         </div>
                     </template>
                     <span v-if="loading" class="ml-3 flex items-center text-xs text-gray-400">
@@ -1596,7 +1605,11 @@ onUnmounted(() => {
                                 </div>
                                 <!-- AI 回复头像 -->
                                 <div v-else class="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden"
-                                    :class="isAiMode ? 'bg-gray-100' : (msg.avatar_url ? '' : 'bg-gray-100')">
+                                    :class="[
+                                        isAiMode ? 'bg-gray-100' : (msg.avatar_url ? '' : 'bg-gray-100'),
+                                        !isAiMode ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''
+                                    ]"
+                                    @click="!isAiMode && (memberProfileOpen = true)">
                                     <!-- AI 模式：显示 Bot 图标 -->
                                     <template v-if="isAiMode">
                                         <Bot :size="16" class="text-blue-600" />

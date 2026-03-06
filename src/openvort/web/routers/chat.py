@@ -501,6 +501,7 @@ async def search_members(request: Request, keyword: str = "", limit: int = 20):
                     "email": m.email or "",
                     "position": m.position or "",
                     "department": dept_map.get(m.id, ""),
+                    "is_virtual": bool(m.is_virtual),
                 }
                 for m in members
             ]

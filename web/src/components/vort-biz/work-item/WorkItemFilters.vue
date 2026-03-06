@@ -7,7 +7,7 @@ export interface WorkItemFiltersProps {
     keyword?: string;
     owner?: string;
     type?: WorkItemType | "";
-    status?: string;
+    status?: string[];
     pageTitle?: string;
     createButtonText?: string;
     totalCount?: number;
@@ -22,7 +22,7 @@ const props = withDefaults(defineProps<WorkItemFiltersProps>(), {
     keyword: "",
     owner: "",
     type: "",
-    status: "",
+    status: () => [],
     pageTitle: "缺陷",
     createButtonText: "+ 新建缺陷",
     totalCount: 0,
@@ -37,7 +37,7 @@ const emit = defineEmits<{
     "update:keyword": [value: string];
     "update:owner": [value: string];
     "update:type": [value: string];
-    "update:status": [value: string];
+    "update:status": [value: string[]];
     search: [];
     reset: [];
     create: [];
@@ -60,7 +60,16 @@ const type = computed({
 
 const status = computed({
     get: () => props.status,
-    set: (val) => emit("update:status", val)
+    set: (val: string[]) => emit("update:status", val)
+});
+
+const statusDisplayText = computed(() => {
+    if (!status.value.length) return "状态";
+    if (status.value.length === 1) {
+        const opt = props.statusOptions.find(o => o.value === status.value[0]);
+        return opt?.label || status.value[0];
+    }
+    return `${status.value.length}个状态`;
 });
 
 const ownerDropdownOpen = ref(false);
@@ -113,10 +122,15 @@ const selectType = (value: WorkItemType) => {
     typeKeyword.value = "";
 };
 
-const selectStatus = (value: string) => {
-    status.value = value;
-    statusDropdownOpen.value = false;
-    statusKeyword.value = "";
+const toggleStatus = (value: string) => {
+    const current = [...status.value];
+    const idx = current.indexOf(value);
+    if (idx >= 0) {
+        current.splice(idx, 1);
+    } else {
+        current.push(value);
+    }
+    status.value = current;
 };
 
 const avatarBgPalette = ["#2f80ed", "#5b8ff9", "#9b59b6", "#27ae60", "#f39c12", "#e67e22", "#16a085", "#8e44ad"];
@@ -154,39 +168,59 @@ const onCreate = () => emit("create");
                     </div>
                 </VortButton>
                 <template #content>
-                    <div class="w-[260px] p-3">
+                    <div class="w-[260px]">
                         <div class="mb-2">
                             <VortInput v-model="ownerKeyword" placeholder="搜索..." class="w-full" />
                         </div>
-                        <div class="max-h-[460px] overflow-y-auto -mx-3">
-                            <VortButton class="w-full h-10 px-3 text-left text-gray-700 hover:bg-gray-50" variant="text" @click.stop="selectOwner('')">全部</VortButton>
-                            <VortButton class="w-full h-10 px-3 text-left text-gray-700 hover:bg-gray-50" variant="text" @click.stop="selectOwner('未指派')">未指派</VortButton>
+                        <div class="max-h-[460px] overflow-y-auto pr-1">
+                            <div
+                                class="w-full px-2 py-1 rounded-md hover:bg-gray-50 cursor-pointer"
+                                :class="owner === '' ? 'bg-slate-100' : ''"
+                                @click.stop="selectOwner('')"
+                            >
+                                <div class="flex items-center gap-3">
+                                    <vort-checkbox :checked="owner === ''" @click.stop style="min-height: 24px;" />
+                                    <span class="text-sm text-gray-700 leading-5">全部</span>
+                                </div>
+                            </div>
+                            <div
+                                class="w-full px-2 py-1 rounded-md hover:bg-gray-50 cursor-pointer"
+                                :class="owner === '未指派' ? 'bg-slate-100' : ''"
+                                @click.stop="selectOwner('未指派')"
+                            >
+                                <div class="flex items-center gap-3">
+                                    <vort-checkbox :checked="owner === '未指派'" @click.stop style="min-height: 24px;" />
+                                    <span class="text-sm text-gray-700 leading-5">未指派</span>
+                                </div>
+                            </div>
 
                             <div v-for="group in filteredOwnerGroups" :key="group.label">
-                                <VortButton
-                                    class="w-full h-10 px-3 bg-slate-100 flex items-center justify-between text-left"
-                                    variant="text"
+                                <div
+                                    class="w-full h-10 px-2 bg-slate-50 flex items-center justify-between cursor-pointer"
                                     @click.stop="toggleOwnerGroup(group.label)"
                                 >
                                     <span class="text-gray-700 text-sm">{{ group.label }}（{{ group.members.length }}）</span>
                                     <span class="status-arrow-simple" :class="{ open: ownerGroupOpen[group.label] }" />
-                                </VortButton>
-                                <VortButton
+                                </div>
+                                <div
                                     v-for="member in (ownerGroupOpen[group.label] ? group.members : [])"
                                     :key="group.label + member"
-                                    class="w-full h-10 px-3 flex items-center gap-2 text-left hover:bg-gray-50"
-                                    variant="text"
+                                    class="w-full px-2 py-1 rounded-md hover:bg-gray-50 cursor-pointer"
+                                    :class="owner === member ? 'bg-slate-100' : ''"
                                     @click.stop="selectOwner(member)"
                                 >
-                                    <span
-                                        class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center overflow-hidden"
-                                        :style="{ backgroundColor: getAvatarBg(member) }"
-                                    >
-                                        <img v-if="getMemberAvatarUrl(member)" :src="getMemberAvatarUrl(member)" class="w-full h-full object-cover" />
-                                        <template v-else>{{ getAvatarLabel(member) }}</template>
-                                    </span>
-                                    <span class="text-sm text-gray-700">{{ member }}</span>
-                                </VortButton>
+                                    <div class="flex items-center gap-3">
+                                        <vort-checkbox :checked="owner === member" @click.stop style="min-height: 24px;" />
+                                        <span
+                                            class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center overflow-hidden flex-shrink-0"
+                                            :style="{ backgroundColor: getAvatarBg(member) }"
+                                        >
+                                            <img v-if="getMemberAvatarUrl(member)" :src="getMemberAvatarUrl(member)" class="w-full h-full object-cover" />
+                                            <template v-else>{{ getAvatarLabel(member) }}</template>
+                                        </span>
+                                        <span class="text-sm text-gray-700 leading-5">{{ member }}</span>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -205,11 +239,11 @@ const onCreate = () => emit("create");
                     </div>
                 </VortButton>
                 <template #content>
-                    <div class="w-[180px] p-3">
+                    <div class="w-[180px]">
                         <div class="mb-2">
                             <VortInput v-model="typeKeyword" placeholder="搜索..." class="w-full" size="small" />
                         </div>
-                        <div class="max-h-[260px] overflow-y-auto -mx-3">
+                        <div class="max-h-[260px] overflow-y-auto pr-1">
                             <div v-for="group in filteredTypeOptions" :key="group">
                                 <VortButton
                                     class="w-full h-10 px-3 bg-slate-100 flex items-center justify-between text-left"
@@ -232,29 +266,32 @@ const onCreate = () => emit("create");
                     :class="statusDropdownOpen ? 'border-blue-500 ring-1 ring-blue-200' : ''"
                 >
                     <div class="flex items-center justify-between w-full gap-2">
-                        <span class="text-sm text-gray-700">{{ status || "状态" }}</span>
+                        <span class="text-sm text-gray-700">{{ statusDisplayText }}</span>
                         <span class="status-arrow-simple" :class="{ open: statusDropdownOpen }" />
                     </div>
                 </VortButton>
                 <template #content>
-                    <div class="w-[240px] p-3">
+                    <div class="w-[240px]" @click.stop>
                         <div class="mb-2">
                             <VortInput v-model="statusKeyword" placeholder="搜索..." class="w-full" size="small" />
                         </div>
                         <div class="max-h-[220px] overflow-y-auto pr-1">
-                            <VortButton
+                            <div
                                 v-for="opt in filteredStatusOptions"
                                 :key="opt.value"
-                                class="w-full h-10 px-2 rounded-md flex items-center gap-2 text-left hover:bg-gray-50"
-                                variant="text"
-                                :class="status === opt.value ? 'bg-slate-100' : ''"
-                                @click.stop="selectStatus(opt.value)"
+                                class="w-full px-2 py-1 rounded-md hover:bg-gray-50 cursor-pointer"
+                                :class="status.includes(opt.value) ? 'bg-slate-100' : ''"
+                                @click.stop="toggleStatus(opt.value)"
                             >
-                                <span class="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center text-[12px] text-gray-500">
-                                    <span v-if="status === opt.value">✓</span>
-                                </span>
-                                <span class="text-sm text-gray-700">{{ opt.label }}</span>
-                            </VortButton>
+                                <div class="flex items-center gap-3">
+                                    <vort-checkbox
+                                        :checked="status.includes(opt.value)"
+                                        @click.stop="toggleStatus(opt.value)"
+                                        style="min-height: 24px;"
+                                    />
+                                    <span class="text-sm text-gray-700 leading-5">{{ opt.label }}</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </template>

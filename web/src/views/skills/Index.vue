@@ -5,11 +5,11 @@ import {
     getSkills, getSkill, createSkill, updateSkill, deleteSkill, toggleSkill,
     getRoleSkills, addRoleSkill, removeRoleSkill,
     getMemberSkillsWithSource, getMembers,
-    getSkillDirectories, searchOnlineSkills, importSkillFromGithub,
+    searchOnlineSkills, importSkillFromGithub,
     generateSkillContentPrompt,
 } from "@/api";
 import { message, dialog } from "@openvort/vort-ui";
-import { Plus, Trash2, Save, User, Link, BookOpen, Zap, FileText, Settings, ChevronDown, ChevronUp, Code, ClipboardList, TestTube, Palette, Bot, Github, FolderOpen } from "lucide-vue-next";
+import { Plus, Trash2, Save, User, Link, BookOpen, Zap, FileText, Settings, ChevronDown, ChevronUp, Code, ClipboardList, TestTube, Palette, Bot, Github } from "lucide-vue-next";
 
 const router = useRouter();
 
@@ -40,11 +40,17 @@ interface MemberSkillItem {
 
 // ---- Skill type config ----
 const SKILL_TYPES = [
-    { key: "role", label: "角色技能", icon: User, color: "blue", desc: "定义角色身份和人设" },
-    { key: "workflow", label: "工作流技能", icon: Zap, color: "green", desc: "工作流程和方法论" },
-    { key: "report", label: "报告模板", icon: FileText, color: "orange", desc: "报告和文档模板" },
-    { key: "system", label: "系统配置", icon: Settings, color: "purple", desc: "系统级配置和约定" },
+    { key: "role", label: "角色人设", icon: User, color: "blue", desc: "定义 AI 的身份、性格与专业背景" },
+    { key: "workflow", label: "工作流程", icon: Zap, color: "green", desc: "工作方法、流程步骤、最佳实践" },
+    { key: "knowledge", label: "知识库", icon: BookOpen, color: "cyan", desc: "领域知识、参考资料、行业标准" },
+    { key: "template", label: "输出模板", icon: FileText, color: "orange", desc: "报告、文档、邮件等输出格式" },
+    { key: "guideline", label: "规范准则", icon: Settings, color: "purple", desc: "编码规范、质量标准、行为约束" },
 ];
+
+const LEGACY_TYPE_MAP: Record<string, string> = {
+    report: "template",
+    system: "guideline",
+};
 
 const SKILL_TYPE_MAP: Record<string, typeof SKILL_TYPES[0]> = {};
 SKILL_TYPES.forEach(t => SKILL_TYPE_MAP[t.key] = t);
@@ -76,7 +82,8 @@ const groupedSkills = computed(() => {
         groups[t.key] = [];
     }
     for (const s of skills.value) {
-        const key = s.skill_type || "workflow";
+        let key = s.skill_type || "workflow";
+        key = LEGACY_TYPE_MAP[key] || key;
         if (!groups[key]) groups[key] = [];
         groups[key].push(s);
     }
@@ -328,20 +335,7 @@ function getRoleLabelByValue(value: string): string {
     return ROLE_OPTIONS.find(o => o.value === value)?.label || value;
 }
 
-onMounted(() => { loadSkills(); loadRoleSkills(); loadMembers(); loadDirectories(); });
-
-// ---- Skill 目录管理 ----
-const directories = ref<any[]>([]);
-const directoriesLoading = ref(false);
-
-async function loadDirectories() {
-    directoriesLoading.value = true;
-    try {
-        const res: any = await getSkillDirectories();
-        directories.value = res?.directories || [];
-    } catch { /* ignore */ }
-    finally { directoriesLoading.value = false; }
-}
+onMounted(() => { loadSkills(); loadRoleSkills(); loadMembers(); });
 
 // ---- GitHub 导入 ----
 const importDialogOpen = ref(false);
@@ -370,7 +364,6 @@ async function handleImportFromUrl() {
             message.success("导入成功");
             importDialogOpen.value = false;
             importUrl.value = "";
-            loadDirectories();
             loadSkills();
         }
     } catch (e: any) {
@@ -386,7 +379,6 @@ async function handleImportResult(result: any) {
         const res: any = await importSkillFromGithub(url);
         if (res?.success) {
             message.success(`成功导入: ${result.name}`);
-            loadDirectories();
             loadSkills();
         }
     } catch (e: any) {
@@ -490,8 +482,9 @@ function openImportDialog() {
                         </div>
                         <div class="flex flex-wrap gap-2 mt-2" v-if="roleSkillsMap[role.value]?.length">
                             <div v-for="skill in roleSkillsMap[role.value]" :key="skill.id"
-                                class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-blue-50 text-blue-700 text-xs group">
-                                <span>{{ skill.name }}</span>
+                                class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-blue-50 text-blue-700 text-xs group"
+                                :title="skill.description ? skill.name : ''">
+                                <span>{{ skill.description || skill.name }}</span>
                                 <button class="opacity-0 group-hover:opacity-100 transition-opacity text-blue-400 hover:text-red-500"
                                     @click="handleRemoveRoleSkill(role.value, skill.id)">
                                     <Trash2 :size="11" />
@@ -504,41 +497,7 @@ function openImportDialog() {
             </VortSpin>
         </div>
 
-        <!-- 区域三：Skill 目录管理 -->
-        <div class="bg-white rounded-xl p-6">
-            <div class="flex items-center justify-between mb-4">
-                <div class="flex items-center gap-2 cursor-pointer">
-                    <FolderOpen :size="18" class="text-green-600" />
-                    <h3 class="text-base font-medium text-gray-800">Skill 目录</h3>
-                    <span class="text-xs text-gray-400">多目录扫描：内置 / 用户 / 企业</span>
-                </div>
-            </div>
-
-            <VortSpin :spinning="directoriesLoading">
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div v-for="dir in directories" :key="dir.key"
-                        class="p-4 rounded-lg border border-gray-100 hover:border-gray-200">
-                        <div class="flex items-center justify-between mb-2">
-                            <div class="flex items-center gap-2">
-                                <FolderOpen :size="16" class="text-gray-500" />
-                                <span class="text-sm font-medium text-gray-800">{{ dir.name }}</span>
-                            </div>
-                            <VortTag :color="dir.enabled ? 'green' : 'default'" size="small">
-                                {{ dir.enabled ? '启用' : '禁用' }}
-                            </VortTag>
-                        </div>
-                        <div class="text-xs text-gray-400 mb-2">{{ dir.description }}</div>
-                        <div class="text-xs text-gray-500">
-                            <span class="bg-gray-100 px-2 py-0.5 rounded">{{ dir.skill_count || 0 }} 个 Skills</span>
-                            <span v-if="dir.writable" class="ml-2 text-green-500">可写</span>
-                        </div>
-                        <div class="text-xs text-gray-400 mt-1 truncate" :title="dir.path">{{ dir.path }}</div>
-                    </div>
-                </div>
-            </VortSpin>
-        </div>
-
-        <!-- 区域四：成员技能总览 -->
+        <!-- 区域三：成员技能总览 -->
         <div class="bg-white rounded-xl p-6">
             <div class="flex items-center gap-2 mb-4">
                 <User :size="18" class="text-purple-600" />

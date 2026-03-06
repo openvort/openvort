@@ -1,13 +1,38 @@
 <template>
-    <svg viewBox="0 0 64 64" focusable="false" data-icon="empty" fill="none" width="1em" height="1em" aria-hidden="true">
-        <path
-            d="M32 56C45.2548 56 56 45.2548 56 32C56 18.7452 45.2548 8 32 8C18.7452 8 8 18.7452 8 32C8 45.2548 18.7452 56 32 56Z"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-        />
-        <path d="M32 24V34" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-        <circle cx="32" cy="42" r="2" fill="currentColor" />
+    <svg viewBox="0 0 184 152" focusable="false" data-icon="empty" fill="none" width="1em" height="1em" aria-hidden="true">
+        <g fill="none" fill-rule="evenodd">
+            <!-- Box bottom face -->
+            <g transform="translate(24 31.67)">
+                <ellipse cx="67.797" cy="106.89" rx="67.797" ry="12.668" fill="#f5f5f7" />
+                <path
+                    d="M122.034 69.674L98.109 40.229c-1.148-1.386-2.826-2.225-4.593-2.225H42.09c-1.766 0-3.444.839-4.592 2.225L13.573 69.674v1.018H122.034v-1.018z"
+                    fill="#aeb8c2"
+                />
+                <path
+                    d="M101.537 86.214L80.63 61.102c-1.001-1.207-2.507-1.867-4.048-1.867H58.882c-1.54 0-3.047.66-4.048 1.867L33.927 86.214"
+                    stroke="#d9d9d9"
+                    stroke-width="1.2"
+                />
+                <path
+                    d="M33.927 86.214h101.18c2.104 0 3.07-1.39 2.155-3.108l-9.293-17.466a4.578 4.578 0 00-4.07-2.46H11.506c-1.808 0-3.39.953-4.07 2.46L-1.857 83.106c-.914 1.718.052 3.108 2.155 3.108h33.63z"
+                    fill="#f5f5f7"
+                    stroke="#d9d9d9"
+                    stroke-width="1.2"
+                />
+                <path
+                    d="M42.678 86.214h50.25a2.5 2.5 0 012.5 2.5v.5a8.5 8.5 0 01-8.5 8.5H48.678a8.5 8.5 0 01-8.5-8.5v-.5a2.5 2.5 0 012.5-2.5z"
+                    fill="#dce0e6"
+                />
+            </g>
+            <!-- Decorative circles -->
+            <path
+                d="M149.121 33.292l-6.83 2.65a1 1 0 01-1.317-1.23l1.937-6.207c-2.589-2.944-4.109-6.534-4.109-10.408C138.802 8.102 148.92 0 161.402 0 173.881 0 184 8.102 184 18.097c0 9.995-10.118 18.097-22.599 18.097-4.528 0-8.744-1.066-12.28-2.902z"
+                fill="#dce0e6"
+            />
+            <g transform="translate(149.65 15.383)" fill="#fff">
+                <ellipse cx="20.654" cy="3.167" rx="2.849" ry="2.815" />
+                <path d="M5.698 5.63H0L2.898.704zM9.259.704h4.985V5.63H9.259z" />
+            </g>
+        </g>
     </svg>
 </template>

@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime, timedelta
 from functools import partial
 
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, func as sa_func, and_
 
 from openvort.contacts.service import ContactService
 from openvort.core.scheduler import Scheduler
@@ -128,17 +128,68 @@ class ScheduleService:
         log.info(f"删除任务: {job_id}")
         return True
 
-    async def list_jobs(self, owner_id: str | None = None, scope: str | None = None) -> list[dict]:
+    async def batch_delete_jobs(
+        self, job_ids: list[str], owner_id: str | None = None, is_admin: bool = False
+    ) -> int:
+        count = 0
         async with self._session_factory() as session:
-            stmt = select(ScheduleJob)
-            if owner_id:
-                stmt = stmt.where(ScheduleJob.owner_id == owner_id)
-            if scope:
-                stmt = stmt.where(ScheduleJob.scope == scope)
-            stmt = stmt.order_by(ScheduleJob.created_at.desc())
+            stmt = select(ScheduleJob).where(ScheduleJob.job_id.in_(job_ids))
             result = await session.execute(stmt)
             jobs = result.scalars().all()
-            return [self._job_to_dict(j) for j in jobs]
+            for job in jobs:
+                if not is_admin and job.owner_id != owner_id:
+                    continue
+                await session.execute(
+                    delete(ScheduleJob).where(ScheduleJob.job_id == job.job_id)
+                )
+                self._scheduler.remove(job.job_id)
+                count += 1
+            await session.commit()
+        log.info(f"批量删除 {count} 个任务")
+        return count
+
+    async def list_jobs(
+        self,
+        owner_id: str | None = None,
+        scope: str | None = None,
+        *,
+        page: int = 1,
+        page_size: int = 20,
+        keyword: str | None = None,
+        schedule_type: str | None = None,
+        last_status: str | None = None,
+        hide_done_once: bool = True,
+    ) -> dict:
+        async with self._session_factory() as session:
+            base = select(ScheduleJob)
+            if owner_id:
+                base = base.where(ScheduleJob.owner_id == owner_id)
+            if scope:
+                base = base.where(ScheduleJob.scope == scope)
+            if keyword:
+                base = base.where(ScheduleJob.name.ilike(f"%{keyword}%"))
+            if schedule_type:
+                base = base.where(ScheduleJob.schedule_type == schedule_type)
+            if last_status:
+                base = base.where(ScheduleJob.last_status == last_status)
+            if hide_done_once:
+                base = base.where(
+                    ~and_(
+                        ScheduleJob.schedule_type == "once",
+                        ScheduleJob.last_run_at.isnot(None),
+                    )
+                )
+
+            count_result = await session.execute(
+                select(sa_func.count()).select_from(base.subquery())
+            )
+            total = count_result.scalar() or 0
+
+            stmt = base.order_by(ScheduleJob.created_at.desc())
+            stmt = stmt.offset((page - 1) * page_size).limit(page_size)
+            result = await session.execute(stmt)
+            jobs = result.scalars().all()
+            return {"items": [self._job_to_dict(j) for j in jobs], "total": total}
 
     async def get_job(self, job_id: str) -> dict | None:
         async with self._session_factory() as session:

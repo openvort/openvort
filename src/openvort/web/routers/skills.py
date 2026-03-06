@@ -19,7 +19,7 @@ class CreateSkillRequest(BaseModel):
     name: str
     description: str = ""
     content: str = ""
-    skill_type: str = "workflow"  # role / workflow / report / system
+    skill_type: str = "workflow"  # role / workflow / knowledge / template / guideline
 
 
 class UpdateSkillRequest(BaseModel):
