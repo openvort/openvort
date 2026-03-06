@@ -24,6 +24,7 @@ interface Props<T = any> {
   rowKey?: string | ((record: T) => string | number);
   bordered?: boolean;
   size?: TableSize;
+  cellPadding?: "none" | number;
   loading?: boolean;
   pagination?: TablePagination | false;
   rowSelection?: TableRowSelection<T>;
@@ -38,6 +39,7 @@ const props = withDefaults(defineProps<Props<T>>(), {
   rowKey: "id",
   bordered: false,
   size: "middle",
+  cellPadding: "none",
   loading: false,
   pagination: () => ({ current: 1, pageSize: 20, total: 0, showPagination: true }),
   toolbar: () => ({ refresh: true, columnSetting: true })
@@ -520,6 +522,7 @@ const containerClass = computed(() => {
   const classes = ["vort-pro-table-container"];
   if (props.bordered) classes.push("vort-pro-table-bordered");
   classes.push(`vort-pro-table-${props.size}`);
+  if (props.cellPadding === "none") classes.push("vort-pro-table-cell-padding-none");
   return classes;
 });
 
@@ -1209,6 +1212,18 @@ defineExpose({
 
 .vort-pro-table-small {
   font-size: 13px;
+}
+
+/* 无内边距模式 */
+.vort-pro-table-cell-padding-none .vort-pro-table-thead th,
+.vort-pro-table-cell-padding-none .vort-pro-table-tbody td {
+  padding: 0 !important;
+  min-height: 32px;
+}
+
+.vort-pro-table-cell-padding-none .vort-pro-table-selection-column {
+  padding: 0 !important;
+  min-height: 32px;
 }
 
 /* 边框 */

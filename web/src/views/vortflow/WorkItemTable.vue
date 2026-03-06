@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { ProTable, type ProTableColumn, type ProTableRequestParams, type ProTableResponse } from "@/components/vort-biz/pro-table";
+import { ProTable, TableCell, type ProTableColumn, type ProTableRequestParams, type ProTableResponse } from "@/components/vort-biz";
 import { Popover, message } from "@openvort/vort-ui";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
 import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
@@ -1452,10 +1452,6 @@ const toggleRowCollaborator = async (record: RowItem, member: string, text?: str
     }
 };
 
-const finishCollaboratorEdit = () => {
-    openCollaboratorFor.value = null;
-};
-
 const tagColorPalette = ["#ef4444", "#d946ef", "#eab308", "#22c55e", "#3b82f6", "#f97316", "#14b8a6", "#8b5cf6"];
 const getTagColor = (name: string): string => {
     let hash = 0;
@@ -1565,10 +1561,6 @@ const toggleTagOption = async (record: RowItem, tag: string, text?: string[]) =>
         record.tags = prev;
         message.error(error?.message || "标签同步失败");
     }
-};
-
-const finishTagEdit = () => {
-    openTagFor.value = null;
 };
 
 const filteredTagOptions = computed(() => {
@@ -1739,6 +1731,7 @@ onMounted(async () => {
                 </template>
 
                 <template #tags="{ text, record, resolvedWidth }">
+                        <TableCell @click.stop="toggleTagMenu(record.workNo)">
                     <Popover
                         :open="openTagFor === record.workNo"
                         trigger="click"
@@ -1746,7 +1739,6 @@ onMounted(async () => {
                         :arrow="false"
                         @update:open="(open) => { if (!open && openTagFor === record.workNo) openTagFor = null; }"
                     >
-                        <VortButton class="w-full text-left" variant="text" @click.stop="toggleTagMenu(record.workNo)">
                             <div class="flex items-center gap-1 flex-nowrap whitespace-nowrap overflow-hidden">
                                 <template v-for="tag in getTagRenderInfo(record, text, resolvedWidth).visible" :key="record.workNo + '-' + tag">
                                     <span
@@ -1760,10 +1752,9 @@ onMounted(async () => {
                                     +{{ getTagRenderInfo(record, text, resolvedWidth).hidden }}
                                 </span>
                             </div>
-                        </VortButton>
 
                         <template #content>
-                            <div class="w-[240px] p-3" @click.stop>
+                            <div class="w-[240px]" @click.stop>
                                 <div class="mb-2">
                                     <div class="relative">
                                         <VortInput
@@ -1774,29 +1765,25 @@ onMounted(async () => {
                                         />
                                     </div>
                                 </div>
-                                <div class="max-h-[200px] overflow-y-auto pr-1">
-                                    <VortButton
+                                <div class="max-h-[200px] overflow-y-auto pr-1 text-left">
+                                    <button
                                         v-for="tag in filteredTagOptions"
                                         :key="record.workNo + '-opt-' + tag"
-                                        class="w-full h-10 px-2 rounded-md flex items-center gap-2 text-left hover:bg-gray-50"
-                                        variant="text"
+                                        type="button"
+                                        class="w-full h-10 px-2 rounded-md flex items-center justify-start gap-2 text-left hover:bg-gray-50 cursor-pointer border-0 bg-transparent"
                                         @click.stop="toggleTagOption(record, tag, text)"
                                     >
-                                        <span class="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center text-[12px] text-gray-500">
+                                        <span class="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center text-[12px] text-gray-500 shrink-0">
                                             <span v-if="getRowTags(record, text).includes(tag)">✓</span>
                                         </span>
-                                        <span class="w-5 h-5 rounded-full" :style="{ backgroundColor: getTagColor(tag) }" />
+                                        <span class="w-5 h-5 rounded-full shrink-0" :style="{ backgroundColor: getTagColor(tag) }" />
                                         <span class="text-sm text-gray-700">{{ tag }}</span>
-                                    </VortButton>
-                                </div>
-                                <div class="mt-2 flex justify-end">
-                                    <VortButton size="small" variant="primary" @click.stop="finishTagEdit">
-                                        完成
-                                    </VortButton>
+                                    </button>
                                 </div>
                             </div>
                         </template>
                     </Popover>
+                        </TableCell>
                 </template>
 
                 <template #status="{ text, record }">
@@ -1847,8 +1834,8 @@ onMounted(async () => {
                                         />
                                     </div>
                                 </div>
-                                <div class="max-h-[420px] overflow-y-auto -mx-3">
-                                    <VortButton class="w-full h-10 px-3 text-left text-gray-700 hover:bg-gray-50" variant="text" @click.stop="selectRowOwner(record, '')">
+                                <div class="max-h-[420px] overflow-y-auto -mx-3 text-left">
+                                    <VortButton class="w-full h-10 px-3 flex justify-start text-left text-gray-700 hover:bg-gray-50" variant="text" @click.stop="selectRowOwner(record, '')">
                                         未指派
                                     </VortButton>
                                     <div v-for="group in filteredOwnerEditGroups" :key="'row-owner-' + group.label">
@@ -1863,7 +1850,7 @@ onMounted(async () => {
                                         <VortButton
                                             v-for="member in (ownerEditGroupOpen[group.label] ? group.members : [])"
                                             :key="'row-owner-member-' + group.label + member"
-                                            class="w-full h-10 px-3 flex items-center gap-2 text-left hover:bg-gray-50"
+                                            class="w-full h-10 px-3 flex items-center justify-start gap-2 text-left hover:bg-gray-50"
                                             variant="text"
                                             @click.stop="selectRowOwner(record, member)"
                                         >
@@ -1939,7 +1926,7 @@ onMounted(async () => {
                                         />
                                     </div>
                                 </div>
-                                <div class="max-h-[260px] overflow-y-auto -mx-3">
+                                <div class="max-h-[260px] overflow-y-auto -mx-3 text-left">
                                     <div v-for="group in filteredCollaboratorGroups" :key="'collab-' + group.label">
                                         <VortButton
                                             class="w-full h-10 px-3 bg-slate-100 flex items-center justify-between text-left"
@@ -1952,7 +1939,7 @@ onMounted(async () => {
                                         <VortButton
                                             v-for="member in (collaboratorGroupOpen[group.label] ? group.members : [])"
                                             :key="'collab-member-' + group.label + member"
-                                            class="w-full h-10 px-3 flex items-center gap-2 text-left hover:bg-gray-50"
+                                            class="w-full h-10 px-3 flex items-center justify-start gap-2 text-left hover:bg-gray-50"
                                             variant="text"
                                             @click.stop="toggleRowCollaborator(record, member, text)"
                                         >
@@ -1968,11 +1955,6 @@ onMounted(async () => {
                                             <span class="text-sm text-gray-700">{{ member }}</span>
                                         </VortButton>
                                     </div>
-                                </div>
-                                <div class="mt-2 flex justify-end">
-                                    <VortButton size="small" variant="primary" @click.stop="finishCollaboratorEdit">
-                                        完成
-                                    </VortButton>
                                 </div>
                             </div>
                         </template>
@@ -2046,4 +2028,5 @@ onMounted(async () => {
 .plan-time-picker {
     @apply w-full;
 }
+
 </style>
