@@ -60,11 +60,11 @@ class ScheduleQueryTool(BaseTool):
     async def _list(self, service, params: dict, member_id: str) -> str:
         scope = params.get("scope")
         try:
-            jobs = await service.list_jobs(owner_id=member_id, scope=scope)
-            # Also include visible team tasks
+            result = await service.list_jobs(owner_id=member_id, scope=scope, page_size=200, hide_done_once=False)
+            jobs = result["items"]
             if not scope or scope == "personal":
-                team_jobs = await service.list_jobs(scope="team")
-                visible_team = [j for j in team_jobs if j["visible"] and j["owner_id"] != member_id]
+                team_result = await service.list_jobs(scope="team", page_size=200, hide_done_once=False)
+                visible_team = [j for j in team_result["items"] if j["visible"] and j["owner_id"] != member_id]
                 if visible_team:
                     jobs = jobs + visible_team
 

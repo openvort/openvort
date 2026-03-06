@@ -1,17 +1,18 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from "vue";
+import { ref, computed, watch } from "vue";
 import {
     getMySchedules, createMySchedule, updateMySchedule, deleteMySchedule,
-    toggleMySchedule, runMySchedule,
+    toggleMySchedule, runMySchedule, batchDeleteMySchedules,
     getAdminSchedules, createAdminSchedule, updateAdminSchedule, deleteAdminSchedule,
-    toggleAdminSchedule, runAdminSchedule,
+    toggleAdminSchedule, runAdminSchedule, batchDeleteAdminSchedules,
     getScheduleExecutors,
 } from "@/api";
-import { Plus, Play, Users, User, RefreshCw, HelpCircle, Bot } from "lucide-vue-next";
+import { Plus, Users, User, HelpCircle, Bot, Trash2 } from "lucide-vue-next";
 import { message } from "@openvort/vort-ui";
 import { useUserStore } from "@/stores";
+import { useCrudPage } from "@/hooks";
 
-// ---- 类型 ----
+// ---- Types ----
 
 interface ScheduleJob {
     id: number;
@@ -25,7 +26,7 @@ interface ScheduleJob {
     timezone: string;
     action_type: string;
     action_config: Record<string, any>;
-    target_member_id: string;  // 执行人（AI 员工 ID）
+    target_member_id: string;
     enabled: boolean;
     visible: boolean;
     last_run_at: string | null;
@@ -41,29 +42,117 @@ interface Executor {
     virtual_role: string;
 }
 
-// ---- 状态 ----
+type FilterParams = {
+    page: number;
+    size: number;
+    keyword: string;
+    schedule_type: string;
+    last_status: string;
+    hide_done_once: boolean;
+};
+
+// ---- State ----
 
 const userStore = useUserStore();
 const isAdmin = computed(() => userStore.isAdmin);
 const activeTab = ref("my");
 
-const myJobs = ref<ScheduleJob[]>([]);
-const teamJobs = ref<ScheduleJob[]>([]);
-const loadingMy = ref(false);
-const loadingTeam = ref(false);
+const scheduleTypeFilterOptions = [
+    { label: "全部", value: "" },
+    { label: "Cron 定时", value: "cron" },
+    { label: "固定间隔", value: "interval" },
+    { label: "一次性", value: "once" },
+];
 
-// 弹窗
-const dialogOpen = ref(false);
-const dialogMode = ref<"create" | "edit">("create");
-const dialogScope = ref<"personal" | "team">("personal");
-const editingJob = ref<ScheduleJob | null>(null);
-const saving = ref(false);
+const statusFilterOptions = [
+    { label: "全部", value: "" },
+    { label: "成功", value: "success" },
+    { label: "失败", value: "failed" },
+    { label: "待执行", value: "pending" },
+];
 
 const scheduleTypeOptions = [
     { value: "cron", label: "Cron 表达式" },
     { value: "interval", label: "固定间隔（秒）" },
     { value: "once", label: "一次性" },
 ];
+
+// ---- My Jobs CRUD ----
+
+const fetchMyJobs = async (params: FilterParams) => {
+    const res = await getMySchedules({
+        page: params.page, page_size: params.size,
+        keyword: params.keyword || undefined,
+        schedule_type: params.schedule_type || undefined,
+        last_status: params.last_status || undefined,
+        hide_done_once: params.hide_done_once,
+    });
+    return { records: (res as any).items || [], total: (res as any).total || 0 };
+};
+
+const {
+    listData: myJobs, loading: loadingMy, total: myTotal,
+    filterParams: myFilter, showPagination: myShowPagination,
+    rowSelection: myRowSelection, selectedIds: mySelectedIds,
+    hasSelection: myHasSelection, clearSelection: myCleanSelection,
+    loadData: loadMyJobs, onSearchSubmit: mySearchSubmit, resetParams: myResetParams,
+} = useCrudPage<ScheduleJob, FilterParams>({
+    api: fetchMyJobs,
+    idKey: "job_id",
+    defaultParams: { page: 1, size: 20, keyword: "", schedule_type: "", last_status: "", hide_done_once: true },
+});
+
+// ---- Team Jobs CRUD ----
+
+const fetchTeamJobs = async (params: FilterParams) => {
+    const res = await getAdminSchedules({
+        page: params.page, page_size: params.size,
+        keyword: params.keyword || undefined,
+        schedule_type: params.schedule_type || undefined,
+        last_status: params.last_status || undefined,
+        hide_done_once: params.hide_done_once,
+    });
+    return { records: (res as any).items || [], total: (res as any).total || 0 };
+};
+
+const {
+    listData: teamJobs, loading: loadingTeam, total: teamTotal,
+    filterParams: teamFilter, showPagination: teamShowPagination,
+    rowSelection: teamRowSelection, selectedIds: teamSelectedIds,
+    hasSelection: teamHasSelection, clearSelection: teamCleanSelection,
+    loadData: loadTeamJobs, onSearchSubmit: teamSearchSubmit, resetParams: teamResetParams,
+} = useCrudPage<ScheduleJob, FilterParams>({
+    api: fetchTeamJobs,
+    idKey: "job_id",
+    defaultParams: { page: 1, size: 20, keyword: "", schedule_type: "", last_status: "", hide_done_once: true },
+});
+
+function refresh() {
+    loadMyJobs();
+    if (isAdmin.value) loadTeamJobs();
+}
+
+// ---- Executors ----
+
+const executors = ref<Executor[]>([]);
+const loadingExecutors = ref(false);
+
+async function loadExecutors() {
+    loadingExecutors.value = true;
+    try {
+        const res = await getScheduleExecutors();
+        executors.value = (res as any).executors || [];
+    } catch { executors.value = []; }
+    loadingExecutors.value = false;
+}
+
+// ---- Dialog ----
+
+const dialogOpen = ref(false);
+const dialogMode = ref<"create" | "edit">("create");
+const dialogScope = ref<"personal" | "team">("personal");
+const editingJob = ref<ScheduleJob | null>(null);
+const saving = ref(false);
 
 const form = ref({
     name: "",
@@ -77,70 +166,14 @@ const form = ref({
     visible: true,
 });
 
-// 执行人列表
-const executors = ref<Executor[]>([]);
-const loadingExecutors = ref(false);
-
-// 执行结果抽屉
-const resultOpen = ref(false);
-const resultJob = ref<ScheduleJob | null>(null);
-
-// ---- 数据加载 ----
-
-async function loadMyJobs() {
-    loadingMy.value = true;
-    try {
-        const res = await getMySchedules();
-        myJobs.value = (res as any).jobs || [];
-    } catch { myJobs.value = []; }
-    loadingMy.value = false;
-}
-
-async function loadTeamJobs() {
-    if (!isAdmin.value) return;
-    loadingTeam.value = true;
-    try {
-        const res = await getAdminSchedules();
-        teamJobs.value = (res as any).jobs || [];
-    } catch { teamJobs.value = []; }
-    loadingTeam.value = false;
-}
-
-function refresh() {
-    loadMyJobs();
-    if (isAdmin.value) loadTeamJobs();
-}
-
-async function loadExecutors() {
-    loadingExecutors.value = true;
-    try {
-        const res = await getScheduleExecutors();
-        executors.value = (res as any).executors || [];
-    } catch { executors.value = []; }
-    loadingExecutors.value = false;
-}
-
-onMounted(() => {
-    refresh();
-    loadExecutors();
-});
-
-// ---- 弹窗操作 ----
-
 function openCreate(scope: "personal" | "team") {
     dialogMode.value = "create";
     dialogScope.value = scope;
     editingJob.value = null;
     form.value = {
-        name: "",
-        description: "",
-        schedule_type: "cron",
-        schedule: "",
-        timezone: "Asia/Shanghai",
-        action_config: { prompt: "" },
-        target_member_id: "",
-        enabled: true,
-        visible: true,
+        name: "", description: "", schedule_type: "cron", schedule: "",
+        timezone: "Asia/Shanghai", action_config: { prompt: "" },
+        target_member_id: "", enabled: true, visible: true,
     };
     dialogOpen.value = true;
 }
@@ -150,15 +183,12 @@ function openEdit(job: ScheduleJob) {
     dialogScope.value = job.scope as "personal" | "team";
     editingJob.value = job;
     form.value = {
-        name: job.name,
-        description: job.description,
-        schedule_type: job.schedule_type,
-        schedule: job.schedule,
+        name: job.name, description: job.description,
+        schedule_type: job.schedule_type, schedule: job.schedule,
         timezone: job.timezone,
         action_config: { prompt: job.action_config?.prompt || "" },
         target_member_id: job.target_member_id || "",
-        enabled: job.enabled,
-        visible: job.visible ?? true,
+        enabled: job.enabled, visible: job.visible ?? true,
     };
     dialogOpen.value = true;
 }
@@ -187,7 +217,17 @@ async function handleSave() {
     saving.value = false;
 }
 
-// ---- 行操作 ----
+// ---- Result Drawer ----
+
+const resultOpen = ref(false);
+const resultJob = ref<ScheduleJob | null>(null);
+
+function showResult(job: ScheduleJob) {
+    resultJob.value = job;
+    resultOpen.value = true;
+}
+
+// ---- Row Actions ----
 
 async function handleToggle(job: ScheduleJob) {
     const fn = activeTab.value === "team" ? toggleAdminSchedule : toggleMySchedule;
@@ -217,12 +257,25 @@ async function handleRun(job: ScheduleJob) {
     } catch { message.error("执行失败"); }
 }
 
-function showResult(job: ScheduleJob) {
-    resultJob.value = job;
-    resultOpen.value = true;
+// ---- Batch Delete ----
+
+const batchDeleting = ref(false);
+
+async function handleBatchDelete() {
+    const ids = activeTab.value === "team" ? teamSelectedIds.value : mySelectedIds.value;
+    if (!ids.length) return;
+    batchDeleting.value = true;
+    try {
+        const fn = activeTab.value === "team" ? batchDeleteAdminSchedules : batchDeleteMySchedules;
+        await fn(ids);
+        message.success(`已删除 ${ids.length} 个任务`);
+        if (activeTab.value === "team") { teamCleanSelection(); } else { myCleanSelection(); }
+        refresh();
+    } catch { message.error("批量删除失败"); }
+    batchDeleting.value = false;
 }
 
-// ---- 辅助 ----
+// ---- Helpers ----
 
 function scheduleLabel(job: ScheduleJob): string {
     if (job.schedule_type === "cron") return `Cron: ${job.schedule}`;
@@ -259,6 +312,17 @@ const scheduleFieldLabel = computed(() => {
     if (form.value.schedule_type === "interval") return "间隔秒数";
     return "执行时间";
 });
+
+// ---- Init ----
+
+loadMyJobs();
+loadExecutors();
+
+watch(activeTab, (tab) => {
+    if (tab === "team" && isAdmin.value && teamJobs.value.length === 0) {
+        loadTeamJobs();
+    }
+});
 </script>
 
 <template>
@@ -267,12 +331,34 @@ const scheduleFieldLabel = computed(() => {
             <VortTabs v-model:activeKey="activeTab">
                 <!-- 我的任务 Tab -->
                 <VortTabPane tab-key="my" tab="我的任务">
+                    <!-- Filter bar -->
                     <div class="flex items-center justify-between mb-4">
-                        <div class="flex items-center gap-2 text-sm text-gray-500">
-                            <User :size="14" />
-                            <span>共 {{ myJobs.length }} 个任务</span>
+                        <div class="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4 flex-wrap">
+                            <div class="flex items-center gap-2">
+                                <span class="text-sm text-gray-500 whitespace-nowrap">关键词</span>
+                                <VortInputSearch v-model="myFilter.keyword" placeholder="搜索任务..." allow-clear class="sm:w-[180px]" @search="mySearchSubmit" @keyup.enter="mySearchSubmit" />
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="text-sm text-gray-500 whitespace-nowrap">类型</span>
+                                <VortSelect v-model="myFilter.schedule_type" placeholder="全部" allow-clear class="sm:w-[130px]" @change="mySearchSubmit">
+                                    <VortSelectOption v-for="opt in scheduleTypeFilterOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</VortSelectOption>
+                                </VortSelect>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="text-sm text-gray-500 whitespace-nowrap">状态</span>
+                                <VortSelect v-model="myFilter.last_status" placeholder="全部" allow-clear class="sm:w-[110px]" @change="mySearchSubmit">
+                                    <VortSelectOption v-for="opt in statusFilterOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</VortSelectOption>
+                                </VortSelect>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <VortCheckbox v-model:checked="myFilter.hide_done_once" @change="mySearchSubmit">隐藏已完成一次性</VortCheckbox>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <VortButton variant="primary" size="small" @click="mySearchSubmit">查询</VortButton>
+                                <VortButton size="small" @click="myResetParams">重置</VortButton>
+                            </div>
                         </div>
-                        <div class="flex items-center gap-2">
+                        <div class="flex items-center gap-2 flex-shrink-0">
                             <VortButton variant="primary" @click="openCreate('personal')">
                                 <Plus :size="14" class="mr-1" /> 新建任务
                             </VortButton>
@@ -280,7 +366,18 @@ const scheduleFieldLabel = computed(() => {
                         </div>
                     </div>
 
-                    <VortTable :data-source="myJobs" :loading="loadingMy" row-key="job_id" :pagination="false">
+                    <!-- Batch actions -->
+                    <div v-if="myHasSelection" class="flex items-center gap-3 mb-3 px-2 py-2 bg-blue-50 rounded-lg">
+                        <span class="text-sm text-blue-600">已选 {{ mySelectedIds.length }} 项</span>
+                        <VortPopconfirm title="确定批量删除选中的任务？" @confirm="handleBatchDelete">
+                            <VortButton size="small" variant="danger" :loading="batchDeleting">
+                                <Trash2 :size="14" class="mr-1" /> 批量删除
+                            </VortButton>
+                        </VortPopconfirm>
+                        <VortButton size="small" @click="myCleanSelection">取消选择</VortButton>
+                    </div>
+
+                    <VortTable :data-source="myJobs" :loading="loadingMy" row-key="job_id" :pagination="false" :row-selection="myRowSelection">
                         <VortTableColumn label="名称" prop="name" :min-width="180">
                             <template #default="{ row }">
                                 <div class="font-medium text-gray-800">{{ row.name }}</div>
@@ -334,26 +431,60 @@ const scheduleFieldLabel = computed(() => {
                             </template>
                         </VortTableColumn>
                     </VortTable>
+
+                    <div v-if="myShowPagination" class="flex justify-end mt-4">
+                        <VortPagination v-model:current="myFilter.page" v-model:page-size="myFilter.size" :total="myTotal" show-total-info show-size-changer @change="loadMyJobs" />
+                    </div>
                 </VortTabPane>
 
                 <!-- 团队任务 Tab（仅 admin） -->
                 <VortTabPane v-if="isAdmin" tab-key="team" tab="团队任务">
+                    <!-- Filter bar -->
                     <div class="flex items-center justify-between mb-4">
-                        <div class="flex items-center gap-2 text-sm text-gray-500">
-                            <Users :size="14" />
-                            <span>共 {{ teamJobs.length }} 个任务</span>
+                        <div class="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4 flex-wrap">
+                            <div class="flex items-center gap-2">
+                                <span class="text-sm text-gray-500 whitespace-nowrap">关键词</span>
+                                <VortInputSearch v-model="teamFilter.keyword" placeholder="搜索任务..." allow-clear class="sm:w-[180px]" @search="teamSearchSubmit" @keyup.enter="teamSearchSubmit" />
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="text-sm text-gray-500 whitespace-nowrap">类型</span>
+                                <VortSelect v-model="teamFilter.schedule_type" placeholder="全部" allow-clear class="sm:w-[130px]" @change="teamSearchSubmit">
+                                    <VortSelectOption v-for="opt in scheduleTypeFilterOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</VortSelectOption>
+                                </VortSelect>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="text-sm text-gray-500 whitespace-nowrap">状态</span>
+                                <VortSelect v-model="teamFilter.last_status" placeholder="全部" allow-clear class="sm:w-[110px]" @change="teamSearchSubmit">
+                                    <VortSelectOption v-for="opt in statusFilterOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</VortSelectOption>
+                                </VortSelect>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <VortCheckbox v-model:checked="teamFilter.hide_done_once" @change="teamSearchSubmit">隐藏已完成一次性</VortCheckbox>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <VortButton variant="primary" size="small" @click="teamSearchSubmit">查询</VortButton>
+                                <VortButton size="small" @click="teamResetParams">重置</VortButton>
+                            </div>
                         </div>
-                        <div class="flex items-center gap-2">
-                            <VortButton @click="loadTeamJobs">
-                                <RefreshCw :size="14" class="mr-1" /> 刷新
-                            </VortButton>
+                        <div class="flex items-center gap-2 flex-shrink-0">
                             <VortButton variant="primary" @click="openCreate('team')">
                                 <Plus :size="14" class="mr-1" /> 新建团队任务
                             </VortButton>
                         </div>
                     </div>
 
-                    <VortTable :data-source="teamJobs" :loading="loadingTeam" row-key="job_id" :pagination="false">
+                    <!-- Batch actions -->
+                    <div v-if="teamHasSelection" class="flex items-center gap-3 mb-3 px-2 py-2 bg-blue-50 rounded-lg">
+                        <span class="text-sm text-blue-600">已选 {{ teamSelectedIds.length }} 项</span>
+                        <VortPopconfirm title="确定批量删除选中的任务？" @confirm="handleBatchDelete">
+                            <VortButton size="small" variant="danger" :loading="batchDeleting">
+                                <Trash2 :size="14" class="mr-1" /> 批量删除
+                            </VortButton>
+                        </VortPopconfirm>
+                        <VortButton size="small" @click="teamCleanSelection">取消选择</VortButton>
+                    </div>
+
+                    <VortTable :data-source="teamJobs" :loading="loadingTeam" row-key="job_id" :pagination="false" :row-selection="teamRowSelection">
                         <VortTableColumn label="名称" prop="name" :min-width="180">
                             <template #default="{ row }">
                                 <div class="font-medium text-gray-800">{{ row.name }}</div>
@@ -412,6 +543,10 @@ const scheduleFieldLabel = computed(() => {
                             </template>
                         </VortTableColumn>
                     </VortTable>
+
+                    <div v-if="teamShowPagination" class="flex justify-end mt-4">
+                        <VortPagination v-model:current="teamFilter.page" v-model:page-size="teamFilter.size" :total="teamTotal" show-total-info show-size-changer @change="loadTeamJobs" />
+                    </div>
                 </VortTabPane>
             </VortTabs>
         </div>

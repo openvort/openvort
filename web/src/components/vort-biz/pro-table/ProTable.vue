@@ -1185,7 +1185,7 @@ defineExpose({
 }
 
 .vort-pro-table-empty-cell {
-  padding: 48px 16px;
+  padding: 80px 16px;
   text-align: center;
 }
 
@@ -1193,13 +1193,20 @@ defineExpose({
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
-  color: #8c8c8c;
+  gap: 16px;
+  color: #bfbfbf;
+  margin:60px 0
 }
 
 .vort-pro-table-empty-icon {
-  width: 64px;
-  height: 64px;
+  width: 120px;
+  height: 100px;
+}
+
+.vort-pro-table-empty-text {
+  font-size: 14px;
+  color: #b0b0b0;
+  letter-spacing: 0.5px;
 }
 
 .vort-pro-table-pagination {

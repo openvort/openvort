@@ -22,17 +22,25 @@
 
 defineOptions({ name: "TableCell" });
 
+const props = withDefaults(defineProps<{
+    readonly?: boolean;
+}>(), {
+    readonly: false,
+});
+
 const emit = defineEmits<{
     click: [event: Event];
 }>();
 
 const handleClick = (event: Event) => {
-    emit("click", event);
+    if (!props.readonly) {
+        emit("click", event);
+    }
 };
 </script>
 
 <template>
-    <div class="table-cell" @click="handleClick">
+    <div class="table-cell" :class="{ readonly }" @click="handleClick">
         <slot />
     </div>
 </template>
@@ -63,7 +71,11 @@ const handleClick = (event: Event) => {
     z-index: 1;
 }
 
-.table-cell:hover::after {
+.table-cell:not(.readonly):hover::after {
     border-color: #d9d9d9;
+}
+
+.table-cell.readonly {
+    cursor: default;
 }
 </style>

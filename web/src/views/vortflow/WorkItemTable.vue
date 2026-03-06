@@ -1817,7 +1817,7 @@ onMounted(async () => {
                 bordered
             >
                 <template #workNo="{ text }">
-                    <TableCell>
+                    <TableCell readonly>
                         <span>{{ text }}</span>
                     </TableCell>
                 </template>
@@ -2019,7 +2019,7 @@ onMounted(async () => {
                 </template>
 
                 <template #creator="{ text }">
-                    <TableCell>
+                    <TableCell readonly>
                         <div class="h-8 max-w-[150px] rounded-md bg-transparent flex items-center gap-2">
                             <span
                                 class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center shrink-0"
@@ -2033,7 +2033,7 @@ onMounted(async () => {
                 </template>
 
                 <template #actions="{ record }">
-                    <TableCell>
+                    <TableCell readonly>
                         <vort-popconfirm title="确认删除？" @confirm="handleDelete(record)">
                             <VortButton size="small" variant="link" danger>删除</VortButton>
                         </vort-popconfirm>
@@ -2041,7 +2041,7 @@ onMounted(async () => {
                 </template>
 
                 <template #createdAt="{ text }">
-                    <TableCell>
+                    <TableCell readonly>
                         <span>{{ text }}</span>
                     </TableCell>
                 </template>
@@ -2120,7 +2120,7 @@ onMounted(async () => {
                 </template>
 
                 <template #type="{ text }">
-                    <TableCell>
+                    <TableCell readonly>
                         <span>{{ text }}</span>
                     </TableCell>
                 </template>
