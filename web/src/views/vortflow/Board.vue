@@ -10,7 +10,7 @@ import {
     getVortgitRepos, generateVortflowDescriptionPrompt,
     getVortflowIterations, getVortflowVersions,
 } from "@/api";
-import { message } from "@openvort/vort-ui";
+import { message } from "@/components/vort";
 
 interface ProjectItem {
     id: string;

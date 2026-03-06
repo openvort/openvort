@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, reactive, onMounted } from "vue";
-import { Popover, message } from "@openvort/vort-ui";
+import { Popover, message } from "@/components/vort";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
 import { useWorkItemCommon } from "./useWorkItemCommon";
 import type { WorkItemType, Priority, NewBugForm } from "@/components/vort-biz/work-item/WorkItemTable.types";

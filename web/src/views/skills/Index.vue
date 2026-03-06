@@ -8,7 +8,7 @@ import {
     searchOnlineSkills, importSkillFromGithub,
     generateSkillContentPrompt,
 } from "@/api";
-import { message, dialog } from "@openvort/vort-ui";
+import { message, dialog } from "@/components/vort";
 import { Plus, Trash2, Save, User, Link, BookOpen, Zap, FileText, Settings, ChevronDown, ChevronUp, Code, ClipboardList, TestTube, Palette, Bot, Github } from "lucide-vue-next";
 
 const router = useRouter();

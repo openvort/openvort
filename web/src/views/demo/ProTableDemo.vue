@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
 import { ProTable, type ProTableColumn, type ProTableRequestParams, type ProTableResponse } from "@/components/vort-biz/pro-table";
-import { Popover, message } from "@openvort/vort-ui";
+import { Popover, message } from "@/components/vort";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
 import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
 import { Pencil } from "lucide-vue-next";
@@ -3997,10 +3997,6 @@ onMounted(async () => {
 .bug-detail-empty {
     color: #94a3b8;
     font-size: 13px;
-}
-</style>
-
-
 }
 </style>
 

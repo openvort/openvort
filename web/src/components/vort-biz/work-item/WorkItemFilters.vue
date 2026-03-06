@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, reactive } from "vue";
-import { Popover } from "@openvort/vort-ui";
+import { Popover } from "@/components/vort";
 import type { WorkItemType, Status, MemberOption } from "../work-item";
 
 export interface WorkItemFiltersProps {

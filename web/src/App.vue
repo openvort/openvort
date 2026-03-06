@@ -7,7 +7,7 @@ const vortTheme = {
 </script>
 
 <template>
-    <VortConfigProvider :theme="vortTheme">
+    <VortConfigProvider :get-popup-container="true" :theme="vortTheme">
         <router-view />
     </VortConfigProvider>
 </template>

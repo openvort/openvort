@@ -8,7 +8,7 @@ import {
     updateVortflowMilestone, deleteVortflowMilestone, completeVortflowMilestone,
     generateVortflowDescriptionPrompt,
 } from "@/api";
-import { message } from "@openvort/vort-ui";
+import { message } from "@/components/vort";
 import { Check, Clock, Milestone, Plus, Bot } from "lucide-vue-next";
 
 const router = useRouter();

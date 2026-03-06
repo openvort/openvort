@@ -8,7 +8,7 @@ import {
     getScheduleExecutors,
 } from "@/api";
 import { Plus, Users, User, HelpCircle, Bot, Trash2 } from "lucide-vue-next";
-import { message } from "@openvort/vort-ui";
+import { message } from "@/components/vort";
 import { useUserStore } from "@/stores";
 import { useCrudPage } from "@/hooks";
 

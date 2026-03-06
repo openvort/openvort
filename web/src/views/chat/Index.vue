@@ -8,7 +8,7 @@ import {
     Hash, Bug, ListTodo, BookOpen, Milestone, GitBranch, ChevronDown, ChevronRight,
     Copy, RefreshCw
 } from "lucide-vue-next";
-import { Popover as VortPopover, Image as VortImage, ImagePreviewGroup as VortImagePreviewGroup } from "@openvort/vort-ui";
+import { Popover as VortPopover, Image as VortImage, ImagePreviewGroup as VortImagePreviewGroup } from "@/components/vort";
 import {
     sendChatMessage, getChatStreamUrl, getChatHistory, getChatSessionInfo,
     setChatThinking, compactChatSession, resetChatSession,
@@ -16,7 +16,7 @@ import {
     getVortflowBugs, getVortflowTasks, getVortflowStories, getVortflowMilestones
 } from "@/api";
 import { usePluginStore } from "@/stores/modules/plugin";
-import { message, dialog } from "@openvort/vort-ui";
+import { message, dialog } from "@/components/vort";
 import { marked } from "marked";
 import { pinyin } from "pinyin-pro";
 import ContactList from "./ContactList.vue";

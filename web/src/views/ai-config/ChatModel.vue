@@ -2,7 +2,7 @@
 import { ref, onMounted } from "vue";
 import { Plus, Save, Trash2 } from "lucide-vue-next";
 import { getModels, getSettings, updateSettings } from "@/api";
-import { message } from "@openvort/vort-ui";
+import { message } from "@/components/vort";
 
 interface ModelSummary {
     id: string;

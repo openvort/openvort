@@ -1,5 +1,5 @@
 import { ref } from "vue";
-import { dialog } from "@openvort/vort-ui";
+import { dialog } from "@/components/vort";
 
 /**
  * Track form dirty state and confirm before discarding unsaved changes.

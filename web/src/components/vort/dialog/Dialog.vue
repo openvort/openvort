@@ -2,6 +2,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { X } from "lucide-vue-next";
 import { getVortTeleportTo, useZIndexProviderValue } from "@/components/vort/composables";
+import { Button } from "@/components/vort/button";
 import { useLocale } from "../locale";
 
 defineOptions({ name: "VortDialog" });
@@ -45,8 +46,6 @@ interface Props {
     bodyNoPadding?: boolean;
     /** 内容区域背景色（仅 body 区域），默认白色 */
     contentBg?: string;
-    /** 内容区最大高度 */
-    bodyMaxHeight?: string;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -64,17 +63,13 @@ const props = withDefaults(defineProps<Props>(), {
     footer: true,
     zIndex: 1000,
     bodyNoPadding: false,
-    contentBg: "#fff",
-    bodyMaxHeight: undefined
+    contentBg: "#fff"
 });
 
 // 国际化
 const { t } = useLocale("Modal");
 const okTextValue = computed(() => props.okText ?? t("ok_text"));
 const cancelTextValue = computed(() => props.cancelText ?? t("cancel_text"));
-
-// 计算内容区最大高度样式
-const maxHeight = computed(() => props.bodyMaxHeight ? { maxHeight: props.bodyMaxHeight, overflowY: 'auto' } : undefined);
 
 // 提供 z-index 上下文给子组件（如 Select、Dropdown 等）
 // 这样子组件的弹出层会自动获得比 Dialog 更高的 z-index
@@ -257,9 +252,9 @@ onUnmounted(() => {
                 >
                     <div class="vort-dialog-content">
                         <!-- 关闭按钮 -->
-                        <vort-button v-if="closable" type="text" icon class="vort-dialog-close" aria-label="关闭" @click="close">
+                        <Button v-if="closable" type="text" icon class="vort-dialog-close" aria-label="关闭" @click="close">
                             <X class="vort-dialog-close-icon" />
-                        </vort-button>
+                        </Button>
 
                         <!-- 头部 -->
                         <div v-if="title || $slots.title" class="vort-dialog-header">
@@ -269,19 +264,15 @@ onUnmounted(() => {
                         </div>
 
                         <!-- 内容区 -->
-                        <div
-                            class="vort-dialog-body"
-                            :class="{ 'vort-dialog-body-no-padding': bodyNoPadding }"
-                            :style="{ background: contentBg, maxHeight }"
-                        >
+                        <div class="vort-dialog-body" :class="{ 'vort-dialog-body-no-padding': bodyNoPadding }" :style="{ background: contentBg }">
                             <slot />
                         </div>
 
                         <!-- 底部按钮区 -->
                         <div v-if="footer" class="vort-dialog-footer">
                             <slot name="footer">
-                                <vort-button @click="handleCancel">{{ cancelTextValue }}</vort-button>
-                                <vort-button type="primary" :loading="confirmLoading" @click="handleOk">{{ okTextValue }}</vort-button>
+                                <Button @click="handleCancel">{{ cancelTextValue }}</Button>
+                                <Button type="primary" :loading="confirmLoading" @click="handleOk">{{ okTextValue }}</Button>
                             </slot>
                         </div>
                     </div>

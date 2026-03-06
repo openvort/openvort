@@ -9,7 +9,7 @@ import {
     getMemberSkills, createPersonalSkill, updatePersonalSkill, deletePersonalSkill,
     getPublicSkills, subscribeMemberSkill, unsubscribeMemberSkill, generateMemberBioPrompt,
 } from "@/api";
-import { message, dialog } from "@openvort/vort-ui";
+import { message, dialog } from "@/components/vort";
 import { Shield, Bell, User, GitBranch, Sparkles, Plus, Trash2, Globe, Bot } from "lucide-vue-next";
 
 const userStore = useUserStore();

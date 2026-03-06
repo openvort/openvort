@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from "vue";
-import type { FloatingPlacement } from "@openvort/vort-ui";
+import type { FloatingPlacement } from "@/components/vort";
 import type { PopFormInputType } from "./types";
-import { message, Popconfirm } from "@openvort/vort-ui";
+import { message, Popconfirm } from "@/components/vort";
 
 defineOptions({ name: "PopForm" });
 

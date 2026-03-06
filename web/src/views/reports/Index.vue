@@ -13,7 +13,7 @@ import {
     BarChart3, Settings, ChevronLeft, ChevronRight, Eye, Bot,
     ArrowRight,
 } from "lucide-vue-next";
-import { message } from "@openvort/vort-ui";
+import { message } from "@/components/vort";
 import { useUserStore } from "@/stores";
 
 // ---- Types ----

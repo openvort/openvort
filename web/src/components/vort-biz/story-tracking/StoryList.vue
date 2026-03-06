@@ -2,7 +2,7 @@
 import { ref, reactive, computed } from "vue";
 import { useRouter } from "vue-router";
 import { z } from "zod";
-import { Popover } from "@openvort/vort-ui";
+import { Popover } from "@/components/vort";
 import { useCrudPage, useDirtyCheck } from "@/hooks";
 import {
     getVortflowStories, getVortflowProjects, createVortflowStory,
@@ -10,7 +10,7 @@ import {
     getVortflowStoryTransitions, generateVortflowDescriptionPrompt,
     getMembers,
 } from "@/api";
-import { message } from "@openvort/vort-ui";
+import { message } from "@/components/vort";
 import { Plus, ArrowRight, Bot, Pencil } from "lucide-vue-next";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
 import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";

@@ -20,7 +20,7 @@ import {
     ChevronDown, FolderTree, Plus, Pencil, UserPlus,
     Download, Calendar, CloudDownload,
 } from "lucide-vue-next";
-import { message, dialog } from "@openvort/vort-ui";
+import { message, dialog } from "@/components/vort";
 import { DeptTree } from "@/components/vort-biz/dept-tree";
 import { MemberWizard } from "@/components/vort-biz/member-wizard";
 import type { DeptNode } from "@/components/vort-biz/dept-tree";

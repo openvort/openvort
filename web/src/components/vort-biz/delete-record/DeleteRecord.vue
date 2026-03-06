@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { dialog, message } from "@openvort/vort-ui";
+import { dialog, message } from "@/components/vort";
 
 defineOptions({ name: "DeleteRecord" });
 

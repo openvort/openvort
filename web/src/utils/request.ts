@@ -1,6 +1,6 @@
 import axios from "axios";
 import { useUserStore } from "@/stores";
-import { message } from "@openvort/vort-ui";
+import { message } from "@/components/vort";
 
 declare module "axios" {
     interface AxiosRequestConfig {

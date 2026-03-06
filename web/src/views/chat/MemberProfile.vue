@@ -7,7 +7,7 @@ import {
     updateMemberBio, generateMemberBioPrompt,
     getWorkAssignments, updateWorkAssignmentStatus,
 } from "@/api";
-import { message, dialog } from "@openvort/vort-ui";
+import { message, dialog } from "@/components/vort";
 import { Bot, Plus, Trash2, Save, User, Globe, BookOpen, ClipboardList, Clock } from "lucide-vue-next";
 
 const props = defineProps<{

@@ -8,7 +8,7 @@ import {
     updateVortflowTask, deleteVortflowTask, transitionVortflowTask,
     getVortflowTaskTransitions, generateVortflowDescriptionPrompt,
 } from "@/api";
-import { message } from "@openvort/vort-ui";
+import { message } from "@/components/vort";
 import { Plus, ArrowRight, Bot } from "lucide-vue-next";
 
 const router = useRouter();

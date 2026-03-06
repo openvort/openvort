@@ -1,0 +1,378 @@
+/**
+ * Vort Design System - Motion Tokens
+ * Vort 动画令牌定义
+ *
+ * 用于统一组件库的动画效果，确保一致的用户体验。
+ * 参考：Material Design Motion、Ant Design Motion
+ */
+
+:root {
+    /* ========================================
+       Duration 时长
+       用于控制动画/过渡的持续时间
+       ======================================== */
+    --vort-duration-instant: 0ms;
+    --vort-duration-fast: 100ms; /* 快速反馈：hover、active */
+    --vort-duration-normal: 200ms; /* 默认过渡：大多数交互 */
+    --vort-duration-slow: 300ms; /* 较慢过渡：展开/收起 */
+    --vort-duration-slower: 400ms; /* 复杂动画：Modal、Drawer */
+
+    /* ========================================
+       Easing 缓动曲线
+       基于 Material Design 和 Ant Design 的缓动规范
+       ======================================== */
+
+    /* 标准曲线 - 用于大多数交互 */
+    --vort-ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+
+    /* 减速曲线 - 元素进入视图 */
+    --vort-ease-decelerate: cubic-bezier(0, 0, 0.2, 1);
+
+    /* 加速曲线 - 元素离开视图 */
+    --vort-ease-accelerate: cubic-bezier(0.4, 0, 1, 1);
+
+    /* Ant Design 曲线 - 用于输入框等组件（平滑的进出） */
+    --vort-ease-in-out: cubic-bezier(0.645, 0.045, 0.355, 1);
+
+    /* 弹性曲线 - 强调效果（按钮点击、开关等） */
+    --vort-ease-bounce: cubic-bezier(0.68, -0.55, 0.265, 1.55);
+
+    /* 线性 - 进度条等 */
+    --vort-ease-linear: linear;
+
+    /* Ant Design 波纹曲线 - ease-out-circ */
+    --vort-ease-out-circ: cubic-bezier(0.08, 0.82, 0.17, 1);
+
+    /* ========================================
+       Animation Presets 预设组合
+       便于快速使用：transition: var(--vort-transition-xxx);
+       ======================================== */
+
+    /* 淡入淡出 - 通用 */
+    --vort-transition-fade: var(--vort-duration-normal) var(--vort-ease-standard);
+
+    /* 颜色/背景变化 - 快速反馈 */
+    --vort-transition-colors: var(--vort-duration-fast) var(--vort-ease-standard);
+
+    /* 展开/收起 - Collapse、Accordion */
+    --vort-transition-expand: var(--vort-duration-slow) var(--vort-ease-decelerate);
+
+    /* 弹出层 - Modal、Popover、Dropdown */
+    --vort-transition-popup: var(--vort-duration-slower) var(--vort-ease-decelerate);
+
+    /* 滑动 - Drawer、Slide */
+    --vort-transition-slide: var(--vort-duration-slow) var(--vort-ease-in-out);
+
+    /* 缩放 - 按钮点击、Badge */
+    --vort-transition-scale: var(--vort-duration-fast) var(--vort-ease-bounce);
+
+    /* 全部属性 - Input、Select 等表单组件 */
+    --vort-transition-all: all var(--vort-duration-normal) var(--vort-ease-in-out);
+}
+
+/* ========================================
+   响应用户"减少动画"偏好设置
+   无障碍访问必需（WCAG 2.1）
+   ======================================== */
+@media (prefers-reduced-motion: reduce) {
+    :root {
+        --vort-duration-instant: 0ms;
+        --vort-duration-fast: 0ms;
+        --vort-duration-normal: 0ms;
+        --vort-duration-slow: 0ms;
+        --vort-duration-slower: 0ms;
+    }
+}
+
+/* ========================================
+   预定义关键帧动画
+   组件可直接使用：animation: var(--vort-keyframe-xxx);
+   ======================================== */
+
+/* 淡入 */
+@keyframes vort-fade-in {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+/* 淡出 */
+@keyframes vort-fade-out {
+    from {
+        opacity: 1;
+    }
+    to {
+        opacity: 0;
+    }
+}
+
+/* 从上方滑入 */
+@keyframes vort-slide-down {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* 从下方滑入 */
+@keyframes vort-slide-up {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* 从左侧滑入 */
+@keyframes vort-slide-right {
+    from {
+        opacity: 0;
+        transform: translateX(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* 从右侧滑入 */
+@keyframes vort-slide-left {
+    from {
+        opacity: 0;
+        transform: translateX(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* 缩放进入 - Modal */
+@keyframes vort-zoom-in {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+/* 缩放退出 - Modal */
+@keyframes vort-zoom-out {
+    from {
+        opacity: 1;
+        transform: scale(1);
+    }
+    to {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+}
+
+/* 弹跳效果 - Badge、Notification */
+@keyframes vort-bounce {
+    0%,
+    100% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.05);
+    }
+}
+
+/* 脉冲效果 - Loading */
+@keyframes vort-pulse {
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
+
+/* 旋转 - Spin */
+@keyframes vort-spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* 摇晃效果 - 表单验证错误 */
+@keyframes vort-shake {
+    0%,
+    100% {
+        transform: translateX(0);
+    }
+    10%,
+    30%,
+    50%,
+    70%,
+    90% {
+        transform: translateX(-4px);
+    }
+    20%,
+    40%,
+    60%,
+    80% {
+        transform: translateX(4px);
+    }
+}
+
+/* ========================================
+   下拉面板动画（Ant Design 风格）
+   用于：Select、Dropdown、DatePicker、Cascader、AutoComplete
+   特点：scaleY 缩放 + opacity 渐变，更有层次感
+   ======================================== */
+
+/* 从顶部展开进入（下拉面板在 trigger 下方） */
+@keyframes vort-dropdown-slide-up-in {
+    from {
+        opacity: 0;
+        transform: scaleY(0.8);
+        transform-origin: 0% 0%;
+    }
+    to {
+        opacity: 1;
+        transform: scaleY(1);
+        transform-origin: 0% 0%;
+    }
+}
+
+/* 向顶部收起退出（下拉面板在 trigger 下方） */
+@keyframes vort-dropdown-slide-up-out {
+    from {
+        opacity: 1;
+        transform: scaleY(1);
+        transform-origin: 0% 0%;
+    }
+    to {
+        opacity: 0;
+        transform: scaleY(0.8);
+        transform-origin: 0% 0%;
+    }
+}
+
+/* 从底部展开进入（下拉面板在 trigger 上方） */
+@keyframes vort-dropdown-slide-down-in {
+    from {
+        opacity: 0;
+        transform: scaleY(0.8);
+        transform-origin: 100% 100%;
+    }
+    to {
+        opacity: 1;
+        transform: scaleY(1);
+        transform-origin: 100% 100%;
+    }
+}
+
+/* 向底部收起退出（下拉面板在 trigger 上方） */
+@keyframes vort-dropdown-slide-down-out {
+    from {
+        opacity: 1;
+        transform: scaleY(1);
+        transform-origin: 100% 100%;
+    }
+    to {
+        opacity: 0;
+        transform: scaleY(0.8);
+        transform-origin: 100% 100%;
+    }
+}
+
+/* 从左侧展开进入（下拉面板在 trigger 右侧，用于子菜单） */
+@keyframes vort-dropdown-slide-left-in {
+    from {
+        opacity: 0;
+        transform: scaleX(0.8);
+        transform-origin: 0% 0%;
+    }
+    to {
+        opacity: 1;
+        transform: scaleX(1);
+        transform-origin: 0% 0%;
+    }
+}
+
+/* 向左侧收起退出（下拉面板在 trigger 右侧） */
+@keyframes vort-dropdown-slide-left-out {
+    from {
+        opacity: 1;
+        transform: scaleX(1);
+        transform-origin: 0% 0%;
+    }
+    to {
+        opacity: 0;
+        transform: scaleX(0.8);
+        transform-origin: 0% 0%;
+    }
+}
+
+/* 从右侧展开进入（下拉面板在 trigger 左侧，用于子菜单） */
+@keyframes vort-dropdown-slide-right-in {
+    from {
+        opacity: 0;
+        transform: scaleX(0.8);
+        transform-origin: 100% 0%;
+    }
+    to {
+        opacity: 1;
+        transform: scaleX(1);
+        transform-origin: 100% 0%;
+    }
+}
+
+/* 向右侧收起退出（下拉面板在 trigger 左侧） */
+@keyframes vort-dropdown-slide-right-out {
+    from {
+        opacity: 1;
+        transform: scaleX(1);
+        transform-origin: 100% 0%;
+    }
+    to {
+        opacity: 0;
+        transform: scaleX(0.8);
+        transform-origin: 100% 0%;
+    }
+}
+
+/* ========================================
+   点击波纹动画（Ant Design Wave Effect）
+   用于：Button、Checkbox、Radio、Switch 等可点击组件
+   参考：https://github.com/ant-design/ant-design/blob/master/components/_util/wave/style.ts
+   
+   设计要点：
+   - box-shadow 扩散 0.4s
+   - opacity 淡出 2s（比 box-shadow 慢 5 倍，让消失更柔和）
+   - 使用 ease-out-circ 缓动曲线
+   ======================================== */
+
+/* 波纹 box-shadow 扩散 */
+@keyframes vort-wave-spread {
+    to {
+        box-shadow: 0 0 0 6px currentcolor;
+    }
+}
+
+/* 波纹透明度淡出 */
+@keyframes vort-wave-fade {
+    to {
+        opacity: 0;
+    }
+}

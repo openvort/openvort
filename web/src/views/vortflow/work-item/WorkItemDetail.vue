@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, reactive, onMounted } from "vue";
-import { Popover, message } from "@openvort/vort-ui";
+import { Popover, message } from "@/components/vort";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
 import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
 import { Pencil } from "lucide-vue-next";

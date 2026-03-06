@@ -2,7 +2,7 @@
 import { ref, onMounted } from "vue";
 import { useCrudPage } from "@/hooks";
 import { Plus, UserRound } from "lucide-vue-next";
-import { message } from "@openvort/vort-ui";
+import { message } from "@/components/vort";
 import {
     getVortflowVersions, createVortflowVersion, updateVortflowVersion, deleteVortflowVersion,
     releaseVortflowVersion, getVortflowProjects, getMembers,
