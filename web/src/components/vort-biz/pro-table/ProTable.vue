@@ -319,9 +319,27 @@ const recalcMinColumnWidths = () => {
     const headerText = toPlainText(column.title);
     let maxW = measureTextWidth(headerText);
 
+    let hasArray = false;
+    let minChipTextLen = Infinity;
+
     for (const row of rows) {
-      const cellText = toPlainText(getCellValue(row, column));
+      const cellValue = getCellValue(row, column);
+      if (Array.isArray(cellValue)) {
+        hasArray = true;
+        for (const item of cellValue) {
+          const len = String(item ?? "").length;
+          if (len > 0 && len < minChipTextLen) minChipTextLen = len;
+        }
+        continue;
+      }
+      const cellText = toPlainText(cellValue);
       maxW = Math.max(maxW, measureTextWidth(cellText));
+    }
+
+    if (hasArray && minChipTextLen < Infinity) {
+      const chipW = Math.max(36, minChipTextLen * 13 + 14);
+      const arrayMinW = chipW + 4 + 34 + 14;
+      maxW = Math.max(maxW, arrayMinW);
     }
 
     // 文本宽度 + 左右内边距 + 排序图标/安全余量
@@ -1214,14 +1232,13 @@ defineExpose({
   font-size: 13px;
 }
 
-/* 无内边距模式 */
-.vort-pro-table-cell-padding-none .vort-pro-table-thead th,
+/* 无内边距模式：只清除 td，th 保留 padding 以显示表头文字 */
 .vort-pro-table-cell-padding-none .vort-pro-table-tbody td {
   padding: 0 !important;
   min-height: 32px;
 }
 
-.vort-pro-table-cell-padding-none .vort-pro-table-selection-column {
+.vort-pro-table-cell-padding-none .vort-pro-table-tbody .vort-pro-table-selection-column {
   padding: 0 !important;
   min-height: 32px;
 }

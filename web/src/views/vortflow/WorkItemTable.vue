@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ProTable, TableCell, type ProTableColumn, type ProTableRequestParams, type ProTableResponse } from "@/components/vort-biz";
 import { Popover, message } from "@openvort/vort-ui";
@@ -84,13 +84,25 @@ const collaboratorKeyword = ref("");
 const type = ref<WorkItemType | "">(props.type ?? "");
 const typeDropdownOpen = ref(false);
 const typeKeyword = ref("");
-const status = ref("");
+const status = ref<string[]>([]);
 const statusDropdownOpen = ref(false);
 const statusKeyword = ref("");
 const openStatusFor = ref<string | null>(null);
 const rowStatusKeyword = ref("");
 const rowStatusType = ref<WorkItemType>(props.type ?? "缺陷");
 const openPlanTimeFor = ref<string | null>(null);
+const planTimePickerOpen = ref(false);
+
+watch(openPlanTimeFor, async (val) => {
+    if (val) {
+        planTimePickerOpen.value = false;
+        await nextTick();
+        planTimePickerOpen.value = true;
+    } else {
+        planTimePickerOpen.value = false;
+    }
+});
+
 const totalCount = ref(0);
 const createBugDrawerOpen = computed({
     get: () => {
@@ -187,6 +199,7 @@ const tagKeyword = ref("");
 const createTagDropdownOpen = ref(false);
 const createTagKeyword = ref("");
 const tagsModel = reactive<Record<string, string[]>>({});
+const autoTagsMap = reactive<Record<string, Set<string>>>({});
 const baseTagOptions = ["客户需求", "演示站", "运营需求", "待开会确认", "已发布", "高优先", "稳定性", "UI优化", "S1", "S2", "S3", "S4", "develop", "test"];
 const dynamicTagOptions = ref<string[]>([]);
 const newTagDialogOpen = ref(false);
@@ -372,15 +385,15 @@ for (const row of allData.value) {
 const nextWorkNoIndex = ref(allData.value.length + 1);
 
 const columns = computed<ProTableColumn<RowItem>[]>(() => [
-    { title: "工作编号", dataIndex: "workNo", width: 130, sorter: true, align: "left", fixed: "left" },
+    { title: "工作编号", dataIndex: "workNo", width: 130, sorter: true, align: "left", fixed: "left", slot: "workNo" },
     { title: "标题", dataIndex: "title", width: 228, ellipsis: true, align: "left", fixed: "left", slot: "title" },
     { title: "状态", dataIndex: "status", width: 120, slot: "status", align: "left" },
     { title: "负责人", dataIndex: "owner", width: 160, sorter: true, align: "left", slot: "owner" },
     { title: "优先级", dataIndex: "priority", width: 120, slot: "priority", align: "left" },
     { title: "标签", dataIndex: "tags", width: 180, slot: "tags", align: "left" },
-    { title: "创建时间", dataIndex: "createdAt", width: 150, sorter: true, align: "left" },
+    { title: "创建时间", dataIndex: "createdAt", width: 150, sorter: true, align: "left", slot: "createdAt" },
     { title: "协作者", dataIndex: "collaborators", width: 140, slot: "collaborators", align: "left" },
-    { title: "工作项类型", dataIndex: "type", width: 120, sorter: true, align: "left" },
+    { title: "工作项类型", dataIndex: "type", width: 120, sorter: true, align: "left", slot: "type" },
     { title: "计划时间", dataIndex: "planTime", width: 260, sorter: true, align: "left", slot: "planTime" },
     { title: "创建人", dataIndex: "creator", width: 160, sorter: true, align: "left", slot: "creator" },
     { title: "操作", dataIndex: "actions", width: 100, fixed: "right", align: "left", slot: "actions" }
@@ -592,9 +605,22 @@ const mapBackendItemToRow = (item: any, typeValue: WorkItemType, index: number):
     const tags: string[] = Array.isArray(item?.tags)
         ? (item.tags as any[]).map((x) => String(x || "").trim()).filter(Boolean)
         : [];
-    if (typeValue === "任务" && item?.task_type) tags.push(String(item.task_type));
-    if (typeValue === "需求" && item?.project_id) tags.push("需求");
-    if (typeValue === "缺陷" && item?.severity) tags.push(`S${item.severity}`);
+    const autoTags = new Set<string>();
+    if (typeValue === "任务" && item?.task_type) {
+        const tt = String(item.task_type);
+        if (!tags.includes(tt)) tags.push(tt);
+        autoTags.add(tt);
+    }
+    if (typeValue === "需求" && item?.project_id) {
+        if (!tags.includes("需求")) tags.push("需求");
+        autoTags.add("需求");
+    }
+    if (typeValue === "缺陷" && item?.severity) {
+        const sv = `S${item.severity}`;
+        if (!tags.includes(sv)) tags.push(sv);
+        autoTags.add(sv);
+    }
+    autoTagsMap[workNo] = autoTags;
 
     const planDate = deadline || formatDate(created);
     return {
@@ -618,17 +644,21 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
     const kw = String(params.keyword ?? "").trim().toLowerCase();
     const ownerValue = String(params.owner ?? "").trim();
     const typeValue = String(props.type ?? params.type ?? "").trim();
-    const statusValue = String(params.status ?? "").trim();
+    const statusValues: string[] = Array.isArray(params.status) ? params.status : (params.status ? [params.status] : []);
+    const hasStatusFilter = statusValues.length > 0;
     const current = Number(params.current || 1);
     const pageSize = Number(params.pageSize || 20);
 
     if (props.useApi && (typeValue === "需求" || typeValue === "任务" || typeValue === "缺陷")) {
         const workType = typeValue as WorkItemType;
-        const backendStates = statusValue ? getBackendStatesByDisplayStatus(workType, statusValue) : undefined;
-        if (statusValue && (!backendStates || backendStates.length === 0)) {
+        const allBackendStates = hasStatusFilter
+            ? statusValues.flatMap(sv => getBackendStatesByDisplayStatus(workType, sv) || [])
+            : undefined;
+        if (hasStatusFilter && (!allBackendStates || allBackendStates.length === 0)) {
             totalCount.value = 0;
             return { data: [], total: 0, current, pageSize };
         }
+        const backendStates = allBackendStates ? [...new Set(allBackendStates)] : undefined;
 
         const requestByState = async (state?: string, page = current, size = pageSize) => {
             if (workType === "需求") return getVortflowStories({ keyword: kw, state, page, page_size: size });
@@ -636,7 +666,7 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
             return getVortflowBugs({ keyword: kw, state, page, page_size: size });
         };
         const fetchAllItemsByState = async (state?: string): Promise<any[]> => {
-            const batchSize = 200;
+            const batchSize = 100;
             const firstRes: any = await requestByState(state, 1, batchSize);
             const allItems: any[] = [...((firstRes as any)?.items || [])];
             const total = Number((firstRes as any)?.total || allItems.length);
@@ -657,7 +687,6 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
         let totalFromApi = 0;
 
         if (backendStates && backendStates.length > 1) {
-            // Multi-state display filters need full merged querying across all pages.
             const merged = new Map<string, any>();
             const itemGroups = await Promise.all(backendStates.map((state) => fetchAllItemsByState(state)));
             for (const items of itemGroups) {
@@ -669,7 +698,7 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
             }
             const mergedItems = [...merged.values()];
             const allRows = buildRowsFromItems(mergedItems)
-                .filter((x) => !statusValue || x.status === statusValue)
+                .filter((x) => !hasStatusFilter || statusValues.includes(x.status))
                 .filter((x) => !ownerValue || x.owner === ownerValue);
             totalFromApi = allRows.length;
             const start = (current - 1) * pageSize;
@@ -679,7 +708,7 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
             if (ownerValue) {
                 const allItems = await fetchAllItemsByState(backendState);
                 const allRows = buildRowsFromItems(allItems)
-                    .filter((x) => !statusValue || x.status === statusValue)
+                    .filter((x) => !hasStatusFilter || statusValues.includes(x.status))
                     .filter((x) => x.owner === ownerValue);
                 totalFromApi = allRows.length;
                 const start = (current - 1) * pageSize;
@@ -687,14 +716,14 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
             } else {
                 const res: any = await requestByState(backendState, current, pageSize);
                 rows = buildRowsFromItems((res as any)?.items || []);
-                if (statusValue) rows = rows.filter((x) => x.status === statusValue);
+                if (hasStatusFilter) rows = rows.filter((x) => statusValues.includes(x.status));
                 totalFromApi = Number((res as any)?.total || rows.length);
             }
         }
 
         if (current === 1) {
             let pinnedRows = pinnedRowsByType[workType] || [];
-            if (statusValue) pinnedRows = pinnedRows.filter((x) => x.status === statusValue);
+            if (hasStatusFilter) pinnedRows = pinnedRows.filter((x) => statusValues.includes(x.status));
             if (ownerValue) pinnedRows = pinnedRows.filter((x) => x.owner === ownerValue);
             const pinnedIds = new Set(pinnedRows.map((x) => x.backendId || x.workNo));
             rows = [...pinnedRows, ...rows.filter((x) => !pinnedIds.has(x.backendId || x.workNo))];
@@ -715,8 +744,8 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
     if (typeValue) {
         list = list.filter((x) => x.type === typeValue);
     }
-    if (statusValue) {
-        list = list.filter((x) => x.status === statusValue);
+    if (hasStatusFilter) {
+        list = list.filter((x) => statusValues.includes(x.status));
     }
 
     const { sortField, sortOrder } = params;
@@ -754,7 +783,7 @@ const onReset = () => {
     keyword.value = "";
     owner.value = "";
     type.value = props.type ?? "";
-    status.value = "";
+    status.value = [];
     tableRef.value?.refresh?.();
 };
 
@@ -1279,8 +1308,12 @@ const filteredStatusOptions = computed(() => {
 });
 
 const selectStatus = (value: string) => {
-    status.value = value;
-    statusDropdownOpen.value = false;
+    const idx = status.value.indexOf(value);
+    if (idx >= 0) {
+        status.value = status.value.filter(s => s !== value);
+    } else {
+        status.value = [...status.value, value];
+    }
 };
 
 const getRowStatus = (record: RowItem, text?: Status): Status => {
@@ -1602,7 +1635,18 @@ const getTagRenderInfo = (record: RowItem, text: string[] | undefined, resolvedW
 };
 
 const toggleTagMenu = (workNo: string) => {
+    const willOpen = !tagPopoverOpen[workNo];
+    closeRowPopovers();
+    if (willOpen) {
+        tagPopoverOpen[workNo] = true;
+    }
     tagKeyword.value = "";
+};
+
+const stripAutoTags = (workNo: string, tags: string[]): string[] => {
+    const auto = autoTagsMap[workNo];
+    if (!auto?.size) return tags;
+    return tags.filter((t) => !auto.has(t));
 };
 
 const toggleTagOption = async (record: RowItem, tag: string, text?: string[]) => {
@@ -1614,7 +1658,7 @@ const toggleTagOption = async (record: RowItem, tag: string, text?: string[]) =>
     tagsModel[record.workNo] = current;
     record.tags = current;
     try {
-        await syncRecordUpdateToApi(record, { tags: current });
+        await syncRecordUpdateToApi(record, { tags: stripAutoTags(record.workNo, current) });
     } catch (error: any) {
         tagsModel[record.workNo] = prev;
         record.tags = prev;
@@ -1687,9 +1731,8 @@ const toggleTypeGroup = (group: WorkItemType) => {
 const selectType = (value: WorkItemType) => {
     if (props.type) return;
     type.value = value;
-    if (status.value && !getStatusOptionsByType(value).some((x) => x.value === status.value)) {
-        status.value = "";
-    }
+    const validStatuses = getStatusOptionsByType(value).map(x => x.value);
+    status.value = status.value.filter(s => validStatuses.includes(s as any));
     typeDropdownOpen.value = false;
 };
 
@@ -1773,31 +1816,41 @@ onMounted(async () => {
                 :toolbar="false"
                 bordered
             >
+                <template #workNo="{ text }">
+                    <TableCell>
+                        <span>{{ text }}</span>
+                    </TableCell>
+                </template>
+
                 <template #title="{ text, record }">
-                    <VortButton class="title-link-cell" :title="text" variant="link" @click.stop="handleOpenBugDetail(record)">
-                        <span class="title-link-text">{{ text }}</span>
-                    </VortButton>
+                    <TableCell @click.stop="handleOpenBugDetail(record)">
+                        <div class="title-link-cell" :title="text">
+                            <span class="title-link-text">{{ text }}</span>
+                        </div>
+                    </TableCell>
                 </template>
 
                 <template #priority="{ text, record }">
-                    <WorkItemPriority
-                        :model-value="getRowPriority(record, text)"
-                        :open="openPriorityFor === record.workNo"
-                        @update:open="(open) => { if (!open && openPriorityFor === record.workNo) openPriorityFor = null; }"
-                        @click.stop="togglePriorityMenu(record.workNo)"
-                        @change="(value) => selectPriority(record, value)"
-                    />
+                    <TableCell @click.stop="togglePriorityMenu(record.workNo)">
+                        <WorkItemPriority
+                            :model-value="getRowPriority(record, text)"
+                            :open="openPriorityFor === record.workNo"
+                            @update:open="(open) => { if (!open && openPriorityFor === record.workNo) openPriorityFor = null; }"
+                            @click.stop="togglePriorityMenu(record.workNo)"
+                            @change="(value) => selectPriority(record, value)"
+                        />
+                    </TableCell>
                 </template>
 
                 <template #tags="{ text, record, resolvedWidth }">
-                        <TableCell @click.stop="tagPopoverOpen[record.workNo] = !tagPopoverOpen[record.workNo]">
-                    <Popover
-                        :open="tagPopoverOpen[record.workNo]"
-                        trigger="click"
-                        placement="bottomLeft"
-                        :arrow="false"
-                        @update:open="(open) => { if (!open) tagPopoverOpen[record.workNo] = false; }"
-                    >
+                    <TableCell @click.stop="toggleTagMenu(record.workNo)">
+                        <Popover
+                            :open="tagPopoverOpen[record.workNo]"
+                            trigger="click"
+                            placement="bottomLeft"
+                            :arrow="false"
+                            @update:open="(open) => { if (!open) tagPopoverOpen[record.workNo] = false; }"
+                        >
                             <div class="flex items-center gap-1 flex-nowrap whitespace-nowrap overflow-hidden">
                                 <template v-for="tag in getTagRenderInfo(record, text, resolvedWidth).visible" :key="record.workNo + '-' + tag">
                                     <span
@@ -1812,69 +1865,72 @@ onMounted(async () => {
                                 </span>
                             </div>
 
-                        <template #content>
-                            <div class="w-[240px]" @click.stop>
-                                <div class="mb-2">
-                                    <div class="relative">
-                                        <VortInput
-                                            v-model="tagKeyword"
-                                            placeholder="搜索..."
-                                            class="w-full"
-                                            size="small"
-                                        />
-                                    </div>
-                                </div>
-                                <div class="max-h-[200px] overflow-y-auto pr-1">
-                                    <div
-                                        v-for="tag in filteredTagOptions"
-                                        :key="record.workNo + '-opt-' + tag"
-                                        class="w-full px-2 py-1 rounded-md hover:bg-gray-50 cursor-pointer"
-                                        @click.stop="toggleTagOption(record, tag, text)"
-                                    >
-                                        <div class="flex items-center gap-3">
-                                            <vort-checkbox
-                                                :checked="getRowTags(record, text).includes(tag)"
-                                                @update:checked="() => toggleTagOption(record, tag, text)"
-                                                @click.stop
-                                                style="min-height: 24px;"
+                            <template #content>
+                                <div class="w-[240px]" @click.stop>
+                                    <div class="mb-2">
+                                        <div class="relative">
+                                            <VortInput
+                                                v-model="tagKeyword"
+                                                placeholder="搜索..."
+                                                class="w-full"
+                                                size="small"
                                             />
-                                            <span
-                                                class="inline-block w-3 h-3 rounded-full flex-shrink-0"
-                                                :style="{ backgroundColor: getTagColor(tag) }"
-                                            />
-                                            <span class="text-sm text-gray-700 leading-5">{{ tag }}</span>
                                         </div>
                                     </div>
+                                    <div class="max-h-[200px] overflow-y-auto pr-1">
+                                        <div
+                                            v-for="tag in filteredTagOptions"
+                                            :key="record.workNo + '-opt-' + tag"
+                                            class="w-full px-2 py-1 rounded-md hover:bg-gray-50 cursor-pointer"
+                                            @click.stop="toggleTagOption(record, tag, text)"
+                                        >
+                                            <div class="flex items-center gap-3">
+                                                <vort-checkbox
+                                                    :checked="getRowTags(record, text).includes(tag)"
+                                                    @update:checked="() => toggleTagOption(record, tag, text)"
+                                                    @click.stop
+                                                    style="min-height: 24px;"
+                                                />
+                                                <span
+                                                    class="inline-block w-3 h-3 rounded-full flex-shrink-0"
+                                                    :style="{ backgroundColor: getTagColor(tag) }"
+                                                />
+                                                <span class="text-sm text-gray-700 leading-5">{{ tag }}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="mt-1 pt-2 border-t border-gray-100 text-left">
+                                        <button
+                                            type="button"
+                                            class="inline-flex items-center gap-1 px-2 py-1 text-sm text-blue-600 hover:text-blue-700"
+                                            @click.stop="openCreateTagDialog(record, text)"
+                                        >
+                                            <span class="text-base leading-none">+</span>
+                                            <span>新建标签</span>
+                                        </button>
+                                    </div>
                                 </div>
-                                <div class="mt-1 pt-2 border-t border-gray-100 text-left">
-                                    <button
-                                        type="button"
-                                        class="inline-flex items-center gap-1 px-2 py-1 text-sm text-blue-600 hover:text-blue-700"
-                                        @click.stop="openCreateTagDialog"
-                                    >
-                                        <span class="text-base leading-none">+</span>
-                                        <span>新建标签</span>
-                                    </button>
-                                </div>
-                            </div>
-                        </template>
-                    </Popover>
-                        </TableCell>
+                            </template>
+                        </Popover>
+                    </TableCell>
                 </template>
 
                 <template #status="{ text, record }">
-                    <WorkItemStatus
-                        :model-value="getRowStatus(record, text)"
-                        :options="filteredRowStatusOptions"
-                        :open="openStatusFor === record.workNo"
-                        v-model:keyword="rowStatusKeyword"
-                        @update:open="(open) => { if (!open && openStatusFor === record.workNo) openStatusFor = null; }"
-                        @click.stop="toggleRowStatusMenu(record)"
-                        @change="(value) => selectRowStatus(record, value)"
-                    />
+                    <TableCell @click.stop="toggleRowStatusMenu(record)">
+                        <WorkItemStatus
+                            :model-value="getRowStatus(record, text)"
+                            :options="filteredRowStatusOptions"
+                            :open="openStatusFor === record.workNo"
+                            v-model:keyword="rowStatusKeyword"
+                            @update:open="(open) => { if (!open && openStatusFor === record.workNo) openStatusFor = null; }"
+                            @click.stop="toggleRowStatusMenu(record)"
+                            @change="(value) => selectRowStatus(record, value)"
+                        />
+                    </TableCell>
                 </template>
 
                 <template #owner="{ text, record }">
+                    <TableCell @click.stop="toggleRowOwnerMenu(record.workNo)">
                     <Popover
                         :open="openOwnerFor === record.workNo"
                         trigger="click"
@@ -1882,11 +1938,9 @@ onMounted(async () => {
                         :arrow="false"
                         @update:open="(open) => { if (!open && openOwnerFor === record.workNo) openOwnerFor = null; }"
                     >
-                        <VortButton
-                            class="h-8 max-w-[150px] px-2 rounded-md bg-transparent flex items-center gap-2"
-                            variant="text"
+                        <div
+                            class="h-8 max-w-[150px] px-2 rounded-md flex items-center gap-2 cursor-pointer"
                             :class="openOwnerFor === record.workNo ? 'ring-1 ring-blue-200' : ''"
-                            @click.stop="toggleRowOwnerMenu(record.workNo)"
                         >
                             <span
                                 class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center shrink-0 overflow-hidden"
@@ -1896,10 +1950,10 @@ onMounted(async () => {
                                 <template v-else>{{ getAvatarLabel(getRowOwner(record, text)) }}</template>
                             </span>
                             <span class="text-sm text-gray-700 truncate">{{ getRowOwner(record, text) }}</span>
-                        </VortButton>
+                        </div>
 
                         <template #content>
-                            <div class="w-[260px] p-3" @click.stop>
+                            <div class="w-[260px]" @click.stop>
                                 <div class="mb-2">
                                     <div class="relative">
                                         <VortInput
@@ -1910,61 +1964,90 @@ onMounted(async () => {
                                         />
                                     </div>
                                 </div>
-                                <div class="max-h-[420px] overflow-y-auto -mx-3 text-left">
-                                    <VortButton class="w-full h-10 px-3 flex justify-start text-left text-gray-700 hover:bg-gray-50" variant="text" @click.stop="selectRowOwner(record, '')">
-                                        未指派
-                                    </VortButton>
+                                <div class="max-h-[420px] overflow-y-auto pr-1 text-left">
+                                    <div
+                                        class="w-full px-2 py-1 rounded-md hover:bg-gray-50 cursor-pointer"
+                                        :class="getRowOwner(record, text) === '未指派' || getRowOwner(record, text) === '' ? 'bg-slate-100' : ''"
+                                        @click.stop="selectRowOwner(record, '')"
+                                    >
+                                        <div class="flex items-center gap-3">
+                                            <vort-checkbox
+                                                :checked="getRowOwner(record, text) === '未指派' || getRowOwner(record, text) === ''"
+                                                @click.stop
+                                                style="min-height: 24px;"
+                                            />
+                                            <span class="text-sm text-gray-700 leading-5">未指派</span>
+                                        </div>
+                                    </div>
                                     <div v-for="group in filteredOwnerEditGroups" :key="'row-owner-' + group.label">
-                                        <VortButton
-                                            class="w-full h-10 px-3 bg-slate-100 flex items-center justify-between text-left"
-                                            variant="text"
+                                        <div
+                                            class="w-full h-10 px-2 bg-slate-50 flex items-center justify-between cursor-pointer"
                                             @click.stop="toggleOwnerEditGroup(group.label)"
                                         >
                                             <span class="text-gray-700 text-sm">{{ group.label }}（{{ group.members.length }}）</span>
                                             <span class="status-arrow-simple" :class="{ open: ownerEditGroupOpen[group.label] }" />
-                                        </VortButton>
-                                        <VortButton
+                                        </div>
+                                        <div
                                             v-for="member in (ownerEditGroupOpen[group.label] ? group.members : [])"
                                             :key="'row-owner-member-' + group.label + member"
-                                            class="w-full h-10 px-3 flex items-center justify-start gap-2 text-left hover:bg-gray-50"
-                                            variant="text"
+                                            class="w-full px-2 py-1 rounded-md hover:bg-gray-50 cursor-pointer"
+                                            :class="getRowOwner(record, text) === member ? 'bg-slate-100' : ''"
                                             @click.stop="selectRowOwner(record, member)"
                                         >
-                                            <span
-                                                class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center overflow-hidden"
-                                                :style="{ backgroundColor: getAvatarBg(member) }"
-                                            >
-                                                <img v-if="getMemberAvatarUrl(member)" :src="getMemberAvatarUrl(member)" class="w-full h-full object-cover" />
-                                                <template v-else>{{ getAvatarLabel(member) }}</template>
-                                            </span>
-                                            <span class="text-sm text-gray-700">{{ member }}</span>
-                                        </VortButton>
+                                            <div class="flex items-center gap-3">
+                                                <vort-checkbox
+                                                    :checked="getRowOwner(record, text) === member"
+                                                    @click.stop
+                                                    style="min-height: 24px;"
+                                                />
+                                                <span
+                                                    class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center overflow-hidden flex-shrink-0"
+                                                    :style="{ backgroundColor: getAvatarBg(member) }"
+                                                >
+                                                    <img v-if="getMemberAvatarUrl(member)" :src="getMemberAvatarUrl(member)" class="w-full h-full object-cover" />
+                                                    <template v-else>{{ getAvatarLabel(member) }}</template>
+                                                </span>
+                                                <span class="text-sm text-gray-700 leading-5">{{ member }}</span>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
                         </template>
                     </Popover>
+                    </TableCell>
                 </template>
 
                 <template #creator="{ text }">
-                    <div class="h-8 max-w-[150px] px-2 rounded-md bg-transparent flex items-center gap-2">
-                        <span
-                            class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center shrink-0"
-                            :style="{ backgroundColor: getAvatarBg(text) }"
-                        >
-                            {{ getAvatarLabel(text) }}
-                        </span>
-                        <span class="text-sm text-gray-700 truncate">{{ text }}</span>
-                    </div>
+                    <TableCell>
+                        <div class="h-8 max-w-[150px] rounded-md bg-transparent flex items-center gap-2">
+                            <span
+                                class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center shrink-0"
+                                :style="{ backgroundColor: getAvatarBg(text) }"
+                            >
+                                {{ getAvatarLabel(text) }}
+                            </span>
+                            <span class="text-sm text-gray-700 truncate">{{ text }}</span>
+                        </div>
+                    </TableCell>
                 </template>
 
                 <template #actions="{ record }">
-                    <vort-popconfirm title="确认删除？" @confirm="handleDelete(record)">
-                        <VortButton size="small" variant="link" danger>删除</VortButton>
-                    </vort-popconfirm>
+                    <TableCell>
+                        <vort-popconfirm title="确认删除？" @confirm="handleDelete(record)">
+                            <VortButton size="small" variant="link" danger>删除</VortButton>
+                        </vort-popconfirm>
+                    </TableCell>
+                </template>
+
+                <template #createdAt="{ text }">
+                    <TableCell>
+                        <span>{{ text }}</span>
+                    </TableCell>
                 </template>
 
                 <template #collaborators="{ text, record }">
+                    <TableCell @click.stop="toggleCollaboratorMenu(record.workNo)">
                     <Popover
                         :open="openCollaboratorFor === record.workNo"
                         trigger="click"
@@ -1972,11 +2055,7 @@ onMounted(async () => {
                         :arrow="false"
                         @update:open="(open) => { if (!open && openCollaboratorFor === record.workNo) openCollaboratorFor = null; }"
                     >
-                        <VortButton
-                            class="h-8 px-1 rounded-md bg-transparent flex items-center"
-                            variant="text"
-                            @click.stop="toggleCollaboratorMenu(record.workNo)"
-                        >
+                        <div class="h-8 px-1 rounded-md flex items-center cursor-pointer">
                             <div class="flex items-center">
                                 <div
                                     v-for="(name, idx) in getRowCollaborators(record, text)"
@@ -1988,10 +2067,10 @@ onMounted(async () => {
                                     {{ getAvatarLabel(name) }}
                                 </div>
                             </div>
-                        </VortButton>
+                        </div>
 
                         <template #content>
-                            <div class="w-[260px] p-3" @click.stop>
+                            <div class="w-[260px]" @click.stop>
                                 <div class="mb-2">
                                     <div class="relative">
                                         <VortInput
@@ -2002,63 +2081,71 @@ onMounted(async () => {
                                         />
                                     </div>
                                 </div>
-                                <div class="max-h-[260px] overflow-y-auto -mx-3 text-left">
+                                <div class="max-h-[260px] overflow-y-auto pr-1 text-left">
                                     <div v-for="group in filteredCollaboratorGroups" :key="'collab-' + group.label">
-                                        <VortButton
-                                            class="w-full h-10 px-3 bg-slate-100 flex items-center justify-between text-left"
-                                            variant="text"
+                                        <div
+                                            class="w-full h-10 px-2 bg-slate-50 flex items-center justify-between cursor-pointer"
                                             @click.stop="toggleCollaboratorGroup(group.label)"
                                         >
                                             <span class="text-gray-700 text-sm">{{ group.label }}（{{ group.members.length }}）</span>
                                             <span class="status-arrow-simple" :class="{ open: collaboratorGroupOpen[group.label] }" />
-                                        </VortButton>
-                                        <VortButton
+                                        </div>
+                                        <div
                                             v-for="member in (collaboratorGroupOpen[group.label] ? group.members : [])"
                                             :key="'collab-member-' + group.label + member"
-                                            class="w-full h-10 px-3 flex items-center justify-start gap-2 text-left hover:bg-gray-50"
-                                            variant="text"
+                                            class="w-full px-2 py-1 rounded-md hover:bg-gray-50 cursor-pointer"
                                             @click.stop="toggleRowCollaborator(record, member, text)"
                                         >
-                                            <span class="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center text-[12px] text-gray-500">
-                                                <span v-if="getRowCollaborators(record, text).includes(member)">✓</span>
-                                            </span>
-                                            <span
-                                                class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center"
-                                                :style="{ backgroundColor: getAvatarBg(member) }"
-                                            >
-                                                {{ getAvatarLabel(member) }}
-                                            </span>
-                                            <span class="text-sm text-gray-700">{{ member }}</span>
-                                        </VortButton>
+                                            <div class="flex items-center gap-3">
+                                                <vort-checkbox
+                                                    :checked="getRowCollaborators(record, text).includes(member)"
+                                                    @click.stop
+                                                    style="min-height: 24px;"
+                                                />
+                                                <span
+                                                    class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center flex-shrink-0"
+                                                    :style="{ backgroundColor: getAvatarBg(member) }"
+                                                >
+                                                    {{ getAvatarLabel(member) }}
+                                                </span>
+                                                <span class="text-sm text-gray-700 leading-5">{{ member }}</span>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
                         </template>
                     </Popover>
+                    </TableCell>
+                </template>
+
+                <template #type="{ text }">
+                    <TableCell>
+                        <span>{{ text }}</span>
+                    </TableCell>
                 </template>
 
                 <template #planTime="{ text, record }">
-                    <div class="relative inline-block" @click.stop>
-                        <VortButton
+                    <TableCell @click.stop="togglePlanTimeMenu(record.workNo, record, text)">
+                        <div
                             v-if="openPlanTimeFor !== record.workNo"
-                            class="plan-time-display"
-                            variant="text"
-                            @click.stop="togglePlanTimeMenu(record.workNo, record, text)"
+                            class="plan-time-display cursor-pointer"
                         >
                             {{ getRowPlanTimeText(record, text) }}
-                        </VortButton>
-                        <vort-range-picker
-                            v-else
-                            v-model="planTimeModel[record.workNo]"
-                            value-format="YYYY-MM-DD"
-                            format="YYYY-MM-DD"
-                            separator="~"
-                            :placeholder="['开始日期', '结束日期']"
-                            class="plan-time-picker"
-                            @change="(value: DateRange) => onPlanTimeChange(record, value || text)"
-                            @click.stop
-                        />
-                    </div>
+                        </div>
+                        <div v-else class="plan-time-picker" @click.stop>
+                            <vort-range-picker
+                                v-model="planTimeModel[record.workNo]"
+                                :open="planTimePickerOpen"
+                                value-format="YYYY-MM-DD"
+                                format="YYYY-MM-DD"
+                                separator="~"
+                                :placeholder="['开始日期', '结束日期']"
+                                @change="(value: DateRange) => onPlanTimeChange(record, value || text)"
+                                @openChange="(open: boolean) => { if (!open) openPlanTimeFor = null; }"
+                            />
+                        </div>
+                    </TableCell>
                 </template>
             </ProTable>
         </div>
@@ -2136,7 +2223,37 @@ onMounted(async () => {
 }
 
 .plan-time-picker {
-    @apply w-full;
+    width: 100%;
+    max-width: 240px;
+}
+
+.plan-time-picker :deep(.vort-rangepicker-selector) {
+    min-height: 28px;
+    padding: 0 6px;
+    border-color: #d9d9d9;
+    border-radius: 4px;
+    font-size: 13px;
+    gap: 0;
+}
+
+.plan-time-picker :deep(.vort-rangepicker-prefix),
+.plan-time-picker :deep(.vort-rangepicker-suffix),
+.plan-time-picker :deep(.vort-rangepicker-clear) {
+    display: none;
+}
+
+.plan-time-picker :deep(.vort-rangepicker-separator) {
+    padding: 0 2px;
+}
+
+.plan-time-picker :deep(.vort-rangepicker-input) {
+    padding: 0;
+    text-align: center;
+}
+
+.plan-time-picker :deep(.vort-rangepicker-focused .vort-rangepicker-selector) {
+    border-color: var(--vort-primary);
+    box-shadow: 0 0 0 2px var(--vort-primary-shadow);
 }
 :deep(.table-cell) {
     .vort-popover-trigger{

@@ -400,42 +400,48 @@ onActivated(() => {
         </div>
 
         <!-- Repo cards -->
-        <div class="bg-white rounded-xl p-6">
-            <vort-spin :spinning="loading">
-                <div v-if="listData.length === 0 && !loading" class="py-12 text-center text-gray-400">
-                    暂无仓库，请先导入
-                </div>
-                <div v-else class="space-y-5">
-                    <div v-for="group in groupedRepos" :key="group.label" class="space-y-3">
-                        <div class="flex items-center gap-2">
-                            <h4 class="text-sm font-medium text-gray-700">{{ group.label }}</h4>
-                            <span class="text-xs text-gray-400">{{ group.items.length }} 个仓库</span>
-                        </div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            <div v-for="repo in group.items" :key="repo.id" class="border border-gray-100 rounded-xl p-4 hover:shadow-md transition-shadow cursor-pointer" @click="handleView(repo)">
-                                <div class="flex items-start justify-between mb-2">
-                                    <div class="flex-1 min-w-0">
-                                        <h4 class="font-medium text-gray-800 truncate">{{ repo.name }}</h4>
-                                        <p class="text-xs text-gray-400 truncate">{{ repo.full_name }}</p>
-                                    </div>
-                                    <vort-tag v-if="repo.is_private" size="small" color="default">私有</vort-tag>
+        <vort-spin :spinning="loading">
+            <div v-if="listData.length === 0 && !loading" class="bg-white rounded-xl py-16 text-center text-gray-400">
+                暂无仓库，请先导入
+            </div>
+            <div v-else class="space-y-6">
+                <div v-for="group in groupedRepos" :key="group.label">
+                    <div class="flex items-center gap-2.5 mb-3">
+                        <div class="w-1 h-4 rounded-full bg-blue-500"></div>
+                        <h4 class="text-sm font-semibold text-gray-800">{{ group.label }}</h4>
+                        <span class="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{{ group.items.length }} 个仓库</span>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <div
+                            v-for="repo in group.items"
+                            :key="repo.id"
+                            class="bg-white rounded-xl p-4 border border-gray-200/70 hover:border-blue-400/60 hover:bg-blue-50/30 transition-all duration-200 cursor-pointer group"
+                            @click="handleView(repo)"
+                        >
+                            <div class="flex items-start justify-between mb-2">
+                                <div class="flex-1 min-w-0">
+                                    <h4 class="font-medium text-gray-800 truncate group-hover:text-blue-600 transition-colors">{{ repo.name }}</h4>
+                                    <p class="text-xs text-gray-400 truncate mt-0.5">{{ repo.full_name }}</p>
                                 </div>
-                                <p class="text-xs text-gray-500 line-clamp-2 mb-3 min-h-[2rem]">{{ repo.description || '暂无描述' }}</p>
-                                <div class="flex items-center gap-2 flex-wrap">
+                                <vort-tag v-if="repo.is_private" size="small" color="default">私有</vort-tag>
+                            </div>
+                            <p class="text-xs text-gray-500 line-clamp-2 mb-3 min-h-[2rem]">{{ repo.description || '暂无描述' }}</p>
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-1.5 flex-wrap">
                                     <vort-tag v-if="repo.language" size="small" :color="langColorMap[repo.language] || 'default'">{{ repo.language }}</vort-tag>
                                     <vort-tag size="small" :color="repoTypeColorMap[repo.repo_type] || 'default'">{{ repoTypeLabel(repo.repo_type) }}</vort-tag>
-                                    <span v-if="projectName(repo.project_id)" class="text-xs text-blue-500">{{ projectName(repo.project_id) }}</span>
-                                    <span v-else class="text-xs text-orange-400">未关联项目</span>
                                 </div>
+                                <span v-if="projectName(repo.project_id)" class="inline-flex items-center text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full shrink-0 ml-2">{{ projectName(repo.project_id) }}</span>
+                                <span v-else class="inline-flex items-center text-xs text-orange-500 bg-orange-50 px-2 py-0.5 rounded-full shrink-0 ml-2">未关联</span>
                             </div>
                         </div>
                     </div>
                 </div>
-            </vort-spin>
-
-            <div v-if="showPagination" class="flex justify-end mt-4">
-                <vort-pagination v-model:current="filterParams.page" v-model:page-size="filterParams.size" :total="total" show-total-info show-size-changer @change="loadData" />
             </div>
+        </vort-spin>
+
+        <div v-if="showPagination" class="flex justify-end mt-4">
+            <vort-pagination v-model:current="filterParams.page" v-model:page-size="filterParams.size" :total="total" show-total-info show-size-changer @change="loadData" />
         </div>
 
         <!-- View/Edit Drawer -->

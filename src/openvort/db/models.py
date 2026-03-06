@@ -142,7 +142,7 @@ class Skill(Base):
     description: Mapped[str] = mapped_column(Text, default="")
     content: Mapped[str] = mapped_column(Text, default="")  # markdown
     scope: Mapped[str] = mapped_column(String(16), index=True)  # builtin / public / personal
-    skill_type: Mapped[str] = mapped_column(String(16), default="workflow")  # role / workflow / report / system
+    skill_type: Mapped[str] = mapped_column(String(16), default="workflow")  # role / workflow / knowledge / template / guideline
     owner_id: Mapped[str] = mapped_column(String(32), default="", index=True)  # personal → member.id
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)

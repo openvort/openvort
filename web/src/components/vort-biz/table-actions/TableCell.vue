@@ -41,7 +41,7 @@ const handleClick = (event: Event) => {
 .table-cell {
     width: 100%;
     height: 100%;
-    min-height: 32px;
+    min-height: 48px;
     display: flex;
     align-items: center;
     padding: 8px;

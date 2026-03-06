@@ -326,7 +326,18 @@ defineExpose({ refreshContacts, loadContacts });
                                         {{ m.name.charAt(0) }}
                                     </div>
                                     <div class="min-w-0 flex-1">
-                                        <div class="text-sm text-gray-800 truncate">{{ m.name }}</div>
+                                        <div class="flex items-center gap-1 min-w-0">
+                                            <span class="text-sm text-gray-800 truncate">{{ m.name }}</span>
+                                            <vort-tag
+                                                v-if="m.is_virtual"
+                                                size="small"
+                                                color="blue"
+                                                :bordered="false"
+                                                class="flex-shrink-0"
+                                            >
+                                                AI 员工
+                                            </vort-tag>
+                                        </div>
                                         <div v-if="m.department || m.position" class="text-xs text-gray-400 truncate">{{ [m.department, m.position].filter(Boolean).join(' / ') }}</div>
                                         <div v-else-if="m.email" class="text-xs text-gray-400 truncate">{{ m.email }}</div>
                                     </div>

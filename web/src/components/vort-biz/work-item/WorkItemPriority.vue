@@ -58,27 +58,25 @@ const handleSelect = (value: Priority) => {
         :disabled="disabled"
     >
         <slot>
-            <vort-button class="priority-cell-trigger" :disabled="disabled">
+            <div class="priority-cell-trigger" :class="{ 'is-disabled': disabled }">
                 <span class="priority-pill" :class="priorityClassMap[modelValue]">
                     {{ priorityLabelMap[modelValue] }}
                 </span>
-            </vort-button>
+            </div>
         </slot>
         <template #content>
             <div class="priority-cell-menu" @click.stop>
-                <vort-button
+                <div
                     v-for="opt in priorityOptions"
                     :key="opt.value"
                     class="priority-cell-menu-item"
-                    variant="text"
-                    :class="{ 'is-selected': modelValue === opt.value }"
-                    :disabled="disabled"
-                    @click.stop="handleSelect(opt.value)"
+                    :class="{ 'is-selected': modelValue === opt.value, 'is-disabled': disabled }"
+                    @click.stop="!disabled && handleSelect(opt.value)"
                 >
                     <span class="priority-pill" :class="priorityClassMap[opt.value]">
                         {{ opt.label }}
                     </span>
-                </vort-button>
+                </div>
             </div>
         </template>
     </vort-popover>
@@ -87,8 +85,12 @@ const handleSelect = (value: Priority) => {
 <style scoped>
 .priority-cell-trigger {
     padding: 2px 8px;
-    height: auto;
-    min-height: auto;
+    cursor: pointer;
+}
+
+.priority-cell-trigger.is-disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
 }
 
 .priority-pill {
@@ -108,11 +110,21 @@ const handleSelect = (value: Priority) => {
 }
 
 .priority-cell-menu-item {
-    justify-content: flex-start !important;
-    padding: 4px 8px !important;
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.priority-cell-menu-item:hover {
+    background-color: #f5f5f5;
 }
 
 .priority-cell-menu-item.is-selected {
-    background-color: var(--el-color-primary-light-9);
+    background-color: #e6f4ff;
+}
+
+.priority-cell-menu-item.is-disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
 }
 </style>

@@ -251,7 +251,8 @@ const sourceTypeLabels: Record<string, string> = {
         </div>
 
         <!-- Tab: 个人档案 -->
-        <VortSpin :spinning="loading" v-show="activeTab === 'profile'">
+        <div v-show="activeTab === 'profile'">
+        <VortSpin :spinning="loading">
             <div class="space-y-6">
                 <!-- Avatar + name -->
                 <div class="flex items-center gap-3">
@@ -329,9 +330,11 @@ const sourceTypeLabels: Record<string, string> = {
                 </div>
             </div>
         </VortSpin>
+        </div>
 
         <!-- Tab: 工作安排 -->
-        <VortSpin :spinning="loadingWork" v-show="activeTab === 'work'">
+        <div v-show="activeTab === 'work'">
+        <VortSpin :spinning="loadingWork">
             <div class="space-y-4">
                 <div v-if="workAssignments.length === 0" class="text-xs text-gray-400 py-8 text-center bg-gray-50 rounded-lg">
                     暂无工作安排
@@ -379,6 +382,7 @@ const sourceTypeLabels: Record<string, string> = {
                 </div>
             </div>
         </VortSpin>
+        </div>
 
         <!-- Personal skill edit drawer (nested) -->
         <VortDialog :open="skillDrawerOpen" :title="skillDrawerMode === 'add' ? '新增个人技能' : '编辑个人技能'" :width="480" @update:open="skillDrawerOpen = $event">
