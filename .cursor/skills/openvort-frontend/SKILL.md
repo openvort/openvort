@@ -74,12 +74,13 @@ import { VortButton, VortInput } from "@/components/vort-ui";
 </template>
 ```
 
-**原理：** `components.d.ts` 中声明了类型别名，将 `VortButton` 映射到 `@openvort/vort-ui` 的 `Button` 组件。unplugin-vue-components 会自动解析模板中使用的全局组件，无需手动 import。
+**原理：** `components.d.ts` 中声明了类型别名，将 `VortButton` 映射到 `@/components/vort` 下的 `Button` 组件。unplugin-vue-components 会自动解析模板中使用的全局组件，无需手动 import。
 
-**例外情况：** 如果确实需要手动导入（如在 setup 脚本中使用组件对象），应从 `@openvort/vort-ui` 导入：
+**例外情况：** 如果确实需要手动导入（如在 setup 脚本中使用组件对象），应从对应子目录导入：
 
 ```typescript
-import { Button, Input } from "@openvort/vort-ui";
+import { Button } from "@/components/vort/button";
+import { Input } from "@/components/vort/input";
 ```
 
 **使用 Vue API 必须导入**

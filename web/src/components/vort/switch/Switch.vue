@@ -8,6 +8,8 @@ defineOptions({ name: "VortSwitch", inheritAttrs: false });
 /** Vort Switch - 开关组件 */
 
 interface Props {
+    /** 指定当前值（v-model），兼容 modelValue 写法 */
+    modelValue?: SwitchValue;
     /** 指定当前值（v-model:checked），支持 boolean / number / string */
     checked?: SwitchValue;
     /** 是否禁用 */
@@ -39,6 +41,7 @@ const props = withDefaults(defineProps<Props>(), {
 });
 
 const emit = defineEmits<{
+    "update:modelValue": [value: SwitchValue];
     "update:checked": [value: SwitchValue];
     change: [value: SwitchValue, event: MouseEvent];
 }>();
@@ -58,11 +61,18 @@ const resolvedUncheckedValue = computed<SwitchValue>(() => props.uncheckedValue 
 // ==================== 计算属性 ====================
 
 /** 当前是否选中 */
+const currentValue = computed<SwitchValue | undefined>(() => {
+    // Prefer checked when both bindings are provided.
+    if (props.checked !== undefined) return props.checked;
+    return props.modelValue;
+});
+
+/** 当前是否选中 */
 const isChecked = computed(() => {
     if (useValueMapping.value) {
-        return props.checked === resolvedCheckedValue.value;
+        return currentValue.value === resolvedCheckedValue.value;
     }
-    return Boolean(props.checked);
+    return Boolean(currentValue.value);
 });
 
 /** 是否实际禁用（禁用或加载中都不可点击） */
@@ -101,6 +111,7 @@ const doSwitch = async (event: MouseEvent | KeyboardEvent): Promise<void> => {
             const result = await props.beforeChange();
             if (result) {
                 const newVal = getNewValue();
+                emit("update:modelValue", newVal);
                 emit("update:checked", newVal);
                 emit("change", newVal, event as MouseEvent);
             }
@@ -111,6 +122,7 @@ const doSwitch = async (event: MouseEvent | KeyboardEvent): Promise<void> => {
         }
     } else {
         const newVal = getNewValue();
+        emit("update:modelValue", newVal);
         emit("update:checked", newVal);
         emit("change", newVal, event as MouseEvent);
     }

@@ -2,7 +2,8 @@
 import { ref, onMounted, computed } from "vue";
 import { getPlugins, getPluginDetail, updatePlugin, installPlugin, uninstallPlugin, pipInstallPlugin, uploadPlugin, deletePlugin } from "@/api";
 import { Puzzle, Wrench, Plus, Upload, Trash2, ChevronDown, ChevronRight, Download } from "lucide-vue-next";
-import { message, dialog } from "@openvort/vort-ui";
+import { message } from "@/components/vort/message";
+import { dialog } from "@/components/vort/dialog";
 import { usePluginStore } from "@/stores/modules/plugin";
 
 interface PluginTool {

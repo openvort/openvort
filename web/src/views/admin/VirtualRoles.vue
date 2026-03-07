@@ -397,23 +397,29 @@ onMounted(() => {
                         <span class="text-sm font-medium text-gray-700">推荐技能</span>
                         <vort-spin v-if="loadingSkills" :spinning="true" :size="16" />
                     </div>
-                    <div class="flex flex-wrap gap-2 max-h-48 overflow-y-auto">
-                        <vort-checkbox
+                    <div class="space-y-1 max-h-48 overflow-y-auto">
+                        <div
                             v-for="skill in allSkills"
                             :key="skill.id"
-                            :checked="boundSkills.some(s => s.id === skill.id)"
-                            @update:checked="(checked: boolean) => {
-                                if (checked) {
-                                    if (!boundSkills.some(s => s.id === skill.id)) {
-                                        boundSkills.push(skill);
-                                    }
-                                } else {
+                            class="flex items-start gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors"
+                            :class="boundSkills.some(s => s.id === skill.id) ? 'bg-blue-50' : 'hover:bg-gray-50'"
+                            @click="() => {
+                                if (boundSkills.some(s => s.id === skill.id)) {
                                     boundSkills = boundSkills.filter(s => s.id !== skill.id);
+                                } else {
+                                    boundSkills.push(skill);
                                 }
                             }"
                         >
-                            <span class="text-sm">{{ skill.name }}</span>
-                        </vort-checkbox>
+                            <vort-checkbox
+                                :checked="boundSkills.some(s => s.id === skill.id)"
+                                class="mt-0.5"
+                            />
+                            <div class="min-w-0">
+                                <div class="text-sm text-gray-800">{{ skill.name }}</div>
+                                <div v-if="skill.description" class="text-xs text-gray-400 truncate">{{ skill.description }}</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 

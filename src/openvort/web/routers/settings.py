@@ -152,12 +152,14 @@ async def _reload_llm_client() -> None:
 async def update_settings(req: UpdateSettingsRequest):
     """更新设置（保存到数据库 + 热更新 LLMClient）"""
     config_service = get_config_service()
+    llm_related_changed = False
 
     if req.llm_primary_model_id is not None or req.llm_fallback_model_ids is not None:
         current_primary, current_fallback = await config_service.get_llm_model_selection()
         primary_id = req.llm_primary_model_id if req.llm_primary_model_id is not None else current_primary
         fallback_ids = req.llm_fallback_model_ids if req.llm_fallback_model_ids is not None else current_fallback
         await config_service.save_llm_model_selection(primary_id, fallback_ids)
+        llm_related_changed = True
 
     # CLI coding config
     if any(
@@ -196,14 +198,17 @@ async def update_settings(req: UpdateSettingsRequest):
 
     if data:
         await config_service.save_llm_settings(data)
+        llm_related_changed = True
 
     # Update web settings (auto_check_update)
     if req.auto_check_update is not None:
         settings = get_settings()
         settings.web.auto_check_update = req.auto_check_update
 
-    await config_service.apply_llm_to_settings()
-    await _reload_llm_client()
+    # 仅在 LLM 配置变化时才应用并热更新，避免无关设置更新被 LLM 状态阻塞
+    if llm_related_changed:
+        await config_service.apply_llm_to_settings()
+        await _reload_llm_client()
 
     return {"success": True}
 

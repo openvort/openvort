@@ -30,7 +30,7 @@ const REAL_STEPS: StepConfig[] = [
 
 const VIRTUAL_STEPS: StepConfig[] = [
     { key: "type", title: "选择类型" },
-    { key: "role", title: "选择角色" },
+    { key: "role", title: "选择岗位" },
     { key: "skill", title: "确认技能" },
     { key: "info", title: "填写信息" },
 ];
@@ -86,7 +86,7 @@ async function loadRoleOptions() {
             }));
         }
     } catch (e) {
-        console.error("加载角色列表失败", e);
+        console.error("加载岗位列表失败", e);
     } finally {
         loadingRoles.value = false;
     }
@@ -127,7 +127,7 @@ async function loadRoleSkills() {
 
         availableSkills.value = allSkills;
     } catch (e) {
-        console.error("加载角色技能失败", e);
+        console.error("加载岗位技能失败", e);
     } finally {
         loadingSkills.value = false;
     }
@@ -185,7 +185,7 @@ function nextStep() {
     }
     if (key === "role") {
         if (formData.value.roles.length === 0) {
-            message.warning("请至少选择一个角色");
+            message.warning("请至少选择一个岗位");
             return;
         }
     }
@@ -322,14 +322,14 @@ async function complete() {
             </div>
         </div>
 
-        <!-- 选择角色（AI 员工） -->
+        <!-- 选择岗位（AI 员工） -->
         <div v-if="currentStepKey === 'role'" class="space-y-4">
             <div class="text-center mb-6">
-                <div class="text-lg font-medium text-gray-800">选择角色</div>
-                <div class="text-sm text-gray-400 mt-1">为 AI 员工选择一个或多个角色，每个角色会推荐一组技能</div>
+                <div class="text-lg font-medium text-gray-800">选择岗位</div>
+                <div class="text-sm text-gray-400 mt-1">为 AI 员工选择一个或多个岗位，每个岗位会推荐一组技能</div>
             </div>
 
-            <div class="grid grid-cols-2 gap-3">
+            <div class="grid grid-cols-2 gap-3 max-h-[400px] overflow-y-auto pr-1">
                 <div
                     v-for="role in roleOptions"
                     :key="role.value"
@@ -360,7 +360,7 @@ async function complete() {
         <div v-if="currentStepKey === 'skill'" class="space-y-4">
             <div class="text-center mb-6">
                 <div class="text-lg font-medium text-gray-800">确认技能</div>
-                <div class="text-sm text-gray-400 mt-1">根据选择的角色自动推荐了以下技能，您可以调整</div>
+                <div class="text-sm text-gray-400 mt-1">根据选择的岗位自动推荐了以下技能，您可以调整</div>
             </div>
 
             <VortSpin :spinning="loadingSkills">
@@ -379,7 +379,7 @@ async function complete() {
                     </div>
                 </div>
                 <div v-else class="text-center py-8 text-gray-400">
-                    暂无推荐技能，请先选择角色
+                    暂无推荐技能，请先选择岗位
                 </div>
             </VortSpin>
         </div>

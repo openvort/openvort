@@ -209,6 +209,10 @@ defineExpose({
 .vort-input-search :deep(.vort-input) {
     border-top-right-radius: 0 !important;
     border-bottom-right-radius: 0 !important;
+    /* Avoid overflow: input area should shrink with addon button */
+    flex: 1 1 auto;
+    width: auto !important;
+    min-width: 0;
 }
 
 /* VortInput 外层容器 */

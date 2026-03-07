@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import {
-    getKBDocuments, uploadKBDocument, createKBTextDocument,
+    getKBDocuments, getKBDocument, updateKBDocument, uploadKBDocument, createKBTextDocument,
     deleteKBDocument, reindexKBDocument, searchKB, getKBStats,
 } from "@/api";
 import {
-    Upload, Search, RefreshCw, FileText,
+    Upload, Search, RefreshCw, FileText, Eye, Pencil, Save,
     CheckCircle, AlertCircle, Loader2, BookOpen, Trash2,
 } from "lucide-vue-next";
 import { message, dialog } from "@/components/vort";
@@ -61,6 +61,13 @@ const textForm = ref({ title: "", content: "" });
 const searchQuery = ref("");
 const searchResults = ref<SearchResult[]>([]);
 const searching = ref(false);
+
+const detailDialogOpen = ref(false);
+const detailDoc = ref<{ id: string; title: string; content: string; file_type: string; file_size: number; chunk_count: number; status: string; created_at: string } | null>(null);
+const detailLoading = ref(false);
+const detailEditing = ref(false);
+const detailSaving = ref(false);
+const editForm = ref({ title: "", content: "" });
 
 const statusConfig: Record<string, { text: string; color: string }> = {
     pending: { text: "等待处理", color: "warning" },
@@ -197,6 +204,62 @@ const handleSearch = async () => {
     }
 };
 
+const handleViewDetail = async (doc: KBDocument) => {
+    detailDialogOpen.value = true;
+    detailLoading.value = true;
+    detailEditing.value = false;
+    try {
+        const res = await getKBDocument(doc.id) as any;
+        detailDoc.value = res;
+    } catch (e: any) {
+        message.error(e?.response?.data?.detail || "加载文档详情失败");
+        detailDialogOpen.value = false;
+    } finally {
+        detailLoading.value = false;
+    }
+};
+
+const startEditing = () => {
+    if (!detailDoc.value) return;
+    editForm.value = { title: detailDoc.value.title, content: detailDoc.value.content };
+    detailEditing.value = true;
+};
+
+const cancelEditing = () => {
+    detailEditing.value = false;
+};
+
+const handleSaveEdit = async () => {
+    if (!detailDoc.value) return;
+    if (!editForm.value.title.trim()) {
+        message.warning("标题不能为空");
+        return;
+    }
+    if (!editForm.value.content.trim()) {
+        message.warning("内容不能为空");
+        return;
+    }
+
+    detailSaving.value = true;
+    try {
+        const res = await updateKBDocument(detailDoc.value.id, {
+            title: editForm.value.title,
+            content: editForm.value.content,
+        }) as any;
+        detailDoc.value.title = editForm.value.title;
+        detailDoc.value.content = editForm.value.content;
+        detailDoc.value.file_size = new Blob([editForm.value.content]).size;
+        detailEditing.value = false;
+        message.success(res.reindexing ? "保存成功，正在重新索引" : "保存成功");
+        loadDocuments();
+        loadStats();
+    } catch (e: any) {
+        message.error(e?.response?.data?.detail || "保存失败");
+    } finally {
+        detailSaving.value = false;
+    }
+};
+
 const handlePaginationChange = () => {
     loadDocuments();
 };
@@ -290,7 +353,7 @@ onUnmounted(() => {
             >
                 <VortTableColumn label="文档" prop="title" :min-width="220">
                     <template #default="{ row }">
-                        <div class="font-medium text-gray-800">{{ row.title }}</div>
+                        <div class="font-medium text-blue-600 hover:text-blue-700 cursor-pointer hover:underline" @click="handleViewDetail(row)">{{ row.title }}</div>
                         <div v-if="row.file_name && row.file_name !== row.title" class="text-xs text-gray-400 mt-0.5 truncate max-w-[280px]">
                             {{ row.file_name }}
                         </div>
@@ -333,15 +396,20 @@ onUnmounted(() => {
                     </template>
                 </VortTableColumn>
 
-                <VortTableColumn v-if="isAdmin" label="操作" :width="120" fixed="right">
+                <VortTableColumn label="操作" :width="150" fixed="right">
                     <template #default="{ row }">
                         <div class="flex items-center gap-2">
-                            <VortTooltip title="重新索引">
+                            <VortTooltip title="查看内容">
+                                <VortButton variant="text" size="small" @click="handleViewDetail(row)">
+                                    <Eye :size="14" />
+                                </VortButton>
+                            </VortTooltip>
+                            <VortTooltip v-if="isAdmin" title="重新索引">
                                 <VortButton variant="text" size="small" @click="handleReindex(row)">
                                     <RefreshCw :size="14" />
                                 </VortButton>
                             </VortTooltip>
-                            <VortTooltip title="删除">
+                            <VortTooltip v-if="isAdmin" title="删除">
                                 <VortButton variant="text" size="small" danger @click="handleDelete(row)">
                                     <Trash2 :size="14" />
                                 </VortButton>
@@ -402,6 +470,60 @@ onUnmounted(() => {
                 <div class="flex justify-end gap-2">
                     <VortButton @click="textDialogOpen = false">取消</VortButton>
                     <VortButton variant="primary" :loading="saving" @click="handleCreateText">保存</VortButton>
+                </div>
+            </template>
+        </VortDialog>
+
+        <!-- Detail Dialog -->
+        <VortDialog
+            :open="detailDialogOpen"
+            :title="detailEditing ? '编辑文档' : (detailDoc?.title || '文档详情')"
+            width="large"
+            @update:open="(v: boolean) => { if (!v) { detailEditing = false; } detailDialogOpen = v; }"
+        >
+            <div v-if="detailLoading" class="flex items-center justify-center py-16">
+                <Loader2 :size="24" class="animate-spin text-gray-400" />
+                <span class="ml-2 text-sm text-gray-400">加载中...</span>
+            </div>
+            <div v-else-if="detailDoc && !detailEditing" class="space-y-4">
+                <div class="flex items-center gap-4 text-sm text-gray-500">
+                    <VortTag size="small">{{ (detailDoc.file_type || '').toUpperCase() }}</VortTag>
+                    <span>{{ formatFileSize(detailDoc.file_size) }}</span>
+                    <span>{{ detailDoc.chunk_count }} 个分块</span>
+                    <VortTag :color="statusConfig[detailDoc.status]?.color || 'default'" size="small">
+                        {{ statusConfig[detailDoc.status]?.text || detailDoc.status }}
+                    </VortTag>
+                    <span class="ml-auto text-gray-400">{{ formatTime(detailDoc.created_at) }}</span>
+                </div>
+                <div class="border-t border-gray-100" />
+                <VortScrollbar max-height="500px">
+                    <pre class="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed font-sans">{{ detailDoc.content }}</pre>
+                </VortScrollbar>
+            </div>
+            <div v-else-if="detailDoc && detailEditing" class="space-y-4">
+                <VortForm label-width="60px">
+                    <VortFormItem label="标题" required>
+                        <VortInput v-model="editForm.title" placeholder="文档标题" />
+                    </VortFormItem>
+                    <VortFormItem label="内容" required>
+                        <VortTextarea v-model="editForm.content" :rows="16" placeholder="文档内容" />
+                    </VortFormItem>
+                </VortForm>
+            </div>
+            <template #footer>
+                <div class="flex justify-end gap-2">
+                    <template v-if="detailEditing">
+                        <VortButton @click="cancelEditing">取消</VortButton>
+                        <VortButton variant="primary" :loading="detailSaving" @click="handleSaveEdit">
+                            <Save :size="14" class="mr-1" /> 保存
+                        </VortButton>
+                    </template>
+                    <template v-else>
+                        <VortButton v-if="isAdmin" @click="startEditing">
+                            <Pencil :size="14" class="mr-1" /> 编辑
+                        </VortButton>
+                        <VortButton @click="detailDialogOpen = false">关闭</VortButton>
+                    </template>
                 </div>
             </template>
         </VortDialog>

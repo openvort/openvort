@@ -498,8 +498,12 @@ class WeComChannel(BaseChannel):
                             transcribed = await self._transcribe_voice(msg.voice_data)
                             if transcribed:
                                 msg.content = (
-                                    f"{transcribed}\n"
-                                    f"（以上文字由用户语音转写而来，请用 wecom_send_voice 工具以语音回复）"
+                                    f"[语音转文字] {transcribed}\n\n"
+                                    f"（⚠️ 以上文字由 AI 语音识别自动转写，"
+                                    f"专有名词、人名、产品名等关键词可能因谐音被误转，"
+                                    f"请结合上下文和你所了解的项目、仓库、成员等信息适当联想，"
+                                    f"理解用户的真实意图。"
+                                    f"请使用 wecom_send_voice 工具以语音回复用户）"
                                 )
                                 log.info(f"语音转写成功: {msg.sender_id} -> {transcribed[:80]}")
                             else:

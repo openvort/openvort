@@ -320,6 +320,7 @@ async def get_member(member_id: str):
             "avatar_url": member.avatar_url or "",
             "status": member.status,
             "is_account": member.is_account,
+            "is_virtual": member.is_virtual,
             "has_password": bool(member.password_hash),
             "roles": roles or [],
             "permissions": permissions,

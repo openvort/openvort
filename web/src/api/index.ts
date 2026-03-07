@@ -897,11 +897,9 @@ export function getWebhookPresetDetail(presetId: string) {
     return request.get(`/admin/webhooks/presets/${presetId}`);
 }
 
-/** 一键安装预置模板 */
-export function installWebhookPreset(presetId: string, secret?: string) {
-    return request.post(`/admin/webhooks/presets/${presetId}/install`, null, {
-        params: secret ? { secret } : {},
-    });
+/** 安装预置模板（可选绑定 AI 员工） */
+export function installWebhookPreset(presetId: string, data?: { secret?: string; member_id?: string; name?: string }) {
+    return request.post(`/admin/webhooks/presets/${presetId}/install`, data || {});
 }
 
 /** 创建 Webhook */
@@ -912,6 +910,7 @@ export function createWebhook(data: {
     prompt_template?: string;
     channel?: string;
     user_id?: string;
+    member_id?: string;
 }) {
     return request.post("/admin/webhooks", data);
 }
@@ -1530,6 +1529,11 @@ export function createKBTextDocument(data: { title: string; content: string; fil
 /** 知识库文档详情 */
 export function getKBDocument(id: string) {
     return request.get(`/knowledge/documents/${id}`);
+}
+
+/** 更新知识库文档 */
+export function updateKBDocument(id: string, data: { title?: string; content?: string }) {
+    return request.put(`/knowledge/documents/${id}`, data);
 }
 
 /** 删除知识库文档 */

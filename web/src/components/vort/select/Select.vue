@@ -1,4 +1,11 @@
 <script lang="ts">
+// ============ 空值哨兵 ============
+// reka-ui ComboboxItem 禁止 value 为空字符串，
+// 用内部哨兵替代，对外 API 仍支持 value=""
+const EMPTY_SENTINEL = "__vort_select_empty__";
+const toInternal = (v: string) => (v === "" ? EMPTY_SENTINEL : v);
+const fromInternal = (v: string) => (v === EMPTY_SENTINEL ? "" : v);
+
 // ============ 全局 Select 实例管理器（模块级别，所有实例共享） ============
 // 用于协调多个 Select 实例，确保同时只有一个打开
 const selectInstances = new Set<() => void>();
@@ -151,7 +158,7 @@ const mergedOptions = computed(() => {
 // 是否为多选模式
 const isMultiple = computed(() => props.mode === "multiple" || props.mode === "tags");
 
-// 内部值 - 统一转换为字符串数组处理
+// 内部值 - 统一转换为字符串，空字符串映射为哨兵
 const internalValue = computed({
     get: () => {
         if (props.modelValue === undefined || props.modelValue === null) {
@@ -159,24 +166,24 @@ const internalValue = computed({
         }
         if (isMultiple.value) {
             const arr = Array.isArray(props.modelValue) ? props.modelValue : [props.modelValue];
-            return arr.map((v) => String(v));
+            return arr.map((v) => toInternal(String(v)));
         }
-        return String(props.modelValue);
+        return toInternal(String(props.modelValue));
     },
     set: (val) => {
         if (isMultiple.value) {
             const arr = Array.isArray(val) ? val : [val];
-            // 转换回原始类型
             const result = arr.map((v) => {
-                const opt = mergedOptions.value.find((o) => String(o.value) === v);
-                return opt ? opt.value : v;
+                const ext = fromInternal(v);
+                const opt = mergedOptions.value.find((o) => String(o.value) === ext);
+                return opt ? opt.value : ext;
             });
             emit("update:modelValue", result);
             const options = result.map((v) => mergedOptions.value.find((o) => o.value === v)!).filter(Boolean);
             emit("change", result, options);
         } else {
-            const strVal = String(val);
-            const opt = mergedOptions.value.find((o) => String(o.value) === strVal);
+            const ext = fromInternal(String(val));
+            const opt = mergedOptions.value.find((o) => String(o.value) === ext);
             const emitValue = opt?.value;
             emit("update:modelValue", emitValue);
             emit("change", emitValue, opt);
@@ -188,9 +195,9 @@ const internalValue = computed({
 const selectedOptions = computed(() => {
     if (isMultiple.value) {
         const vals = Array.isArray(internalValue.value) ? internalValue.value : [];
-        return vals.map((v) => mergedOptions.value.find((o) => String(o.value) === v)).filter(Boolean) as SelectOption[];
+        return vals.map((v) => mergedOptions.value.find((o) => toInternal(String(o.value)) === v)).filter(Boolean) as SelectOption[];
     }
-    return mergedOptions.value.find((o) => String(o.value) === internalValue.value);
+    return mergedOptions.value.find((o) => toInternal(String(o.value)) === internalValue.value);
 });
 
 // 显示的标签（考虑 maxTagCount）
@@ -434,9 +441,9 @@ defineExpose({
                     <!-- 标签区域 -->
                     <div class="vort-select-selection">
                         <!-- 已选标签 -->
-                        <TagsInputItem v-for="option in displayedTags" :key="String(option.value)" :value="String(option.value)" :class="tagClasses">
+                        <TagsInputItem v-for="option in displayedTags" :key="toInternal(String(option.value))" :value="toInternal(String(option.value))" :class="tagClasses">
                             <TagsInputItemText class="vort-select-tag-text">{{ option.label }}</TagsInputItemText>
-                            <TagsInputItemDelete v-if="!disabled" class="vort-select-tag-remove" @click.stop="handleRemoveTag(String(option.value))">
+                            <TagsInputItemDelete v-if="!disabled" class="vort-select-tag-remove" @click.stop="handleRemoveTag(toInternal(String(option.value)))">
                                 <CloseOutlined class="vort-select-tag-remove-icon" />
                             </TagsInputItemDelete>
                         </TagsInputItem>
@@ -564,8 +571,8 @@ defineExpose({
                     <!-- 选项列表 -->
                     <ComboboxItem
                         v-for="option in filteredOptions"
-                        :key="String(option.value)"
-                        :value="String(option.value)"
+                        :key="toInternal(String(option.value))"
+                        :value="toInternal(String(option.value))"
                         :disabled="option.disabled"
                         class="vort-select-option"
                         @select="handleSelect(String(option.value))"

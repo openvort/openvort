@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from "vue";
+import { ref, onMounted } from "vue";
 import { useUserStore } from "@/stores";
 import {
     checkUpgrade, getReleases, getUpgradeStreamUrl,
     getBackups, createBackup, deleteBackup,
     getBackupDownloadUrl, getRestoreStreamUrl,
+    getSettings, updateSettings,
 } from "@/api";
 import { message } from "@/components/vort";
 import {
@@ -15,6 +16,44 @@ import {
 
 const userStore = useUserStore();
 const activeTab = ref("upgrade");
+
+// ---- Auto check update setting ----
+const autoCheckUpdate = ref(true);
+const autoCheckReady = ref(false);
+const savingAutoCheck = ref(false);
+
+async function loadAutoCheckSetting() {
+    try {
+        const data = await getSettings() as any;
+        autoCheckUpdate.value = data.auto_check_update !== false;
+    } catch { /* ignore */ }
+    autoCheckReady.value = true;
+}
+
+function normalizeSwitchValue(next: unknown, fallback: boolean): boolean {
+    if (typeof next === "boolean") return next;
+    if (next === 1 || next === "1" || next === "true") return true;
+    if (next === 0 || next === "0" || next === "false" || next === null || next === undefined) return false;
+    return fallback;
+}
+
+async function handleAutoCheckUpdate(next: unknown) {
+    if (!autoCheckReady.value || savingAutoCheck.value) return;
+    const nextValue = normalizeSwitchValue(next, !autoCheckUpdate.value);
+    const oldValue = autoCheckUpdate.value;
+    autoCheckUpdate.value = nextValue;
+    savingAutoCheck.value = true;
+    try {
+        await updateSettings({ auto_check_update: nextValue });
+        // Re-sync from backend to avoid stale UI state.
+        await loadAutoCheckSetting();
+    } catch {
+        autoCheckUpdate.value = oldValue;
+        message.error("保存失败");
+    } finally {
+        savingAutoCheck.value = false;
+    }
+}
 
 // ---- Upgrade tab state ----
 const updateInfo = ref<any>({});
@@ -259,6 +298,7 @@ function formatDate(iso: string) {
 }
 
 onMounted(() => {
+    loadAutoCheckSetting();
     loadUpdateInfo();
     loadReleases();
     loadBackups();
@@ -298,6 +338,34 @@ onMounted(() => {
                                 <VortButton v-if="updateInfo.update_available" type="primary" size="small"
                                     @click="startUpgradeOrRollback(updateInfo.latest_version)">
                                     <HardDriveDownload :size="12" class="mr-1" /> 升级
+                                </VortButton>
+                            </div>
+                        </div>
+
+                        <!-- Auto check update status -->
+                        <div class="flex items-center justify-between px-4 py-3 bg-gray-50 rounded-lg">
+                            <div>
+                                <div class="text-sm font-medium text-gray-700">自动检查更新</div>
+                                <div class="text-xs text-gray-400 mt-0.5">开启后系统会定期检查新版本，关闭可避免 GitHub API 频率限制</div>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <span
+                                    class="text-xs px-2 py-0.5 rounded-full font-medium"
+                                    :class="!autoCheckReady
+                                        ? 'bg-blue-100 text-blue-600'
+                                        : autoCheckUpdate
+                                            ? 'bg-green-100 text-green-700'
+                                            : 'bg-gray-200 text-gray-600'"
+                                >
+                                    {{ !autoCheckReady ? "加载中" : autoCheckUpdate ? "已开启" : "已关闭" }}
+                                </span>
+                                <VortButton
+                                    size="small"
+                                    :loading="savingAutoCheck"
+                                    :disabled="!autoCheckReady || savingAutoCheck"
+                                    @click="handleAutoCheckUpdate(!autoCheckUpdate)"
+                                >
+                                    {{ !autoCheckReady ? "请稍候" : autoCheckUpdate ? "关闭" : "开启" }}
                                 </VortButton>
                             </div>
                         </div>

@@ -46,6 +46,8 @@ interface Props {
     bodyNoPadding?: boolean;
     /** 内容区域背景色（仅 body 区域），默认白色 */
     contentBg?: string;
+    /** body 区域最大高度，超出后滚动 */
+    bodyMaxHeight?: string;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -63,7 +65,8 @@ const props = withDefaults(defineProps<Props>(), {
     footer: true,
     zIndex: 1000,
     bodyNoPadding: false,
-    contentBg: "#fff"
+    contentBg: "#fff",
+    bodyMaxHeight: undefined,
 });
 
 // 国际化
@@ -264,7 +267,7 @@ onUnmounted(() => {
                         </div>
 
                         <!-- 内容区 -->
-                        <div class="vort-dialog-body" :class="{ 'vort-dialog-body-no-padding': bodyNoPadding }" :style="{ background: contentBg }">
+                        <div class="vort-dialog-body" :class="{ 'vort-dialog-body-no-padding': bodyNoPadding }" :style="{ background: contentBg, maxHeight: bodyMaxHeight, overflowY: bodyMaxHeight ? 'auto' : undefined }">
                             <slot />
                         </div>
 

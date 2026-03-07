@@ -2,12 +2,12 @@
 import { ref, onMounted, computed } from "vue";
 import {
     getWebhooks, createWebhook, updateWebhook, deleteWebhook,
-    getWebhookPresets, installWebhookPreset,
+    getWebhookPresets, installWebhookPreset, getMembers,
 } from "@/api";
 import { message } from "@/components/vort";
 import {
     Plus, Webhook, ExternalLink, Zap, Check, ChevronDown, ChevronUp,
-    Globe, Github, Gitlab, Bot, BookOpen,
+    Globe, Github, Gitlab, Bot, BookOpen, Unlink,
 } from "lucide-vue-next";
 
 interface WebhookItem {
@@ -17,6 +17,14 @@ interface WebhookItem {
     prompt_template: string;
     channel: string;
     user_id: string;
+    member_id: string;
+}
+
+interface VirtualMember {
+    id: string;
+    name: string;
+    position: string;
+    virtual_role_name?: string;
 }
 
 interface PresetGuideStep {
@@ -44,20 +52,34 @@ interface PresetItem {
 const loading = ref(false);
 const list = ref<WebhookItem[]>([]);
 const presets = ref<PresetItem[]>([]);
+const virtualMembers = ref<VirtualMember[]>([]);
 const dialogOpen = ref(false);
 const editing = ref(false);
 const editingName = ref("");
 const saving = ref(false);
 const expandedPreset = ref<string | null>(null);
-const installingPreset = ref("");
+
+// Preset install dialog
+const installDialogOpen = ref(false);
+const installDialogPreset = ref<PresetItem | null>(null);
+const installForm = ref({ name: "", secret: "", member_id: "" });
+const installing = ref(false);
 
 const form = ref<WebhookItem>({
     name: "", secret: "", action_type: "agent_chat",
-    prompt_template: "", channel: "webhook", user_id: "webhook",
+    prompt_template: "", channel: "webhook", user_id: "webhook", member_id: "",
 });
 
 const featuredPresets = computed(() => presets.value.filter(p => p.featured));
 const otherPresets = computed(() => presets.value.filter(p => !p.featured));
+
+const memberMap = computed(() => {
+    const map: Record<string, VirtualMember> = {};
+    for (const m of virtualMembers.value) {
+        map[m.id] = m;
+    }
+    return map;
+});
 
 function getPresetIcon(icon: string) {
     const map: Record<string, any> = {
@@ -69,9 +91,15 @@ function getPresetIcon(icon: string) {
 async function loadData() {
     loading.value = true;
     try {
-        const [whRes, presetRes] = await Promise.all([getWebhooks(), getWebhookPresets()]);
+        const [whRes, presetRes, memberRes] = await Promise.all([
+            getWebhooks(),
+            getWebhookPresets(),
+            getMembers({ is_virtual: true, size: 200 }),
+        ]);
         list.value = Array.isArray(whRes) ? whRes : [];
         presets.value = Array.isArray(presetRes) ? presetRes : [];
+        const items = (memberRes as any)?.members || (memberRes as any)?.items || (memberRes as any)?.records || [];
+        virtualMembers.value = Array.isArray(items) ? items : [];
     } catch { /* ignore */ }
     finally { loading.value = false; }
 }
@@ -80,12 +108,25 @@ function togglePresetGuide(id: string) {
     expandedPreset.value = expandedPreset.value === id ? null : id;
 }
 
-async function handleInstallPreset(preset: PresetItem) {
-    installingPreset.value = preset.id;
+function openInstallDialog(preset: PresetItem) {
+    installDialogPreset.value = preset;
+    installForm.value = { name: preset.name, secret: "", member_id: "" };
+    installDialogOpen.value = true;
+}
+
+async function confirmInstallPreset() {
+    const preset = installDialogPreset.value;
+    if (!preset) return;
+    installing.value = true;
     try {
-        const res: any = await installWebhookPreset(preset.id);
+        const res: any = await installWebhookPreset(preset.id, {
+            secret: installForm.value.secret,
+            member_id: installForm.value.member_id,
+            name: installForm.value.name,
+        });
         if (res?.success) {
             message.success(`${preset.display_name} Webhook 已创建`);
+            installDialogOpen.value = false;
             await loadData();
         } else {
             message.error(res?.error || "安装失败");
@@ -93,21 +134,21 @@ async function handleInstallPreset(preset: PresetItem) {
     } catch {
         message.error("安装失败");
     } finally {
-        installingPreset.value = "";
+        installing.value = false;
     }
 }
 
 function handleAdd() {
     editing.value = false;
     editingName.value = "";
-    form.value = { name: "", secret: "", action_type: "agent_chat", prompt_template: "", channel: "webhook", user_id: "webhook" };
+    form.value = { name: "", secret: "", action_type: "agent_chat", prompt_template: "", channel: "webhook", user_id: "webhook", member_id: "" };
     dialogOpen.value = true;
 }
 
 function handleEdit(row: WebhookItem) {
     editing.value = true;
     editingName.value = row.name;
-    form.value = { ...row };
+    form.value = { ...row, member_id: row.member_id || "" };
     dialogOpen.value = true;
 }
 
@@ -173,8 +214,7 @@ onMounted(loadData);
                             class="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 transition-colors">
                             <ExternalLink :size="12" /> 项目主页
                         </a>
-                        <VortButton v-if="!preset.installed" variant="primary" @click="handleInstallPreset(preset)"
-                            :loading="installingPreset === preset.id">
+                        <VortButton v-if="!preset.installed" variant="primary" @click="openInstallDialog(preset)">
                             <Zap :size="14" class="mr-1" /> 启用集成
                         </VortButton>
                         <VortButton v-else variant="default" disabled>
@@ -226,8 +266,7 @@ onMounted(loadData);
                             <div class="text-xs text-gray-500">{{ preset.description.slice(0, 40) }}...</div>
                         </div>
                     </div>
-                    <VortButton v-if="!preset.installed" size="small" @click="handleInstallPreset(preset)"
-                        :loading="installingPreset === preset.id">
+                    <VortButton v-if="!preset.installed" size="small" @click="openInstallDialog(preset)">
                         启用
                     </VortButton>
                     <VortTag v-else color="green" class="text-xs">已启用</VortTag>
@@ -263,6 +302,17 @@ onMounted(loadData);
                         <VortTag :color="row.action_type === 'openclaw_bridge' ? 'purple' : row.action_type === 'agent_chat' ? 'blue' : 'green'">
                             {{ row.action_type === 'openclaw_bridge' ? 'OpenClaw 桥接' : row.action_type === 'agent_chat' ? 'Agent 对话' : '通知' }}
                         </VortTag>
+                    </template>
+                </VortTableColumn>
+                <VortTableColumn label="绑定员工" :width="150">
+                    <template #default="{ row }">
+                        <div v-if="row.member_id && memberMap[row.member_id]" class="flex items-center gap-1.5">
+                            <Bot :size="14" class="text-purple-500" />
+                            <span class="text-sm">{{ memberMap[row.member_id].name }}</span>
+                        </div>
+                        <span v-else class="text-xs text-gray-400 flex items-center gap-1">
+                            <Unlink :size="12" /> 未绑定
+                        </span>
                     </template>
                 </VortTableColumn>
                 <VortTableColumn label="签名密钥" :width="100">
@@ -308,6 +358,14 @@ onMounted(loadData);
                 <VortFormItem label="签名密钥">
                     <VortInputPassword v-model="form.secret" placeholder="留空则不验证签名" />
                 </VortFormItem>
+                <VortFormItem v-if="form.action_type !== 'notify'" label="绑定 AI 员工">
+                    <VortSelect v-model="form.member_id" placeholder="不绑定（使用默认 Agent）" allow-clear class="w-full">
+                        <VortSelectOption v-for="m in virtualMembers" :key="m.id" :value="m.id">
+                            {{ m.name }}{{ m.position ? ` · ${m.position}` : (m.virtual_role_name ? ` · ${m.virtual_role_name}` : '') }}
+                        </VortSelectOption>
+                    </VortSelect>
+                    <p class="text-xs text-gray-400 mt-1">绑定后，此 Webhook 收到的消息将由该 AI 员工的身份和技能响应</p>
+                </VortFormItem>
                 <VortFormItem label="目标通道">
                     <VortInput v-model="form.channel" placeholder="webhook" />
                 </VortFormItem>
@@ -321,6 +379,33 @@ onMounted(loadData);
             <template #footer>
                 <VortButton @click="dialogOpen = false">取消</VortButton>
                 <VortButton variant="primary" :loading="saving" @click="handleSave" class="ml-3">确定</VortButton>
+            </template>
+        </VortDialog>
+
+        <!-- 预置模板安装配置弹窗 -->
+        <VortDialog :open="installDialogOpen" :title="`配置 ${installDialogPreset?.display_name || ''} 集成`" @update:open="installDialogOpen = $event">
+            <VortForm label-width="110px" class="mt-2">
+                <VortFormItem label="Webhook 名称" required>
+                    <VortInput v-model="installForm.name" placeholder="openclaw" />
+                    <p class="text-xs text-gray-400 mt-1">
+                        调用地址：<code class="bg-gray-100 px-1 py-0.5 rounded">POST /api/webhooks/{{ installForm.name || '...' }}</code>
+                    </p>
+                </VortFormItem>
+                <VortFormItem label="签名密钥">
+                    <VortInputPassword v-model="installForm.secret" placeholder="与外部平台的 token 保持一致" />
+                </VortFormItem>
+                <VortFormItem label="绑定 AI 员工">
+                    <VortSelect v-model="installForm.member_id" placeholder="选择 AI 员工（可选）" allow-clear class="w-full">
+                        <VortSelectOption v-for="m in virtualMembers" :key="m.id" :value="m.id">
+                            {{ m.name }}{{ m.position ? ` · ${m.position}` : (m.virtual_role_name ? ` · ${m.virtual_role_name}` : '') }}
+                        </VortSelectOption>
+                    </VortSelect>
+                    <p class="text-xs text-gray-400 mt-1">该员工将作为 AI 身份响应来自外部平台的所有消息</p>
+                </VortFormItem>
+            </VortForm>
+            <template #footer>
+                <VortButton @click="installDialogOpen = false">取消</VortButton>
+                <VortButton variant="primary" :loading="installing" @click="confirmInstallPreset" class="ml-3">启用</VortButton>
             </template>
         </VortDialog>
     </div>

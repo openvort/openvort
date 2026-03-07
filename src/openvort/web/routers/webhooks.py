@@ -18,6 +18,7 @@ class WebhookItem(BaseModel):
     prompt_template: str = ""
     channel: str = "webhook"
     user_id: str = "webhook"
+    member_id: str = ""
 
 
 @router.get("")
@@ -31,6 +32,7 @@ async def list_webhooks():
             "prompt_template": w.prompt_template,
             "channel": w.channel,
             "user_id": w.user_id,
+            "member_id": w.member_id,
         }
         for w in _webhooks.values()
     ]
@@ -63,25 +65,33 @@ async def get_preset_detail(preset_id: str):
     }
 
 
+class PresetInstallRequest(BaseModel):
+    secret: str = ""
+    member_id: str = ""
+    name: str = ""
+
+
 @router.post("/presets/{preset_id}/install")
-async def install_preset(preset_id: str, secret: str = ""):
-    """一键安装预置模板 Webhook"""
+async def install_preset(preset_id: str, req: PresetInstallRequest | None = None):
+    """安装预置模板 Webhook（可选绑定 AI 员工）"""
     preset = get_preset(preset_id)
     if not preset:
         return {"success": False, "error": f"预置模板 '{preset_id}' 不存在"}
 
-    name = preset["name"]
+    body = req or PresetInstallRequest()
+    name = body.name.strip() if body.name else preset["name"]
     if name in _webhooks:
         return {"success": False, "error": f"Webhook '{name}' 已存在"}
 
     cfg = preset["config"]
     config = WebhookConfig(
         name=name,
-        secret=secret,
+        secret=body.secret,
         action_type=cfg.get("action_type", "agent_chat"),
         prompt_template=cfg.get("prompt_template", ""),
         channel=cfg.get("channel", "webhook"),
         user_id=cfg.get("user_id", "webhook"),
+        member_id=body.member_id,
     )
     register_webhook(config)
     return {"success": True, "name": name}
@@ -94,7 +104,8 @@ async def create_webhook(req: WebhookItem):
         return {"success": False, "error": f"Webhook '{req.name}' 已存在"}
     config = WebhookConfig(
         name=req.name, secret=req.secret, action_type=req.action_type,
-        prompt_template=req.prompt_template, channel=req.channel, user_id=req.user_id,
+        prompt_template=req.prompt_template, channel=req.channel,
+        user_id=req.user_id, member_id=req.member_id,
     )
     register_webhook(config)
     return {"success": True}
@@ -107,7 +118,8 @@ async def update_webhook(name: str, req: WebhookItem):
         return {"success": False, "error": f"Webhook '{name}' 不存在"}
     config = WebhookConfig(
         name=req.name, secret=req.secret, action_type=req.action_type,
-        prompt_template=req.prompt_template, channel=req.channel, user_id=req.user_id,
+        prompt_template=req.prompt_template, channel=req.channel,
+        user_id=req.user_id, member_id=req.member_id,
     )
     if name != req.name:
         _webhooks.pop(name, None)

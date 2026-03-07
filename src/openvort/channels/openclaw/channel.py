@@ -119,11 +119,18 @@ class OpenClawChannel(BaseChannel):
 
     # ---- Webhook callback handler (inbound) ----
 
-    async def handle_callback(self, body: dict, headers: dict | None = None) -> str | None:
+    async def handle_callback(
+        self, body: dict, headers: dict | None = None, *, member_id: str = "",
+    ) -> str | None:
         """Handle inbound webhook from OpenClaw.
 
         OpenClaw can forward messages to OpenVort by calling:
           POST /api/webhooks/openclaw
+
+        Args:
+            body: parsed JSON payload
+            headers: HTTP headers (optional)
+            member_id: bound AI virtual member ID for persona injection
         """
         msg_text = body.get("message", "") or body.get("text", "")
         sender = body.get("from", "") or body.get("sender", "") or "openclaw-user"
@@ -132,12 +139,16 @@ class OpenClawChannel(BaseChannel):
         if not msg_text:
             return None
 
+        raw = dict(body)
+        if member_id:
+            raw["_bound_member_id"] = member_id
+
         msg = Message(
             content=msg_text,
             sender_id=sender,
             channel="openclaw",
             msg_type="text",
-            raw=body,
+            raw=raw,
         )
 
         if self._handler:

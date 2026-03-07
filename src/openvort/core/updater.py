@@ -5,6 +5,7 @@ System update service — version check, database backup, pip upgrade, frontend 
 import asyncio
 import json
 import os
+import platform
 import re
 import shutil
 import sys
@@ -143,6 +144,8 @@ class UpdateService:
 
     async def backup_database(self) -> dict:
         """Run pg_dump and return backup file info."""
+        _require_pg_tool("pg_dump")
+
         db = self._parse_db_url()
         ts = time.strftime("%Y%m%d_%H%M%S")
         filename = f"openvort_{ts}.sql"
@@ -212,6 +215,12 @@ class UpdateService:
 
     async def restore_database(self, filename: str):
         """Async generator yielding SSE events during database restore."""
+        try:
+            _require_pg_tool("psql")
+        except RuntimeError as e:
+            yield _sse("error", str(e))
+            return
+
         filepath = self.get_backup_path(filename)
         if not filepath:
             yield _sse("error", f"备份文件不存在: {filename}")
@@ -439,6 +448,20 @@ class UpdateService:
 # ------------------------------------------------------------------ #
 #  Helpers
 # ------------------------------------------------------------------ #
+
+def _require_pg_tool(name: str) -> None:
+    """Raise RuntimeError with install instructions if *name* is not on PATH."""
+    if shutil.which(name):
+        return
+    system = platform.system()
+    if system == "Darwin":
+        hint = f"请安装 PostgreSQL 客户端工具: brew install libpq && brew link --force libpq"
+    elif system == "Linux":
+        hint = f"请安装 PostgreSQL 客户端工具: apt-get install -y postgresql-client"
+    else:
+        hint = f"请安装 PostgreSQL 客户端工具以获取 {name} 命令"
+    raise RuntimeError(f"未找到 {name} 命令。{hint}")
+
 
 def _normalize_version(v: str) -> str:
     """Strip leading 'v' and whitespace."""

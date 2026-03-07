@@ -25,6 +25,11 @@ class CreateTextDocRequest(BaseModel):
     file_type: str = "qa"
 
 
+class UpdateDocRequest(BaseModel):
+    title: str | None = None
+    content: str | None = None
+
+
 class SearchRequest(BaseModel):
     query: str
     top_k: int = 5
@@ -65,6 +70,15 @@ async def _process_document(doc_id: str) -> None:
         try:
             doc.status = "processing"
             await session.commit()
+
+            # Clear existing chunks before re-processing
+            try:
+                await session.execute(
+                    delete(KBChunk).where(KBChunk.document_id == doc_id)
+                )
+                await session.commit()
+            except Exception:
+                pass
 
             # Parse content if file was uploaded (content stored at upload time)
             text = doc.content
@@ -282,6 +296,34 @@ async def get_document(doc_id: str):
             "created_at": doc.created_at.isoformat() if doc.created_at else "",
             "updated_at": doc.updated_at.isoformat() if doc.updated_at else "",
         }
+
+
+@router.put("/documents/{doc_id}")
+async def update_document(doc_id: str, body: UpdateDocRequest):
+    """Update document title and/or content."""
+    from openvort.plugins.knowledge.models import KBDocument
+
+    sf = _get_session_factory()
+    async with sf() as session:
+        doc = await session.get(KBDocument, doc_id)
+        if not doc:
+            raise HTTPException(status_code=404, detail="文档不存在")
+
+        changed_content = False
+        if body.title is not None:
+            doc.title = body.title
+        if body.content is not None:
+            doc.content = body.content
+            doc.file_size = len(body.content.encode("utf-8"))
+            changed_content = True
+
+        await session.commit()
+
+        if changed_content:
+            asyncio.create_task(_process_document(doc_id))
+            return {"ok": True, "reindexing": True}
+
+        return {"ok": True, "reindexing": False}
 
 
 @router.delete("/documents/{doc_id}")

@@ -36,6 +36,7 @@ class WebhookConfig:
     prompt_template: str = ""  # prompt 模板，支持 {event} {payload} 占位符
     channel: str = "webhook"  # 目标通道
     user_id: str = "webhook"  # 目标用户
+    member_id: str = ""  # bind to a specific AI virtual member (optional)
 
 
 # 全局 webhook 配置和 agent 引用
@@ -284,6 +285,30 @@ _parsers = {
 }
 
 
+# ============ Member Resolution ============
+
+def _resolve_member_id(config: WebhookConfig, body: dict) -> str:
+    """Resolve the bound member ID.  Priority: payload > config."""
+    return body.get("member_id", "") or config.member_id
+
+
+async def _load_member(member_id: str):
+    """Load a Member from DB by ID.  Returns None on any failure."""
+    if not member_id:
+        return None
+    try:
+        from openvort.web.deps import get_db_session_factory
+        from openvort.contacts.models import Member
+        session_factory = get_db_session_factory()
+        if not session_factory:
+            return None
+        async with session_factory() as db:
+            return await db.get(Member, member_id)
+    except Exception as e:
+        log.warning(f"加载 Webhook 绑定成员失败 (member_id={member_id}): {e}")
+        return None
+
+
 # ============ Webhook Handler ============
 
 @webhooks_router.post("/{webhook_name}")
@@ -318,6 +343,9 @@ async def handle_webhook(webhook_name: str, request: Request):
 
     log.info(f"Webhook [{webhook_name}]: {event_info.get('summary', '')[:100]}")
 
+    # Resolve bound member (payload.member_id > config.member_id)
+    member_id = _resolve_member_id(config, body if isinstance(body, dict) else {})
+
     # ---- OpenClaw bridge: forward to OpenClaw Channel ----
     if config.action_type == "openclaw_bridge":
         try:
@@ -325,7 +353,7 @@ async def handle_webhook(webhook_name: str, request: Request):
             registry = get_registry()
             oc_channel = registry.get_channel("openclaw")
             if oc_channel and hasattr(oc_channel, "handle_callback"):
-                reply = await oc_channel.handle_callback(body, headers)
+                reply = await oc_channel.handle_callback(body, headers, member_id=member_id)
                 if reply:
                     from openvort.plugin.base import Message as Msg
                     await oc_channel.send(
@@ -354,8 +382,11 @@ async def handle_webhook(webhook_name: str, request: Request):
     if config.action_type == "agent_chat" and _agent:
         try:
             from openvort.core.context import RequestContext
+            member = await _load_member(member_id)
             ctx = RequestContext(
-                channel=config.channel, user_id=config.user_id, permissions={"*"}
+                channel=config.channel, user_id=config.user_id, permissions={"*"},
+                member=member,
+                target_member_id=member_id,
             )
             reply = await _agent.process(ctx, prompt)
             return {"ok": True, "reply": reply[:500]}

@@ -1269,7 +1269,7 @@ function selectHashTagItem(item: HashTagItem) {
 
     const before = inputText.value.substring(0, hashTagStartPos);
     const after = inputText.value.substring(textarea.selectionStart);
-    const tag = `#${item.category}/${item.id} `;
+    const tag = `#${item.category}/${item.title}#id:${item.id} `;
     inputText.value = before + tag + after;
     closeAllPanels();
 
@@ -1881,11 +1881,11 @@ onUnmounted(() => {
                                             @click="selectHashTagItem(item)"
                                             @mouseenter="hashTagActiveIndex = i">
                                             <div class="min-w-0 flex-1">
-                                                <div class="text-sm text-gray-800 truncate">
-                                                    <span class="text-gray-400 font-mono text-xs mr-1.5">#{{ item.id }}</span>
-                                                    {{ item.title }}
+                                                <div class="text-sm text-gray-800 truncate">{{ item.title }}</div>
+                                                <div class="flex items-center gap-2 mt-0.5">
+                                                    <span class="text-gray-400 font-mono text-xs truncate max-w-[180px]">#{{ item.id }}</span>
+                                                    <span v-if="item.state" class="text-xs text-gray-400">{{ item.state }}</span>
                                                 </div>
-                                                <div v-if="item.state" class="text-xs text-gray-400 mt-0.5">{{ item.state }}</div>
                                             </div>
                                         </div>
                                     </div>

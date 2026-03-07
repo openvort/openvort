@@ -37,25 +37,25 @@ async function handleRestart() {
             </div>
 
             <VortTabs v-model:activeKey="activeTab">
-                <VortTabPane tab-key="models" tab="模型库">
+                <VortTabPane tab-key="models" tab="模型管理">
                     <div class="mt-4">
                         <ModelLibrary />
                     </div>
                 </VortTabPane>
 
-                <VortTabPane tab-key="chat" tab="对话模型">
+                <VortTabPane tab-key="chat" tab="LLM 对话">
                     <div class="mt-4">
                         <ChatModel />
                     </div>
                 </VortTabPane>
 
-                <VortTabPane tab-key="coding" tab="编码工具">
+                <VortTabPane tab-key="coding" tab="Coding CLI">
                     <div class="mt-4">
                         <CodingTools />
                     </div>
                 </VortTabPane>
 
-                <VortTabPane tab-key="voice" tab="语音服务">
+                <VortTabPane tab-key="voice" tab="语音识别">
                     <div class="mt-4">
                         <VoiceProviders />
                     </div>

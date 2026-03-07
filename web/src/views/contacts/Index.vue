@@ -13,12 +13,13 @@ import {
     updateDepartment, deleteDepartment, addDepartmentMember,
     removeDepartmentMember, getChannels,
     getOrgCalendar, createOrgCalendarEntry, deleteOrgCalendarEntry, syncHolidays, getWorkSettings, updateWorkSettings,
+    getWebhooks,
 } from "@/api";
 import {
     RefreshCw, Search, Shield, UserCheck, UserX, Key,
     AlertTriangle, Check, X, Link, Unlink, Lock, Trash2,
     ChevronDown, FolderTree, Plus, Pencil, UserPlus,
-    Download, Calendar, CloudDownload,
+    Download, Calendar, CloudDownload, Webhook, User, IdCard,
 } from "lucide-vue-next";
 import { message, dialog } from "@/components/vort";
 import { DeptTree } from "@/components/vort-biz/dept-tree";
@@ -147,6 +148,7 @@ const drawerLoading = ref(false);
 const currentMember = ref<MemberDetail | null>(null);
 const editForm = ref({ name: "", email: "", phone: "", position: "" });
 const savingEdit = ref(false);
+const memberBoundWebhooks = ref<{ name: string; action_type: string }[]>([]);
 
 // 角色分配弹窗
 const roleDialogOpen = ref(false);
@@ -384,6 +386,7 @@ async function handleReject(id: number) {
 async function openMemberDrawer(memberId: string) {
     drawerOpen.value = true;
     drawerLoading.value = true;
+    memberBoundWebhooks.value = [];
     try {
         const res: any = await getMember(memberId);
         currentMember.value = res;
@@ -393,6 +396,13 @@ async function openMemberDrawer(memberId: string) {
             phone: res.phone || "",
             position: res.position || "",
         };
+        if (res.is_virtual) {
+            try {
+                const whRes: any = await getWebhooks();
+                const all = Array.isArray(whRes) ? whRes : [];
+                memberBoundWebhooks.value = all.filter((w: any) => w.member_id === memberId);
+            } catch { /* ignore */ }
+        }
     } catch { message.error("加载失败"); }
     finally { drawerLoading.value = false; }
 }
@@ -1044,6 +1054,16 @@ function getAvatarColor(name: string): string {
 
 const ROLE_MEMBER_DISPLAY_LIMIT = 10;
 
+const PLATFORM_LABELS: Record<string, string> = {
+    wecom: "企业微信",
+    dingtalk: "钉钉",
+    feishu: "飞书",
+    zentao: "禅道",
+    gitee: "Gitee",
+    web: "Web",
+};
+const platformLabel = (key: string) => PLATFORM_LABELS[key] || key;
+
 // 角色显示名（优先后端配置，其次内置映射，最后回退英文标识）
 const BUILTIN_ROLE_LABELS: Record<string, string> = {
     admin: "管理员",
@@ -1218,15 +1238,16 @@ onMounted(() => {
                             </div>
 
                             <!-- 搜索 + 筛选 -->
-                            <div class="flex flex-wrap items-center gap-2 mb-4">
-                                <VortInputSearch
-                                    v-model="searchText"
-                                    placeholder="搜索姓名、邮箱、手机"
-                                    style="width: 224px"
-                                    allow-clear
-                                    @search="handleSearch"
-                                    @press-enter="handleSearch"
-                                />
+                            <div class="flex flex-wrap items-center gap-3 mb-4">
+                                <div class="w-66">
+                                    <VortInputSearch
+                                        v-model="searchText"
+                                        placeholder="搜索姓名、邮箱、手机"
+                                        allow-clear
+                                        @search="handleSearch"
+                                        @press-enter="handleSearch"
+                                    />
+                                </div>
                                 <VortSelect
                                     v-model="filterRole"
                                     placeholder="全部角色"
@@ -1307,11 +1328,11 @@ onMounted(() => {
                                 </VortTableColumn>
                                 <VortTableColumn label="平台绑定" :width="160">
                                     <template #default="{ row }">
-                                        <template v-if="row.platform_accounts && Object.keys(row.platform_accounts).length">
-                                            <VortTag v-for="(_account, platform) in row.platform_accounts" :key="platform" color="blue" class="mr-1" :bordered="false">
-                                                <Link :size="12" class="mr-1 inline" /> {{ platform }}
+                                        <div v-if="row.platform_accounts && Object.keys(row.platform_accounts).length" class="flex flex-wrap gap-1">
+                                            <VortTag v-for="(_account, platform) in row.platform_accounts" :key="platform" color="blue" :bordered="false">
+                                                <Link :size="12" class="mr-1 inline" /> {{ platformLabel(platform as string) }}
                                             </VortTag>
-                                        </template>
+                                        </div>
                                         <span v-else class="text-gray-400 text-sm">-</span>
                                     </template>
                                 </VortTableColumn>
@@ -1614,118 +1635,172 @@ onMounted(() => {
                 <div class="flex items-center justify-center py-16 text-gray-400">加载中...</div>
             </template>
             <template v-else-if="currentMember">
-                <div class="space-y-6">
+                <div class="space-y-4">
                     <!-- 基本信息编辑 -->
-                    <div>
-                        <h4 class="text-sm font-medium text-gray-600 mb-3">基本信息</h4>
-                        <VortForm label-width="60px">
-                            <VortFormItem label="姓名">
-                                <VortInput v-model="editForm.name" placeholder="请输入姓名" />
-                            </VortFormItem>
-                            <VortFormItem label="邮箱">
-                                <VortInput v-model="editForm.email" placeholder="请输入邮箱" />
-                            </VortFormItem>
-                            <VortFormItem label="手机">
-                                <VortInput v-model="editForm.phone" placeholder="请输入手机号" />
-                            </VortFormItem>
-                            <VortFormItem label="职位">
-                                <VortInput v-model="editForm.position" placeholder="留空则自动从平台身份获取" />
-                            </VortFormItem>
-                            <VortFormItem>
-                                <VortButton variant="primary" size="small" :loading="savingEdit" @click="handleSaveEdit">保存</VortButton>
-                            </VortFormItem>
-                        </VortForm>
+                    <div class="rounded-lg border border-gray-100 bg-white">
+                        <div class="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50/60 rounded-t-lg">
+                            <User :size="15" class="text-gray-400" />
+                            <h4 class="text-sm font-semibold text-gray-700">基本信息</h4>
+                        </div>
+                        <div class="px-4 py-4">
+                            <VortForm label-width="60px">
+                                <VortFormItem label="姓名">
+                                    <VortInput v-model="editForm.name" placeholder="请输入姓名" />
+                                </VortFormItem>
+                                <VortFormItem label="邮箱">
+                                    <VortInput v-model="editForm.email" placeholder="请输入邮箱" />
+                                </VortFormItem>
+                                <VortFormItem label="手机">
+                                    <VortInput v-model="editForm.phone" placeholder="请输入手机号" />
+                                </VortFormItem>
+                                <VortFormItem label="职位">
+                                    <VortInput v-model="editForm.position" placeholder="留空则自动从平台身份获取" />
+                                </VortFormItem>
+                                <VortFormItem>
+                                    <VortButton variant="primary" size="small" :loading="savingEdit" @click="handleSaveEdit">保存</VortButton>
+                                </VortFormItem>
+                            </VortForm>
+                        </div>
                     </div>
 
                     <!-- 部门 -->
-                    <div>
-                        <h4 class="text-sm font-medium text-gray-600 mb-3">部门</h4>
-                        <div class="flex flex-wrap gap-2">
-                            <VortTag
-                                v-for="dept in currentMember.departments" :key="dept.id"
-                                closable
-                                @close="handleRemoveDeptFromMember(dept.id)"
-                            >
-                                <FolderTree :size="12" class="mr-1" /> {{ dept.name }}
-                            </VortTag>
-                            <span v-if="!currentMember.departments?.length" class="text-gray-400 text-sm">无部门</span>
-                        </div>
-                        <div class="mt-2">
+                    <div class="rounded-lg border border-gray-100 bg-white">
+                        <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50/60 rounded-t-lg">
+                            <div class="flex items-center gap-2">
+                                <FolderTree :size="15" class="text-gray-400" />
+                                <h4 class="text-sm font-semibold text-gray-700">部门</h4>
+                            </div>
                             <VortButton size="small" @click="drawerDeptDialogOpen = true">
-                                <Plus :size="12" class="mr-1" /> 添加到部门
+                                <Plus :size="12" class="mr-1" /> 添加
                             </VortButton>
+                        </div>
+                        <div class="px-4 py-3">
+                            <div class="flex flex-wrap gap-2">
+                                <VortTag
+                                    v-for="dept in currentMember.departments" :key="dept.id"
+                                    closable
+                                    @close="handleRemoveDeptFromMember(dept.id)"
+                                >
+                                    {{ dept.name }}
+                                </VortTag>
+                                <span v-if="!currentMember.departments?.length" class="text-gray-400 text-sm py-0.5">暂未分配部门</span>
+                            </div>
                         </div>
                     </div>
 
                     <!-- 角色 -->
-                    <div>
-                        <h4 class="text-sm font-medium text-gray-600 mb-3">角色</h4>
-                        <div class="flex flex-wrap gap-2">
-                            <VortTag
-                                v-for="role in currentMember.roles" :key="role"
-                                :bordered="false"
-                                :color="role === 'admin' ? 'red' : role === 'manager' ? 'orange' : 'default'"
-                                closable
-                                @close="handleRemoveRole(currentMember!.id, role)"
-                            >
-                                {{ roleLabel(role) }}
-                            </VortTag>
-                            <span v-if="!currentMember.roles.length" class="text-gray-400 text-sm">无角色</span>
+                    <div class="rounded-lg border border-gray-100 bg-white">
+                        <div class="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50/60 rounded-t-lg">
+                            <Shield :size="15" class="text-gray-400" />
+                            <h4 class="text-sm font-semibold text-gray-700">角色</h4>
                         </div>
-                        <div class="mt-2 flex flex-wrap gap-1">
-                            <VortButton
-                                v-for="r in roles.filter(r => !currentMember!.roles.includes(r.name))"
-                                :key="r.name"
-                                size="small"
-                                @click="handleAssignRole(currentMember!.id, r.name)"
-                            >
-                                + {{ r.display_name }}
-                            </VortButton>
+                        <div class="px-4 py-3">
+                            <div class="flex flex-wrap gap-2">
+                                <VortTag
+                                    v-for="role in currentMember.roles" :key="role"
+                                    :bordered="false"
+                                    :color="role === 'admin' ? 'red' : role === 'manager' ? 'orange' : 'default'"
+                                    closable
+                                    @close="handleRemoveRole(currentMember!.id, role)"
+                                >
+                                    {{ roleLabel(role) }}
+                                </VortTag>
+                                <span v-if="!currentMember.roles.length" class="text-gray-400 text-sm py-0.5">暂无角色</span>
+                            </div>
+                            <div v-if="roles.filter(r => !currentMember!.roles.includes(r.name)).length" class="mt-3 pt-3 border-t border-gray-100">
+                                <div class="flex flex-wrap gap-1">
+                                    <VortButton
+                                        v-for="r in roles.filter(r => !currentMember!.roles.includes(r.name))"
+                                        :key="r.name"
+                                        size="small"
+                                        @click="handleAssignRole(currentMember!.id, r.name)"
+                                    >
+                                        + {{ r.display_name }}
+                                    </VortButton>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
                     <!-- 账号操作 -->
-                    <div>
-                        <h4 class="text-sm font-medium text-gray-600 mb-3">账号</h4>
-                        <div class="flex items-center gap-3">
-                            <VortTag v-if="currentMember.is_account" color="green" :bordered="false">
-                                <UserCheck :size="12" class="mr-1" /> 可登录
-                            </VortTag>
-                            <VortTag v-else :bordered="false">
-                                <UserX :size="12" class="mr-1" /> 纯联系人
-                            </VortTag>
-                            <VortButton size="small" @click="handleToggleAccount(currentMember as any)">
-                                {{ currentMember.is_account ? '禁用登录' : '启用登录' }}
-                            </VortButton>
-                            <VortButton v-if="currentMember.is_account" size="small" @click="handleResetPassword(currentMember.id)">
-                                <Key :size="12" class="mr-1" /> 重置密码
-                            </VortButton>
+                    <div class="rounded-lg border border-gray-100 bg-white">
+                        <div class="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50/60 rounded-t-lg">
+                            <Key :size="15" class="text-gray-400" />
+                            <h4 class="text-sm font-semibold text-gray-700">账号</h4>
                         </div>
-                        <div v-if="currentMember.is_account" class="mt-2 text-xs text-gray-400">
-                            <Lock :size="12" class="inline mr-1" />
-                            {{ currentMember.has_password ? '已设置独立密码' : '使用默认密码' }}
+                        <div class="px-4 py-3">
+                            <div class="flex items-center gap-3">
+                                <VortTag v-if="currentMember.is_account" color="green" :bordered="false">
+                                    <UserCheck :size="12" class="mr-1" /> 可登录
+                                </VortTag>
+                                <VortTag v-else :bordered="false">
+                                    <UserX :size="12" class="mr-1" /> 纯联系人
+                                </VortTag>
+                                <VortButton size="small" @click="handleToggleAccount(currentMember as any)">
+                                    {{ currentMember.is_account ? '禁用登录' : '启用登录' }}
+                                </VortButton>
+                                <VortButton v-if="currentMember.is_account" size="small" @click="handleResetPassword(currentMember.id)">
+                                    <Key :size="12" class="mr-1" /> 重置密码
+                                </VortButton>
+                            </div>
+                            <div v-if="currentMember.is_account" class="mt-2 text-xs text-gray-400">
+                                <Lock :size="12" class="inline mr-1" />
+                                {{ currentMember.has_password ? '已设置独立密码' : '使用默认密码' }}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 外部连接（仅虚拟员工） -->
+                    <div v-if="currentMember.is_virtual" class="rounded-lg border border-gray-100 bg-white">
+                        <div class="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50/60 rounded-t-lg">
+                            <Webhook :size="15" class="text-gray-400" />
+                            <h4 class="text-sm font-semibold text-gray-700">外部连接</h4>
+                        </div>
+                        <div class="px-4 py-3">
+                            <div v-if="memberBoundWebhooks.length" class="space-y-2">
+                                <div v-for="wh in memberBoundWebhooks" :key="wh.name"
+                                    class="flex items-center justify-between p-3 rounded-lg bg-gray-50 border border-gray-100">
+                                    <div class="flex items-center gap-2">
+                                        <Webhook :size="14" class="text-indigo-500" />
+                                        <span class="text-sm font-medium">{{ wh.name }}</span>
+                                        <VortTag size="small" :color="wh.action_type === 'openclaw_bridge' ? 'purple' : 'blue'">
+                                            {{ wh.action_type === 'openclaw_bridge' ? 'OpenClaw' : 'Webhook' }}
+                                        </VortTag>
+                                    </div>
+                                    <code class="text-xs text-gray-400">POST /api/webhooks/{{ wh.name }}</code>
+                                </div>
+                            </div>
+                            <div v-else class="text-sm text-gray-400 flex items-center gap-2 py-0.5">
+                                <Unlink :size="14" /> 暂无外部连接
+                                <router-link to="/webhooks" class="text-blue-600 hover:underline ml-1">前往配置</router-link>
+                            </div>
                         </div>
                     </div>
 
                     <!-- 平台身份 -->
-                    <div>
-                        <h4 class="text-sm font-medium text-gray-600 mb-3">平台身份</h4>
-                        <div v-if="currentMember.identities.length" class="space-y-2">
-                            <div v-for="ident in currentMember.identities" :key="ident.id"
-                                class="bg-gray-50 rounded-lg px-4 py-3 text-sm">
-                                <div class="flex items-center gap-2 mb-1">
-                                    <VortTag color="blue" size="small" :bordered="false">{{ ident.platform }}</VortTag>
-                                    <span class="font-medium">{{ ident.platform_display_name || ident.platform_username }}</span>
-                                </div>
-                                <div class="text-xs text-gray-400 space-y-0.5">
-                                    <div v-if="ident.platform_user_id">ID: {{ ident.platform_user_id }}</div>
-                                    <div v-if="ident.platform_email">邮箱: {{ ident.platform_email }}</div>
-                                    <div v-if="ident.platform_position">职位: {{ ident.platform_position }}</div>
-                                    <div v-if="ident.platform_department">部门: {{ ident.platform_department }}</div>
+                    <div class="rounded-lg border border-gray-100 bg-white">
+                        <div class="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50/60 rounded-t-lg">
+                            <IdCard :size="15" class="text-gray-400" />
+                            <h4 class="text-sm font-semibold text-gray-700">平台身份</h4>
+                        </div>
+                        <div class="px-4 py-3">
+                            <div v-if="currentMember.identities.length" class="space-y-2">
+                                <div v-for="ident in currentMember.identities" :key="ident.id"
+                                    class="bg-gray-50 rounded-lg px-4 py-3 text-sm">
+                                    <div class="flex items-center gap-2 mb-1">
+                                        <VortTag color="blue" size="small" :bordered="false">{{ platformLabel(ident.platform) }}</VortTag>
+                                        <span class="font-medium">{{ ident.platform_display_name || ident.platform_username }}</span>
+                                    </div>
+                                    <div class="text-xs text-gray-400 space-y-0.5">
+                                        <div v-if="ident.platform_user_id">ID: {{ ident.platform_user_id }}</div>
+                                        <div v-if="ident.platform_email">邮箱: {{ ident.platform_email }}</div>
+                                        <div v-if="ident.platform_position">职位: {{ ident.platform_position }}</div>
+                                        <div v-if="ident.platform_department">部门: {{ ident.platform_department }}</div>
+                                    </div>
                                 </div>
                             </div>
+                            <span v-else class="text-gray-400 text-sm">未绑定任何平台</span>
                         </div>
-                        <span v-else class="text-gray-400 text-sm">未绑定任何平台</span>
                     </div>
                 </div>
             </template>
