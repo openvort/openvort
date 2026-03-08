@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, computed } from "vue";
+import { ref, watch, computed, onMounted } from "vue";
 import { ChevronDown, Plus, Loader2, Pencil, Trash2, ListChecks, MoreHorizontal, Search } from "lucide-vue-next";
 import { Popover as VortPopover } from "@/components/vort";
 import {
@@ -7,6 +7,8 @@ import {
 } from "@/api";
 import { message, dialog } from "@/components/vort";
 import type { ChatSession } from "./types";
+
+const PAGE_SIZE = 20;
 
 const props = defineProps<{
     currentSessionId: string;
@@ -21,15 +23,20 @@ const emit = defineEmits<{
 
 const sessions = ref<ChatSession[]>([]);
 const sessionsLoading = ref(false);
+const loadingMore = ref(false);
+const total = ref(0);
 const dropdownOpen = ref(false);
 const searchKeyword = ref("");
 const drawerVisible = ref(false);
+const listRef = ref<HTMLElement | null>(null);
 
 // Batch mode state (for drawer)
 const batchMode = ref(false);
 const selectedSessionIds = ref<string[]>([]);
 const renamingSessionId = ref("");
 const renameText = ref("");
+
+const hasMore = computed(() => sessions.value.length < total.value);
 
 const filteredSessions = computed(() => {
     if (!searchKeyword.value.trim()) return sessions.value;
@@ -44,13 +51,35 @@ const allSelected = computed(() =>
 async function loadSessions() {
     sessionsLoading.value = true;
     try {
-        const res: any = await getChatSessions("ai");
+        const res: any = await getChatSessions("ai", PAGE_SIZE, 0);
         sessions.value = res?.sessions || [];
+        total.value = res?.total ?? sessions.value.length;
         emit("sessions-loaded", sessions.value);
     } catch {
         sessions.value = [];
+        total.value = 0;
     } finally {
         sessionsLoading.value = false;
+    }
+}
+
+async function loadMore() {
+    if (loadingMore.value || !hasMore.value) return;
+    loadingMore.value = true;
+    try {
+        const res: any = await getChatSessions("ai", PAGE_SIZE, sessions.value.length);
+        const more = res?.sessions || [];
+        if (more.length) sessions.value.push(...more);
+        total.value = res?.total ?? total.value;
+    } catch { /* keep existing data */ }
+    finally { loadingMore.value = false; }
+}
+
+function handleListScroll(e: Event) {
+    if (searchKeyword.value.trim()) return;
+    const el = e.target as HTMLElement;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 40) {
+        loadMore();
     }
 }
 
@@ -101,6 +130,7 @@ async function handleDelete(sessionId: string) {
             try {
                 await deleteChatSession(sessionId);
                 sessions.value = sessions.value.filter(s => s.session_id !== sessionId);
+                total.value = Math.max(0, total.value - 1);
                 emit("sessions-loaded", sessions.value);
                 if (props.currentSessionId === sessionId) {
                     if (sessions.value.length > 0) {
@@ -143,7 +173,9 @@ async function handleBatchDelete() {
             try {
                 await batchDeleteChatSessions(selectedSessionIds.value);
                 const deleted = new Set(selectedSessionIds.value);
+                const count = deleted.size;
                 sessions.value = sessions.value.filter(s => !deleted.has(s.session_id));
+                total.value = Math.max(0, total.value - count);
                 emit("sessions-loaded", sessions.value);
                 if (deleted.has(props.currentSessionId)) {
                     if (sessions.value.length > 0) emit("switch", sessions.value[0].session_id);
@@ -167,6 +199,17 @@ function formatTime(ts: number): string {
     if (isToday) return d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
     return d.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
 }
+
+watch(dropdownOpen, (open) => {
+    if (open) {
+        searchKeyword.value = "";
+        loadSessions();
+    }
+});
+
+onMounted(() => {
+    loadSessions();
+});
 
 defineExpose({ loadSessions, sessions });
 </script>
@@ -193,24 +236,29 @@ defineExpose({ loadSessions, sessions });
                         </div>
                     </div>
                     <!-- Session list -->
-                    <div class="max-h-[360px] overflow-y-auto py-1">
+                    <div ref="listRef" class="max-h-[360px] overflow-y-auto py-1" @scroll="handleListScroll">
                         <div v-if="sessionsLoading" class="flex items-center justify-center py-6">
                             <Loader2 :size="16" class="animate-spin text-gray-400" />
                         </div>
                         <div v-else-if="filteredSessions.length === 0" class="px-3 py-4 text-xs text-gray-400 text-center">
                             暂无对话
                         </div>
-                        <div
-                            v-for="s in filteredSessions" :key="s.session_id"
-                            class="flex items-center gap-2 px-3 py-2 mx-1 rounded-md cursor-pointer transition-colors"
-                            :class="currentSessionId === s.session_id ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50'"
-                            @click="handleSelect(s.session_id)"
-                        >
-                            <div class="flex-1 min-w-0">
-                                <div class="text-sm truncate">{{ s.title }}</div>
+                        <template v-else>
+                            <div
+                                v-for="s in filteredSessions" :key="s.session_id"
+                                class="flex items-center gap-2 px-3 py-2 mx-1 rounded-md cursor-pointer transition-colors"
+                                :class="currentSessionId === s.session_id ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50'"
+                                @click="handleSelect(s.session_id)"
+                            >
+                                <div class="flex-1 min-w-0">
+                                    <div class="text-sm truncate">{{ s.title }}</div>
+                                </div>
+                                <span class="text-[11px] text-gray-400 flex-shrink-0">{{ formatTime(s.updated_at) }}</span>
                             </div>
-                            <span class="text-[11px] text-gray-400 flex-shrink-0">{{ formatTime(s.updated_at) }}</span>
-                        </div>
+                            <div v-if="loadingMore" class="flex items-center justify-center py-3">
+                                <Loader2 :size="14" class="animate-spin text-gray-300" />
+                            </div>
+                        </template>
                     </div>
                     <!-- Footer -->
                     <div class="border-t border-gray-100 px-3 py-2">
@@ -248,7 +296,7 @@ defineExpose({ loadSessions, sessions });
                 </div>
             </div>
             <div v-else class="flex items-center justify-between mb-4">
-                <span class="text-sm text-gray-500">共 {{ sessions.length }} 个对话</span>
+                <span class="text-sm text-gray-500">共 {{ total }} 个对话</span>
                 <button class="text-xs text-gray-400 hover:text-gray-600 cursor-pointer" @click="toggleBatchMode">批量操作</button>
             </div>
 

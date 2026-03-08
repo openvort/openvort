@@ -214,6 +214,7 @@ class ReportService:
     async def list_reports(
         self,
         reporter_id: str | None = None,
+        reporter_ids: list[str] | None = None,
         reviewer_id: str | None = None,
         report_type: str | None = None,
         status: str | None = None,
@@ -223,7 +224,11 @@ class ReportService:
     ) -> list[dict]:
         async with self._sf() as session:
             stmt = select(Report)
-            if reporter_id:
+            if reporter_ids is not None:
+                if not reporter_ids:
+                    return []
+                stmt = stmt.where(Report.reporter_id.in_(reporter_ids))
+            elif reporter_id:
                 stmt = stmt.where(Report.reporter_id == reporter_id)
             if reviewer_id:
                 stmt = stmt.where(Report.reviewer_id == reviewer_id)
@@ -238,6 +243,17 @@ class ReportService:
             stmt = stmt.order_by(Report.report_date.desc()).limit(limit)
             result = await session.execute(stmt)
             return [self._report_to_dict(r) for r in result.scalars().all()]
+
+    async def get_subordinate_ids(self, member_id: str) -> list[str]:
+        """Get all subordinate member IDs from reporting relations"""
+        from openvort.contacts.models import ReportingRelation
+
+        async with self._sf() as session:
+            stmt = select(ReportingRelation.reporter_id).where(
+                ReportingRelation.supervisor_id == member_id
+            )
+            result = await session.execute(stmt)
+            return [r[0] for r in result.all()]
 
     async def get_report_stats(
         self,

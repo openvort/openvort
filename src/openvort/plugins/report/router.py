@@ -121,24 +121,37 @@ async def list_reports(
     until: str | None = None,
     reporter_id: str | None = None,
     reviewer_id: str | None = None,
+    scope: str | None = None,
     page: int = 1,
     page_size: int = 20,
 ):
     service = _get_service()
 
-    # Get member_id from JWT for "my reports" use case
     payload = getattr(request.state, "user", None) or {}
-    member_id = reporter_id or payload.get("member_id", "")
+    member_id = payload.get("member_id", "")
 
-    reports = await service.list_reports(
-        reporter_id=member_id if not reviewer_id else None,
-        reviewer_id=reviewer_id,
-        report_type=report_type,
-        status=status,
-        since=date.fromisoformat(since) if since else None,
-        until=date.fromisoformat(until) if until else None,
-        limit=page_size,
-    )
+    if scope == "subordinate":
+        # Look up subordinate IDs from reporting relations
+        subordinate_ids = await service.get_subordinate_ids(member_id)
+        reports = await service.list_reports(
+            reporter_ids=subordinate_ids or [],
+            report_type=report_type,
+            status=status,
+            since=date.fromisoformat(since) if since else None,
+            until=date.fromisoformat(until) if until else None,
+            limit=page_size,
+        )
+    else:
+        rid = reporter_id or member_id
+        reports = await service.list_reports(
+            reporter_id=rid if not reviewer_id else None,
+            reviewer_id=reviewer_id,
+            report_type=report_type,
+            status=status,
+            since=date.fromisoformat(since) if since else None,
+            until=date.fromisoformat(until) if until else None,
+            limit=page_size,
+        )
     return {"items": reports, "total": len(reports)}
 
 
@@ -163,6 +176,11 @@ async def submit_report(req: ReportSubmitRequest, request: Request):
     payload = getattr(request.state, "user", None) or {}
     member_id = payload.get("member_id", "unknown")
 
+    # Auto-resolve reviewer from reporting relations if not specified
+    reviewer_id = req.reviewer_id
+    if not reviewer_id:
+        reviewer_id = await service.get_reviewer_for_member(member_id)
+
     report_date = date.fromisoformat(req.report_date) if req.report_date else date.today()
     report = await service.create_report(
         reporter_id=member_id,
@@ -172,7 +190,7 @@ async def submit_report(req: ReportSubmitRequest, request: Request):
         content=req.content,
         status="submitted",
         template_id=req.template_id,
-        reviewer_id=req.reviewer_id,
+        reviewer_id=reviewer_id,
     )
     return {"success": True, "report": report}
 

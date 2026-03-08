@@ -223,8 +223,11 @@ class SessionStore:
 
     # ---- 多会话管理 ----
 
-    async def list_sessions(self, channel: str, user_id: str, target_type: str = "") -> list[dict]:
-        """列出用户对话（可选按 target_type 过滤）"""
+    async def list_sessions(
+        self, channel: str, user_id: str, target_type: str = "",
+        limit: int = 20, offset: int = 0,
+    ) -> dict:
+        """列出用户对话（分页，可选按 target_type 过滤）"""
         if not self._session_factory:
             prefix = f"{channel}:{user_id}:"
             result = []
@@ -242,24 +245,28 @@ class SessionStore:
                         "pinned": s.pinned,
                     })
             result.sort(key=lambda x: x["updated_at"], reverse=True)
-            return result
+            total = len(result)
+            return {"sessions": result[offset:offset + limit], "total": total}
 
         try:
-            from sqlalchemy import select
+            from sqlalchemy import select, func
             from openvort.db.models import ChatSession
 
             async with self._session_factory() as db:
-                stmt = (
-                    select(ChatSession)
-                    .where(ChatSession.channel == channel, ChatSession.user_id == user_id)
+                base = select(ChatSession).where(
+                    ChatSession.channel == channel, ChatSession.user_id == user_id,
                 )
                 if target_type:
-                    stmt = stmt.where(ChatSession.target_type == target_type)
-                stmt = stmt.order_by(ChatSession.updated_at.desc())
+                    base = base.where(ChatSession.target_type == target_type)
+
+                count_result = await db.execute(select(func.count()).select_from(base.subquery()))
+                total = count_result.scalar() or 0
+
+                stmt = base.order_by(ChatSession.updated_at.desc()).offset(offset).limit(limit)
                 result = await db.execute(stmt)
                 rows = result.scalars().all()
 
-            return [
+            sessions = [
                 {
                     "session_id": row.session_id,
                     "title": row.title,
@@ -271,9 +278,10 @@ class SessionStore:
                 }
                 for row in rows
             ]
+            return {"sessions": sessions, "total": total}
         except Exception as e:
             log.warning(f"列出会话失败 ({channel}:{user_id}): {e}")
-            return []
+            return {"sessions": [], "total": 0}
 
     async def create_session(self, channel: str, user_id: str, title: str = "新对话",
                              target_type: str = "ai", target_id: str = "") -> str:
@@ -466,8 +474,29 @@ class SessionStore:
         msgs = session.messages
         if len(msgs) <= self._max_messages:
             return
-        session.messages = msgs[-self._max_messages:]
-        log.debug(f"Session {session.key} 裁剪到 {self._max_messages} 条")
+        trimmed = msgs[-self._max_messages:]
+        # Skip orphaned messages at the start to keep tool_use / tool_result pairs intact.
+        # A valid start is a plain user text message (not a tool_result list).
+        start = 0
+        while start < len(trimmed):
+            msg = trimmed[start]
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            if role == "user" and isinstance(content, list):
+                if content and isinstance(content[0], dict) and content[0].get("type") == "tool_result":
+                    start += 1
+                    continue
+            if role == "assistant":
+                if isinstance(content, list) and any(
+                    isinstance(b, dict) and b.get("type") == "tool_use" for b in content
+                ):
+                    start += 1
+                    continue
+            if role == "user":
+                break
+            start += 1
+        session.messages = trimmed[start:]
+        log.debug(f"Session {session.key} 裁剪到 {len(session.messages)} 条 (跳过 {start} 条孤立消息)")
 
     # ---- DB 持久化 ----
 

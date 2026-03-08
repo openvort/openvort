@@ -113,9 +113,9 @@ export function getChatMembers(keyword = "", limit = 20) {
 
 // ---- 对话管理 ----
 
-/** 对话列表 */
-export function getChatSessions(targetType = "") {
-    return request.get("/chat/sessions", { params: targetType ? { target_type: targetType } : {} });
+/** 对话列表（分页） */
+export function getChatSessions(targetType = "", limit = 20, offset = 0) {
+    return request.get("/chat/sessions", { params: { target_type: targetType, limit, offset } });
 }
 
 /** 新建对话 */

@@ -82,13 +82,14 @@ class AbortRequest(BaseModel):
 
 
 @router.get("/sessions")
-async def list_sessions(request: Request, target_type: str = ""):
-    """获取用户的对话列表（可选按 target_type 过滤）"""
+async def list_sessions(request: Request, target_type: str = "", limit: int = 20, offset: int = 0):
+    """获取用户的对话列表（分页，可选按 target_type 过滤）"""
     payload = require_auth(request)
     member_id = payload.get("sub", "")
     session_store = get_session_store()
-    sessions = await session_store.list_sessions("web", member_id, target_type=target_type)
-    return {"sessions": sessions}
+    return await session_store.list_sessions(
+        "web", member_id, target_type=target_type, limit=limit, offset=offset,
+    )
 
 
 class CreateSessionRequest(BaseModel):
