@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, reactive, onMounted } from "vue";
+import { pinyin } from "pinyin-pro";
 import { Popover, message } from "@/components/vort";
 import { DownOutlined } from "@/components/vort/icons";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
@@ -82,13 +83,87 @@ const versionOptions = ["v1.0.0", "v1.1.0", "v1.2.0"];
 const repoOptions = ["frontend", "backend", "mobile"];
 const branchOptions = ["main", "develop", "feature/xxx"];
 
+type MemberSearchMeta = {
+    normalizedName: string;
+    fullPinyin: string;
+    initialsCombos: string[];
+};
+
+const memberSearchMetaCache = new Map<string, MemberSearchMeta>();
+
+const getMemberSearchMeta = (name: string): MemberSearchMeta => {
+    const cached = memberSearchMetaCache.get(name);
+    if (cached) return cached;
+
+    const initialsArr = pinyin(name, { pattern: "first", type: "array", multiple: true });
+    const initialsCombos = initialsArr.reduce<string[]>((acc, cur) => {
+        const options = String(cur)
+            .split(" ")
+            .map((item) => item.toLowerCase())
+            .filter(Boolean);
+
+        if (acc.length === 0) return options;
+
+        const result: string[] = [];
+        for (const prefix of acc) {
+            for (const option of options) {
+                result.push(prefix + option);
+            }
+        }
+        return result;
+    }, []);
+
+    const meta: MemberSearchMeta = {
+        normalizedName: name.toLowerCase(),
+        fullPinyin: pinyin(name, { toneType: "none", type: "array" }).join("").toLowerCase(),
+        initialsCombos
+    };
+    memberSearchMetaCache.set(name, meta);
+    return meta;
+};
+
+const getMatchScore = (source: string, keyword: string, exactScore: number, prefixScore: number, includeScore: number): number => {
+    if (!source) return 0;
+    if (source === keyword) return exactScore;
+    if (source.startsWith(keyword)) return prefixScore;
+    if (source.includes(keyword)) return includeScore;
+    return 0;
+};
+
+const getMemberKeywordScore = (name: string, keyword: string): number => {
+    const kw = keyword.trim().toLowerCase();
+    if (!kw) return 1;
+
+    const meta = getMemberSearchMeta(name);
+
+    const directScore = getMatchScore(meta.normalizedName, kw, 120, 110, 80);
+    if (directScore > 0) return directScore;
+
+    const fullPinyinScore = getMatchScore(meta.fullPinyin, kw, 100, 95, 60);
+    if (fullPinyinScore > 0) return fullPinyinScore;
+
+    let initialsBestScore = 0;
+    for (const combo of meta.initialsCombos) {
+        initialsBestScore = Math.max(initialsBestScore, getMatchScore(combo, kw, 90, 85, 50));
+    }
+    return initialsBestScore;
+};
+
 const filteredCreateAssigneeGroups = computed(() => {
     const kw = createAssigneeKeyword.value.trim();
     if (!kw) return ownerGroups.value;
     return ownerGroups.value
         .map((g) => ({
             ...g,
-            members: g.members.filter((m) => m.includes(kw))
+            members: g.members
+                .map((member, index) => ({
+                    member,
+                    index,
+                    score: getMemberKeywordScore(member, kw)
+                }))
+                .filter((item) => item.score > 0)
+                .sort((a, b) => b.score - a.score || a.index - b.index)
+                .map((item) => item.member)
         }))
         .filter((g) => g.members.length > 0);
 });
