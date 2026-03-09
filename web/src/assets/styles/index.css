@@ -155,3 +155,8 @@ body {
     font-variant: tabular-nums;
     background-color: #fff;
 }
+
+html {
+    scrollbar-width: thin;
+    scrollbar-color: #eaeaea transparent;
+}
