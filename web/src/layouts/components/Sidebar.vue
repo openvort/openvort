@@ -20,10 +20,14 @@ const userStore = useUserStore();
 const pluginStore = usePluginStore();
 const SUBMENU_STATE_KEY = "openvort.sidebar.open-submenus";
 const expandedMenus = ref<string[]>([]);
+const popupItem = ref<MenuConfig | null>(null);
+const popupStyle = ref<Record<string, string>>({});
+const popupVisible = ref(false);
 
 const collapsed = computed(() => props.isMobile ? false : appStore.sidebarCollapsed);
 const collapseProgress = ref(collapsed.value ? 0 : 1);
 let rafId: number | null = null;
+let popupCloseTimer: number | null = null;
 
 watch(collapsed, (newVal) => {
     if (rafId) cancelAnimationFrame(rafId);
@@ -47,6 +51,7 @@ watch(collapsed, (newVal) => {
 
 onUnmounted(() => {
     if (rafId) cancelAnimationFrame(rafId);
+    if (popupCloseTimer) window.clearTimeout(popupCloseTimer);
 });
 
 const loadExpandedMenus = () => {
@@ -163,6 +168,65 @@ const handleMenuToggle = (title: string, event: Event) => {
     expandedMenus.value = [...next];
     persistExpandedMenus();
 };
+
+const clearPopupTimer = () => {
+    if (popupCloseTimer) {
+        window.clearTimeout(popupCloseTimer);
+        popupCloseTimer = null;
+    }
+};
+
+const closePopup = () => {
+    popupVisible.value = false;
+    popupItem.value = null;
+};
+
+const handleCollapsedMenuEnter = (item: MenuConfig, event: MouseEvent) => {
+    if (!collapsed.value || props.isMobile || !item.children?.length) return;
+    clearPopupTimer();
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    popupItem.value = item;
+    popupStyle.value = {
+        top: `${Math.max(rect.top, 8)}px`,
+        left: `${rect.right + 8}px`
+    };
+    popupVisible.value = true;
+};
+
+const handleCollapsedMenuLeave = () => {
+    if (!collapsed.value || props.isMobile) return;
+    clearPopupTimer();
+    popupCloseTimer = window.setTimeout(() => {
+        closePopup();
+    }, 120);
+};
+
+const handlePopupMouseEnter = () => {
+    clearPopupTimer();
+};
+
+const handlePopupMouseLeave = () => {
+    clearPopupTimer();
+    popupCloseTimer = window.setTimeout(() => {
+        closePopup();
+    }, 100);
+};
+
+const handlePopupChildClick = (child: MenuConfig) => {
+    handleChildClick(child);
+    clearPopupTimer();
+    closePopup();
+};
+
+const handleCollapsedSummaryClick = (event: MouseEvent) => {
+    if (!collapsed.value || props.isMobile) return;
+    event.preventDefault();
+};
+
+watch([collapsed, () => props.isMobile, () => route.path], () => {
+    clearPopupTimer();
+    closePopup();
+});
 </script>
 
 <template>
@@ -249,6 +313,9 @@ const handleMenuToggle = (title: string, event: Event) => {
                         <summary
                             class="flex items-center h-[40px] px-3 rounded-md cursor-pointer transition-colors list-none"
                             :class="isActive(item) ? 'text-blue-600' : 'text-gray-600 hover:bg-gray-50'"
+                            @mouseenter="handleCollapsedMenuEnter(item, $event)"
+                            @mouseleave="handleCollapsedMenuLeave"
+                            @click="handleCollapsedSummaryClick"
                         >
                             <component :is="iconMap[item.icon]" v-if="iconMap[item.icon]" :size="18" class="flex-shrink-0" />
                             <span
@@ -340,10 +407,44 @@ const handleMenuToggle = (title: string, event: Event) => {
                 >收起侧栏</span>
             </div>
         </div>
+
+        <Teleport to="body">
+            <Transition name="sidebar-popup">
+                <div
+                    v-if="popupVisible && popupItem?.children?.length"
+                    class="fixed z-[70] min-w-[180px] rounded-lg border border-gray-200 bg-white py-2 shadow-lg"
+                    :style="popupStyle"
+                    @mouseenter="handlePopupMouseEnter"
+                    @mouseleave="handlePopupMouseLeave"
+                >
+                    <div class="px-5 pb-2 text-xs font-medium text-gray-400">
+                        {{ popupItem.title }}
+                    </div>
+                    <div
+                        v-for="child in popupItem.children"
+                        :key="child.title"
+                        class="mx-2 flex h-[36px] items-center rounded-md px-3 text-[13px] cursor-pointer transition-colors"
+                        :class="isChildActive(child) ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'"
+                        @click="handlePopupChildClick(child)"
+                    >
+                        {{ child.title }}
+                    </div>
+                </div>
+            </Transition>
+        </Teleport>
     </aside>
 </template>
 
 <style scoped>
 details > summary::-webkit-details-marker { display: none; }
 details[open] > summary .lucide-chevron-down { transform: rotate(180deg); }
+.sidebar-popup-enter-active,
+.sidebar-popup-leave-active {
+    transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.sidebar-popup-enter-from,
+.sidebar-popup-leave-to {
+    opacity: 0;
+    transform: translateX(-4px);
+}
 </style>
