@@ -4,7 +4,7 @@ import { Popover, message } from "@/components/vort";
 import { DownOutlined } from "@/components/vort/icons";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
 import { useWorkItemCommon } from "./useWorkItemCommon";
-import type { WorkItemType, Priority, NewBugForm } from "@/components/vort-biz/work-item/WorkItemTable.types";
+import type { WorkItemType, Priority, DateRange, NewBugForm } from "@/components/vort-biz/work-item/WorkItemTable.types";
 
 interface Props {
     type?: WorkItemType;
@@ -150,6 +150,17 @@ const filteredTagOptions = computed(() => {
     const kw = createTagKeyword.value.trim();
     if (!kw) return tagOptions;
     return tagOptions.filter((t) => t.includes(kw));
+});
+
+const createBugPlanTimeModel = computed<any>({
+    get: () => (createBugForm.planTime.length === 2 ? [...createBugForm.planTime] as DateRange : undefined),
+    set: (value) => {
+        if (Array.isArray(value) && value.length === 2) {
+            createBugForm.planTime = [String(value[0] || ""), String(value[1] || "")] as DateRange;
+            return;
+        }
+        createBugForm.planTime = [];
+    }
 });
 
 const toggleCreateTagMenu = () => {
@@ -343,7 +354,7 @@ onMounted(async () => {
                 <div class="create-bug-field">
                     <label class="create-bug-label">计划时间</label>
                     <vort-range-picker
-                        v-model="createBugForm.planTime"
+                        v-model="createBugPlanTimeModel"
                         value-format="YYYY-MM-DD"
                         format="YYYY-MM-DD"
                         separator="~"

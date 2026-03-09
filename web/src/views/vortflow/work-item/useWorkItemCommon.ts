@@ -1,4 +1,5 @@
 import { ref } from "vue";
+import { getMembers } from "@/api";
 import type {
     WorkItemType,
     Priority,
@@ -7,15 +8,27 @@ import type {
     StatusOption
 } from "@/components/vort-biz/work-item/WorkItemTable.types";
 
-export function useWorkItemCommon() {
-    const memberOptions = ref<MemberOption[]>([]);
-    const ownerGroups = ref<Array<{ label: string; members: string[] }>>([]);
+const DEFAULT_OWNER_GROUPS = [
+    { label: "项目成员", members: ["代志祥", "陈艳", "陈曦", "祝璞", "刘洋", "甘洋", "邱锐", "熊纲强"] },
+    { label: "企业成员", members: ["apollo_Xuuu", "曾春红", "superdargon", "邱锐", "熊纲强"] },
+    { label: "离职人员", members: ["金杜森", "熊军", "杨旭"] }
+] as const;
 
-    const defaultOwnerGroups = [
-        { label: "项目成员", members: ["代志祥", "陈艳", "陈曦", "祝璞", "刘洋", "甘洋", "邱锐", "熊纲强"] },
-        { label: "企业成员", members: ["apollo_Xuuu", "曾春红", "superdargon", "邱锐", "熊纲强"] },
-        { label: "离职人员", members: ["金杜森", "熊军", "杨旭"] }
-    ] as const;
+const cloneDefaultOwnerGroups = (): Array<{ label: string; members: string[] }> => (
+    DEFAULT_OWNER_GROUPS.map((group) => ({
+        label: group.label,
+        members: [...group.members]
+    }))
+);
+
+const sharedMemberOptions = ref<MemberOption[]>([]);
+const sharedOwnerGroups = ref<Array<{ label: string; members: string[] }>>(cloneDefaultOwnerGroups());
+let memberOptionsLoadTask: Promise<void> | null = null;
+
+export function useWorkItemCommon() {
+    const memberOptions = sharedMemberOptions;
+    const ownerGroups = sharedOwnerGroups;
+    const defaultOwnerGroups = cloneDefaultOwnerGroups();
 
     const bugStatusFilterOptions: StatusOption[] = [
         { label: "待确认", value: "待确认", icon: "○", iconClass: "text-gray-400" },
@@ -107,6 +120,46 @@ export function useWorkItemCommon() {
         const normalized = String(memberId || "").trim();
         if (!normalized) return "";
         return memberOptions.value.find((m) => m.id === normalized)?.name || "";
+    };
+
+    const loadMemberOptions = async () => {
+        if (memberOptions.value.length > 0 && ownerGroups.value.length > 0) return;
+        if (memberOptionsLoadTask) return memberOptionsLoadTask;
+
+        memberOptionsLoadTask = (async () => {
+            try {
+                const res: any = await getMembers({ search: "", role: "", page: 1, size: 100 });
+                const members = Array.isArray(res?.members) ? res.members : [];
+                const next: MemberOption[] = [];
+                const seenIds = new Set<string>();
+
+                for (const item of members) {
+                    const id = String(item?.id || "").trim();
+                    const name = String(item?.name || "").trim();
+                    if (!id || !name || seenIds.has(id)) continue;
+                    seenIds.add(id);
+                    next.push({
+                        id,
+                        name,
+                        avatarUrl: String(item?.avatar_url || item?.avatar || "")
+                    });
+                }
+
+                if (next.length > 0) {
+                    memberOptions.value = next;
+                    ownerGroups.value = [{ label: "全部成员", members: next.map((item) => item.name) }];
+                    return;
+                }
+            } catch {
+                // Keep fallback groups when the organization member API is unavailable.
+            } finally {
+                memberOptionsLoadTask = null;
+            }
+
+            ownerGroups.value = cloneDefaultOwnerGroups();
+        })();
+
+        return memberOptionsLoadTask;
     };
 
     const getWorkItemTypeIconClass = (type: WorkItemType): string => {
@@ -214,6 +267,7 @@ export function useWorkItemCommon() {
         getAvatarBg,
         getAvatarLabel,
         getMemberAvatarUrl,
+        loadMemberOptions,
         getMemberIdByName,
         getMemberNameById,
         getWorkItemTypeIconClass,

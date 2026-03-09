@@ -15,7 +15,7 @@ import { useWorkItemCommon } from "./work-item/useWorkItemCommon";
 import {
     getVortflowStories, getVortflowTasks, getVortflowBugs,
     getVortflowProjects, createVortflowStory, createVortflowTask, createVortflowBug,
-    deleteVortflowStory, deleteVortflowTask, deleteVortflowBug, getMembers,
+    deleteVortflowStory, deleteVortflowTask, deleteVortflowBug,
     updateVortflowStory, updateVortflowTask, updateVortflowBug
 } from "@/api";
 import type {
@@ -29,7 +29,6 @@ import type {
     DetailComment,
     DetailLog,
     CreateBugAttachment,
-    MemberOption,
     StatusOption
 } from "@/components/vort-biz/work-item/WorkItemTable.types";
 
@@ -48,7 +47,6 @@ const router = useRouter();
 const {
     memberOptions,
     ownerGroups,
-    defaultOwnerGroups,
     getStatusOptionsByType,
     getStatusOption,
     priorityOptions,
@@ -57,6 +55,7 @@ const {
     getAvatarBg,
     getAvatarLabel,
     getMemberAvatarUrl,
+    loadMemberOptions,
     getMemberIdByName,
     getMemberNameById,
     getWorkItemTypeIconClass,
@@ -231,6 +230,28 @@ const createAssigneeGroupOpen = reactive<Record<string, boolean>>({
     离职人员: true
 });
 const collaboratorsModel = reactive<Record<string, string[]>>({});
+
+const ensureOwnerGroupMapEntries = () => {
+    ownerGroups.value.forEach((group) => {
+        if (ownerGroupOpen[group.label] === undefined) ownerGroupOpen[group.label] = true;
+        if (ownerEditGroupOpen[group.label] === undefined) ownerEditGroupOpen[group.label] = true;
+        if (collaboratorGroupOpen[group.label] === undefined) collaboratorGroupOpen[group.label] = true;
+        if (detailAssigneeGroupOpen[group.label] === undefined) detailAssigneeGroupOpen[group.label] = true;
+        if (createAssigneeGroupOpen[group.label] === undefined) createAssigneeGroupOpen[group.label] = true;
+    });
+};
+
+const rebuildMockDataset = () => {
+    if (props.useApi) return;
+    allData.value = buildDataset();
+    totalCount.value = allData.value.length;
+    Object.keys(planTimeModel).forEach((key) => delete planTimeModel[key]);
+    for (const row of allData.value) {
+        planTimeModel[row.workNo] = [...row.planTime];
+    }
+    collectTagOptions(allData.value);
+    tableRef.value?.refresh?.();
+};
 
 const closeRowPopovers = () => {
     openPriorityFor.value = null;
@@ -491,47 +512,6 @@ const pickStableRandomStatus = (typeValue: WorkItemType, seed: string): Status =
     return statusPool[hash % statusPool.length]!;
 };
 
-const loadMemberOptions = async () => {
-    try {
-        const res: any = await getMembers({ search: "", role: "", page: 1, size: 50 });
-        const members = Array.isArray(res?.members) ? res.members : [];
-        const next: MemberOption[] = [];
-        const seen = new Set<string>();
-        for (const item of members) {
-            const name = String(item?.name || "").trim();
-            if (!name || seen.has(name)) continue;
-            seen.add(name);
-            next.push({
-                id: String(item?.id || name),
-                name,
-                avatarUrl: String(item?.avatar_url || item?.avatar || "")
-            });
-        }
-
-        if (!next.length) return;
-
-        memberOptions.value = next;
-        ownerGroups.value = [{ label: "全部成员", members: next.map((x) => x.name) }];
-        ownerGroupOpen["全部成员"] = true;
-        ownerEditGroupOpen["全部成员"] = true;
-        collaboratorGroupOpen["全部成员"] = true;
-        detailAssigneeGroupOpen["全部成员"] = true;
-        createAssigneeGroupOpen["全部成员"] = true;
-
-        if (!props.useApi) {
-            allData.value = buildDataset();
-            totalCount.value = allData.value.length;
-            for (const row of allData.value) {
-                planTimeModel[row.workNo] = [...row.planTime];
-            }
-            collectTagOptions(allData.value);
-            tableRef.value?.refresh?.();
-        }
-    } catch {
-        // keep fallback groups
-    }
-};
-
 const backendDemandTitles = [
     "支持商家后台批量导入 SKU 并自动校验条码重复",
     "订单中心新增按渠道维度的成交额趋势看板",
@@ -583,7 +563,6 @@ const mapBackendItemToRow = (item: any, typeValue: WorkItemType, index: number):
     const ownerSeed = ownerSourceId || `${backendId}-owner`;
     const creatorSeed = String(item?.reporter_id || `${backendId}-creator`);
     const collabSeed = String(item?.story_id || item?.task_id || `${backendId}-collab`);
-    const statusSeed = `${typeValue}-${backendId}-${String(item?.state || "state")}`;
     const ownerName = ownerSourceName || pickStableRandomPerson(ownerSeed);
     const creatorName = pickStableRandomPerson(creatorSeed);
     const collaboratorName = pickStableRandomPerson(collabSeed);
@@ -608,7 +587,7 @@ const mapBackendItemToRow = (item: any, typeValue: WorkItemType, index: number):
         title: getBackendDisplayTitle(String(item?.title || ""), typeValue, index),
         priority: mapBackendPriority(item, typeValue),
         tags,
-        status: mapBackendStateToStatus(typeValue, String(item?.state || ""), statusSeed),
+        status: mapBackendStateToStatus(typeValue, String(item?.state || "")),
         createdAt,
         collaborators,
         type: typeValue,
@@ -872,6 +851,7 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
         const type = (props.type || formData.type || "缺陷") as WorkItemType;
         try {
             let createdItem: any = null;
+            const ownerId = getMemberIdByName(formData.owner) || undefined;
             if (type === "需求") {
                 const defaultProject = resolveCreateProjectId();
                 createdItem = await createVortflowStory({
@@ -883,6 +863,13 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
                     collaborators: [...formData.collaborators],
                     deadline: formData.planTime?.[1] || undefined,
                 });
+                if (createdItem?.id && ownerId) {
+                    try {
+                        createdItem = await updateVortflowStory(String(createdItem.id), { pm_id: ownerId });
+                    } catch {
+                        createdItem = { ...createdItem, pm_id: ownerId };
+                    }
+                }
             } else if (type === "任务") {
                 if (!apiStories.value.length) {
                     try {
@@ -898,7 +885,7 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
                     title,
                     description: formData.description || "",
                     task_type: "develop",
-                    assignee_id: getMemberIdByName(formData.owner) || undefined,
+                    assignee_id: ownerId,
                     tags: [...formData.tags],
                     collaborators: [...formData.collaborators],
                     deadline: formData.planTime?.[1] || undefined,
@@ -908,7 +895,7 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
                     title,
                     description: formData.description || defaultBugDescription,
                     severity: formData.priority === "urgent" ? 1 : formData.priority === "high" ? 2 : formData.priority === "medium" ? 3 : 4,
-                    assignee_id: getMemberIdByName(formData.owner) || undefined,
+                    assignee_id: ownerId,
                     tags: [...formData.tags],
                     collaborators: [...formData.collaborators],
                 });
@@ -1720,7 +1707,7 @@ const loadApiMetadata = async (withStories = false) => {
     const results = await Promise.allSettled(tasks);
     const projectsRes = results[0];
     const storiesRes = withStories ? results[1] : undefined;
-    if (projectsRes.status === "fulfilled") {
+    if (projectsRes && projectsRes.status === "fulfilled") {
         apiProjects.value = ((projectsRes.value as any)?.items || []).map((x: any) => ({ id: String(x.id), name: String(x.name || x.id) }));
         if (apiProjects.value.length > 0) {
             const names = new Set(apiProjects.value.map((x) => x.name));
@@ -1736,6 +1723,8 @@ const loadApiMetadata = async (withStories = false) => {
 
 onMounted(async () => {
     await loadMemberOptions();
+    ensureOwnerGroupMapEntries();
+    rebuildMockDataset();
     await loadApiMetadata(false);
 
     // Handle route query parameters for direct access
