@@ -72,7 +72,6 @@ const createBugForm = reactive<NewBugForm>(createInitialBugForm());
 const createBugPriorityDropdownOpen = ref(false);
 const createAssigneeDropdownOpen = ref(false);
 const createAssigneeKeyword = ref("");
-const createAssigneeGroupOpen = reactive<Record<string, boolean>>({});
 const createTagDropdownOpen = ref(false);
 const createTagKeyword = ref("");
 const createAttachments = ref<any[]>([]);
@@ -102,13 +101,15 @@ const isCreateCollaborator = (member: string): boolean => {
     return createBugForm.collaborators.includes(member);
 };
 
+const createOwnerDisplayText = computed(() => {
+    if (createBugForm.owner) return createBugForm.owner;
+    if (createBugForm.collaborators.length > 0) return "无负责人";
+    return "指派负责人/协作者";
+});
+
 const toggleCreateAssigneeMenu = () => {
     createAssigneeDropdownOpen.value = !createAssigneeDropdownOpen.value;
     if (!createAssigneeDropdownOpen.value) createAssigneeKeyword.value = "";
-};
-
-const toggleCreateAssigneeGroup = (group: string) => {
-    createAssigneeGroupOpen[group] = !createAssigneeGroupOpen[group];
 };
 
 const setCreateOwner = (member: string) => {
@@ -117,8 +118,13 @@ const setCreateOwner = (member: string) => {
 };
 
 const toggleCreateCollaborator = (member: string) => {
-    if (createBugForm.owner === member) return;
     const list = [...createBugForm.collaborators];
+    if (createBugForm.owner === member) {
+        createBugForm.owner = "";
+        if (!list.includes(member)) list.unshift(member);
+        createBugForm.collaborators = list;
+        return;
+    }
     const idx = list.indexOf(member);
     if (idx >= 0) {
         list.splice(idx, 1);
@@ -210,12 +216,6 @@ defineExpose({
 
 onMounted(async () => {
     await loadMemberOptions();
-    ownerGroups.value.forEach((g) => {
-        createAssigneeGroupOpen[g.label] = false;
-    });
-    if (ownerGroups.value.length > 0) {
-        createAssigneeGroupOpen[ownerGroups.value[0]!.label] = true;
-    }
 });
 </script>
 
@@ -251,7 +251,7 @@ onMounted(async () => {
                                             <template v-else>{{ getAvatarLabel(createBugForm.owner) }}</template>
                                         </span>
                                         <span class="detail-assignee-owner-name" :class="!createBugForm.owner ? 'text-[var(--vort-text-quaternary,rgba(0,0,0,0.25))]' : 'text-[var(--vort-text,rgba(0,0,0,0.88))]'">
-                                            {{ createBugForm.owner || "指派负责人/协作者" }}
+                                            {{ createOwnerDisplayText }}
                                         </span>
                                     </div>
                                     <span v-if="createBugForm.collaborators.length > 0" class="detail-assignee-separator">/</span>
@@ -277,31 +277,29 @@ onMounted(async () => {
 
                             <template #content>
                                 <div class="detail-assignee-dropdown create-assignee-dropdown">
-                                    <div class="mb-2">
+                                    <div class="mb-3">
                                         <div class="relative">
                                             <VortInput
                                                 v-model="createAssigneeKeyword"
                                                 placeholder="输入搜索用户名"
                                                 class="w-full"
-                                                size="small"
                                             />
                                         </div>
                                     </div>
-                                    <div class="max-h-[320px] overflow-y-auto -mx-3">
+                                    <div class="max-h-[320px] overflow-y-auto">
                                         <div v-for="group in filteredCreateAssigneeGroups" :key="'create-assignee-' + group.label">
-                                            <VortButton
-                                                class="w-full h-10 px-3 bg-slate-100 flex items-center justify-between text-left"
-                                                variant="text"
-                                                @click.stop="toggleCreateAssigneeGroup(group.label)"
-                                            >
-                                                <span class="text-gray-700 text-sm">{{ group.label }}（{{ group.members.length }}）</span>
-                                                <span class="status-arrow-simple" :class="{ open: createAssigneeGroupOpen[group.label] }" />
-                                            </VortButton>
-                                            <div v-if="createAssigneeGroupOpen[group.label]">
+                                            <div class="py-2 border-b border-gray-100 mb-1 text-[#334155] text-[13px]">
+                                                {{ group.label }} ({{ group.members.length }})
+                                            </div>
+                                            <div class="py-1">
                                                 <div
                                                     v-for="member in group.members"
                                                     :key="'create-assignee-member-' + group.label + member"
                                                     class="detail-assignee-row"
+                                                    :class="{
+                                                        'is-owner-row': isCreateOwner(member),
+                                                        'is-collaborator-row': !isCreateOwner(member) && isCreateCollaborator(member)
+                                                    }"
                                                 >
                                                     <div class="detail-assignee-row-left">
                                                         <span
@@ -311,25 +309,29 @@ onMounted(async () => {
                                                             <img v-if="getMemberAvatarUrl(member)" :src="getMemberAvatarUrl(member)" class="w-full h-full object-cover" />
                                                             <template v-else>{{ getAvatarLabel(member) }}</template>
                                                         </span>
-                                                        <span class="text-sm text-gray-700">{{ member }}</span>
+                                                        <span
+                                                            class="text-[13px] truncate"
+                                                            :class="isCreateOwner(member) ? 'text-[var(--vort-primary,#1456f0)]' : isCreateCollaborator(member) ? 'text-[#10b981]' : 'text-gray-700'"
+                                                            :title="member"
+                                                        >
+                                                            {{ member }}
+                                                        </span>
                                                     </div>
                                                     <div class="detail-assignee-row-actions">
-                                                        <VortButton
-                                                            class="detail-role-btn"
-                                                            variant="text"
-                                                            :class="isCreateOwner(member) ? 'active' : ''"
-                                                            @click.stop="setCreateOwner(member)"
+                                                        <div
+                                                            class="role-btn btn-owner"
+                                                            :class="{ 'is-active': isCreateOwner(member) }"
+                                                            @click.stop="!isCreateOwner(member) && setCreateOwner(member)"
                                                         >
                                                             负责人
-                                                        </VortButton>
-                                                        <VortButton
-                                                            class="detail-role-btn collab"
-                                                            variant="text"
-                                                            :class="isCreateCollaborator(member) ? 'active' : ''"
+                                                        </div>
+                                                        <div
+                                                            class="role-btn btn-collab"
+                                                            :class="{ 'is-active': isCreateCollaborator(member) }"
                                                             @click.stop="toggleCreateCollaborator(member)"
                                                         >
                                                             协作者
-                                                        </VortButton>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>
@@ -636,7 +638,7 @@ onMounted(async () => {
 .detail-assignee-split {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 4px;
     width: 100%;
 }
 
@@ -650,12 +652,13 @@ onMounted(async () => {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 24px;
-    height: 24px;
+    width: 22px;
+    height: 22px;
     border-radius: 50%;
     font-size: 11px;
     color: white;
     font-weight: 500;
+    flex-shrink: 0;
 }
 
 .detail-assignee-owner-name {
@@ -665,20 +668,13 @@ onMounted(async () => {
 .detail-assignee-separator {
     color: #cbd5e1;
     font-size: 14px;
+    margin: 0 6px;
 }
 
 .detail-assignee-collaborators {
     display: flex;
     align-items: center;
-}
-
-.detail-collab-stack {
-    margin-left: -4px;
-}
-
-.detail-collab-stack .detail-assignee-avatar {
-    margin-left: -6px;
-    border: 2px solid white;
+    gap: 4px;
 }
 
 .detail-assignee-add {
@@ -697,39 +693,76 @@ onMounted(async () => {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 8px 12px;
-    border-radius: 6px;
+    padding: 6px 8px;
+    border-radius: 4px;
+    margin-bottom: 2px;
+    cursor: pointer;
+    gap: 12px;
 }
 
 .detail-assignee-row:hover {
     background: #f8fafc;
 }
 
+.detail-assignee-row.is-owner-row {
+    background: #eff6ff;
+}
+
+.detail-assignee-row.is-collaborator-row {
+    background: #ecfdf5;
+}
+
 .detail-assignee-row-left {
     display: flex;
     align-items: center;
     gap: 8px;
+    flex: 1;
+    min-width: 0;
 }
 
 .detail-assignee-row-actions {
     display: flex;
-    gap: 4px;
+    gap: 6px;
+    flex-shrink: 0;
 }
 
-.detail-role-btn {
-    font-size: 12px !important;
-    padding: 4px 8px !important;
-    color: #64748b;
+.role-btn {
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: all 0.2s;
+    line-height: 18px;
 }
 
-.detail-role-btn.active {
-    color: #3b82f6;
-    background: #eff6ff;
+.role-btn.btn-owner {
+    color: var(--vort-primary, #1456f0);
+    border-color: var(--vort-primary, #1456f0);
+    background: transparent;
+}
+.role-btn.btn-owner:hover {
+    background: var(--vort-primary-shadow, rgba(20, 86, 240, 0.05));
+}
+.role-btn.btn-owner.is-active {
+    color: #94a3b8;
+    border-color: #cbd5e1;
+    background: transparent;
+    cursor: not-allowed;
 }
 
-.detail-role-btn.collab.active {
-    color: #8b5cf6;
-    background: #f5f3ff;
+.role-btn.btn-collab {
+    color: #10b981;
+    border-color: #10b981;
+    background: transparent;
+}
+.role-btn.btn-collab:hover {
+    background: rgba(16, 185, 129, 0.05);
+}
+.role-btn.btn-collab.is-active {
+    color: #fff;
+    background: #10b981;
+    border-color: #10b981;
 }
 
 .vort-select-arrow {

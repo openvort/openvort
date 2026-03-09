@@ -708,21 +708,14 @@ onMounted(async () => {
 
 .detail-assignee-separator {
     color: #cbd5e1;
-    font-size: 14px;
+    font-size: 15px;
+    margin: 0 6px;
 }
 
 .detail-assignee-collaborators {
     display: flex;
     align-items: center;
-}
-
-.detail-collab-stack {
-    margin-left: -4px;
-}
-
-.detail-collab-stack .detail-assignee-avatar {
-    margin-left: -6px;
-    border: 2px solid white;
+    gap: 4px;
 }
 
 .detail-assignee-add {

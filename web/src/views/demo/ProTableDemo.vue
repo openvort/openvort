@@ -3675,7 +3675,8 @@ onMounted(async () => {
 
 .detail-assignee-separator {
     color: #64748b;
-    font-size: 14px;
+    font-size: 15px;
+    margin: 0 6px;
     line-height: 1;
 }
 
@@ -3684,15 +3685,6 @@ onMounted(async () => {
     align-items: center;
     gap: 4px;
     min-width: 0;
-}
-
-.detail-collab-stack .detail-assignee-avatar {
-    margin-left: -5px;
-    border: 2px solid #fff;
-}
-
-.detail-collab-stack .detail-assignee-avatar:first-child {
-    margin-left: 0;
 }
 
 .detail-assignee-add {
