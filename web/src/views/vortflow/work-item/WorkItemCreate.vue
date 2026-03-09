@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, reactive, onMounted } from "vue";
 import { Popover, message } from "@/components/vort";
+import { DownOutlined } from "@/components/vort/icons";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
 import { useWorkItemCommon } from "./useWorkItemCommon";
 import type { WorkItemType, Priority, NewBugForm } from "@/components/vort-biz/work-item/WorkItemTable.types";
@@ -209,12 +210,12 @@ onMounted(async () => {
             <div class="create-bug-row">
                 <div class="create-bug-field">
                     <label class="create-bug-label">负责人/协作者</label>
-                    <div class="bug-detail-info-assignee create-assignee-wrapper" @click.stop>
+                    <div class="bug-detail-info-assignee create-assignee-wrapper w-full" @click.stop>
                         <Popover v-model:open="createAssigneeDropdownOpen" trigger="click" placement="bottomLeft" :arrow="false">
-                            <VortButton
+                            <div
                                 class="detail-assignee-trigger create-assignee-trigger"
-                                variant="text"
                                 :class="createAssigneeDropdownOpen ? 'active' : ''"
+                                tabindex="0"
                                 @click.stop="toggleCreateAssigneeMenu"
                             >
                                 <div class="detail-assignee-split">
@@ -227,12 +228,12 @@ onMounted(async () => {
                                             <img v-if="getMemberAvatarUrl(createBugForm.owner)" :src="getMemberAvatarUrl(createBugForm.owner)" class="w-full h-full object-cover" />
                                             <template v-else>{{ getAvatarLabel(createBugForm.owner) }}</template>
                                         </span>
-                                        <span class="detail-assignee-owner-name">
-                                            {{ createBugForm.owner || "未指派" }}
+                                        <span class="detail-assignee-owner-name" :class="!createBugForm.owner ? 'text-[var(--vort-text-quaternary,rgba(0,0,0,0.25))]' : 'text-[var(--vort-text,rgba(0,0,0,0.88))]'">
+                                            {{ createBugForm.owner || "指派负责人/协作者" }}
                                         </span>
                                     </div>
-                                    <span class="detail-assignee-separator">/</span>
-                                    <div class="detail-assignee-collaborators detail-collab-stack">
+                                    <span v-if="createBugForm.collaborators.length > 0" class="detail-assignee-separator">/</span>
+                                    <div v-if="createBugForm.collaborators.length > 0" class="detail-assignee-collaborators detail-collab-stack">
                                         <template v-if="createBugForm.collaborators.length > 0">
                                             <span
                                                 v-for="name in createBugForm.collaborators"
@@ -245,10 +246,12 @@ onMounted(async () => {
                                                 <template v-else>{{ getAvatarLabel(name) }}</template>
                                             </span>
                                         </template>
-                                        <span v-else class="detail-assignee-avatar detail-assignee-add">+</span>
                                     </div>
                                 </div>
-                            </VortButton>
+                                <span class="vort-select-arrow ml-auto" :class="{ 'vort-select-arrow-open': createAssigneeDropdownOpen }">
+                                    <DownOutlined />
+                                </span>
+                            </div>
 
                             <template #content>
                                 <div class="detail-assignee-dropdown create-assignee-dropdown">
@@ -371,10 +374,10 @@ onMounted(async () => {
             <div class="create-bug-field">
                 <label class="create-bug-label">优先级</label>
                 <Popover v-model:open="createBugPriorityDropdownOpen" trigger="click" placement="bottomLeft" :arrow="false">
-                    <VortButton
+                    <div
                         class="create-bug-priority-trigger"
-                        variant="text"
                         :class="createBugPriorityDropdownOpen ? 'active' : ''"
+                        tabindex="0"
                         @click.stop="toggleCreateBugPriorityMenu"
                     >
                         <span
@@ -384,9 +387,11 @@ onMounted(async () => {
                         >
                             {{ priorityLabelMap[createBugForm.priority] }}
                         </span>
-                        <span v-else class="text-sm text-gray-400">请选择</span>
-                        <span class="status-arrow-simple ml-auto" :class="{ open: createBugPriorityDropdownOpen }" />
-                    </VortButton>
+                        <span v-else class="text-[var(--vort-text-quaternary,rgba(0,0,0,0.25))]">请选择</span>
+                        <span class="vort-select-arrow ml-auto" :class="{ 'vort-select-arrow-open': createBugPriorityDropdownOpen }">
+                            <DownOutlined />
+                        </span>
+                    </div>
                     <template #content>
                         <div class="create-bug-priority-menu w-full">
                             <VortButton
@@ -408,7 +413,12 @@ onMounted(async () => {
             <div class="create-bug-field">
                 <label class="create-bug-label">标签</label>
                 <Popover v-model:open="createTagDropdownOpen" trigger="click" placement="bottomLeft" :arrow="false">
-                    <VortButton class="create-tag-trigger" variant="text" :class="createTagDropdownOpen ? 'active' : ''" @click.stop="toggleCreateTagMenu">
+                    <div
+                        class="create-tag-trigger"
+                        :class="createTagDropdownOpen ? 'active' : ''"
+                        tabindex="0"
+                        @click.stop="toggleCreateTagMenu"
+                    >
                         <div class="create-tag-preview">
                             <template v-if="createBugForm.tags.length > 0">
                                 <span
@@ -421,10 +431,12 @@ onMounted(async () => {
                                 </span>
                                 <span v-if="createBugForm.tags.length > 3" class="text-gray-400 text-xs">+{{ createBugForm.tags.length - 3 }}</span>
                             </template>
-                            <span v-else class="text-gray-400">选择标签</span>
+                            <span v-else class="text-[var(--vort-text-quaternary,rgba(0,0,0,0.25))]">选择标签</span>
                         </div>
-                        <span class="status-arrow-simple" :class="{ open: createTagDropdownOpen }" />
-                    </VortButton>
+                        <span class="vort-select-arrow" :class="{ 'vort-select-arrow-open': createTagDropdownOpen }">
+                            <DownOutlined />
+                        </span>
+                    </div>
 
                     <template #content>
                         <div class="w-full p-3">
@@ -500,7 +512,7 @@ onMounted(async () => {
 <style scoped>
 .create-bug-drawer {
     display: flex;
-    gap: 24px;
+    gap: 32px;
     height: 100%;
 }
 
@@ -511,15 +523,18 @@ onMounted(async () => {
 }
 
 .create-bug-side {
-    width: 240px;
+    width: 280px;
     flex-shrink: 0;
     overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
 }
 
 .create-bug-row {
     display: flex;
-    gap: 16px;
-    margin-bottom: 16px;
+    gap: 24px;
+    margin-bottom: 24px;
 }
 
 .create-bug-row-full {
@@ -530,13 +545,25 @@ onMounted(async () => {
     flex: 1;
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 8px;
+}
+
+.create-bug-field :deep(.vort-popover-trigger) {
+    width: 100%;
+}
+
+.create-assignee-wrapper :deep(.vort-popover-trigger) {
+    width: 100%;
+}
+
+.create-bug-side .create-bug-field {
+    flex: none;
 }
 
 .create-bug-label {
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 500;
-    color: #64748b;
+    color: #334155;
 }
 
 .create-bug-label .required {
@@ -551,16 +578,37 @@ onMounted(async () => {
 .detail-assignee-trigger {
     display: flex;
     align-items: center;
-    padding: 6px 10px;
+    padding: 4px 11px;
     border-radius: 6px;
     border: 1px solid transparent;
     width: 100%;
+    min-height: 32px;
 }
 
 .detail-assignee-trigger:hover,
 .detail-assignee-trigger.active {
     background: #f8fafc;
     border-color: #e2e8f0;
+}
+
+.create-assignee-trigger {
+    border: 1px solid #d9d9d9;
+    background: #fff;
+    transition: all 0.3s cubic-bezier(0.645, 0.045, 0.355, 1);
+    outline: none;
+    cursor: pointer;
+}
+
+.create-assignee-trigger:hover,
+.create-assignee-trigger.active {
+    border-color: var(--vort-primary, #1456f0);
+    background: #fff;
+}
+
+.create-assignee-trigger:focus-within,
+.create-assignee-trigger:focus {
+    border-color: var(--vort-primary, #1456f0);
+    box-shadow: 0 0 0 2px var(--vort-primary-shadow, rgba(20, 86, 240, 0.1));
 }
 
 .detail-assignee-split {
@@ -589,8 +637,7 @@ onMounted(async () => {
 }
 
 .detail-assignee-owner-name {
-    font-size: 13px;
-    color: #334155;
+    font-size: 14px;
 }
 
 .detail-assignee-separator {
@@ -663,20 +710,17 @@ onMounted(async () => {
     background: #f5f3ff;
 }
 
-.status-arrow-simple {
-    display: inline-block;
-    width: 6px;
-    height: 6px;
-    border-right: 1.5px solid #4b5563;
-    border-bottom: 1.5px solid #4b5563;
-    transform: rotate(45deg);
-    margin-right: 1px;
-    margin-top: -1px;
-    transition: transform 0.15s ease;
+.vort-select-arrow {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    color: var(--vort-text-quaternary, rgba(0, 0, 0, 0.25));
+    transition: transform var(--vort-transition-colors, 0.2s);
 }
 
-.status-arrow-simple.open {
-    transform: rotate(-135deg);
+.vort-select-arrow-open {
+    transform: rotate(180deg);
 }
 
 .ml-auto {
@@ -688,14 +732,25 @@ onMounted(async () => {
     align-items: center;
     gap: 8px;
     width: 100%;
-    padding: 8px 12px;
+    min-height: 32px;
+    padding: 4px 11px;
     border-radius: 6px;
-    border: 1px solid #e2e8f0;
+    border: 1px solid #d9d9d9;
+    background: #fff;
+    transition: all 0.3s cubic-bezier(0.645, 0.045, 0.355, 1);
+    outline: none;
+    cursor: pointer;
 }
 
 .create-bug-priority-trigger:hover,
 .create-bug-priority-trigger.active {
-    border-color: #3b82f6;
+    border-color: var(--vort-primary, #1456f0);
+}
+
+.create-bug-priority-trigger:focus-within,
+.create-bug-priority-trigger:focus {
+    border-color: var(--vort-primary, #1456f0);
+    box-shadow: 0 0 0 2px var(--vort-primary-shadow, rgba(20, 86, 240, 0.1));
 }
 
 .create-bug-priority-menu {
@@ -727,14 +782,25 @@ onMounted(async () => {
     align-items: center;
     justify-content: space-between;
     width: 100%;
-    padding: 8px 12px;
+    min-height: 32px;
+    padding: 4px 11px;
     border-radius: 6px;
-    border: 1px solid #e2e8f0;
+    border: 1px solid #d9d9d9;
+    background: #fff;
+    transition: all 0.3s cubic-bezier(0.645, 0.045, 0.355, 1);
+    outline: none;
+    cursor: pointer;
 }
 
 .create-tag-trigger:hover,
 .create-tag-trigger.active {
-    border-color: #3b82f6;
+    border-color: var(--vort-primary, #1456f0);
+}
+
+.create-tag-trigger:focus-within,
+.create-tag-trigger:focus {
+    border-color: var(--vort-primary, #1456f0);
+    box-shadow: 0 0 0 2px var(--vort-primary-shadow, rgba(20, 86, 240, 0.1));
 }
 
 .create-tag-preview {
