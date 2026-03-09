@@ -1,10 +1,9 @@
 """
 企业微信 Channel
 
-实现 BaseChannel 接口，支持四种消息接收模式：
+实现 BaseChannel 接口，支持三种消息接收模式：
 - 智能机器人长连接（推荐，企微 5.0 API 模式，无需公网地址）
 - Webhook 回调（标准模式，需要公网地址）
-- Relay 中继（开发模式，OpenVort Relay Server 部署在公网）
 - 远程数据库轮询（兼容模式，适用于无公网 IP 的场景）
 """
 
@@ -41,7 +40,7 @@ class WeComChannel(BaseChannel):
 
     name = "wecom"
     display_name = "企业微信"
-    description = "企业微信 IM 通道，支持 智能机器人/Webhook/Relay/DB轮询 四种模式接收消息"
+    description = "企业微信 IM 通道，支持 智能机器人/Webhook/DB轮询 三种模式接收消息"
 
     _CURSOR_FILE = Path.home() / ".openvort" / "wecom_cursor.json"
 
@@ -59,9 +58,6 @@ class WeComChannel(BaseChannel):
         self._bot_ws: object | None = None
         self._bot_req_ids: dict[str, str] = {}
         self._bot_pending_acks: dict[str, asyncio.Future] = {}
-        self._relay_url: str = ""
-        self._relay_secret: str = ""
-        self._relay_http: httpx.AsyncClient | None = None
         self._asr_service = None
         self._bot_mode = False
         self._stream_handler = None
@@ -180,7 +176,6 @@ class WeComChannel(BaseChannel):
             "1. 进入「应用管理」→「自建」→ 创建应用\n"
             "2. 在应用详情页获取 **AgentId** 和 **Secret**\n"
             "3. 如需 Webhook 模式：设置接收服务器，获取 **Token** 和 **EncodingAESKey**\n"
-            "4. 如无公网 IP，推荐使用 Relay 中继模式（启动时加 `--relay-url`）\n"
         )
 
     def get_current_config(self) -> dict:
@@ -258,8 +253,6 @@ class WeComChannel(BaseChannel):
 
         if self._bot_mode:
             mode = "bot"
-        elif self._relay_url:
-            mode = "relay"
         elif self._poll_task and not self._poll_task.done():
             mode = "poll-db"
         elif self._running:
@@ -267,11 +260,7 @@ class WeComChannel(BaseChannel):
         else:
             mode = "未启动"
 
-        return {
-            "mode": mode,
-            "relay_url": self._relay_url or "",
-            "relay_secret": _mask(self._relay_secret),
-        }
+        return {"mode": mode}
 
     async def start(self) -> None:
         """启动通道"""
@@ -298,16 +287,12 @@ class WeComChannel(BaseChannel):
             self._poll_task.cancel()
         if self._api:
             await self._api.close()
-        if self._relay_http:
-            await self._relay_http.aclose()
         log.info("企微 Channel 已停止")
 
     async def send(self, target: str, message: Message) -> None:
-        """发送消息（自动选择 bot / relay / 直连）"""
+        """发送消息（自动选择 bot / 直连）"""
         if self._bot_mode:
             await self._bot_send(target, message)
-        elif self._relay_url:
-            await self._relay_send(target, message)
         elif message.msg_type == "voice":
             voice_data = getattr(message, "voice_data", None)
             if voice_data:
@@ -448,213 +433,6 @@ class WeComChannel(BaseChannel):
                     images=all_images, voice_media_ids=all_voice_media_ids, raw=raw,
                 ))
         return result
-
-    # ---- Relay 中继模式 ----
-
-    def _get_relay_http(self) -> httpx.AsyncClient:
-        """获取 relay HTTP 客户端"""
-        if self._relay_http is None:
-            headers = {}
-            if self._relay_secret:
-                headers["Authorization"] = f"Bearer {self._relay_secret}"
-            self._relay_http = httpx.AsyncClient(base_url=self._relay_url, headers=headers, timeout=15)
-        return self._relay_http
-
-    async def start_relay(self, relay_url: str, relay_secret: str = "",
-                          poll_interval: float = 3, aggregate_wait: float = 3) -> None:
-        """启动 Relay 中继模式"""
-        if not self._handler:
-            log.error("未注册消息 handler，无法启动 relay")
-            return
-        self._relay_url = relay_url.rstrip("/")
-        self._relay_secret = relay_secret
-        self._running = True
-        self._poll_task = asyncio.create_task(self._relay_poll_loop(poll_interval, aggregate_wait))
-        log.info(f"企微 Relay 模式已启动 → {self._relay_url}")
-
-    async def _relay_poll_loop(self, interval: float, agg_wait: float) -> None:
-        """Relay 轮询主循环"""
-        http = self._get_relay_http()
-
-        # 从持久化位点恢复，跳过已处理的消息
-        last_id = self._load_cursor("relay")
-
-        if last_id > 0:
-            log.info(f"从持久化位点恢复 relay: last_id={last_id}")
-        else:
-            # 首次启动：跳过历史消息，只 ack 不处理
-            try:
-                resp = await http.get("/relay/messages", params={"since_id": 0, "limit": 50})
-                old_msgs = resp.json().get("messages", [])
-                while old_msgs:
-                    last_id = old_msgs[-1]["id"]
-                    for m in old_msgs:
-                        try:
-                            await http.post(f"/relay/messages/{m['id']}/ack")
-                        except Exception:
-                            pass
-                    log.info(f"跳过 {len(old_msgs)} 条历史消息 (last_id={last_id})")
-                    # 继续拉取，直到没有更多历史消息
-                    resp = await http.get("/relay/messages", params={"since_id": last_id, "limit": 50})
-                    old_msgs = resp.json().get("messages", [])
-                self._save_cursor("relay", last_id)
-            except Exception as e:
-                log.error(f"获取历史消息失败: {e}")
-                last_id = 0
-
-        while self._running:
-            try:
-                resp = await http.get("/relay/messages", params={"since_id": last_id, "limit": 50})
-                data = resp.json()
-                messages = data.get("messages", [])
-
-                if messages:
-                    # 聚合窗口
-                    await asyncio.sleep(agg_wait)
-                    resp2 = await http.get("/relay/messages", params={"since_id": messages[-1]["id"], "limit": 50})
-                    extra = resp2.json().get("messages", [])
-                    if extra:
-                        messages.extend(extra)
-
-                    # 转换格式并聚合
-                    raw_msgs = []
-                    for m in messages:
-                        msg_type = m["msg_type"]
-                        raw_data = m.get("raw_data", {})
-                        images = []
-                        voice_media_id = None
-
-                        # 图片消息：提取 PicUrl / MediaId
-                        if msg_type == "image":
-                            pic_url = raw_data.get("PicUrl", "")
-                            media_id = raw_data.get("MediaId", "")
-                            if pic_url or media_id:
-                                images.append({"pic_url": pic_url, "media_id": media_id})
-
-                        # 语音消息：提取 MediaId
-                        if msg_type == "voice":
-                            voice_media_id = raw_data.get("MediaId", "")
-
-                        raw_msgs.append({
-                            "db_id": m["id"], "msg_id": m.get("msg_id", ""),
-                            "from_user": m["from_user"], "msg_type": msg_type,
-                            "content": m["content"], "raw": raw_data,
-                            "images": images,
-                            "voice_media_id": voice_media_id,
-                        })
-
-                    aggregated = self._aggregate(raw_msgs)
-                    for msg in aggregated:
-                        # 白名单过滤
-                        if self._allowed_users and msg.sender_id not in self._allowed_users:
-                            log.debug(f"跳过非白名单用户: {msg.sender_id}")
-                            continue
-
-                        # 纯图片/语音消息（无文本）：补充描述
-                        if not msg.content or not msg.content.strip():
-                            if msg.images:
-                                msg.content = "[用户发送了图片]"
-                            elif msg.voice_media_ids:
-                                msg.content = "[用户发送了语音]"
-                            elif msg.msg_type and msg.msg_type not in ("text", "mixed"):
-                                log.info(f"收到不支持的消息类型: {msg.sender_id} (type={msg.msg_type})")
-                                await self.send(
-                                    msg.sender_id,
-                                    Message(content="暂时只支持文字和图片消息哦，语音/文件等后续会支持 🙂", channel="wecom"),
-                                )
-                                continue
-                            else:
-                                log.warning(f"跳过空消息: {msg.sender_id} (msg_type={msg.msg_type})")
-                                continue
-
-                        # 下载图片（PicUrl → base64）
-                        if msg.images:
-                            msg.images = await self._download_images(msg.images)
-
-                        # 下载语音（MediaId → bytes）并 ASR 转写
-                        if msg.voice_media_ids:
-                            msg.voice_data = await self._download_voices(msg.voice_media_ids)
-                            transcribed = await self._transcribe_voice(msg.voice_data)
-                            if transcribed:
-                                msg.content = (
-                                    f"[语音转文字] {transcribed}\n\n"
-                                    f"（⚠️ 以上文字由 AI 语音识别自动转写，"
-                                    f"专有名词、人名、产品名等关键词可能因谐音被误转，"
-                                    f"请结合上下文和你所了解的项目、仓库、成员等信息适当联想，"
-                                    f"理解用户的真实意图。"
-                                    f"请使用 wecom_send_voice 工具以语音回复用户）"
-                                )
-                                log.info(f"语音转写成功: {msg.sender_id} -> {transcribed[:80]}")
-                            else:
-                                log.warning(f"语音转写失败或为空: {msg.sender_id}")
-
-                        if self._handler:
-                            log.info(f"处理消息: {msg.sender_id} -> {msg.content[:50]}")
-                            # handler 返回 None 表示消息已入队（dispatcher 模式），不发送
-                            reply = await self._handler(msg)
-                            if reply:
-                                log.info(f"回复: {reply[:50]}")
-                                await self.send(msg.sender_id, Message(content=reply, channel="wecom"))
-
-                    # 标记已处理（包括跳过的消息）
-                    for m in messages:
-                        try:
-                            await http.post(f"/relay/messages/{m['id']}/ack")
-                        except Exception:
-                            pass
-
-                    last_id = messages[-1]["id"]
-                    self._save_cursor("relay", last_id)
-
-                await asyncio.sleep(interval)
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                log.error(f"Relay 轮询异常: {e}")
-                await asyncio.sleep(interval * 2)
-
-    async def _relay_send(self, target: str, message: Message) -> None:
-        """通过 Relay 代理发送消息"""
-        http = self._get_relay_http()
-        try:
-            payload = {
-                "touser": target,
-                "content": message.content,
-                "msg_type": message.msg_type,
-            }
-
-            # 如果是语音消息，需要先上传获取 media_id
-            if message.msg_type == "voice":
-                voice_data = getattr(message, "voice_data", None)
-                if voice_data:
-                    # 调用企微 API 上传语音
-                    file_content = voice_data.get("data", b"")
-                    file_format = voice_data.get("format", "amr")
-                    file_name = f"voice.{file_format}"
-                    media_result = await self.api.upload_media("voice", file_content, file_name)
-                    payload["media_id"] = media_result.get("media_id")
-                else:
-                    log.warning("Relay 发送语音消息缺少 voice_data")
-                    return
-                # 转换为 voice 类型让 relay 知道如何处理
-                payload["msg_type"] = "voice"
-
-            resp = await http.post("/relay/send", json=payload)
-            data = resp.json()
-            if not data.get("ok"):
-                log.error(f"Relay 发送失败: {data}")
-        except Exception as e:
-            log.error(f"Relay 发送异常: {e}")
-
-    async def relay_health_check(self) -> bool:
-        """检查 Relay Server 连通性"""
-        try:
-            http = self._get_relay_http()
-            resp = await http.get("/relay/health")
-            return resp.json().get("status") == "ok"
-        except Exception as e:
-            log.error(f"Relay 健康检查失败: {e}")
-            return False
 
     # ---- 智能机器人模式 (Bot) ----
 

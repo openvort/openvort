@@ -3,16 +3,13 @@
 
 实现 BaseChannel 接口，支持钉钉机器人消息收发。
 支持两种模式：
-- Webhook 回调（Stream 模式，推荐）
-- HTTP 回调（需要公网地址）
+- Stream 长连接（推荐，无需公网地址）
+- Webhook 回调（需要公网地址）
 """
 
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import hmac
-import base64
 import json
 import time
 
@@ -23,13 +20,14 @@ from openvort.utils.logging import get_logger
 
 log = get_logger("channels.dingtalk")
 
+DT_GATEWAY_URL = "https://api.dingtalk.com/v1.0/gateway/connections/open"
+DT_STREAM_CALLBACK_TOPIC = "/v1.0/im/bot/messages/get"
+
 
 class DingTalkSettings:
     """钉钉配置"""
 
     def __init__(self):
-        from openvort.config.settings import get_settings
-        # 从环境变量加载（OPENVORT_DINGTALK_*）
         import os
         self.app_key: str = os.getenv("OPENVORT_DINGTALK_APP_KEY", "")
         self.app_secret: str = os.getenv("OPENVORT_DINGTALK_APP_SECRET", "")
@@ -42,13 +40,14 @@ class DingTalkChannel(BaseChannel):
 
     name = "dingtalk"
     display_name = "钉钉"
-    description = "钉钉 IM 通道，通过 Webhook 回调接收消息，OpenAPI 发送消息"
+    description = "钉钉 IM 通道，支持 Stream 长连接/Webhook 回调，OpenAPI 发送消息"
 
     def __init__(self):
         self._settings = DingTalkSettings()
         self._handler: MessageHandler | None = None
         self._running = False
-        self._poll_task: asyncio.Task | None = None
+        self._stream_task: asyncio.Task | None = None
+        self._stream_mode = False
         self._access_token: str = ""
         self._token_expires: float = 0
         self._http: httpx.AsyncClient | None = None
@@ -64,8 +63,8 @@ class DingTalkChannel(BaseChannel):
 
     async def stop(self) -> None:
         self._running = False
-        if self._poll_task and not self._poll_task.done():
-            self._poll_task.cancel()
+        if self._stream_task and not self._stream_task.done():
+            self._stream_task.cancel()
         if self._http:
             await self._http.aclose()
         log.info("钉钉 Channel 已停止")
@@ -162,7 +161,12 @@ class DingTalkChannel(BaseChannel):
             return {"ok": False, "message": f"连接失败: {e}"}
 
     def get_connection_info(self) -> dict:
+        if self._stream_mode:
+            return {"mode": "stream"}
         return {"mode": "webhook" if self._running else "未启动"}
+
+    def is_stream_configured(self) -> bool:
+        return bool(self._settings.app_key and self._settings.app_secret)
 
     # ---- Webhook 回调处理 ----
 
@@ -228,5 +232,154 @@ class DingTalkChannel(BaseChannel):
         data = resp.json()
         self._access_token = data.get("accessToken", "")
         expire_in = data.get("expireIn", 7200)
-        self._token_expires = time.time() + expire_in - 300  # 提前 5 分钟刷新
+        self._token_expires = time.time() + expire_in - 300
         return self._access_token
+
+    # ---- Stream 长连接模式 ----
+
+    async def start_stream(self) -> None:
+        """启动 Stream 长连接模式（无需公网 IP）"""
+        if not self._handler:
+            log.error("未注册消息 handler，无法启动 Stream 模式")
+            return
+        if not self.is_stream_configured():
+            log.error("钉钉 Stream 未配置 (需要 app_key + app_secret)")
+            return
+
+        self._stream_mode = True
+        self._running = True
+        self._stream_task = asyncio.create_task(self._stream_ws_loop())
+        log.info("钉钉 Stream 模式已启动")
+
+    async def _stream_register(self) -> tuple[str, str]:
+        """Register with DingTalk gateway to get WebSocket endpoint + ticket."""
+        http = self._get_http()
+        resp = await http.post(
+            DT_GATEWAY_URL,
+            json={
+                "clientId": self._settings.app_key,
+                "clientSecret": self._settings.app_secret,
+                "subscriptions": [
+                    {"type": "EVENT", "topic": "*"},
+                    {"type": "CALLBACK", "topic": DT_STREAM_CALLBACK_TOPIC},
+                ],
+            },
+        )
+        data = resp.json()
+        endpoint = data.get("endpoint", "")
+        ticket = data.get("ticket", "")
+        if not endpoint or not ticket:
+            raise RuntimeError(f"注册 Stream 端点失败: {data}")
+        return endpoint, ticket
+
+    async def _stream_ws_loop(self) -> None:
+        """Stream WebSocket long-connection loop with auto-reconnect."""
+        import websockets
+
+        retry_delay = 1.0
+        max_retry_delay = 60.0
+
+        while self._running:
+            try:
+                endpoint, ticket = await self._stream_register()
+                ws_url = f"wss://{endpoint}/connect?ticket={ticket}"
+                log.info(f"钉钉 Stream 连接中: {endpoint}")
+
+                async with websockets.connect(ws_url, ping_interval=None, ping_timeout=None) as ws:
+                    log.info("钉钉 Stream 已连接")
+                    retry_delay = 1.0
+
+                    async for raw_msg in ws:
+                        if not self._running:
+                            break
+                        try:
+                            await self._handle_stream_frame(ws, raw_msg)
+                        except Exception as e:
+                            log.error(f"钉钉 Stream 消息处理异常: {e}", exc_info=True)
+
+            except asyncio.CancelledError:
+                log.info("钉钉 Stream 循环已取消")
+                break
+            except Exception as e:
+                if self._running:
+                    log.warning(f"钉钉 Stream 断开 ({e})，{retry_delay:.0f}s 后重连...")
+                    await asyncio.sleep(retry_delay)
+                    retry_delay = min(retry_delay * 2, max_retry_delay)
+
+        log.info("钉钉 Stream 循环已退出")
+
+    async def _handle_stream_frame(self, ws, raw: str | bytes) -> None:
+        """Handle a single frame from DingTalk Stream WebSocket."""
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8", errors="replace")
+
+        data = json.loads(raw)
+        frame_type = data.get("type", "")
+        headers = data.get("headers", {})
+        topic = headers.get("topic", "")
+
+        if frame_type == "SYSTEM":
+            if topic == "disconnect":
+                log.info("钉钉 Stream 收到 disconnect，准备重连")
+                raise ConnectionError("server disconnect")
+            # ping -> pong
+            await ws.send(json.dumps(data))
+            return
+
+        if frame_type == "CALLBACK" and topic == DT_STREAM_CALLBACK_TOPIC:
+            message_id = headers.get("messageId", "")
+            # ACK immediately
+            ack = {
+                "code": 200,
+                "headers": {"contentType": "application/json", "messageId": message_id},
+                "message": "OK",
+                "data": "",
+            }
+            await ws.send(json.dumps(ack))
+
+            msg_data = json.loads(data.get("data", "{}"))
+            await self._handle_stream_bot_message(msg_data)
+            return
+
+        if frame_type == "EVENT":
+            message_id = headers.get("messageId", "")
+            ack = {
+                "code": 200,
+                "headers": {"contentType": "application/json", "messageId": message_id},
+                "message": "OK",
+                "data": "",
+            }
+            await ws.send(json.dumps(ack))
+
+    async def _handle_stream_bot_message(self, data: dict) -> None:
+        """Process a bot message received via Stream mode."""
+        msg_type = data.get("msgtype", "")
+        sender_id = data.get("senderStaffId", "") or data.get("senderId", "")
+        conversation_type = data.get("conversationType", "1")
+
+        content = ""
+        if msg_type == "text":
+            content = data.get("text", {}).get("content", "").strip()
+        elif msg_type == "richText":
+            for item in data.get("content", {}).get("richText", []):
+                if item.get("text"):
+                    content += item["text"]
+
+        if not content or not sender_id:
+            return
+
+        msg = Message(
+            content=content,
+            sender_id=sender_id,
+            channel="dingtalk",
+            msg_type=msg_type,
+            raw=data,
+        )
+
+        log.info(f"钉钉 Stream 消息: {sender_id} -> {content[:80]}")
+
+        if self._handler:
+            reply = await self._handler(msg)
+            if reply:
+                log.info(f"钉钉回复: {reply[:80]}")
+                await self.send(sender_id, Message(content=reply, channel="dingtalk"))

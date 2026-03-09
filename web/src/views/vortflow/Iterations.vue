@@ -183,8 +183,7 @@ const handleDeleteIteration = async (i: IterationItem) => {
 };
 
 onMounted(async () => {
-    await loadOptions();
-    loadData();
+    await Promise.all([loadOptions(), loadData()]);
 });
 </script>
 

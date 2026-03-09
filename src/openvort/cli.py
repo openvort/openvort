@@ -149,12 +149,11 @@ def init():
 
 
 @main.command()
-@click.option("--relay-url", default=None, help="Relay Server 地址（中继模式）")
 @click.option("--poll-db", default=None, help="远程数据库轮询配置（JSON 字符串）")
 @click.option("--web/--no-web", default=None, help="启用/禁用 Web 管理面板")
-def start(relay_url, poll_db, web):
+def start(poll_db, web):
     """启动 OpenVort 服务"""
-    _run_async(_start_service(relay_url, poll_db, web))
+    _run_async(_start_service(poll_db, web))
 
 
 async def _cleanup_duplicate_admins(session_factory):
@@ -176,7 +175,7 @@ async def _cleanup_duplicate_admins(session_factory):
         get_logger("cli").info(f"已清理 {len(delete_ids)} 条重复 admin 记录")
 
 
-async def _start_service(relay_url: str | None, poll_db_json: str | None, web_flag: bool | None):
+async def _start_service(poll_db_json: str | None, web_flag: bool | None):
     """启动服务的异步实现"""
     from openvort.auth.service import AuthService
     from openvort.config.settings import get_settings
@@ -274,10 +273,6 @@ async def _start_service(relay_url: str | None, poll_db_json: str | None, web_fl
     # 注入 AI 人设到 system prompt
     if identity_prompt:
         agent._system_prompt += f"\n\n# AI 身份\n\n{identity_prompt}"
-
-    # 确定 relay 配置（CLI 参数优先，其次 .env）
-    effective_relay_url = relay_url or settings.relay.url
-    effective_relay_secret = settings.relay.secret
 
     # 构建 RequestContext 的辅助函数
     async def build_context(channel_name: str, user_id: str) -> RequestContext:
@@ -441,7 +436,14 @@ async def _start_service(relay_url: str | None, poll_db_json: str | None, web_fl
                         yield {"type": "text", "text": "系统正在初始化中，请稍后再试。"}
                         return
 
-                    cmd_result = await command_handler.handle(msg.channel, msg.sender_id, msg.content)
+                    # Determine session scope: group chats use chat_id
+                    raw = getattr(msg, "raw", None) or {}
+                    chat_type = raw.get("_bot_chat_type", "single")
+                    chat_id = raw.get("_bot_chat_id", "")
+                    is_group = chat_type != "single" and bool(chat_id)
+                    session_uid = f"group:{chat_id}" if is_group else msg.sender_id
+
+                    cmd_result = await command_handler.handle(msg.channel, session_uid, msg.content)
                     if cmd_result.handled:
                         if cmd_result.reply:
                             yield {"type": "text", "text": cmd_result.reply}
@@ -450,16 +452,20 @@ async def _start_service(relay_url: str | None, poll_db_json: str | None, web_fl
                     ctx = await build_context(msg.channel, msg.sender_id)
                     ctx.images = getattr(msg, "images", []) or []
 
-                    async for event in agent.process_stream_im(ctx, msg.content):
+                    content = msg.content
+                    if is_group:
+                        ctx.user_id = session_uid
+                        sender_name = ctx.member.name if ctx.member else msg.sender_id
+                        content = f"[{sender_name}]: {content}"
+
+                    async for event in agent.process_stream_im(ctx, content):
                         yield event
 
                 _ch.set_stream_handler(bot_stream_handler)
                 await ch.start_bot()
 
-            # App mode: relay → poll-db → webhook
-            if effective_relay_url:
-                await ch.start_relay(effective_relay_url, relay_secret=effective_relay_secret)
-            elif poll_db_json:
+            # App mode: poll-db → webhook
+            if poll_db_json:
                 db_config = json.loads(poll_db_json)
                 await ch.start_polling(db_config)
             else:
@@ -499,14 +505,82 @@ async def _start_service(relay_url: str | None, poll_db_json: str | None, web_fl
             ch.on_message(handle_openclaw_message)
             await ch.start()
 
+        # ---- DingTalk Channel (Stream mode) ----
+        if ch.name == "dingtalk" and ch.is_configured():
+            from openvort.channels.dingtalk.channel import DingTalkChannel as _DingTalkCh
+            _dt_ch: _DingTalkCh = ch  # type: ignore[assignment]
+
+            async def handle_dingtalk_message(msg):
+                from openvort.core.setup import is_initialized as _is_init
+                if not await _is_init(session_factory):
+                    return "系统正在初始化中，请稍后再试。"
+
+                cmd_result = await command_handler.handle(msg.channel, msg.sender_id, msg.content)
+                if cmd_result.handled:
+                    return cmd_result.reply
+
+                ctx = await build_context(msg.channel, msg.sender_id)
+                ctx.images = getattr(msg, "images", []) or []
+
+                async def process_fn(ctx_, content_):
+                    return await agent.process(ctx_, content_)
+
+                async def send_fn(reply_):
+                    log.info(f"钉钉回复: {reply_[:50]}")
+                    from openvort.plugin.base import Message as Msg
+                    await _dt_ch.send(msg.sender_id, Msg(content=reply_, channel="dingtalk"))
+
+                reply = await dispatcher.dispatch(ctx, msg.content, process_fn, send_fn)
+                return reply
+
+            _dt_ch.on_message(handle_dingtalk_message)
+
+            if _dt_ch.is_stream_configured():
+                await _dt_ch.start_stream()
+            else:
+                await _dt_ch.start()
+
+        # ---- Feishu Channel (WebSocket mode) ----
+        if ch.name == "feishu" and ch.is_configured():
+            from openvort.channels.feishu.channel import FeishuChannel as _FeishuCh
+            _fs_ch: _FeishuCh = ch  # type: ignore[assignment]
+
+            async def handle_feishu_message(msg):
+                from openvort.core.setup import is_initialized as _is_init
+                if not await _is_init(session_factory):
+                    return "系统正在初始化中，请稍后再试。"
+
+                cmd_result = await command_handler.handle(msg.channel, msg.sender_id, msg.content)
+                if cmd_result.handled:
+                    return cmd_result.reply
+
+                ctx = await build_context(msg.channel, msg.sender_id)
+                ctx.images = getattr(msg, "images", []) or []
+
+                async def process_fn(ctx_, content_):
+                    return await agent.process(ctx_, content_)
+
+                async def send_fn(reply_):
+                    log.info(f"飞书回复: {reply_[:50]}")
+                    from openvort.plugin.base import Message as Msg
+                    await _fs_ch.send(msg.sender_id, Msg(content=reply_, channel="feishu"))
+
+                reply = await dispatcher.dispatch(ctx, msg.content, process_fn, send_fn)
+                return reply
+
+            _fs_ch.on_message(handle_feishu_message)
+
+            if _fs_ch.is_ws_configured():
+                await _fs_ch.start_ws()
+            else:
+                await _fs_ch.start()
+
     # Determine wecom mode(s) for logging
     _modes = []
     _wecom_ch = registry.get_channel("wecom")
     if _wecom_ch and hasattr(_wecom_ch, "_bot_mode") and _wecom_ch._bot_mode:
         _modes.append("bot")
-    if effective_relay_url:
-        _modes.append("relay")
-    elif poll_db_json:
+    if poll_db_json:
         _modes.append("poll-db")
     else:
         _modes.append("webhook")
@@ -732,10 +806,9 @@ def stop():
 
 
 @main.command()
-@click.option("--relay-url", default=None, help="Relay Server 地址（中继模式）")
 @click.option("--poll-db", default=None, help="远程数据库轮询配置（JSON 字符串）")
 @click.option("--web/--no-web", default=None, help="启用/禁用 Web 管理面板")
-def restart(relay_url, poll_db, web):
+def restart(poll_db, web):
     """重启 OpenVort 服务（stop + start）"""
     if PID_FILE.exists():
         try:
@@ -752,7 +825,7 @@ def restart(relay_url, poll_db, web):
             pass
 
     click.echo("正在启动...")
-    _run_async(_start_service(relay_url, poll_db, web))
+    _run_async(_start_service(poll_db, web))
 
 
 # ============ channels ============
@@ -1442,17 +1515,7 @@ async def _doctor():
         else:
             click.echo(f"  ⚠️ {ch.name} ({ch.display_name}) — 未配置")
 
-    # 4. Relay 检查
-    click.echo("\n── Relay 中继 ──")
-    if settings.relay.url:
-        click.echo(f"  ✅ Relay URL: {settings.relay.url}")
-        if not settings.relay.secret:
-            issues.append("Relay Secret 未配置（安全风险）")
-            click.echo("  ⚠️ Relay Secret 未配置（建议设置鉴权密钥）")
-    else:
-        click.echo("  ℹ️ 未配置 Relay（使用 Webhook 或 Poll-DB 模式）")
-
-    # 5. 安全策略检查
+    # 4. 安全策略检查
     click.echo("\n── 安全策略 ──")
     if not settings.contacts.admin_user_ids:
         issues.append("未配置管理员 user_id")

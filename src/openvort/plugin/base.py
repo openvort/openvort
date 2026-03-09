@@ -140,7 +140,7 @@ class BaseChannel(ABC):
     def get_connection_info(self) -> dict:
         """返回当前连接模式信息（只读展示用）
 
-        返回: {"mode": "webhook", "relay_url": "", "relay_secret": ""}
+        返回: {"mode": "webhook"} 等
         """
         return {"mode": "unknown"}
 

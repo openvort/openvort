@@ -1,11 +1,8 @@
 """通道管理路由"""
 
-import io
 import json
-import zipfile
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 
@@ -167,116 +164,3 @@ async def test_channel(name: str):
 
     result = await ch.test_connection()
     return result
-
-
-@router.get("/{name}/deploy-package")
-async def download_deploy_package(name: str):
-    """下载 Relay 部署文件包（docker-compose + .env + README）"""
-    registry = get_registry()
-    ch = registry.get_channel(name)
-    if not ch:
-        raise HTTPException(status_code=404, detail=f"通道 '{name}' 不存在")
-
-    # 获取当前配置用于预填模板
-    config = ch.get_current_config() if hasattr(ch, "get_current_config") else {}
-
-    corp_id = config.get("corp_id", "")
-    agent_id = config.get("agent_id", "")
-
-    docker_compose = f"""\
-version: "3.8"
-
-services:
-  relay:
-    image: python:3.11-slim
-    container_name: openvort-relay
-    restart: unless-stopped
-    working_dir: /app
-    volumes:
-      - ./data:/app/data
-    ports:
-      - "${{RELAY_PORT:-8080}}:8080"
-    env_file:
-      - .env
-    command: >
-      bash -c "
-        pip install openvort --quiet &&
-        python -m openvort relay
-          --port 8080
-          --db-path /app/data/relay.db
-      "
-"""
-
-    env_example = f"""\
-# === 企业微信配置 ===
-OPENVORT_WECOM_CORP_ID={corp_id}
-OPENVORT_WECOM_APP_SECRET=<填写应用 Secret>
-OPENVORT_WECOM_AGENT_ID={agent_id}
-OPENVORT_WECOM_CALLBACK_TOKEN=<填写回调 Token>
-OPENVORT_WECOM_CALLBACK_AES_KEY=<填写回调 EncodingAESKey>
-
-# === Relay 配置 ===
-OPENVORT_RELAY_SECRET=<自定义鉴权密钥>
-RELAY_PORT=8080
-"""
-
-    readme = f"""\
-# OpenVort Relay Server 部署指南
-
-Relay Server 是一个轻量级的企微消息中继服务，部署在公网服务器上，
-负责接收企微回调消息并转发给本地的 OpenVort 引擎。
-
-## 快速部署
-
-1. 将本目录上传到公网服务器
-
-2. 复制并编辑环境变量：
-   ```bash
-   cp .env.example .env
-   # 编辑 .env，填写企微凭证和 Relay 密钥
-   ```
-
-3. 启动服务：
-   ```bash
-   docker compose up -d
-   ```
-
-4. 在企微后台设置回调地址为：
-   ```
-   http://<你的服务器IP>:8080/callback/wecom
-   ```
-
-5. 在 OpenVort 本地启动时指定 relay 地址：
-   ```bash
-   openvort start --relay-url http://<你的服务器IP>:8080
-   ```
-   或在 .env 中设置：
-   ```
-   OPENVORT_RELAY_URL=http://<你的服务器IP>:8080
-   OPENVORT_RELAY_SECRET=<与上面一致的密钥>
-   ```
-
-## 健康检查
-
-```bash
-curl http://<你的服务器IP>:8080/relay/health
-```
-
-## 数据持久化
-
-消息数据存储在 `./data/relay.db`（SQLite），挂载为 Docker volume 确保重启不丢失。
-"""
-
-    # 生成 zip
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("openvort-relay/docker-compose.yml", docker_compose)
-        zf.writestr("openvort-relay/.env.example", env_example)
-        zf.writestr("openvort-relay/README.md", readme)
-    buf.seek(0)
-
-    return StreamingResponse(
-        buf,
-        media_type="application/zip",
-        headers={"Content-Disposition": f"attachment; filename=openvort-relay-{name}.zip"},
-    )

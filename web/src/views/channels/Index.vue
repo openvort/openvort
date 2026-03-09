@@ -2,8 +2,7 @@
 import { ref, onMounted } from "vue";
 import { getChannels, getChannelDetail, updateChannel, toggleChannel, testChannel } from "@/api";
 import { message } from "@/components/vort";
-import { CheckCircle, XCircle, Settings, Zap, Download } from "lucide-vue-next";
-import { useUserStore } from "@/stores";
+import { CheckCircle, XCircle, Settings, Zap } from "lucide-vue-next";
 import AiAssistButton from "@/components/vort-biz/ai-assist-button/AiAssistButton.vue";
 
 interface ConfigField {
@@ -19,8 +18,6 @@ interface ConfigField {
 
 interface ConnectionInfo {
     mode: string;
-    relay_url?: string;
-    relay_secret?: string;
 }
 
 interface ChannelInfo {
@@ -123,15 +120,6 @@ async function handleToggle(row: ChannelInfo) {
     }
 }
 
-function handleDownloadDeploy() {
-    if (!currentChannel.value) return;
-    const userStore = useUserStore();
-    window.open(
-        `/api/admin/channels/${currentChannel.value.name}/deploy-package?token=${encodeURIComponent(userStore.token)}`,
-        "_blank",
-    );
-}
-
 function renderGuide(md: string): string {
     return md
         .replace(/### (.+)/g, '<h4 class="text-sm font-semibold text-gray-800 mb-2">$1</h4>')
@@ -143,8 +131,11 @@ function renderGuide(md: string): string {
 }
 
 const modeLabels: Record<string, string> = {
-    relay: "Relay 中继",
+    bot: "智能机器人",
+    stream: "Stream 长连接",
+    websocket: "WebSocket 长连接",
     webhook: "Webhook 回调",
+    event_subscription: "事件订阅",
     "poll-db": "数据库轮询",
     "未启动": "未启动",
     unknown: "未知",
@@ -270,23 +261,8 @@ onMounted(loadChannels);
                             <span class="w-[140px] text-right pr-3 text-gray-500 shrink-0">当前模式</span>
                             <VortTag>{{ modeLabels[currentChannel.connection.mode] || currentChannel.connection.mode }}</VortTag>
                         </div>
-                        <template v-if="currentChannel.connection.relay_url">
-                            <div class="flex">
-                                <span class="w-[140px] text-right pr-3 text-gray-500 shrink-0">Relay 地址</span>
-                                <span class="font-mono">{{ currentChannel.connection.relay_url }}</span>
-                            </div>
-                            <div class="flex">
-                                <span class="w-[140px] text-right pr-3 text-gray-500 shrink-0">Relay 密钥</span>
-                                <span class="font-mono">{{ currentChannel.connection.relay_secret || '未设置' }}</span>
-                            </div>
-                        </template>
                         <div class="mt-2">
                             <VortAlert type="info" message="连接模式通过启动参数或环境变量配置，修改后需重启服务" />
-                        </div>
-                        <div class="mt-3">
-                            <VortButton size="small" @click="handleDownloadDeploy">
-                                <Download :size="14" class="mr-1" /> 下载 Relay 部署文件
-                            </VortButton>
                         </div>
                     </div>
 

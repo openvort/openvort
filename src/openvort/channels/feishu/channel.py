@@ -2,7 +2,9 @@
 飞书 Channel
 
 实现 BaseChannel 接口，支持飞书机器人消息收发。
-使用飞书 Event Subscription 接收消息，OpenAPI 发送消息。
+支持两种模式：
+- WebSocket 长连接（推荐，无需公网地址）
+- Event Subscription 回调（需要公网地址）
 """
 
 from __future__ import annotations
@@ -10,11 +12,15 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from typing import TYPE_CHECKING
 
 import httpx
 
 from openvort.plugin.base import BaseChannel, Message, MessageHandler
 from openvort.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    import lark_oapi as lark
 
 log = get_logger("channels.feishu")
 
@@ -36,16 +42,19 @@ class FeishuChannel(BaseChannel):
 
     name = "feishu"
     display_name = "飞书"
-    description = "飞书 IM 通道，通过事件订阅接收消息，OpenAPI 发送消息"
+    description = "飞书 IM 通道，支持 WebSocket 长连接/事件订阅，OpenAPI 发送消息"
 
     def __init__(self):
         self._settings = FeishuSettings()
         self._handler: MessageHandler | None = None
         self._running = False
+        self._ws_mode = False
+        self._ws_task: asyncio.Task | None = None
+        self._ws_client: lark.ws.Client | None = None
         self._access_token: str = ""
         self._token_expires: float = 0
         self._http: httpx.AsyncClient | None = None
-        self._processed_msg_ids: set[str] = set()  # 去重
+        self._processed_msg_ids: set[str] = set()
 
     # ---- BaseChannel 接口 ----
 
@@ -58,6 +67,8 @@ class FeishuChannel(BaseChannel):
 
     async def stop(self) -> None:
         self._running = False
+        if self._ws_task and not self._ws_task.done():
+            self._ws_task.cancel()
         if self._http:
             await self._http.aclose()
         log.info("飞书 Channel 已停止")
@@ -160,7 +171,12 @@ class FeishuChannel(BaseChannel):
             return {"ok": False, "message": f"连接失败: {e}"}
 
     def get_connection_info(self) -> dict:
+        if self._ws_mode:
+            return {"mode": "websocket"}
         return {"mode": "event_subscription" if self._running else "未启动"}
+
+    def is_ws_configured(self) -> bool:
+        return bool(self._settings.app_id and self._settings.app_secret)
 
     # ---- Event Subscription 回调处理 ----
 
@@ -251,3 +267,112 @@ class FeishuChannel(BaseChannel):
         expire = data.get("expire", 7200)
         self._token_expires = time.time() + expire - 300
         return self._access_token
+
+    # ---- WebSocket 长连接模式 ----
+
+    async def start_ws(self) -> None:
+        """Start WebSocket long connection via lark-oapi SDK (no public IP needed)."""
+        if not self._handler:
+            log.error("未注册消息 handler，无法启动 WebSocket 模式")
+            return
+        if not self.is_ws_configured():
+            log.error("飞书 WebSocket 未配置 (需要 app_id + app_secret)")
+            return
+
+        import lark_oapi as lark
+        from lark_oapi.api.im.v1 import P2ImMessageReceiveV1
+
+        self._ws_mode = True
+        self._running = True
+
+        loop = asyncio.get_running_loop()
+
+        def _on_message(data: P2ImMessageReceiveV1):
+            coro = self._handle_ws_message(data)
+            future = asyncio.run_coroutine_threadsafe(coro, loop)
+            try:
+                future.result(timeout=120)
+            except Exception as e:
+                log.error(f"飞书 WS 消息处理异常: {e}", exc_info=True)
+
+        event_handler = (
+            lark.EventDispatcherHandler.builder(
+                self._settings.encrypt_key,
+                self._settings.verification_token,
+            )
+            .register_p2_im_message_receive_v1(_on_message)
+            .build()
+        )
+
+        self._ws_client = lark.ws.Client(
+            self._settings.app_id,
+            self._settings.app_secret,
+            event_handler=event_handler,
+            log_level=lark.LogLevel.INFO,
+        )
+
+        self._ws_task = asyncio.create_task(
+            asyncio.to_thread(self._ws_client.start)
+        )
+        log.info("飞书 WebSocket 长连接已启动")
+
+    async def _handle_ws_message(self, data) -> None:
+        """Process a message received via lark-oapi WebSocket."""
+        from lark_oapi.api.im.v1 import P2ImMessageReceiveV1
+
+        if not isinstance(data, P2ImMessageReceiveV1):
+            return
+
+        event = data.event
+        if not event or not event.message:
+            return
+
+        message_data = event.message
+        msg_id = message_data.message_id or ""
+
+        if msg_id in self._processed_msg_ids:
+            return
+        self._processed_msg_ids.add(msg_id)
+        if len(self._processed_msg_ids) > 500:
+            self._processed_msg_ids = set(list(self._processed_msg_ids)[-250:])
+
+        msg_type = message_data.message_type or ""
+        sender_id = ""
+        if event.sender and event.sender.sender_id:
+            sender_id = event.sender.sender_id.open_id or ""
+        chat_type = message_data.chat_type or ""
+
+        content = ""
+        if msg_type == "text":
+            try:
+                content_json = json.loads(message_data.content or "{}")
+                content = content_json.get("text", "").strip()
+            except json.JSONDecodeError:
+                pass
+
+        if not content or not sender_id:
+            return
+
+        raw = {
+            "message_id": msg_id,
+            "message_type": msg_type,
+            "chat_type": chat_type,
+            "chat_id": message_data.chat_id or "",
+            "content": message_data.content or "",
+        }
+
+        msg = Message(
+            content=content,
+            sender_id=sender_id,
+            channel="feishu",
+            msg_type=msg_type,
+            raw=raw,
+        )
+
+        log.info(f"飞书 WS 消息: {sender_id} -> {content[:80]}")
+
+        if self._handler:
+            reply = await self._handler(msg)
+            if reply:
+                log.info(f"飞书回复: {reply[:80]}")
+                await self.send(sender_id, Message(content=reply, channel="feishu"))

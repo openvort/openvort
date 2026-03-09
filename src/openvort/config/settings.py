@@ -116,17 +116,6 @@ class WeComSettings(BaseSettings):
     bot_secret: str = ""
 
 
-class RelaySettings(BaseSettings):
-    """Relay 中继配置"""
-
-    model_config = SettingsConfigDict(
-        env_prefix="OPENVORT_RELAY_", env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore",
-    )
-
-    url: str = ""  # Relay Server 地址，如 https://your-server.com
-    secret: str = ""  # 鉴权密钥
-    port: int = 8080  # Relay Server 监听端口（服务端用）
-
 
 class ContactsSettings(BaseSettings):
     """通讯录配置"""
@@ -207,9 +196,6 @@ class Settings(BaseSettings):
 
     # 企微
     wecom: WeComSettings = Field(default_factory=WeComSettings)
-
-    # Relay
-    relay: RelaySettings = Field(default_factory=RelaySettings)
 
     # 通讯录
     contacts: ContactsSettings = Field(default_factory=ContactsSettings)

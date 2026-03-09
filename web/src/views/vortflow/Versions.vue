@@ -186,8 +186,7 @@ const handleReleaseVersion = async (v: VersionItem) => {
 };
 
 onMounted(async () => {
-    await loadOptions();
-    loadData();
+    await Promise.all([loadOptions(), loadData()]);
 });
 </script>
 

@@ -31,7 +31,6 @@
 - Secret 类字段（如 app_secret、token）在展示时会脱敏（****），更新时传入真实值
 - 如用户不清楚某个字段从哪获取，参考 config_schema 中的 description 给出指引
 - 配置更新后实时生效，无需重启服务
-- 回调相关配置（callback_token、callback_aes_key 等）在 Relay 模式下可不配置
 - 通道启用/禁用需要在 Web 管理面板操作，当前工具不支持 toggle
 
 ## 诊断排错
@@ -40,4 +39,4 @@
 1. 检查必填字段是否完整（用 system_channel_config get 查看）
 2. 确认凭证是否正确（Secret、Token 等）
 3. 检查网络连通性（API 地址是否可达）
-4. 对于企业微信 Relay 模式，确认 Relay Server 已启动且地址正确
+4. 对于企业微信，确认长连接或 Webhook 模式配置正确

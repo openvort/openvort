@@ -14,7 +14,7 @@ OpenVort 是一个开源 AI 研发工作流引擎，通过 IM（企业微信/钉
 |------|------|
 | 语言 | Python 3.11+ |
 | LLM | Anthropic Claude（tool use）+ OpenAI 兼容协议（Failover） |
-| Web 框架 | FastAPI（Web 面板 / Relay / Webhook） |
+| Web 框架 | FastAPI（Web 面板 / Webhook） |
 | CLI | Click |
 | HTTP 客户端 | httpx（异步） |
 | ORM | SQLAlchemy 2.0 + asyncpg（PostgreSQL） |
@@ -38,9 +38,7 @@ OpenVort 是一个开源 AI 研发工作流引擎，通过 IM（企业微信/钉
                         │                              ↕          │
           Web 面板 ─────┤                         Skill 系统      │
          (Vue 3 SPA)    │                        (知识片段注入)    │
-                        │                                         │
-                        └── Relay Server ─────────────────────────┘
-                           (公网中继，可选)
+                        └─────────────────────────────────────────┘
 ```
 
 ### 分层说明
@@ -81,14 +79,13 @@ src/openvort/
 │   ├── schedule/           # 定时任务（2 Tool + 1 Prompt）
 │   └── system/             # 系统管理（2 Tool + 1 Prompt，核心插件）
 ├── channels/               # IM 通道适配器
-│   ├── wecom/              # 企业微信（Webhook / Relay / DB轮询）
-│   ├── dingtalk/           # 钉钉（Webhook + OpenAPI）
-│   ├── feishu/             # 飞书（Event Subscription + OpenAPI）
+│   ├── wecom/              # 企业微信（智能机器人长连接 / Webhook / DB轮询）
+│   ├── dingtalk/           # 钉钉（Stream 长连接 / Webhook + OpenAPI）
+│   ├── feishu/             # 飞书（WebSocket 长连接 / Event Subscription + OpenAPI）
 │   └── openclaw/           # OpenClaw 多平台网关
 ├── contacts/               # 通讯录（5 Tool，多平台身份映射）
 ├── skill/                  # Skill 知识注入系统
 ├── auth/                   # RBAC 权限（admin/manager/member/guest）
-├── relay/                  # Relay 公网中继服务
 ├── web/                    # Web 管理面板后端
 │   ├── app.py              # FastAPI 应用工厂
 │   ├── ws.py               # WebSocket（presence/typing/通知）
@@ -236,7 +233,7 @@ class OpenAICompatibleProvider(LLMProvider): ...
 | Plugin | 系统管理(2) + 禅道(11) + 浏览器(5) + 通讯录(5) + VortFlow(5) + VortGit(8) + 汇报(3) + Jenkins(6) + Schedule(2) | ✅ |
 | Web | 管理面板（Vue 3 + FastAPI + JWT + SSE + WebSocket + Webhook） | ✅ |
 | 安全 | RBAC + DM 配对 + Docker 沙箱 + Token 加密 | ✅ |
-| 基础设施 | CLI + Relay + Pydantic Settings + 异步全栈 | ✅ |
+| 基础设施 | CLI + Pydantic Settings + 异步全栈 | ✅ |
 | AI 员工 | Member 扩展 + 角色模板 Skills + Agent 人设注入 + 定时汇报 | ✅ |
 
 ## 设计决策记录
@@ -261,10 +258,6 @@ Python entry_points 是标准的插件发现机制：
 - 不需要约定目录结构或配置文件
 
 补充：`PluginLoader` 对内置通道增加了兜底加载逻辑，确保开发环境下即使 entry_points 未正确安装也能注册。
-
-### 为什么需要 Relay Server？
-
-本地开发时没有公网 IP，无法接收企微 Webhook 回调。Relay 部署在公网，只做消息中转，不跑 AI，资源占用极低（128MB 内存即可）。
 
 ### AI 员工任务归属与通知机制
 

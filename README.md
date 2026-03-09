@@ -18,9 +18,7 @@
      (企微/钉钉/飞书)   │                  (防抖/去重)     ↕    ↕              (禅道/Gitee/...)
                         │                            LLM(Claude)  │
           Web 面板 ─────┤                                         │
-         (Vue 3 SPA)    │                                         │
-                        └── Relay Server ─────────────────────────┘
-                           (公网中继，可选)
+         (Vue 3 SPA)    └─────────────────────────────────────────┘
 ```
 
 ## 快速开始
@@ -87,12 +85,10 @@ src/openvort/
 ├── auth/           # RBAC 权限
 ├── web/            # Web 面板后端（FastAPI + WebSocket + SSE）
 ├── db/             # 数据库（SQLAlchemy 2.0 async）
-├── relay/          # Relay 公网中继
 ├── skill/          # Skill 知识注入
 └── cli.py          # CLI 入口
 
 web/                # 前端（Vue 3.5 + TypeScript 5.9 + Vite 7 + Tailwind CSS 4）
-deploy/relay/       # Relay 中继独立部署（Node.js / Python）
 ```
 
 详细架构设计参见 [`docs/architecture.md`](docs/architecture.md)。
