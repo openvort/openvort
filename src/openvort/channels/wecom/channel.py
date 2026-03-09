@@ -11,12 +11,14 @@
 import asyncio
 import base64
 import json
+import time
 from pathlib import Path
 from uuid import uuid4
 
 import httpx
 
 from openvort.channels.wecom.api import WeComAPI
+from openvort.channels.wecom.think_parser import parse_thinking_content
 from openvort.config.settings import WeComSettings
 from openvort.plugin.base import BaseChannel, Message, MessageHandler
 from openvort.utils.logging import get_logger
@@ -24,6 +26,12 @@ from openvort.utils.logging import get_logger
 BOT_WS_URL = "wss://openws.work.weixin.qq.com"
 BOT_WS_HEARTBEAT_INTERVAL = 30
 BOT_STREAM_MAX_BYTES = 20000
+BOT_STREAM_THROTTLE_INTERVAL = 0.3
+BOT_DEBOUNCE_SECONDS = 2.0
+BOT_DEDUP_MAX_SIZE = 500
+BOT_DEDUP_TTL = 300
+BOT_REQID_FILE = Path.home() / ".openvort" / "wecom_bot_reqids.json"
+BOT_REQID_TTL = 3600
 
 log = get_logger("channels.wecom")
 
@@ -56,9 +64,23 @@ class WeComChannel(BaseChannel):
         self._relay_http: httpx.AsyncClient | None = None
         self._asr_service = None
         self._bot_mode = False
+        self._stream_handler = None
+        self._seen_msgids: dict[str, float] = {}
+        self._bot_debounce_timers: dict[str, asyncio.Task] = {}
+        self._bot_pending_msgs: dict[str, list[Message]] = {}
+        self._bot_stream_ids: dict[str, str] = {}
+        self._bot_processing: set[str] = set()
+        self._reqid_save_task: asyncio.Task | None = None
 
     def set_asr_service(self, asr_service) -> None:
         self._asr_service = asr_service
+
+    def set_stream_handler(self, handler) -> None:
+        """Set async generator handler for bot streaming mode.
+
+        handler(msg: Message) -> AsyncGenerator[dict, None]
+        """
+        self._stream_handler = handler
 
     # ---- 消费位点持久化 ----
 
@@ -200,7 +222,6 @@ class WeComChannel(BaseChannel):
         if "bot_secret" in config:
             s.bot_secret = config["bot_secret"]
         self._api = None
-        self._bot_api = None
 
     async def test_connection(self) -> dict:
         if not self.is_configured():
@@ -639,7 +660,7 @@ class WeComChannel(BaseChannel):
 
     async def start_bot(self) -> None:
         """启动智能机器人模式（WebSocket 长连接）"""
-        if not self._handler:
+        if not self._handler and not self._stream_handler:
             log.error("未注册消息 handler，无法启动 bot 模式")
             return
         if not self.is_bot_configured():
@@ -648,6 +669,7 @@ class WeComChannel(BaseChannel):
 
         self._bot_mode = True
         self._running = True
+        self._load_reqids()
         self._bot_ws_task = asyncio.create_task(self._bot_ws_loop())
         log.info(f"企微智能机器人模式已启动 (bot_id={self._settings.bot_id})")
 
@@ -781,6 +803,12 @@ class WeComChannel(BaseChannel):
         chat_type = body.get("chattype", "single")
         chat_id = body.get("chatid", "")
 
+        # ── Deduplication ──
+        msgid = body.get("msgid", "")
+        if msgid and self._is_duplicate(msgid):
+            log.debug(f"Bot WS 重复消息，跳过: msgid={msgid}")
+            return
+
         content = ""
         images: list[dict] = []
 
@@ -828,12 +856,10 @@ class WeComChannel(BaseChannel):
             log.debug(f"Bot WS 消息内容为空: {from_user}, type={msgtype}")
             return
 
-        # Allowed users filter
         if self._allowed_users and from_user not in self._allowed_users:
             log.debug(f"Bot WS 跳过非白名单用户: {from_user}")
             return
 
-        # Parse quote
         quote_text = ""
         if body.get("quote"):
             q = body["quote"]
@@ -855,22 +881,24 @@ class WeComChannel(BaseChannel):
                 "_bot_req_id": req_id,
                 "_bot_chat_id": chat_id,
                 "_bot_chat_type": chat_type,
-                "msgid": body.get("msgid", ""),
+                "msgid": msgid,
                 "aibotid": body.get("aibotid", ""),
             },
         )
 
-        # Store req_id for reply routing
         reply_key = chat_id if chat_id else from_user
         self._bot_req_ids[reply_key] = req_id
+        self._schedule_reqid_save()
 
-        # Download images if any
         if images:
             msg.images = await self._download_images(images)
 
         log.info(f"Bot 消息: {from_user} ({chat_type}) -> {content[:80]}")
 
-        if self._handler:
+        # Route: stream handler with debounce, or legacy non-stream handler
+        if self._stream_handler:
+            await self._bot_debounce_enqueue(msg, req_id, chat_id)
+        elif self._handler:
             reply = await self._handler(msg)
             if reply:
                 log.info(f"Bot 回复: {reply[:80]}")
@@ -956,45 +984,317 @@ class WeComChannel(BaseChannel):
         except Exception as e:
             log.error(f"Bot 回复发送失败: {e}")
 
+    # ---- Bot 流式处理 ----
+
+    async def _bot_debounce_enqueue(self, msg: Message, req_id: str, chat_id: str) -> None:
+        """Enqueue message with per-user debounce for streaming."""
+        user_key = chat_id if chat_id else msg.sender_id
+
+        # Cancel existing timer for this user
+        existing = self._bot_debounce_timers.get(user_key)
+        if existing and not existing.done():
+            existing.cancel()
+
+        # Enqueue message
+        self._bot_pending_msgs.setdefault(user_key, []).append(msg)
+
+        # First message in batch: send "thinking" indicator immediately
+        if len(self._bot_pending_msgs[user_key]) == 1 and user_key not in self._bot_processing:
+            try:
+                stream_id = str(uuid4())
+                self._bot_stream_ids[user_key] = stream_id
+                frame = {
+                    "cmd": "aibot_respond_msg",
+                    "headers": {"req_id": req_id},
+                    "body": {
+                        "msgtype": "stream",
+                        "stream": {
+                            "id": stream_id,
+                            "finish": False,
+                            "content": "",
+                            "thinking_content": "思考中...",
+                        },
+                    },
+                }
+                await self._bot_send_frame(frame)
+            except Exception as e:
+                log.warning(f"发送思考中帧失败: {e}")
+
+        # Start debounce timer
+        self._bot_debounce_timers[user_key] = asyncio.create_task(
+            self._bot_debounce_fire(user_key, req_id, chat_id)
+        )
+
+    async def _bot_debounce_fire(self, user_key: str, req_id: str, chat_id: str) -> None:
+        """Wait debounce period then process merged messages."""
+        await asyncio.sleep(BOT_DEBOUNCE_SECONDS)
+
+        if user_key in self._bot_processing:
+            return
+
+        pending = self._bot_pending_msgs.pop(user_key, [])
+        if not pending:
+            return
+
+        stream_id = self._bot_stream_ids.pop(user_key, str(uuid4()))
+
+        self._bot_processing.add(user_key)
+        try:
+            if len(pending) == 1:
+                merged_msg = pending[0]
+            else:
+                texts = [m.content for m in pending if m.content]
+                merged_content = "\n".join(texts)
+                all_images = []
+                for m in pending:
+                    all_images.extend(m.images or [])
+                merged_msg = Message(
+                    content=merged_content,
+                    sender_id=pending[-1].sender_id,
+                    channel="wecom",
+                    msg_type=pending[-1].msg_type,
+                    images=all_images,
+                    raw=pending[-1].raw,
+                )
+
+            await self._handle_bot_streaming(merged_msg, req_id, chat_id, stream_id)
+        except Exception as e:
+            log.error(f"Bot 流式处理异常: {e}", exc_info=True)
+        finally:
+            self._bot_processing.discard(user_key)
+            if self._bot_pending_msgs.get(user_key):
+                new_req_id = self._bot_req_ids.get(user_key, req_id)
+                self._bot_debounce_timers[user_key] = asyncio.create_task(
+                    self._bot_debounce_fire(user_key, new_req_id, chat_id)
+                )
+
+    async def _handle_bot_streaming(self, msg: Message, req_id: str, chat_id: str,
+                                    stream_id: str = "") -> None:
+        """Stream AI response back via WebSocket frames with throttling."""
+        if not stream_id:
+            stream_id = str(uuid4())
+        visible_text = ""
+        thinking_text = ""
+        last_send_time = 0.0
+        last_send_len = 0
+        has_native_thinking = False
+
+        async def send_stream_frame(finish: bool = False) -> None:
+            nonlocal last_send_time, last_send_len
+            final_visible = visible_text
+            final_thinking = thinking_text
+
+            if not has_native_thinking and visible_text:
+                parsed_visible, parsed_thinking, _ = parse_thinking_content(visible_text)
+                if parsed_thinking:
+                    final_visible = parsed_visible
+                    final_thinking = parsed_thinking
+
+            content_bytes = final_visible.encode("utf-8")
+            if len(content_bytes) > BOT_STREAM_MAX_BYTES:
+                final_visible = content_bytes[:BOT_STREAM_MAX_BYTES].decode("utf-8", errors="ignore")
+                if finish:
+                    final_visible += "\n\n...(内容过长，已截断)"
+
+            frame = {
+                "cmd": "aibot_respond_msg",
+                "headers": {"req_id": req_id},
+                "body": {
+                    "msgtype": "stream",
+                    "stream": {
+                        "id": stream_id,
+                        "finish": finish,
+                        "content": final_visible,
+                    },
+                },
+            }
+            if final_thinking:
+                frame["body"]["stream"]["thinking_content"] = final_thinking
+
+            try:
+                await self._bot_send_frame(frame)
+                last_send_time = time.monotonic()
+                last_send_len = len(visible_text)
+            except Exception as e:
+                log.error(f"发送 stream 帧失败: {e}")
+
+        try:
+            async for event in self._stream_handler(msg):
+                etype = event.get("type", "")
+
+                if etype == "thinking_delta":
+                    has_native_thinking = True
+                    thinking_text += event.get("text", "")
+                elif etype == "text_delta":
+                    visible_text += event.get("text", "")
+                elif etype == "text":
+                    visible_text = event.get("text", "")
+                elif etype == "tool_use":
+                    tool_name = event.get("name", "unknown")
+                    visible_text += f"\n\n🔧 正在执行 {tool_name}..."
+                    await send_stream_frame()
+                    continue
+                elif etype == "tool_result":
+                    visible_text += " ✅"
+                    await send_stream_frame()
+                    continue
+
+                now = time.monotonic()
+                text_changed = len(visible_text) - last_send_len >= 200
+                time_elapsed = now - last_send_time >= BOT_STREAM_THROTTLE_INTERVAL
+                if text_changed or time_elapsed:
+                    await send_stream_frame()
+
+        except Exception as e:
+            log.error(f"Bot 流式处理异常: {e}", exc_info=True)
+            if not visible_text:
+                visible_text = f"抱歉，处理出现异常：{e}"
+
+        await send_stream_frame(finish=True)
+        log.info(f"Bot 流式回复完成: stream_id={stream_id}, len={len(visible_text)}")
+
+    # ---- 消息去重 ----
+
+    def _is_duplicate(self, msgid: str) -> bool:
+        """Check if msgid was recently seen; also prune expired entries."""
+        now = time.time()
+
+        if len(self._seen_msgids) > BOT_DEDUP_MAX_SIZE:
+            expired = [k for k, ts in self._seen_msgids.items() if now - ts > BOT_DEDUP_TTL]
+            for k in expired:
+                del self._seen_msgids[k]
+
+        if msgid in self._seen_msgids:
+            return True
+
+        self._seen_msgids[msgid] = now
+        return False
+
+    # ---- reqId 持久化 ----
+
+    def _load_reqids(self) -> None:
+        """Load persisted reqIds on startup, filtering expired entries."""
+        try:
+            if BOT_REQID_FILE.exists():
+                data = json.loads(BOT_REQID_FILE.read_text(encoding="utf-8"))
+                now = time.time()
+                for key, entry in data.items():
+                    if isinstance(entry, dict) and now - entry.get("ts", 0) < BOT_REQID_TTL:
+                        self._bot_req_ids[key] = entry["req_id"]
+                log.info(f"加载持久化 reqId: {len(self._bot_req_ids)} 条")
+        except Exception as e:
+            log.warning(f"加载 reqId 持久化文件失败: {e}")
+
+    def _schedule_reqid_save(self) -> None:
+        """Debounced save of reqIds to disk (1s delay)."""
+        if self._reqid_save_task and not self._reqid_save_task.done():
+            self._reqid_save_task.cancel()
+        self._reqid_save_task = asyncio.create_task(self._save_reqids_debounced())
+
+    async def _save_reqids_debounced(self) -> None:
+        await asyncio.sleep(1.0)
+        try:
+            now = time.time()
+            data = {k: {"req_id": v, "ts": now} for k, v in self._bot_req_ids.items()}
+            BOT_REQID_FILE.parent.mkdir(parents=True, exist_ok=True)
+            BOT_REQID_FILE.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        except Exception as e:
+            log.warning(f"保存 reqId 持久化文件失败: {e}")
+
     # ---- 图片处理 ----
+
+    async def _download_and_decrypt_media(self, url: str, aes_key: str) -> bytes:
+        """Download and optionally AES-256-CBC decrypt media data."""
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            raw = resp.content
+
+        if not aes_key:
+            return raw
+
+        # Smart decrypt: check magic bytes for known image formats
+        if raw[:3] == b"\xff\xd8\xff":      # JPEG
+            return raw
+        if raw[:8] == b"\x89PNG\r\n\x1a\n": # PNG
+            return raw
+        if raw[:4] == b"GIF8":              # GIF
+            return raw
+        if raw[:4] == b"RIFF":              # WEBP
+            return raw
+
+        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+        from cryptography.hazmat.primitives.padding import PKCS7
+
+        key = base64.b64decode(aes_key)
+        iv = key[:16]
+        cipher = Cipher(algorithms.AES(key), modes.CBC(iv))
+        decryptor = cipher.decryptor()
+        decrypted = decryptor.update(raw) + decryptor.finalize()
+
+        unpadder = PKCS7(128).unpadder()
+        decrypted = unpadder.update(decrypted) + unpadder.finalize()
+        return decrypted
 
     async def _download_images(self, images: list[dict]) -> list[dict]:
         """下载图片并转为 base64，返回增强后的 images 列表
 
         每个 image dict 增加 data (base64) 和 media_type 字段。
+        支持 AES 解密（智能机器人长连接模式下图片加密传输）。
         """
         result = []
-        async with httpx.AsyncClient(timeout=30) as client:
-            for img in images:
-                pic_url = img.get("pic_url", "")
-                if not pic_url:
-                    log.warning("图片缺少 pic_url，跳过")
-                    continue
-                try:
-                    resp = await client.get(pic_url)
-                    if resp.status_code != 200:
-                        log.error(f"下载图片失败: HTTP {resp.status_code}")
-                        continue
-                    # 检测 media type
-                    content_type = resp.headers.get("content-type", "image/jpeg")
-                    if "png" in content_type:
-                        media_type = "image/png"
-                    elif "gif" in content_type:
-                        media_type = "image/gif"
-                    elif "webp" in content_type:
-                        media_type = "image/webp"
-                    else:
-                        media_type = "image/jpeg"
-                    img_b64 = base64.b64encode(resp.content).decode("ascii")
-                    result.append({
-                        **img,
-                        "data": img_b64,
-                        "media_type": media_type,
-                    })
-                    log.info(f"图片下载成功: {len(resp.content)} bytes ({media_type})")
-                except Exception as e:
-                    log.error(f"下载图片异常: {e}")
+        for img in images:
+            pic_url = img.get("pic_url", "")
+            if not pic_url:
+                log.warning("图片缺少 pic_url，跳过")
+                continue
+            try:
+                aes_key = img.get("aes_key", "")
+                if aes_key:
+                    raw_bytes = await self._download_and_decrypt_media(pic_url, aes_key)
+                    media_type = self._detect_image_type(raw_bytes)
+                    img_b64 = base64.b64encode(raw_bytes).decode("ascii")
+                    log.info(f"图片下载+解密成功: {len(raw_bytes)} bytes ({media_type})")
+                else:
+                    async with httpx.AsyncClient(timeout=30) as client:
+                        resp = await client.get(pic_url)
+                        if resp.status_code != 200:
+                            log.error(f"下载图片失败: HTTP {resp.status_code}")
+                            continue
+                        content_type = resp.headers.get("content-type", "image/jpeg")
+                        if "png" in content_type:
+                            media_type = "image/png"
+                        elif "gif" in content_type:
+                            media_type = "image/gif"
+                        elif "webp" in content_type:
+                            media_type = "image/webp"
+                        else:
+                            media_type = "image/jpeg"
+                        raw_bytes = resp.content
+                        img_b64 = base64.b64encode(raw_bytes).decode("ascii")
+                        log.info(f"图片下载成功: {len(raw_bytes)} bytes ({media_type})")
+
+                result.append({
+                    **img,
+                    "data": img_b64,
+                    "media_type": media_type,
+                })
+            except Exception as e:
+                log.error(f"下载图片异常: {e}")
         return result
+
+    @staticmethod
+    def _detect_image_type(data: bytes) -> str:
+        """Detect image MIME type from magic bytes."""
+        if data[:3] == b"\xff\xd8\xff":
+            return "image/jpeg"
+        if data[:8] == b"\x89PNG\r\n\x1a\n":
+            return "image/png"
+        if data[:4] == b"GIF8":
+            return "image/gif"
+        if data[:4] == b"RIFF":
+            return "image/webp"
+        return "image/jpeg"
 
     async def _download_voices(self, media_ids: list[str]) -> list[dict]:
         """下载语音文件并返回列表

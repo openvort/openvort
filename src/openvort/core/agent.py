@@ -10,7 +10,9 @@ import asyncio
 
 from openvort.config.settings import LLMSettings
 from openvort.core.context import RequestContext
-from openvort.core.llm import LLMClient, LLMResponse, TextBlock, ToolUseBlock, Usage
+from openvort.core.llm import (
+    LLMClient, LLMResponse, TextBlock, ThinkingBlock, ThinkingDelta, ToolUseBlock, Usage,
+)
 from openvort.core.session import SessionStore
 from openvort.plugin.registry import PluginRegistry
 from openvort.utils.logging import get_logger
@@ -334,6 +336,175 @@ class AgentRuntime:
         """简单对话接口（无 channel/user 上下文，用于 CLI 调试）"""
         ctx = RequestContext(channel="cli", user_id="debug")
         return await self.process(ctx, content)
+
+    async def process_stream_im(self, ctx: RequestContext, content: str):
+        """IM 渠道流式处理，yield 事件供 channel 逐帧推送
+
+        Yields:
+            {"type": "thinking_delta", "text": "..."} — thinking 增量
+            {"type": "text_delta", "text": "..."}     — 文本增量
+            {"type": "text", "text": "..."}           — 累积全文
+            {"type": "tool_use", "name": "...", "id": "..."} — 工具调用
+            {"type": "tool_result", "name": "...", "result": "..."} — 工具结果
+        """
+        if not content or not content.strip():
+            if not ctx.images:
+                return
+
+        messages = await self._sessions.get_messages(ctx.channel, ctx.user_id)
+        user_content = self._build_user_content(content, ctx.images)
+        messages.append({"role": "user", "content": user_content})
+
+        sender_context = ctx.get_sender_prompt()
+        channel_prompt = ctx.channel_prompt
+
+        onboarding_hints: list[str] = []
+        blocked_tools: set[str] = set()
+        is_admin = "*" in (ctx.permissions or set()) or "admin" in {
+            r.name if hasattr(r, "name") else r for r in (ctx.roles or [])
+        }
+        for plugin in self._registry.list_plugins():
+            platform = plugin.get_platform()
+            if not platform:
+                continue
+            try:
+                status = await plugin.get_setup_status(ctx)
+                if status != "ready":
+                    for tool in plugin.get_tools():
+                        blocked_tools.add(tool.name)
+                    hint = plugin.get_onboarding_prompt(status, is_admin)
+                    if hint:
+                        onboarding_hints.append(f"## {plugin.display_name}引导\n\n{hint}")
+            except Exception as e:
+                log.warning(f"[im-stream] 检查插件 {plugin.name} 就绪状态失败: {e}")
+
+        tools = self._registry.to_claude_tools(
+            permissions=ctx.permissions if ctx.permissions else None,
+            allowed_tools=ctx.allowed_tools,
+        )
+        if blocked_tools:
+            tools = [t for t in tools if t["name"] not in blocked_tools]
+
+        thinking_level = self._sessions.get_thinking_level(ctx.channel, ctx.user_id)
+        thinking_param = self._build_thinking_param(thinking_level)
+
+        max_rounds = 10
+        total_usage = Usage()
+        accumulated_text = ""
+        any_tool_called = False
+        correction_injected = False
+
+        for _ in range(max_rounds):
+            try:
+                system = self._system_prompt + sender_context
+                if channel_prompt:
+                    system += f"\n\n# 渠道回复规范\n\n{channel_prompt}"
+                if ctx.member and ctx.member.is_virtual and ctx.member.virtual_system_prompt:
+                    system += f"\n\n# AI 员工人设\n\n{ctx.member.virtual_system_prompt}"
+                plugin_prompts = self._registry.get_system_prompt_extension()
+                if plugin_prompts:
+                    system += "\n\n" + plugin_prompts
+                if onboarding_hints:
+                    system += "\n\n# 插件引导（优先处理）\n\n" + "\n\n".join(onboarding_hints)
+
+                async with self._llm.stream(
+                    system=system, messages=messages,
+                    tools=tools if tools else None,
+                    thinking=thinking_param,
+                ) as stream:
+                    async for event in stream:
+                        if event.type == "content_block_start":
+                            block = event.content_block
+                            if getattr(block, "type", None) == "tool_use":
+                                yield {"type": "tool_use", "name": block.name, "id": block.id}
+                        elif event.type == "content_block_delta":
+                            delta = event.delta
+                            if getattr(delta, "type", None) == "text_delta":
+                                accumulated_text += delta.text
+                                yield {"type": "text_delta", "text": delta.text}
+                                yield {"type": "text", "text": accumulated_text}
+                            elif getattr(delta, "type", None) == "thinking_delta":
+                                yield {"type": "thinking_delta", "text": delta.thinking}
+
+                    response = await stream.get_final_message()
+                    total_usage.input_tokens += response.usage.input_tokens
+                    total_usage.output_tokens += response.usage.output_tokens
+                    total_usage.cache_creation_input_tokens += response.usage.cache_creation_input_tokens
+                    total_usage.cache_read_input_tokens += response.usage.cache_read_input_tokens
+            except Exception as e:
+                log.error(f"[im-stream] LLM 流式调用失败: {e}")
+                reason = self._extract_error_reason(e)
+                error_text = f"抱歉，AI 服务暂时不可用：{reason}\n请稍后再试。"
+                yield {"type": "text_delta", "text": error_text}
+                yield {"type": "text", "text": error_text}
+                messages.append({"role": "assistant", "content": [{"type": "text", "text": error_text}]})
+                await self._sessions.save_messages(ctx.channel, ctx.user_id, messages)
+                return
+
+            messages.append({"role": "assistant", "content": self._serialize_content(response.content)})
+
+            if response.stop_reason != "tool_use":
+                if (not any_tool_called and not correction_injected
+                        and self._text_claims_action(accumulated_text)):
+                    correction_injected = True
+                    accumulated_text = ""
+                    messages.append({"role": "user", "content": self._EMPTY_ACTION_CORRECTION})
+                    continue
+                break
+
+            any_tool_called = True
+            tool_results = []
+            for block in response.content:
+                if getattr(block, "type", None) == "tool_use":
+                    log.info(f"[im-stream] 调用工具: {block.name}({block.input})")
+                    tool_input = dict(block.input)
+                    tool_input["_caller_id"] = ctx.user_id
+                    tool_input["_user_input"] = content
+                    if ctx.member:
+                        tool_input["_member_id"] = ctx.member.id
+                    if ctx.platform_accounts.get("zentao"):
+                        tool_input["_zentao_account"] = ctx.platform_accounts["zentao"]
+                    if ctx.images:
+                        tool_input["_image_urls"] = [
+                            img.get("pic_url") or img.get("file_url", "")
+                            for img in ctx.images
+                            if img.get("pic_url") or img.get("file_url")
+                        ]
+                        tool_input["_image_files"] = [
+                            {"data": img["data"], "media_type": img.get("media_type", "image/png")}
+                            for img in ctx.images if img.get("data")
+                        ]
+                    tool_input["_target_member_id"] = getattr(ctx, "target_member_id", "") or ""
+                    tool_input["_caller_member_id"] = getattr(ctx, "caller_member_id", "") or ctx.user_id
+                    result = await self._registry.execute_tool(block.name, tool_input)
+                    log.info(f"[im-stream] 工具结果: {result[:200]}")
+                    yield {"type": "tool_result", "name": block.name, "result": result}
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": result,
+                    })
+                    if block.name in ("contacts_sync", "contacts_bind_identity"):
+                        blocked_tools.clear()
+                        onboarding_hints.clear()
+                        tools = self._registry.to_claude_tools(
+                            permissions=ctx.permissions if ctx.permissions else None,
+                            allowed_tools=ctx.allowed_tools,
+                        )
+
+            messages.append({"role": "user", "content": tool_results})
+            accumulated_text = ""
+
+        await self._sessions.save_messages(ctx.channel, ctx.user_id, messages)
+        self._sessions.add_usage(
+            ctx.channel, ctx.user_id, total_usage.input_tokens, total_usage.output_tokens,
+            cache_creation_tokens=total_usage.cache_creation_input_tokens,
+            cache_read_tokens=total_usage.cache_read_input_tokens,
+        )
+        log.info(
+            f"[im-stream] 完成: {ctx.channel}:{ctx.user_id}, "
+            f"input={total_usage.input_tokens}, output={total_usage.output_tokens}"
+        )
 
     async def process_stream_web(
         self,

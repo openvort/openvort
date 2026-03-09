@@ -76,6 +76,18 @@ class InputJsonDelta:
     partial_json: str = ""
 
 
+@dataclass
+class ThinkingBlock:
+    thinking: str = ""
+    type: str = "thinking"
+
+
+@dataclass
+class ThinkingDelta:
+    type: str = "thinking_delta"
+    thinking: str = ""
+
+
 # ============ Provider 基类 ============
 
 
@@ -179,6 +191,8 @@ class AnthropicProvider(LLMProvider):
                 content.append(TextBlock(text=block.text))
             elif block.type == "tool_use":
                 content.append(ToolUseBlock(id=block.id, name=block.name, input=block.input))
+            elif block.type == "thinking":
+                content.append(ThinkingBlock(thinking=getattr(block, "thinking", "")))
         usage = Usage(
             input_tokens=getattr(resp.usage, "input_tokens", 0),
             output_tokens=getattr(resp.usage, "output_tokens", 0),
@@ -215,12 +229,16 @@ class AnthropicStreamWrapper:
                     yield ContentBlockStart(
                         content_block=ToolUseBlock(id=block.id, name=block.name)
                     )
+                elif block.type == "thinking":
+                    yield ContentBlockStart(content_block=ThinkingBlock())
             elif event.type == "content_block_delta":
                 delta = event.delta
                 if delta.type == "text_delta":
                     yield ContentBlockDelta(delta=TextDelta(text=delta.text))
                 elif delta.type == "input_json_delta":
                     yield ContentBlockDelta(delta=InputJsonDelta(partial_json=delta.partial_json))
+                elif delta.type == "thinking_delta":
+                    yield ContentBlockDelta(delta=ThinkingDelta(thinking=delta.thinking))
 
     async def get_final_message(self) -> LLMResponse:
         resp = await self._inner.get_final_message()
