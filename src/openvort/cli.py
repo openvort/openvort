@@ -435,6 +435,25 @@ async def _start_service(relay_url: str | None, poll_db_json: str | None, web_fl
 
             # Bot mode runs alongside other modes (separate message source)
             if ch.is_bot_configured():
+                async def bot_stream_handler(msg):
+                    from openvort.core.setup import is_initialized as _is_init
+                    if not await _is_init(session_factory):
+                        yield {"type": "text", "text": "系统正在初始化中，请稍后再试。"}
+                        return
+
+                    cmd_result = await command_handler.handle(msg.channel, msg.sender_id, msg.content)
+                    if cmd_result.handled:
+                        if cmd_result.reply:
+                            yield {"type": "text", "text": cmd_result.reply}
+                        return
+
+                    ctx = await build_context(msg.channel, msg.sender_id)
+                    ctx.images = getattr(msg, "images", []) or []
+
+                    async for event in agent.process_stream_im(ctx, msg.content):
+                        yield event
+
+                _ch.set_stream_handler(bot_stream_handler)
                 await ch.start_bot()
 
             # App mode: relay → poll-db → webhook
