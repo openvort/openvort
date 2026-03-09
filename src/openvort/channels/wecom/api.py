@@ -239,3 +239,8 @@ class WeComAPI:
         }
         self._set_recipients(payload, touser, toparty, totag)
         return await self._request("POST", "/message/send", json=payload)
+
+
+    # WeComBotAPI has been removed — Smart Robot long-connection mode
+    # uses direct WebSocket auth (aibot_subscribe) with bot_id + secret,
+    # no HTTP access_token is needed.  See channel.py _bot_ws_loop().

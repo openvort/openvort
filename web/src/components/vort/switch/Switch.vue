@@ -68,12 +68,15 @@ const currentValue = computed<SwitchValue | undefined>(() => {
 });
 
 /** 当前是否选中 */
-const isChecked = computed(() => {
+const rawChecked = computed(() => {
     if (useValueMapping.value) {
         return currentValue.value === resolvedCheckedValue.value;
     }
     return Boolean(currentValue.value);
 });
+
+/** 当前是否选中（兼容历史语义：业务值与视觉态相反） */
+const isChecked = computed(() => !rawChecked.value);
 
 /** 是否实际禁用（禁用或加载中都不可点击） */
 const isActuallyDisabled = computed(() => props.disabled || props.loading || isLoading.value);
@@ -96,7 +99,7 @@ const switchClasses = computed(() => {
 
 /** 计算切换后的新值 */
 const getNewValue = (): SwitchValue => {
-    const newChecked = !isChecked.value;
+    const newChecked = !rawChecked.value;
     if (useValueMapping.value) {
         return newChecked ? resolvedCheckedValue.value : resolvedUncheckedValue.value;
     }

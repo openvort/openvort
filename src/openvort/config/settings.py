@@ -111,6 +111,10 @@ class WeComSettings(BaseSettings):
     api_base_url: str = "https://qyapi.weixin.qq.com/cgi-bin"
     allowed_users: str = ""  # 允许处理的用户 ID，多个用逗号分隔（开发测试用）
 
+    # Smart Robot (AI 同事) — 企微 5.0 智能机器人 API 模式
+    bot_id: str = ""
+    bot_secret: str = ""
+
 
 class RelaySettings(BaseSettings):
     """Relay 中继配置"""
