@@ -541,7 +541,37 @@ const containerClass = computed(() => {
   if (props.bordered) classes.push("vort-pro-table-bordered");
   classes.push(`vort-pro-table-${props.size}`);
   if (props.cellPadding === "none") classes.push("vort-pro-table-cell-padding-none");
+  if (props.scroll?.y) classes.push("vort-pro-table-fixed-header");
   return classes;
+});
+
+const containerStyle = computed<Record<string, string>>(() => {
+  const showLeftShadow = scrollState.value.hasScrollbar && !scrollState.value.isScrollLeft;
+  const showRightShadow = scrollState.value.hasScrollbar && !scrollState.value.isScrollRight;
+
+  return {
+    "--vort-pro-table-left-shadow": showLeftShadow ? "inset 10px 0 8px -8px rgba(0, 0, 0, 0.1)" : "none",
+    "--vort-pro-table-right-shadow": showRightShadow ? "inset -10px 0 8px -8px rgba(0, 0, 0, 0.1)" : "none",
+  };
+});
+
+const scrollStyle = computed<Record<string, string>>(() => {
+  const style: Record<string, string> = {
+    overflowX: "auto",
+  };
+
+  const computedMaxHeight = props.scroll?.y
+    ? typeof props.scroll.y === "number"
+      ? `${props.scroll.y}px`
+      : props.scroll.y
+    : undefined;
+
+  if (computedMaxHeight) {
+    style.overflowY = "auto";
+    style.maxHeight = computedMaxHeight;
+  }
+
+  return style;
 });
 
 // ==================== 列宽拖拽 ====================
@@ -569,7 +599,23 @@ const toPixelWidth = (column: TableColumn<T>): number => {
   return minColumnWidths.value[getColumnKey(column)] || 120;
 };
 
+const getColumnLeafList = (column: TableColumn<T>): TableColumn<T>[] => {
+  return hasChildren(column) ? getLeafColumns([column]) : [column];
+};
+
+const getColumnFixedPlacement = (column: TableColumn<T>): "left" | "right" | undefined => {
+  const placements = [...new Set(
+    getColumnLeafList(column)
+      .map((item) => item.fixed)
+      .filter((placement): placement is "left" | "right" => placement === "left" || placement === "right")
+  )];
+
+  return placements.length === 1 ? placements[0] : undefined;
+};
+
 const hasFixedLeft = computed(() => leafColumns.value.some(c => c.fixed === "left"));
+const hasFixedRight = computed(() => leafColumns.value.some(c => c.fixed === "right"));
+const isSelectionFixed = computed(() => !!props.rowSelection && !!(props.rowSelection.fixed || hasFixedLeft.value));
 
 const selectionColWidth = computed(() => {
   if (!props.rowSelection) return 0;
@@ -579,7 +625,7 @@ const selectionColWidth = computed(() => {
 
 const fixedLeftOffsets = computed<Record<string, number>>(() => {
   const offsets: Record<string, number> = {};
-  let currentLeft = hasFixedLeft.value && props.rowSelection ? selectionColWidth.value : 0;
+  let currentLeft = isSelectionFixed.value ? selectionColWidth.value : 0;
   for (const column of leafColumns.value) {
     const key = getColumnKey(column);
     if (!key) continue;
@@ -591,44 +637,20 @@ const fixedLeftOffsets = computed<Record<string, number>>(() => {
   return offsets;
 });
 
-const getFixedCellStyle = (column: TableColumn<T>, isHeader = false): Record<string, string> => {
-  const key = getColumnKey(column);
-  if (column.fixed !== "left" || !key) return {};
-  const left = fixedLeftOffsets.value[key] || 0;
-  return {
-    position: "sticky",
-    left: `${left}px`,
-    zIndex: isHeader ? "6" : "3",
-  };
-};
+const fixedRightOffsets = computed<Record<string, number>>(() => {
+  const offsets: Record<string, number> = {};
+  let currentRight = 0;
 
-const lastFixedLeftKey = computed<string>(() => {
-  let last = "";
-  for (const column of leafColumns.value) {
-    if (column.fixed === "left") {
-      last = getColumnKey(column);
+  for (const column of [...leafColumns.value].reverse()) {
+    const key = getColumnKey(column);
+    if (!key) continue;
+    if (column.fixed === "right") {
+      offsets[key] = currentRight;
+      currentRight += toPixelWidth(column);
     }
   }
-  return last;
-});
 
-const isLastFixedLeft = (column: TableColumn<T>): boolean => {
-  const key = getColumnKey(column);
-  return !!key && key === lastFixedLeftKey.value;
-};
-
-const tableWrapperRef = ref<HTMLElement | null>(null);
-const showFixedLeftEdgeShadow = ref(false);
-
-// Sticky bottom scrollbar
-const stickyScrollRef = ref<HTMLElement | null>(null);
-const tableContentWidth = ref(0);
-const scrollContainerWidth = ref(0);
-let isSyncingScroll = false;
-let contentResizeObserver: ResizeObserver | null = null;
-
-const hasHorizontalOverflow = computed(() => {
-  return tableContentWidth.value > scrollContainerWidth.value + 1;
+  return offsets;
 });
 
 const tableMinWidth = computed(() => {
@@ -643,54 +665,159 @@ const tableMinWidth = computed(() => {
   return total;
 });
 
-const updateContentWidth = () => {
-  const el = tableWrapperRef.value;
-  if (!el) return;
-  tableContentWidth.value = el.scrollWidth;
-  scrollContainerWidth.value = el.clientWidth;
-};
+const tableStyle = computed<Record<string, string>>(() => {
+  const style: Record<string, string> = {
+    width: "100%",
+    minWidth: `${tableMinWidth.value}px`,
+    tableLayout: "fixed",
+  };
 
-const handleStickyScroll = () => {
-  if (isSyncingScroll) return;
-  isSyncingScroll = true;
-  const wrapper = tableWrapperRef.value;
-  const sticky = stickyScrollRef.value;
-  if (wrapper && sticky) {
-    wrapper.scrollLeft = sticky.scrollLeft;
+  if (props.scroll?.x) {
+    style.width = typeof props.scroll.x === "number" ? `${props.scroll.x}px` : props.scroll.x;
   }
-  requestAnimationFrame(() => { isSyncingScroll = false; });
+
+  return style;
+});
+
+const getFixedCellStyle = (column: TableColumn<T>, isHeader = false): Record<string, string> => {
+  const fixedPlacement = getColumnFixedPlacement(column);
+  if (!fixedPlacement) return {};
+
+  const leafColumnsForCell = getColumnLeafList(column);
+  const style: Record<string, string> = {
+    position: "sticky",
+    zIndex: isHeader ? "8" : "4",
+  };
+
+  if (isHeader) {
+    style.background = "var(--vort-table-header-bg, #fafafa)";
+  }
+
+  if (fixedPlacement === "left") {
+    const firstLeaf = leafColumnsForCell[0];
+    const key = firstLeaf ? getColumnKey(firstLeaf) : "";
+    style.left = `${fixedLeftOffsets.value[key] || 0}px`;
+  }
+
+  if (fixedPlacement === "right") {
+    const lastLeaf = leafColumnsForCell[leafColumnsForCell.length - 1];
+    const key = lastLeaf ? getColumnKey(lastLeaf) : "";
+    style.right = `${fixedRightOffsets.value[key] || 0}px`;
+  }
+
+  return style;
 };
 
-const updateFixedLeftEdgeShadow = () => {
+const getSelectionCellStyle = (isHeader = false): Record<string, string> => {
+  if (!isSelectionFixed.value) return {};
+
+  const style: Record<string, string> = {
+    position: "sticky",
+    left: "0px",
+    zIndex: isHeader ? "9" : "5",
+  };
+
+  if (isHeader) {
+    style.background = "var(--vort-table-header-bg, #fafafa)";
+  }
+
+  return style;
+};
+
+const lastFixedLeftKey = computed<string>(() => {
+  let last = "";
+  for (const column of leafColumns.value) {
+    if (column.fixed === "left") {
+      last = getColumnKey(column);
+    }
+  }
+  return last;
+});
+
+const firstFixedRightKey = computed<string>(() => {
+  for (const column of leafColumns.value) {
+    if (column.fixed === "right") {
+      return getColumnKey(column);
+    }
+  }
+  return "";
+});
+
+const isFixedBoundaryColumn = (column: TableColumn<T>): boolean => {
+  const fixedPlacement = getColumnFixedPlacement(column);
+  if (!fixedPlacement) return false;
+
+  const leafKeys = getColumnLeafList(column)
+    .map((item) => getColumnKey(item))
+    .filter(Boolean);
+
+  if (leafKeys.length === 0) return false;
+
+  if (fixedPlacement === "left") {
+    return leafKeys[leafKeys.length - 1] === lastFixedLeftKey.value;
+  }
+
+  return leafKeys[0] === firstFixedRightKey.value;
+};
+
+const isSelectionColumnFixedBoundary = computed(() => isSelectionFixed.value && !hasFixedLeft.value);
+
+const getFixedClassName = (column: TableColumn<T>): Array<string | false> => {
+  const fixedPlacement = getColumnFixedPlacement(column);
+  return [
+    !!fixedPlacement && "vort-pro-table-cell-fixed",
+    fixedPlacement === "left" && "vort-pro-table-cell-fixed-left",
+    fixedPlacement === "right" && "vort-pro-table-cell-fixed-right",
+    isFixedBoundaryColumn(column) && "vort-pro-table-cell-fixed-boundary",
+  ];
+};
+
+const getSelectionColumnClass = (): Array<string | false> => [
+  "vort-pro-table-selection-column",
+  isSelectionFixed.value && "vort-pro-table-cell-fixed",
+  isSelectionFixed.value && "vort-pro-table-cell-fixed-left",
+  isSelectionColumnFixedBoundary.value && "vort-pro-table-cell-fixed-boundary",
+];
+
+const tableWrapperRef = ref<HTMLElement | null>(null);
+const scrollState = ref({
+  isScrollLeft: true,
+  isScrollRight: true,
+  hasScrollbar: false,
+});
+let contentResizeObserver: ResizeObserver | null = null;
+
+const updateScrollState = () => {
   const wrapper = tableWrapperRef.value;
   if (!wrapper) {
-    showFixedLeftEdgeShadow.value = false;
+    scrollState.value = {
+      isScrollLeft: true,
+      isScrollRight: true,
+      hasScrollbar: false,
+    };
     return;
   }
-  showFixedLeftEdgeShadow.value = wrapper.scrollLeft > 0;
+
+  const maxScrollLeft = Math.max(wrapper.scrollWidth - wrapper.clientWidth, 0);
+  scrollState.value = {
+    isScrollLeft: wrapper.scrollLeft <= 0,
+    isScrollRight: wrapper.scrollLeft >= maxScrollLeft - 1,
+    hasScrollbar: maxScrollLeft > 1,
+  };
 };
 
 const handleTableWrapperScroll = () => {
-  updateFixedLeftEdgeShadow();
-  if (isSyncingScroll) return;
-  isSyncingScroll = true;
-  const sticky = stickyScrollRef.value;
-  const wrapper = tableWrapperRef.value;
-  if (sticky && wrapper) {
-    sticky.scrollLeft = wrapper.scrollLeft;
-  }
-  requestAnimationFrame(() => { isSyncingScroll = false; });
+  updateScrollState();
 };
 
 onMounted(() => {
   nextTick(() => {
-    updateFixedLeftEdgeShadow();
-    updateContentWidth();
+    updateScrollState();
 
     const el = tableWrapperRef.value;
     if (el) {
       contentResizeObserver = new ResizeObserver(() => {
-        updateContentWidth();
+        updateScrollState();
       });
       contentResizeObserver.observe(el);
       const table = el.querySelector(".vort-pro-table");
@@ -699,10 +826,9 @@ onMounted(() => {
   });
 });
 
-watch([leafColumns, tableData], () => {
+watch([leafColumns, tableData, columnWidths, () => props.scroll, () => props.rowSelection, hasFixedRight], () => {
   nextTick(() => {
-    updateFixedLeftEdgeShadow();
-    updateContentWidth();
+    updateScrollState();
   });
 }, { deep: true });
 
@@ -769,7 +895,7 @@ defineExpose({
 </script>
 
 <template>
-  <div :class="containerClass">
+  <div :class="containerClass" :style="containerStyle">
     <!-- 工具栏 -->
     <div v-if="toolbar !== false" class="vort-pro-table-toolbar">
       <div class="vort-pro-table-toolbar-left">
@@ -825,8 +951,8 @@ defineExpose({
 
       <!-- 表格主体 -->
       <div class="vort-pro-table-wrapper">
-        <div ref="tableWrapperRef" class="vort-pro-table-scroll" @scroll="handleTableWrapperScroll">
-        <table class="vort-pro-table" :style="{ minWidth: tableMinWidth + 'px' }">
+        <div ref="tableWrapperRef" class="vort-pro-table-scroll" :style="scrollStyle" @scroll="handleTableWrapperScroll">
+        <table class="vort-pro-table" :style="tableStyle">
         <colgroup>
           <col v-if="rowSelection" :style="{ width: rowSelection.columnWidth || '48px' }" />
           <col
@@ -843,9 +969,9 @@ defineExpose({
             <tr v-for="(headerRow, rowIndex) in getHeaderRows" :key="rowIndex">
               <th
                 v-if="rowSelection && rowIndex === 0"
-                :class="['vort-pro-table-selection-column', hasFixedLeft && 'vort-pro-table-fixed-left']"
+                :class="getSelectionColumnClass()"
                 :rowspan="getHeaderRows.length"
-                :style="{ width: rowSelection.columnWidth || '48px', ...(hasFixedLeft ? { position: 'sticky', left: '0px', zIndex: '6' } : {}) }"
+                :style="{ width: rowSelection.columnWidth || '48px', ...getSelectionCellStyle(true) }"
               >
                 <Checkbox
                   v-if="rowSelection.type !== 'radio'"
@@ -861,11 +987,12 @@ defineExpose({
                   'vort-pro-table-cell',
                   `vort-pro-table-align-${cell.column.align || 'center'}`,
                   cell.column.sorter && !hasChildren(cell.column) && 'vort-pro-table-cell-sortable',
+                  getFixedClassName(cell.column),
                   cell.column.headerClassName
                 ]"
                 :colspan="cell.colSpan > 1 ? cell.colSpan : undefined"
                 :rowspan="cell.rowSpan > 1 ? cell.rowSpan : undefined"
-                :style="{ width: getResolvedWidth(cell.column) }"
+                :style="{ width: getResolvedWidth(cell.column), ...getFixedCellStyle(cell.column, true) }"
                 @click="cell.column.sorter && !hasChildren(cell.column) ? handleSort(cell.column) : undefined"
               >
                 <div class="vort-pro-table-column-header">
@@ -894,7 +1021,7 @@ defineExpose({
           </template>
           <!-- 单级表头 -->
           <tr v-else>
-            <th v-if="rowSelection" :class="['vort-pro-table-selection-column', hasFixedLeft && 'vort-pro-table-fixed-left']" :style="{ width: rowSelection.columnWidth || '48px', ...(hasFixedLeft ? { position: 'sticky', left: '0px', zIndex: '6' } : {}) }">
+            <th v-if="rowSelection" :class="getSelectionColumnClass()" :style="{ width: rowSelection.columnWidth || '48px', ...getSelectionCellStyle(true) }">
               <Checkbox
                 v-if="rowSelection.type !== 'radio'"
                 :checked="isAllSelected"
@@ -910,8 +1037,7 @@ defineExpose({
                 `vort-pro-table-align-${column.align || 'left'}`,
                 column.sorter && 'vort-pro-table-cell-sortable',
                 column.headerClassName,
-                column.fixed === 'left' && 'vort-pro-table-fixed-left',
-                isLastFixedLeft(column) && 'vort-pro-table-fixed-left-edge'
+                getFixedClassName(column)
               ]"
               :style="{ width: getResolvedWidth(column), ...getFixedCellStyle(column, true) }"
               @click="column.sorter ? handleSort(column) : undefined"
@@ -948,7 +1074,7 @@ defineExpose({
             :key="getRowKey(record, index)"
             :class="['vort-pro-table-row', isRowSelected(record, index) && 'vort-pro-table-row-selected']"
           >
-            <td v-if="rowSelection" :class="['vort-pro-table-selection-column', hasFixedLeft && 'vort-pro-table-fixed-left']" :style="hasFixedLeft ? { position: 'sticky', left: '0px', zIndex: '3' } : {}">
+            <td v-if="rowSelection" :class="getSelectionColumnClass()" :style="getSelectionCellStyle()">
               <Checkbox
                 :checked="isRowSelected(record, index)"
                 :disabled="rowSelection.getCheckboxProps?.(record)?.disabled"
@@ -963,8 +1089,7 @@ defineExpose({
                 `vort-pro-table-align-${column.align || 'left'}`,
                 column.ellipsis && 'vort-pro-table-cell-ellipsis',
                 column.className,
-                column.fixed === 'left' && 'vort-pro-table-fixed-left',
-                isLastFixedLeft(column) && 'vort-pro-table-fixed-left-edge'
+                getFixedClassName(column)
               ]"
               :style="getFixedCellStyle(column)"
             >
@@ -982,14 +1107,6 @@ defineExpose({
           </tr>
         </tbody>
         </table>
-        </div>
-        <div
-          ref="stickyScrollRef"
-          v-show="hasHorizontalOverflow"
-          class="vort-pro-table-sticky-scrollbar"
-          @scroll="handleStickyScroll"
-        >
-          <div :style="{ width: tableContentWidth + 'px', height: '1px' }"></div>
         </div>
       </div>
 
@@ -1107,57 +1224,37 @@ defineExpose({
 .vort-pro-table-wrapper {
   position: relative;
   z-index: 1;
-  overflow: visible;
+  overflow: hidden;
 }
 
 .vort-pro-table-scroll {
   overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-width: none;
-
-  &::-webkit-scrollbar {
-    display: none;
-  }
-}
-
-.vort-pro-table-sticky-scrollbar {
-  position: sticky;
-  bottom: 8px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  height: 14px;
-  z-index: 10;
-  background: var(--vort-bg-elevated, #fff);
-
-  &::-webkit-scrollbar {
-    height: 8px;
-  }
-
-  &::-webkit-scrollbar-thumb {
-    background: rgba(0, 0, 0, 0.15);
-    border-radius: 4px;
-
-    &:hover {
-      background: rgba(0, 0, 0, 0.25);
-    }
-  }
-
-  &::-webkit-scrollbar-track {
-    background: transparent;
-  }
+  max-width: 100%;
 }
 
 .vort-pro-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   table-layout: fixed;
 }
 
-.vort-pro-table-thead {
+.vort-pro-table-fixed-header .vort-pro-table-thead {
+  position: relative;
+  z-index: 4;
+}
+
+.vort-pro-table-fixed-header .vort-pro-table-thead th {
   position: sticky;
   top: 0;
   z-index: 5;
   background: var(--vort-table-header-bg, #fafafa);
+}
+
+.vort-pro-table-fixed-header .vort-pro-table-tbody {
+  position: relative;
+  z-index: 1;
 }
 
 .vort-pro-table-thead th {
@@ -1179,18 +1276,18 @@ defineExpose({
 .vort-pro-table-resize-handle {
   position: absolute;
   top: 0;
-  right: -3px;
+  right: 0;
   bottom: 0;
-  width: 7px;
+  width: 8px;
   cursor: col-resize;
-  z-index: 1;
+  z-index: 2;
 
   &::after {
     content: "";
     position: absolute;
     top: 25%;
     bottom: 25%;
-    right: 3px;
+    right: 0;
     width: 1px;
     background: transparent;
     transition: background 0.15s;
@@ -1248,7 +1345,8 @@ defineExpose({
   border-right: none;
 }
 
-.vort-pro-table-selection-column {
+.vort-pro-table-thead th.vort-pro-table-selection-column,
+.vort-pro-table-tbody td.vort-pro-table-selection-column {
   width: 48px;
   padding: 16px 12px;
   text-align: center;
@@ -1272,28 +1370,56 @@ defineExpose({
   white-space: nowrap;
 }
 
-.vort-pro-table-fixed-left {
-  background: #fff;
-  box-shadow: none;
+.vort-pro-table-cell-fixed {
+  position: sticky;
+  z-index: 4;
+  background: var(--vort-bg-elevated, #fff);
+  background-clip: padding-box;
+  overflow: visible;
+  transition: background-color 0.2s;
 }
 
-.vort-pro-table-thead .vort-pro-table-fixed-left {
+.vort-pro-table-thead .vort-pro-table-cell-fixed {
+  z-index: 8;
   background: var(--vort-table-header-bg, #fafafa);
 }
 
-.vort-pro-table-tbody tr:hover .vort-pro-table-fixed-left {
-  background: #fafafa;
+.vort-pro-table-cell-fixed-left.vort-pro-table-cell-fixed-boundary::after,
+.vort-pro-table-cell-fixed-right.vort-pro-table-cell-fixed-boundary::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 20px;
+  z-index: 2;
+  pointer-events: none;
+  transition: box-shadow 0.2s;
 }
 
-.vort-pro-table-fixed-left-edge {
-  box-shadow: 1px 0 0 #e5e7eb, 8px 0 12px -8px rgba(15, 23, 42, 0.28);
+.vort-pro-table-cell-fixed-left.vort-pro-table-cell-fixed-boundary::after {
+  right: -20px;
+  box-shadow: var(--vort-pro-table-left-shadow, none);
+}
+
+.vort-pro-table-cell-fixed-right.vort-pro-table-cell-fixed-boundary::before {
+  left: -20px;
+  box-shadow: var(--vort-pro-table-right-shadow, none);
+}
+
+.vort-pro-table-thead .vort-pro-table-cell-fixed-left.vort-pro-table-cell-fixed-boundary::after,
+.vort-pro-table-thead .vort-pro-table-cell-fixed-right.vort-pro-table-cell-fixed-boundary::before {
+  z-index: 1;
+}
+
+.vort-pro-table-tbody tr:hover .vort-pro-table-cell-fixed {
+  background: #fafafa;
 }
 
 .vort-pro-table-row-selected {
   background: #e6f4ff;
 }
 
-.vort-pro-table-row-selected .vort-pro-table-fixed-left {
+.vort-pro-table-row-selected .vort-pro-table-cell-fixed {
   background: #e6f4ff;
 }
 
@@ -1301,7 +1427,7 @@ defineExpose({
   background: #bae0ff;
 }
 
-.vort-pro-table-row-selected:hover .vort-pro-table-fixed-left {
+.vort-pro-table-row-selected:hover .vort-pro-table-cell-fixed {
   background: #bae0ff;
 }
 
@@ -1351,7 +1477,8 @@ defineExpose({
   padding: 8px;
 }
 
-.vort-pro-table-middle .vort-pro-table-selection-column {
+.vort-pro-table-middle .vort-pro-table-thead th.vort-pro-table-selection-column,
+.vort-pro-table-middle .vort-pro-table-tbody td.vort-pro-table-selection-column {
   padding: 8px 6px;
 }
 
