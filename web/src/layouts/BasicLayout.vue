@@ -10,18 +10,18 @@ const route = useRoute();
 const appStore = useAppStore();
 const { isMobile } = useBreakpoint();
 const isScrolled = ref(false);
-const contentRef = ref<HTMLElement>();
+type LayoutScrollbarRef = {
+    setScrollTop?: (value: number) => void;
+};
+const contentRef = ref<LayoutScrollbarRef | null>(null);
 
-const handleScroll = (e: Event) => {
-    const target = e.target as HTMLElement;
-    isScrolled.value = target.scrollTop > 0;
+const handleScroll = ({ scrollTop }: { scrollTop: number; scrollLeft: number }) => {
+    isScrolled.value = scrollTop > 0;
 };
 
 watch(() => route.path, () => {
-    if (contentRef.value) {
-        contentRef.value.scrollTop = 0;
-        isScrolled.value = false;
-    }
+    contentRef.value?.setScrollTop?.(0);
+    isScrolled.value = false;
 });
 
 // 切换到桌面端时自动关闭移动端侧边栏
@@ -51,17 +51,15 @@ watch(isMobile, (val) => {
             <!-- 顶部栏 -->
             <Header :is-scrolled="isScrolled" :is-mobile="isMobile" />
             <!-- 内容区域 -->
-            <div ref="contentRef" class="flex-1 overflow-auto" @scroll="handleScroll">
-                <main class="h-full">
-                    <router-view v-slot="{ Component, route: currentRoute }">
-                        <transition name="fade" mode="out-in">
-                            <div :key="currentRoute.path" :class="currentRoute.meta.fullscreen ? 'h-full' : 'p-4 md:p-6 min-h-[calc(100vh-160px)]'">
-                                <component :is="Component" />
-                            </div>
-                        </transition>
-                    </router-view>
-                </main>
-            </div>
+            <VortScrollbar ref="contentRef" class="flex-1" tag="main" view-class="h-full" @scroll="handleScroll">
+                <router-view v-slot="{ Component, route: currentRoute }">
+                    <transition name="fade" mode="out-in">
+                        <div :key="currentRoute.path" :class="currentRoute.meta.fullscreen ? 'h-full' : 'p-4 md:p-6 min-h-[calc(100vh-160px)]'">
+                            <component :is="Component" />
+                        </div>
+                    </transition>
+                </router-view>
+            </VortScrollbar>
         </div>
     </div>
 </template>
