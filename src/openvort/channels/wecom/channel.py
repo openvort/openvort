@@ -1,9 +1,10 @@
 """
 企业微信 Channel
 
-实现 BaseChannel 接口，支持三种消息接收模式：
+实现 BaseChannel 接口，支持四种消息接收模式：
+- 智能机器人长连接（推荐，企微 5.0 API 模式，无需公网地址）
 - Webhook 回调（标准模式，需要公网地址）
-- Relay 中继（推荐开发模式，OpenVort Relay Server 部署在公网）
+- Relay 中继（开发模式，OpenVort Relay Server 部署在公网）
 - 远程数据库轮询（兼容模式，适用于无公网 IP 的场景）
 """
 
@@ -11,6 +12,7 @@ import asyncio
 import base64
 import json
 from pathlib import Path
+from uuid import uuid4
 
 import httpx
 
@@ -18,6 +20,10 @@ from openvort.channels.wecom.api import WeComAPI
 from openvort.config.settings import WeComSettings
 from openvort.plugin.base import BaseChannel, Message, MessageHandler
 from openvort.utils.logging import get_logger
+
+BOT_WS_URL = "wss://openws.work.weixin.qq.com"
+BOT_WS_HEARTBEAT_INTERVAL = 30
+BOT_STREAM_MAX_BYTES = 20000
 
 log = get_logger("channels.wecom")
 
@@ -27,9 +33,8 @@ class WeComChannel(BaseChannel):
 
     name = "wecom"
     display_name = "企业微信"
-    description = "企业微信 IM 通道，支持 Webhook/Relay/DB轮询三种模式接收消息"
+    description = "企业微信 IM 通道，支持 智能机器人/Webhook/Relay/DB轮询 四种模式接收消息"
 
-    # 持久化文件：记录各模式的消费位点，重启后从断点继续
     _CURSOR_FILE = Path.home() / ".openvort" / "wecom_cursor.json"
 
     def __init__(self, settings: WeComSettings | None = None):
@@ -41,10 +46,16 @@ class WeComChannel(BaseChannel):
         self._handler: MessageHandler | None = None
         self._running = False
         self._poll_task: asyncio.Task | None = None
+        self._bot_ws_task: asyncio.Task | None = None
+        self._bot_heartbeat_task: asyncio.Task | None = None
+        self._bot_ws: object | None = None
+        self._bot_req_ids: dict[str, str] = {}
+        self._bot_pending_acks: dict[str, asyncio.Future] = {}
         self._relay_url: str = ""
         self._relay_secret: str = ""
         self._relay_http: httpx.AsyncClient | None = None
         self._asr_service = None
+        self._bot_mode = False
 
     def set_asr_service(self, asr_service) -> None:
         self._asr_service = asr_service
@@ -129,17 +140,25 @@ class WeComChannel(BaseChannel):
              "description": "与回调 Token 一同生成，用于消息解密"},
             {"key": "api_base_url", "label": "API 地址", "type": "string", "required": False, "secret": False, "placeholder": "https://qyapi.weixin.qq.com/cgi-bin",
              "description": "企微 API 地址，通常无需修改"},
+            {"key": "bot_id", "label": "智能机器人 Bot ID", "type": "string", "required": False, "secret": False, "placeholder": "",
+             "description": "企微 5.0 智能机器人 Bot ID（AI 同事模式）"},
+            {"key": "bot_secret", "label": "智能机器人 Secret", "type": "string", "required": False, "secret": True, "placeholder": "",
+             "description": "企微 5.0 智能机器人 Secret"},
         ]
 
     def get_setup_guide(self) -> str:
         return (
             "### 企业微信配置指南\n\n"
+            "**方式一：智能机器人（推荐，企微 5.0+）**\n"
             "1. 登录 [企业微信管理后台](https://work.weixin.qq.com/wework_admin/frame)\n"
             "2. 进入「我的企业」→「企业信息」，复制 **企业 ID**\n"
-            "3. 进入「应用管理」→「自建」→ 创建应用（或选择已有应用）\n"
-            "4. 在应用详情页获取 **AgentId** 和 **Secret**\n"
-            "5. 如需 Webhook 模式：在「API接收消息」中设置接收服务器，获取 **Token** 和 **EncodingAESKey**\n"
-            "6. 如无公网 IP，推荐使用 Relay 中继模式（启动时加 `--relay-url`）\n"
+            "3. 进入「智能机器人」→ 创建 AI 同事，获取 **Bot ID** 和 **Secret**\n"
+            "4. 配置后自动使用 WebSocket 长连接模式（无需公网 IP）\n\n"
+            "**方式二：自建应用（传统模式）**\n"
+            "1. 进入「应用管理」→「自建」→ 创建应用\n"
+            "2. 在应用详情页获取 **AgentId** 和 **Secret**\n"
+            "3. 如需 Webhook 模式：设置接收服务器，获取 **Token** 和 **EncodingAESKey**\n"
+            "4. 如无公网 IP，推荐使用 Relay 中继模式（启动时加 `--relay-url`）\n"
         )
 
     def get_current_config(self) -> dict:
@@ -158,6 +177,8 @@ class WeComChannel(BaseChannel):
             "callback_token": _mask(s.callback_token),
             "callback_aes_key": _mask(s.callback_aes_key),
             "api_base_url": s.api_base_url,
+            "bot_id": s.bot_id,
+            "bot_secret": _mask(s.bot_secret),
         }
 
     def apply_config(self, config: dict) -> None:
@@ -174,17 +195,35 @@ class WeComChannel(BaseChannel):
             s.callback_aes_key = config["callback_aes_key"]
         if "api_base_url" in config:
             s.api_base_url = config["api_base_url"]
-        # 重置 API 客户端，下次使用时重新初始化
+        if "bot_id" in config:
+            s.bot_id = config["bot_id"]
+        if "bot_secret" in config:
+            s.bot_secret = config["bot_secret"]
         self._api = None
+        self._bot_api = None
 
     async def test_connection(self) -> dict:
         if not self.is_configured():
-            return {"ok": False, "message": "企业 ID 和应用 Secret 未配置"}
+            return {"ok": False, "message": "企业 ID 和应用 Secret/Bot Secret 未配置"}
         try:
-            token = await self.api.get_access_token()
-            if token:
-                return {"ok": True, "message": "连接成功，已获取 access_token"}
-            return {"ok": False, "message": "获取 access_token 失败"}
+            if self.is_bot_configured():
+                import websockets
+                async with websockets.connect(BOT_WS_URL, close_timeout=5) as ws:
+                    auth_frame = {
+                        "cmd": "aibot_subscribe",
+                        "headers": {"req_id": str(uuid4())},
+                        "body": {"secret": self._settings.bot_secret, "bot_id": self._settings.bot_id},
+                    }
+                    await ws.send(json.dumps(auth_frame))
+                    resp = json.loads(await asyncio.wait_for(ws.recv(), timeout=10))
+                    if resp.get("errcode", -1) == 0:
+                        return {"ok": True, "message": "智能机器人 WebSocket 认证成功"}
+                    return {"ok": False, "message": f"认证失败: {resp.get('errmsg', '未知错误')}"}
+            else:
+                token = await self.api.get_access_token()
+                if token:
+                    return {"ok": True, "message": "连接成功，已获取 App access_token"}
+                return {"ok": False, "message": "获取 access_token 失败"}
         except Exception as e:
             return {"ok": False, "message": f"连接失败: {e}"}
 
@@ -196,7 +235,9 @@ class WeComChannel(BaseChannel):
                 return "****"
             return "****" + value[-4:]
 
-        if self._relay_url:
+        if self._bot_mode:
+            mode = "bot"
+        elif self._relay_url:
             mode = "relay"
         elif self._poll_task and not self._poll_task.done():
             mode = "poll-db"
@@ -222,6 +263,16 @@ class WeComChannel(BaseChannel):
     async def stop(self) -> None:
         """停止通道"""
         self._running = False
+        if self._bot_heartbeat_task and not self._bot_heartbeat_task.done():
+            self._bot_heartbeat_task.cancel()
+        if self._bot_ws_task and not self._bot_ws_task.done():
+            self._bot_ws_task.cancel()
+        if self._bot_ws:
+            try:
+                await self._bot_ws.close()
+            except Exception:
+                pass
+            self._bot_ws = None
         if self._poll_task and not self._poll_task.done():
             self._poll_task.cancel()
         if self._api:
@@ -231,11 +282,12 @@ class WeComChannel(BaseChannel):
         log.info("企微 Channel 已停止")
 
     async def send(self, target: str, message: Message) -> None:
-        """发送消息（自动选择直连或 relay）"""
-        if self._relay_url:
+        """发送消息（自动选择 bot / relay / 直连）"""
+        if self._bot_mode:
+            await self._bot_send(target, message)
+        elif self._relay_url:
             await self._relay_send(target, message)
         elif message.msg_type == "voice":
-            # 发送语音消息
             voice_data = getattr(message, "voice_data", None)
             if voice_data:
                 await self.api.send_voice(voice_data["media_id"], touser=target)
@@ -251,8 +303,14 @@ class WeComChannel(BaseChannel):
         self._handler = handler
 
     def is_configured(self) -> bool:
-        """检查是否已配置"""
-        return bool(self._settings.corp_id and self._settings.app_secret)
+        """检查是否已配置（自建应用或智能机器人任一即可）"""
+        app_mode = bool(self._settings.corp_id and self._settings.app_secret)
+        bot_mode = bool(self._settings.corp_id and self._settings.bot_id and self._settings.bot_secret)
+        return app_mode or bot_mode
+
+    def is_bot_configured(self) -> bool:
+        """检查智能机器人模式是否已配置"""
+        return bool(self._settings.bot_id and self._settings.bot_secret)
 
     # ---- 轮询模式（兼容无公网 IP 场景）----
 
@@ -576,6 +634,327 @@ class WeComChannel(BaseChannel):
         except Exception as e:
             log.error(f"Relay 健康检查失败: {e}")
             return False
+
+    # ---- 智能机器人模式 (Bot) ----
+
+    async def start_bot(self) -> None:
+        """启动智能机器人模式（WebSocket 长连接）"""
+        if not self._handler:
+            log.error("未注册消息 handler，无法启动 bot 模式")
+            return
+        if not self.is_bot_configured():
+            log.error("智能机器人未配置 (需要 bot_id + bot_secret)")
+            return
+
+        self._bot_mode = True
+        self._running = True
+        self._bot_ws_task = asyncio.create_task(self._bot_ws_loop())
+        log.info(f"企微智能机器人模式已启动 (bot_id={self._settings.bot_id})")
+
+    async def _bot_ws_loop(self) -> None:
+        """Bot WebSocket long-connection loop with subscribe auth + auto-reconnect."""
+        import websockets
+
+        retry_delay = 1.0
+        max_retry_delay = 60.0
+
+        while self._running:
+            try:
+                log.info(f"Bot WebSocket 连接中: {BOT_WS_URL}")
+                async with websockets.connect(
+                    BOT_WS_URL, ping_interval=None, ping_timeout=None,
+                ) as ws:
+                    self._bot_ws = ws
+
+                    # ── Auth: send aibot_subscribe ──
+                    auth_req_id = str(uuid4())
+                    auth_frame = {
+                        "cmd": "aibot_subscribe",
+                        "headers": {"req_id": auth_req_id},
+                        "body": {
+                            "secret": self._settings.bot_secret,
+                            "bot_id": self._settings.bot_id,
+                        },
+                    }
+                    await ws.send(json.dumps(auth_frame))
+                    log.debug("已发送 aibot_subscribe 认证帧")
+
+                    auth_resp_raw = await asyncio.wait_for(ws.recv(), timeout=15)
+                    auth_resp = json.loads(auth_resp_raw)
+                    if auth_resp.get("errcode", -1) != 0:
+                        raise RuntimeError(
+                            f"认证失败: errcode={auth_resp.get('errcode')}, "
+                            f"errmsg={auth_resp.get('errmsg')}"
+                        )
+                    log.info("Bot WebSocket 认证成功")
+                    retry_delay = 1.0
+
+                    # ── Start heartbeat ──
+                    self._bot_heartbeat_task = asyncio.create_task(
+                        self._bot_heartbeat_loop(ws)
+                    )
+
+                    # ── Message receive loop ──
+                    async for raw_msg in ws:
+                        if not self._running:
+                            break
+                        try:
+                            await self._handle_bot_ws_message(raw_msg)
+                        except Exception as e:
+                            log.error(f"Bot WS 消息处理异常: {e}", exc_info=True)
+
+            except asyncio.CancelledError:
+                log.info("Bot WebSocket 循环已取消")
+                break
+            except Exception as e:
+                if self._running:
+                    log.warning(f"Bot WebSocket 断开 ({e})，{retry_delay:.0f}s 后重连...")
+                    await asyncio.sleep(retry_delay)
+                    retry_delay = min(retry_delay * 2, max_retry_delay)
+            finally:
+                self._bot_ws = None
+                if self._bot_heartbeat_task and not self._bot_heartbeat_task.done():
+                    self._bot_heartbeat_task.cancel()
+                    self._bot_heartbeat_task = None
+                for fut in self._bot_pending_acks.values():
+                    if not fut.done():
+                        fut.cancel()
+                self._bot_pending_acks.clear()
+
+        log.info("Bot WebSocket 循环已退出")
+
+    async def _bot_heartbeat_loop(self, ws) -> None:
+        """Periodically send ping frames to keep the WebSocket alive."""
+        try:
+            while True:
+                await asyncio.sleep(BOT_WS_HEARTBEAT_INTERVAL)
+                frame = {"cmd": "ping", "headers": {"req_id": str(uuid4())}}
+                await ws.send(json.dumps(frame))
+                log.debug("Bot WS 心跳已发送")
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            log.warning(f"Bot WS 心跳异常: {e}")
+
+    async def _bot_send_frame(self, frame: dict) -> None:
+        """Send a frame through the bot WebSocket connection."""
+        ws = self._bot_ws
+        if not ws:
+            log.error("Bot WebSocket 未连接，无法发送帧")
+            return
+        await ws.send(json.dumps(frame))
+
+    async def _handle_bot_ws_message(self, raw: str | bytes) -> None:
+        """Parse a WebSocket frame per the aibot protocol."""
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8", errors="replace")
+
+        data = json.loads(raw)
+        cmd = data.get("cmd", "")
+
+        # ── Ack response (auth / heartbeat / reply ack) ──
+        if not cmd and "errcode" in data:
+            req_id = data.get("headers", {}).get("req_id", "")
+            fut = self._bot_pending_acks.get(req_id)
+            if fut and not fut.done():
+                fut.set_result(data)
+            return
+
+        # ── Message callback ──
+        if cmd == "aibot_msg_callback":
+            await self._handle_bot_msg_callback(data)
+            return
+
+        # ── Event callback ──
+        if cmd == "aibot_event_callback":
+            await self._handle_bot_event_callback(data)
+            return
+
+        log.debug(f"Bot WS 未知帧: cmd={cmd}, keys={list(data.keys())}")
+
+    async def _handle_bot_msg_callback(self, data: dict) -> None:
+        """Handle an aibot_msg_callback frame (text/image/voice/mixed/file)."""
+        body = data.get("body", {})
+        req_id = data.get("headers", {}).get("req_id", "")
+        msgtype = body.get("msgtype", "")
+        from_user = body.get("from", {}).get("userid", "")
+        chat_type = body.get("chattype", "single")
+        chat_id = body.get("chatid", "")
+
+        content = ""
+        images: list[dict] = []
+
+        if msgtype == "text":
+            content = body.get("text", {}).get("content", "")
+        elif msgtype == "voice":
+            content = body.get("voice", {}).get("content", "")
+            if not content:
+                log.info(f"收到语音消息但无转写文本: {from_user}")
+                return
+        elif msgtype == "image":
+            img = body.get("image", {})
+            content = "[用户发送了图片]"
+            if img.get("url"):
+                images = [{"pic_url": img["url"], "aes_key": img.get("aeskey", "")}]
+        elif msgtype == "mixed":
+            items = body.get("mixed", {}).get("msg_item", [])
+            text_parts = []
+            for item in items:
+                if item.get("msgtype") == "text" and item.get("text", {}).get("content"):
+                    text_parts.append(item["text"]["content"])
+                elif item.get("msgtype") == "image" and item.get("image", {}).get("url"):
+                    images.append({
+                        "pic_url": item["image"]["url"],
+                        "aes_key": item["image"].get("aeskey", ""),
+                    })
+            content = "\n".join(text_parts)
+            if not content and images:
+                content = "[用户发送了图片]"
+        elif msgtype == "file":
+            file_info = body.get("file", {})
+            content = f"[用户发送了文件] {file_info.get('name', '')}"
+        elif msgtype == "stream":
+            log.debug(f"Bot WS 收到 stream 帧（跳过）: {body.get('stream', {}).get('id')}")
+            return
+        else:
+            log.info(f"Bot WS 收到未处理的消息类型: {msgtype}")
+            return
+
+        if not from_user:
+            log.debug("Bot WS 消息缺少 from.userid，跳过")
+            return
+
+        if not content:
+            log.debug(f"Bot WS 消息内容为空: {from_user}, type={msgtype}")
+            return
+
+        # Allowed users filter
+        if self._allowed_users and from_user not in self._allowed_users:
+            log.debug(f"Bot WS 跳过非白名单用户: {from_user}")
+            return
+
+        # Parse quote
+        quote_text = ""
+        if body.get("quote"):
+            q = body["quote"]
+            if q.get("text", {}).get("content"):
+                quote_text = q["text"]["content"]
+            elif q.get("voice", {}).get("content"):
+                quote_text = q["voice"]["content"]
+
+        if quote_text:
+            content = f"[引用: {quote_text[:100]}]\n{content}"
+
+        msg = Message(
+            content=content,
+            sender_id=from_user,
+            channel="wecom",
+            msg_type=msgtype if msgtype != "mixed" else "text",
+            images=images,
+            raw={
+                "_bot_req_id": req_id,
+                "_bot_chat_id": chat_id,
+                "_bot_chat_type": chat_type,
+                "msgid": body.get("msgid", ""),
+                "aibotid": body.get("aibotid", ""),
+            },
+        )
+
+        # Store req_id for reply routing
+        reply_key = chat_id if chat_id else from_user
+        self._bot_req_ids[reply_key] = req_id
+
+        # Download images if any
+        if images:
+            msg.images = await self._download_images(images)
+
+        log.info(f"Bot 消息: {from_user} ({chat_type}) -> {content[:80]}")
+
+        if self._handler:
+            reply = await self._handler(msg)
+            if reply:
+                log.info(f"Bot 回复: {reply[:80]}")
+                await self._bot_send(
+                    from_user, Message(content=reply, channel="wecom"),
+                    chat_id=chat_id, req_id=req_id,
+                )
+
+    async def _handle_bot_event_callback(self, data: dict) -> None:
+        """Handle an aibot_event_callback frame (enter_chat, etc.)."""
+        body = data.get("body", {})
+        req_id = data.get("headers", {}).get("req_id", "")
+        event = body.get("event", {})
+        event_type = event.get("eventtype", "")
+        from_user = body.get("from", {}).get("userid", "")
+
+        log.info(f"Bot 事件: {event_type} from={from_user}")
+
+        if event_type == "enter_chat" and req_id:
+            welcome = "你好！我是 AI 助手，有什么可以帮你的吗？"
+            frame = {
+                "cmd": "aibot_respond_welcome_msg",
+                "headers": {"req_id": req_id},
+                "body": {
+                    "msgtype": "text",
+                    "text": {"content": welcome},
+                },
+            }
+            await self._bot_send_frame(frame)
+            log.info(f"已发送欢迎语: {from_user}")
+
+    async def _bot_send(self, target: str, message: Message, *, chat_id: str = "", req_id: str = "") -> None:
+        """Send reply through WebSocket using stream format."""
+        ws = self._bot_ws
+        if not ws:
+            log.error("Bot WebSocket 未连接，无法发送回复")
+            return
+
+        # Resolve req_id: prefer explicit > stored mapping > proactive fallback
+        if not req_id:
+            reply_key = chat_id if chat_id else target
+            req_id = self._bot_req_ids.pop(reply_key, "")
+
+        content = message.content
+
+        # Truncate if exceeds stream byte limit
+        content_bytes = content.encode("utf-8")
+        if len(content_bytes) > BOT_STREAM_MAX_BYTES:
+            content = content_bytes[:BOT_STREAM_MAX_BYTES].decode("utf-8", errors="ignore")
+            content += "\n\n...(内容过长，已截断)"
+
+        if req_id:
+            # Reply to a specific incoming message via stream
+            stream_id = str(uuid4())
+            frame = {
+                "cmd": "aibot_respond_msg",
+                "headers": {"req_id": req_id},
+                "body": {
+                    "msgtype": "stream",
+                    "stream": {
+                        "id": stream_id,
+                        "finish": True,
+                        "content": content,
+                    },
+                },
+            }
+        else:
+            # Proactive message (no req_id available)
+            chatid = chat_id if chat_id else target
+            frame = {
+                "cmd": "aibot_send_msg",
+                "headers": {"req_id": str(uuid4())},
+                "body": {
+                    "chatid": chatid,
+                    "msgtype": "markdown",
+                    "markdown": {"content": content},
+                },
+            }
+
+        try:
+            await self._bot_send_frame(frame)
+            log.info(f"Bot 回复帧已发送: cmd={frame['cmd']}, target={target}")
+        except Exception as e:
+            log.error(f"Bot 回复发送失败: {e}")
 
     # ---- 图片处理 ----
 

@@ -433,6 +433,11 @@ async def _start_service(relay_url: str | None, poll_db_json: str | None, web_fl
 
             ch.on_message(handle_message)
 
+            # Bot mode runs alongside other modes (separate message source)
+            if ch.is_bot_configured():
+                await ch.start_bot()
+
+            # App mode: relay → poll-db → webhook
             if effective_relay_url:
                 await ch.start_relay(effective_relay_url, relay_secret=effective_relay_secret)
             elif poll_db_json:
@@ -475,7 +480,18 @@ async def _start_service(relay_url: str | None, poll_db_json: str | None, web_fl
             ch.on_message(handle_openclaw_message)
             await ch.start()
 
-    mode = "relay" if effective_relay_url else ("poll-db" if poll_db_json else "webhook")
+    # Determine wecom mode(s) for logging
+    _modes = []
+    _wecom_ch = registry.get_channel("wecom")
+    if _wecom_ch and hasattr(_wecom_ch, "_bot_mode") and _wecom_ch._bot_mode:
+        _modes.append("bot")
+    if effective_relay_url:
+        _modes.append("relay")
+    elif poll_db_json:
+        _modes.append("poll-db")
+    else:
+        _modes.append("webhook")
+    mode = "+".join(_modes)
     log.info(f"已加载 {len(channels)} 个 Channel, {len(registry.list_tools())} 个 Tool (模式: {mode})")
 
     # ---- 定时任务调度器 ----
