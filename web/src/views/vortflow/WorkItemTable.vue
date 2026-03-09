@@ -129,6 +129,11 @@ const detailBottomTab = ref<"comments" | "logs">("comments");
 const detailCommentDraft = ref("");
 const detailCommentsMap = reactive<Record<string, DetailComment[]>>({});
 const detailLogsMap = reactive<Record<string, DetailLog[]>>({});
+const createWorkItemRef = ref<{
+    submit: () => NewBugForm | null;
+    reset: () => void;
+    cancel: () => void;
+} | null>(null);
 const createBugAttachments = ref<CreateBugAttachment[]>([]);
 const createAttachmentInputRef = ref<HTMLInputElement | null>(null);
 const createAssigneeDropdownOpen = ref(false);
@@ -864,6 +869,14 @@ const handleCancelCreateBug = () => {
     createTagDropdownOpen.value = false;
 };
 
+const handleCancelCreateWorkItem = () => {
+    if (createWorkItemRef.value) {
+        createWorkItemRef.value.cancel();
+        return;
+    }
+    handleCancelCreateBug();
+};
+
 const handleDetailUpdate = (data: Partial<RowItem>) => {
     if (detailCurrentRecord.value) {
         Object.assign(detailCurrentRecord.value, data);
@@ -871,26 +884,21 @@ const handleDetailUpdate = (data: Partial<RowItem>) => {
     }
 };
 
-const handleCreateSuccess = () => {
-    createBugDrawerOpen.value = false;
-    tableRef.value?.refresh?.();
-};
-
-const handleSubmitCreateBug = async () => {
+const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) => {
     if (createBugDrawerMode.value !== "create") {
         createBugDrawerOpen.value = false;
         createBugPriorityDropdownOpen.value = false;
         return;
     }
 
-    const title = createBugForm.title.trim();
+    const title = formData.title.trim();
     if (!title) {
         message.warning("请填写标题");
         return;
     }
 
     if (props.useApi) {
-        const type = (props.type || createBugForm.type || "缺陷") as WorkItemType;
+        const type = (props.type || formData.type || "缺陷") as WorkItemType;
         try {
             let createdItem: any = null;
             if (type === "需求") {
@@ -898,11 +906,11 @@ const handleSubmitCreateBug = async () => {
                 createdItem = await createVortflowStory({
                     project_id: defaultProject,
                     title,
-                    description: createBugForm.description || defaultBugDescription,
-                    priority: createBugForm.priority === "urgent" ? 1 : createBugForm.priority === "high" ? 2 : createBugForm.priority === "medium" ? 3 : 4,
-                    tags: [...createBugForm.tags],
-                    collaborators: [...createBugForm.collaborators],
-                    deadline: createBugForm.planTime?.[1] || undefined,
+                    description: formData.description || defaultBugDescription,
+                    priority: formData.priority === "urgent" ? 1 : formData.priority === "high" ? 2 : formData.priority === "medium" ? 3 : 4,
+                    tags: [...formData.tags],
+                    collaborators: [...formData.collaborators],
+                    deadline: formData.planTime?.[1] || undefined,
                 });
             } else if (type === "任务") {
                 if (!apiStories.value.length) {
@@ -917,21 +925,21 @@ const handleSubmitCreateBug = async () => {
                 createdItem = await createVortflowTask({
                     story_id: selectedStoryId,
                     title,
-                    description: createBugForm.description || "",
+                    description: formData.description || "",
                     task_type: "develop",
-                    assignee_id: getMemberIdByName(createBugForm.owner) || undefined,
-                    tags: [...createBugForm.tags],
-                    collaborators: [...createBugForm.collaborators],
-                    deadline: createBugForm.planTime?.[1] || undefined,
+                    assignee_id: getMemberIdByName(formData.owner) || undefined,
+                    tags: [...formData.tags],
+                    collaborators: [...formData.collaborators],
+                    deadline: formData.planTime?.[1] || undefined,
                 });
             } else {
                 createdItem = await createVortflowBug({
                     title,
-                    description: createBugForm.description || defaultBugDescription,
-                    severity: createBugForm.priority === "urgent" ? 1 : createBugForm.priority === "high" ? 2 : createBugForm.priority === "medium" ? 3 : 4,
-                    assignee_id: getMemberIdByName(createBugForm.owner) || undefined,
-                    tags: [...createBugForm.tags],
-                    collaborators: [...createBugForm.collaborators],
+                    description: formData.description || defaultBugDescription,
+                    severity: formData.priority === "urgent" ? 1 : formData.priority === "high" ? 2 : formData.priority === "medium" ? 3 : 4,
+                    assignee_id: getMemberIdByName(formData.owner) || undefined,
+                    tags: [...formData.tags],
+                    collaborators: [...formData.collaborators],
                 });
             }
             if (createdItem) {
@@ -940,9 +948,11 @@ const handleSubmitCreateBug = async () => {
             }
             tableRef.value?.refresh?.();
             message.success("新建成功");
-            createBugDrawerOpen.value = false;
-            createBugPriorityDropdownOpen.value = false;
-            createAssigneeDropdownOpen.value = false;
+            if (keepCreating) {
+                createWorkItemRef.value?.reset();
+            } else {
+                handleCancelCreateBug();
+            }
             return;
         } catch (error: any) {
             message.error(error?.message || "新建失败");
@@ -953,24 +963,24 @@ const handleSubmitCreateBug = async () => {
     const now = new Date();
     const workNo = toWorkNo(nextWorkNoIndex.value++);
     const fallbackPlanDate = formatDate(now);
-    const planTime: DateRange = (createBugForm.planTime as DateRange)?.length === 2
-        ? [...(createBugForm.planTime as DateRange)]
+    const planTime: DateRange = (formData.planTime as DateRange)?.length === 2
+        ? [...(formData.planTime as DateRange)]
         : [fallbackPlanDate, fallbackPlanDate];
-    const newPriority: Priority = createBugForm.priority || "none";
-    const ownerName = createBugForm.owner || "未指派";
-    const collaborators = [...createBugForm.collaborators];
+    const newPriority: Priority = formData.priority || "none";
+    const ownerName = formData.owner || "未指派";
+    const collaborators = [...formData.collaborators];
 
     const newRow: RowItem = {
         workNo,
         title,
         priority: newPriority,
-        tags: [...createBugForm.tags],
+        tags: [...formData.tags],
         status: "待确认",
         createdAt: formatCnTime(now),
         collaborators,
-        type: createBugForm.type || props.type || "缺陷",
+        type: formData.type || props.type || "缺陷",
         planTime,
-        description: createBugForm.description || defaultBugDescription,
+        description: formData.description || defaultBugDescription,
         owner: ownerName,
         creator: "当前用户"
     };
@@ -981,9 +991,17 @@ const handleSubmitCreateBug = async () => {
     totalCount.value = allData.value.length;
     tableRef.value?.refresh?.();
     message.success("新建成功");
-    createBugDrawerOpen.value = false;
-    createBugPriorityDropdownOpen.value = false;
-    createAssigneeDropdownOpen.value = false;
+    if (keepCreating) {
+        createWorkItemRef.value?.reset();
+    } else {
+        handleCancelCreateBug();
+    }
+};
+
+const handleSubmitCreateBug = async (keepCreating = false) => {
+    const formData = createWorkItemRef.value?.submit();
+    if (!formData) return;
+    await handleCreateSuccess(formData, keepCreating);
 };
 
 const openCreateAttachmentDialog = () => {
@@ -2167,11 +2185,19 @@ onMounted(async () => {
             </template>
             <template v-else>
                 <WorkItemCreate
+                    ref="createWorkItemRef"
                     :type="props.type"
                     :title="props.createDrawerTitle"
                     @close="handleCancelCreateBug"
                     @success="handleCreateSuccess"
                 />
+            </template>
+            <template #footer>
+                <div v-if="createBugDrawerMode === 'create'" class="create-bug-footer">
+                    <VortButton variant="primary" @click="handleSubmitCreateBug()">新建</VortButton>
+                    <VortButton @click="handleSubmitCreateBug(true)">新建并继续</VortButton>
+                    <VortButton @click="handleCancelCreateWorkItem">取消</VortButton>
+                </div>
             </template>
         </vort-drawer>
 
@@ -2255,6 +2281,12 @@ onMounted(async () => {
     border-color: var(--vort-primary);
     box-shadow: 0 0 0 2px var(--vort-primary-shadow);
 }
+
+.create-bug-footer {
+    display: flex;
+    gap: 12px;
+}
+
 :deep(.table-cell) {
     .vort-popover-trigger{
     }

@@ -172,19 +172,30 @@ const resetForm = () => {
     Object.assign(createBugForm, createInitialBugForm());
 };
 
-const handleSubmit = () => {
+const submitForm = (): NewBugForm | null => {
     const title = createBugForm.title.trim();
     if (!title) {
         message.warning("请填写标题");
-        return;
+        return null;
     }
-    emit("success", { ...createBugForm });
+    return {
+        ...createBugForm,
+        collaborators: [...createBugForm.collaborators],
+        planTime: [...createBugForm.planTime] as NewBugForm["planTime"],
+        tags: [...createBugForm.tags]
+    };
 };
 
 const handleCancel = () => {
     resetForm();
     emit("close");
 };
+
+defineExpose({
+    submit: submitForm,
+    reset: resetForm,
+    cancel: handleCancel
+});
 
 onMounted(async () => {
     await loadMemberOptions();
