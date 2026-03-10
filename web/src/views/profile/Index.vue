@@ -11,6 +11,8 @@ import {
 } from "@/api";
 import { message, dialog } from "@/components/vort";
 import { Shield, Bell, User, GitBranch, Sparkles, Plus, Trash2, Globe, Bot } from "lucide-vue-next";
+import AvatarCropper from "vue-avatar-cropper";
+import "cropperjs/dist/cropper.min.css";
 
 const userStore = useUserStore();
 const activeMenu = ref("basic");
@@ -179,20 +181,20 @@ async function handleSaveBasic() {
     }
 }
 
-// ---- 头像上传 ----
+// ---- 头像上传（带裁剪） ----
 
-const avatarInput = ref<HTMLInputElement | null>(null);
+const showAvatarCropper = ref(false);
 const uploadingAvatar = ref(false);
 
-function triggerAvatarUpload() {
-    avatarInput.value?.click();
-}
-
-async function handleAvatarChange(e: Event) {
-    const file = (e.target as HTMLInputElement).files?.[0];
-    if (!file) return;
+async function handleAvatarUpload(cropper: any) {
+    const canvas = cropper.getCroppedCanvas({ width: 512, height: 512 });
+    if (!canvas) return;
     uploadingAvatar.value = true;
     try {
+        const blob: Blob = await new Promise((resolve) =>
+            canvas.toBlob((b: Blob) => resolve(b), "image/png", 0.9)
+        );
+        const file = new File([blob], "avatar.png", { type: "image/png" });
         const res: any = await uploadAvatar(file);
         if (res?.success && res.avatar_url) {
             profile.value.avatar_url = res.avatar_url;
@@ -204,7 +206,6 @@ async function handleAvatarChange(e: Event) {
         message.error("上传失败");
     } finally {
         uploadingAvatar.value = false;
-        if (avatarInput.value) avatarInput.value.value = "";
     }
 }
 
@@ -581,8 +582,17 @@ function handleMenuClick(key: string) {
                                         <img v-if="profile.avatar_url" :src="profile.avatar_url" class="w-full h-full object-cover" />
                                         <span v-else class="text-3xl md:text-5xl text-blue-600 font-medium">{{ (basicForm.name || '?')[0] }}</span>
                                     </div>
-                                    <input ref="avatarInput" type="file" accept="image/jpeg,image/png,image/gif,image/webp" class="hidden" @change="handleAvatarChange" />
-                                    <VortButton class="mt-4" :loading="uploadingAvatar" @click="triggerAvatarUpload">更换头像</VortButton>
+                                    <VortButton class="mt-4" :loading="uploadingAvatar" @click="showAvatarCropper = true">更换头像</VortButton>
+                                    <avatar-cropper
+                                        v-model="showAvatarCropper"
+                                        :upload-handler="handleAvatarUpload"
+                                        :cropper-options="{ aspectRatio: 1, autoCropArea: 1, viewMode: 1, movable: true, zoomable: true }"
+                                        :output-options="{ width: 512, height: 512 }"
+                                        output-mime="image/png"
+                                        :output-quality="0.9"
+                                        :labels="{ submit: '确认', cancel: '取消' }"
+                                        mimes="image/png, image/jpeg, image/webp"
+                                    />
                                 </div>
                             </div>
                         </div>
