@@ -61,10 +61,10 @@ const handleClick = (event: Event) => {
 .table-cell::after {
     content: "";
     position: absolute;
-    top: -1px;
-    left: -1px;
-    right: -1px;
-    bottom: -1px;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
     border: 1px solid transparent;
     pointer-events: none;
     transition: border-color 0.2s ease;
