@@ -986,14 +986,6 @@ const syncDetailRelations = async (record: RowItem) => {
     }
 };
 
-const handleCreateChildFromDetail = () => {
-    if (!detailCurrentRecord.value?.backendId) return;
-    createParentStoryId.value = detailCurrentRecord.value.backendId;
-    createProjectId.value = detailCurrentRecord.value.projectId || "";
-    createBugDrawerMode.value = "create";
-    router.replace({ query: { ...route.query, action: "create", parentId: createParentStoryId.value } });
-};
-
 const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) => {
     if (createBugDrawerMode.value !== "create") {
         createBugDrawerOpen.value = false;
@@ -2284,7 +2276,6 @@ onMounted(async () => {
                     @close="handleCancelCreateBug"
                     @update="handleDetailUpdate"
                     @open-related="handleOpenBugDetail"
-                    @create-child="handleCreateChildFromDetail"
                 />
             </template>
             <template v-else>
@@ -2462,8 +2453,4 @@ onMounted(async () => {
     gap: 12px;
 }
 
-:deep(.table-cell) {
-    .vort-popover-trigger{
-    }
-}
 </style>

@@ -21,7 +21,6 @@ const emit = defineEmits<{
     update: [data: Partial<RowItem>];
     delete: [];
     openRelated: [record: RowItem];
-    createChild: [];
 }>();
 
 const {
@@ -273,17 +272,27 @@ watch(() => props.initialData, (value) => {
                 </Popover>
             </div>
 
-            <h2 class="bug-detail-title">{{ record.title }}</h2>
-            <p class="bug-detail-sub">
+            <div v-if="record.type === '需求' && parentRecord" class="story-tree-header">
+                <div class="story-parent-node" @click="emit('openRelated', parentRecord)">
+                    <span class="work-type-icon-small" :style="{ color: '#64748b' }">
+                        <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" aria-hidden="true" role="img" class="work-type-icon-svg-small" width="1em" height="1em" preserveAspectRatio="xMidYMid meet" viewBox="0 0 16 16">
+                            <g fill="none" fill-rule="evenodd">
+                                <path d="M0 0h16v16H0z"></path>
+                                <path fill="currentColor" fill-rule="nonzero" d="M13.5 1.5a1 1 0 011 1v11a1 1 0 01-1 1h-11a1 1 0 01-1-1v-11a1 1 0 011-1zm-.25 1H2.75a.25.25 0 00-.243.193L2.5 2.75v10.5a.25.25 0 00.193.243l.057.007h10.5a.25.25 0 00.243-.193l.007-.057V2.75a.25.25 0 00-.25-.25zm-7.8 6.05a1.7 1.7 0 110 3.4 1.7 1.7 0 010-3.4zm0 .9a.8.8 0 100 1.6.8.8 0 000-1.6zm6.55.3a.5.5 0 110 1H9a.5.5 0 110-1zM7.736 4.146a.5.5 0 010 .708l-2.122 2.12a.5.5 0 01-.707 0l-1.06-1.06a.5.5 0 11.707-.707l.706.708 1.768-1.769a.5.5 0 01.708 0zM12 5.25a.5.5 0 110 1H9a.5.5 0 110-1z"></path>
+                            </g>
+                        </svg>
+                    </span>
+                    <span class="parent-title">{{ parentRecord.title }}</span>
+                </div>
+                <div class="story-child-node">
+                    <div class="tree-line"></div>
+                    <h2 class="bug-detail-title" style="margin-bottom: 0;">{{ record.title }}</h2>
+                </div>
+            </div>
+            <h2 v-else class="bug-detail-title">{{ record.title }}</h2>
+            <p class="bug-detail-sub" :style="record.type === '需求' && parentRecord ? 'margin-top: 8px;' : ''">
                 {{ record.owner || "未指派" }}，创建于 {{ record.createdAt }}，最近更新于 {{ record.createdAt }}
             </p>
-            <div v-if="record.type === '需求'" class="story-detail-actions">
-                <div v-if="parentRecord" class="story-parent-link" @click="emit('openRelated', parentRecord)">
-                    父需求：{{ parentRecord.title }}
-                </div>
-                <VortButton variant="text" size="small" @click="emit('createChild')">拆分为子需求</VortButton>
-            </div>
-
             <div class="bug-detail-tabs">
                 <button :class="{ active: detailActiveTab === 'detail' }" @click="detailActiveTab = 'detail'">详情</button>
                 <button :class="{ active: detailActiveTab === 'worklog' }" @click="detailActiveTab = 'worklog'">工作日志</button>
@@ -621,22 +630,60 @@ watch(() => props.initialData, (value) => {
     margin: 0 0 20px 0;
 }
 
-.story-detail-actions {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 12px;
+.story-tree-header {
+    margin-bottom: 8px;
 }
 
-.story-parent-link {
-    color: #4f46e5;
+.story-parent-node {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: #64748b;
     cursor: pointer;
     font-size: 14px;
+    transition: color 0.2s;
 }
 
-.story-parent-link:hover {
-    text-decoration: underline;
+.story-parent-node:hover {
+    color: #3b82f6;
+}
+
+.work-type-icon-small {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+}
+
+.work-type-icon-svg-small {
+    width: 16px;
+    height: 16px;
+}
+
+.parent-title {
+    max-width: 400px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.story-child-node {
+    display: flex;
+    align-items: flex-start;
+    margin-top: 4px;
+}
+
+.tree-line {
+    width: 16px;
+    height: 20px;
+    border-left: 1.5px solid #cbd5e1;
+    border-bottom: 1.5px solid #cbd5e1;
+    border-bottom-left-radius: 6px;
+    margin-left: 7px;
+    margin-right: 8px;
+    margin-top: -4px;
+    flex-shrink: 0;
 }
 
 .bug-detail-tabs {
@@ -664,10 +711,6 @@ watch(() => props.initialData, (value) => {
 .bug-detail-tabs button.active {
     color: #3b82f6;
     border-bottom-color: #3b82f6;
-}
-
-.bug-detail-panel {
-    /* styles inherited from parent */
 }
 
 .bug-detail-top-grid {
