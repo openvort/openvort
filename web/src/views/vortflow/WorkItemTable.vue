@@ -416,8 +416,7 @@ const columns = computed<ProTableColumn<RowItem>[]>(() => [
     { title: "协作者", dataIndex: "collaborators", width: 140, slot: "collaborators", align: "left" },
     { title: "工作项类型", dataIndex: "type", width: 120, sorter: true, align: "left" },
     { title: "计划时间", dataIndex: "planTime", width: 260, sorter: true, align: "left", slot: "planTime" },
-    { title: "创建人", dataIndex: "creator", width: 160, sorter: true, align: "left", slot: "creator" },
-    { title: "操作", dataIndex: "actions", width: 100, fixed: "right", align: "left", slot: "actions" }
+    { title: "创建人", dataIndex: "creator", width: 160, sorter: true, align: "left", slot: "creator" }
 ]);
 
 const getRecordBackendId = (record: RowItem): string => String(record.backendId || "").trim();
@@ -881,17 +880,6 @@ const deleteOne = async (record: RowItem) => {
     }
     allData.value = allData.value.filter((x) => x.workNo !== record.workNo);
     totalCount.value = allData.value.length;
-};
-
-const handleDelete = async (record: RowItem) => {
-    try {
-        await deleteOne(record);
-        message.success("删除成功");
-        clearSelection();
-        tableRef.value?.refresh?.();
-    } catch (error: any) {
-        message.error(error?.message || "删除失败");
-    }
 };
 
 const handleBatchDelete = async () => {
@@ -2163,12 +2151,6 @@ onMounted(async () => {
                         </span>
                         <span class="text-sm text-gray-700 truncate">{{ text }}</span>
                     </div>
-                </template>
-
-                <template #actions="{ record }">
-                    <vort-popconfirm title="确认删除？" @confirm="handleDelete(record)">
-                        <VortButton size="small" variant="link" danger>删除</VortButton>
-                    </vort-popconfirm>
                 </template>
 
                 <template #collaborators="{ text, record }">
