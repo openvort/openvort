@@ -150,7 +150,7 @@ const onCreate = () => emit("create");
                     :class="ownerDropdownOpen ? 'border-blue-500 ring-1 ring-blue-200' : ''"
                 >
                     <div class="flex items-center justify-between w-full gap-2">
-                        <span class="text-sm text-gray-700">{{ owner || "负责人" }}</span>
+                        <span class="text-sm" :class="owner ? 'text-gray-700' : 'text-gray-400'">{{ owner || "负责人" }}</span>
                         <span class="status-arrow-simple" :class="{ open: ownerDropdownOpen }" />
                     </div>
                 </VortButton>
@@ -236,7 +236,7 @@ const onCreate = () => emit("create");
                     :class="typeDropdownOpen ? 'border-blue-500 ring-1 ring-blue-200' : ''"
                 >
                     <div class="flex items-center justify-between w-full gap-2">
-                        <span class="text-sm text-gray-700">{{ type || "类型" }}</span>
+                        <span class="text-sm" :class="type ? 'text-gray-700' : 'text-gray-400'">{{ type || "类型" }}</span>
                         <span class="status-arrow-simple" :class="{ open: typeDropdownOpen }" />
                     </div>
                 </VortButton>
@@ -268,7 +268,7 @@ const onCreate = () => emit("create");
                     :class="statusDropdownOpen ? 'border-blue-500 ring-1 ring-blue-200' : ''"
                 >
                     <div class="flex items-center justify-between w-full gap-2">
-                        <span class="text-sm text-gray-700">{{ statusDisplayText }}</span>
+                        <span class="text-sm" :class="status ? 'text-gray-700' : 'text-gray-400'">{{ statusDisplayText }}</span>
                         <span class="status-arrow-simple" :class="{ open: statusDropdownOpen }" />
                     </div>
                 </VortButton>
