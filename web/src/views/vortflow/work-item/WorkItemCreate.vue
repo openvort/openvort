@@ -1,20 +1,27 @@
 <script setup lang="ts">
-import { ref, computed, reactive, onMounted } from "vue";
+import { ref, computed, reactive, onMounted, watch } from "vue";
 import { pinyin } from "pinyin-pro";
 import { Popover, message } from "@/components/vort";
 import { DownOutlined } from "@/components/vort/icons";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
+import { getVortflowProjects, getVortflowStories } from "@/api";
 import { useWorkItemCommon } from "./useWorkItemCommon";
 import type { WorkItemType, Priority, DateRange, NewBugForm } from "@/components/vort-biz/work-item/WorkItemTable.types";
 
 interface Props {
     type?: WorkItemType;
     title?: string;
+    useApi?: boolean;
+    projectId?: string;
+    parentId?: string;
 }
 
 const props = withDefaults(defineProps<Props>(), {
     type: "缺陷",
-    title: "新建缺陷"
+    title: "新建缺陷",
+    useApi: false,
+    projectId: "",
+    parentId: "",
 });
 
 const emit = defineEmits<{
@@ -56,8 +63,10 @@ const createInitialBugForm = (): NewBugForm => ({
     type: props.type,
     planTime: [],
     project: "VortMall",
+    projectId: props.projectId || "",
     iteration: "",
     version: "",
+    parentId: props.parentId || "",
     priority: "" as any,
     tags: [],
     repo: "",
@@ -76,12 +85,21 @@ const createAssigneeKeyword = ref("");
 const createTagDropdownOpen = ref(false);
 const createTagKeyword = ref("");
 const createAttachments = ref<any[]>([]);
+const apiProjects = ref<Array<{ id: string; name: string }>>([]);
+const parentStoryOptions = ref<Array<{ id: string; title: string }>>([]);
 
 const projectOptions = ["VortMall", "VortAdmin", "VortCMS", "OpenVort"];
 const iterationOptions = ["Sprint 1", "Sprint 2", "Sprint 3"];
 const versionOptions = ["v1.0.0", "v1.1.0", "v1.2.0"];
 const repoOptions = ["frontend", "backend", "mobile"];
 const branchOptions = ["main", "develop", "feature/xxx"];
+
+const createProjectOptions = computed(() => {
+    if (props.useApi && apiProjects.value.length > 0) {
+        return apiProjects.value.map((item) => item.name);
+    }
+    return projectOptions;
+});
 
 type MemberSearchMeta = {
     normalizedName: string;
@@ -233,6 +251,58 @@ const filteredTagOptions = computed(() => {
     return tagOptions.filter((t) => t.includes(kw));
 });
 
+const shouldShowParentSelector = computed(() => {
+    return (props.type || createBugForm.type) === "需求";
+});
+
+const resolveSelectedProjectId = (): string => {
+    if (createBugForm.projectId) return createBugForm.projectId;
+    if (!apiProjects.value.length) return props.projectId || "";
+    const selected = String(createBugForm.project || "").trim();
+    if (!selected) return apiProjects.value[0]?.id || "";
+    const match = apiProjects.value.find((item) => item.name === selected || item.id === selected);
+    return match?.id || apiProjects.value[0]?.id || "";
+};
+
+const loadApiProjects = async () => {
+    if (!props.useApi) return;
+    const res: any = await getVortflowProjects();
+    apiProjects.value = ((res?.items || []) as any[]).map((item) => ({
+        id: String(item.id || ""),
+        name: String(item.name || item.id || ""),
+    })).filter((item) => item.id && item.name);
+    const initialProjectId = props.projectId || createBugForm.projectId || apiProjects.value[0]?.id || "";
+    if (!initialProjectId) return;
+    const matchedProject = apiProjects.value.find((item) => item.id === initialProjectId) || apiProjects.value[0];
+    if (!matchedProject) return;
+    createBugForm.projectId = matchedProject.id;
+    createBugForm.project = matchedProject.name;
+};
+
+const loadParentStoryOptions = async () => {
+    if (!props.useApi || !shouldShowParentSelector.value) {
+        parentStoryOptions.value = [];
+        return;
+    }
+    const selectedProjectId = resolveSelectedProjectId();
+    if (!selectedProjectId) {
+        parentStoryOptions.value = [];
+        return;
+    }
+    const res: any = await getVortflowStories({
+        project_id: selectedProjectId,
+        page: 1,
+        page_size: 100,
+    });
+    parentStoryOptions.value = ((res?.items || []) as any[]).map((item) => ({
+        id: String(item.id || ""),
+        title: String(item.title || item.id || ""),
+    })).filter((item) => item.id && item.title);
+    if (createBugForm.parentId && !parentStoryOptions.value.some((item) => item.id === createBugForm.parentId)) {
+        createBugForm.parentId = "";
+    }
+};
+
 const createBugPlanTimeModel = computed<any>({
     get: () => (createBugForm.planTime.length === 2 ? [...createBugForm.planTime] as DateRange : undefined),
     set: (value) => {
@@ -262,6 +332,12 @@ const toggleCreateTagOption = (tag: string) => {
 
 const resetForm = () => {
     Object.assign(createBugForm, createInitialBugForm());
+    if (props.projectId) {
+        createBugForm.projectId = props.projectId;
+    }
+    if (props.parentId) {
+        createBugForm.parentId = props.parentId;
+    }
 };
 
 const submitForm = (): NewBugForm | null => {
@@ -291,6 +367,37 @@ defineExpose({
 
 onMounted(async () => {
     await loadMemberOptions();
+    if (props.useApi) {
+        await loadApiProjects();
+        await loadParentStoryOptions();
+    }
+});
+
+watch(() => props.parentId, (value) => {
+    createBugForm.parentId = value || "";
+});
+
+watch(() => props.projectId, async (value) => {
+    if (!value) return;
+    createBugForm.projectId = value;
+    const match = apiProjects.value.find((item) => item.id === value);
+    if (match) createBugForm.project = match.name;
+    await loadParentStoryOptions();
+});
+
+watch(() => createBugForm.project, async () => {
+    if (!props.useApi) return;
+    createBugForm.projectId = resolveSelectedProjectId();
+    await loadParentStoryOptions();
+});
+
+watch(() => createBugForm.type, async (value) => {
+    if (value !== "需求") {
+        createBugForm.parentId = "";
+        parentStoryOptions.value = [];
+        return;
+    }
+    await loadParentStoryOptions();
 });
 </script>
 
@@ -441,8 +548,30 @@ onMounted(async () => {
                 <div class="create-bug-field">
                     <label class="create-bug-label">关联项目</label>
                     <vort-select v-model="createBugForm.project">
-                        <vort-select-option v-for="item in projectOptions" :key="item" :value="item">{{ item }}</vort-select-option>
+                        <vort-select-option v-for="item in createProjectOptions" :key="item" :value="item">{{ item }}</vort-select-option>
                     </vort-select>
+                </div>
+            </div>
+
+            <div v-if="shouldShowParentSelector" class="create-bug-row">
+                <div class="create-bug-field">
+                    <label class="create-bug-label">父需求</label>
+                    <vort-select v-model="createBugForm.parentId" placeholder="选择父需求" allow-clear>
+                        <vort-select-option value="">无</vort-select-option>
+                        <vort-select-option
+                            v-for="item in parentStoryOptions"
+                            :key="item.id"
+                            :value="item.id"
+                        >
+                            {{ item.title }}
+                        </vort-select-option>
+                    </vort-select>
+                </div>
+                <div class="create-bug-field">
+                    <label class="create-bug-label">说明</label>
+                    <div class="create-bug-parent-hint">
+                        {{ createBugForm.parentId ? "当前将创建为子需求" : "不选择则创建为顶层需求" }}
+                    </div>
                 </div>
             </div>
 
@@ -851,6 +980,14 @@ onMounted(async () => {
 
 .vort-select-arrow-open {
     transform: rotate(180deg);
+}
+
+.create-bug-parent-hint {
+    min-height: 40px;
+    display: flex;
+    align-items: center;
+    color: var(--vort-text-secondary, rgba(0, 0, 0, 0.45));
+    font-size: 13px;
 }
 
 .ml-auto {

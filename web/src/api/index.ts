@@ -1002,7 +1002,7 @@ export function removeVortflowProjectMember(projectId: string, memberId: string)
 // -- 需求 --
 
 /** VortFlow 需求列表 */
-export function getVortflowStories(params: { project_id?: string; state?: string; keyword?: string; priority?: number; page?: number; page_size?: number }) {
+export function getVortflowStories(params: { project_id?: string; state?: string; keyword?: string; priority?: number; parent_id?: string; page?: number; page_size?: number }) {
     return request.get("/vortflow/stories", { params });
 }
 
@@ -1012,12 +1012,12 @@ export function getVortflowStory(id: string) {
 }
 
 /** VortFlow 创建需求 */
-export function createVortflowStory(data: { project_id: string; title: string; description?: string; priority?: number; tags?: string[]; collaborators?: string[]; deadline?: string }) {
+export function createVortflowStory(data: { project_id: string; title: string; description?: string; priority?: number; parent_id?: string; tags?: string[]; collaborators?: string[]; deadline?: string }) {
     return request.post("/vortflow/stories", data);
 }
 
 /** VortFlow 更新需求 */
-export function updateVortflowStory(id: string, data: { title?: string; description?: string; state?: string; priority?: number; tags?: string[]; collaborators?: string[]; deadline?: string; pm_id?: string | null }) {
+export function updateVortflowStory(id: string, data: { title?: string; description?: string; state?: string; priority?: number; parent_id?: string | null; tags?: string[]; collaborators?: string[]; deadline?: string; pm_id?: string | null }) {
     return request.put(`/vortflow/stories/${id}`, data);
 }
 

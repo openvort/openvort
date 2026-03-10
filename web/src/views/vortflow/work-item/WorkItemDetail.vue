@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, reactive, onMounted } from "vue";
+import { ref, computed, reactive, onMounted, watch } from "vue";
 import { Popover, message } from "@/components/vort";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
 import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
@@ -10,6 +10,8 @@ import type { WorkItemType, Status, RowItem, DetailComment, DetailLog } from "@/
 interface Props {
     workNo: string;
     initialData?: RowItem;
+    parentRecord?: RowItem | null;
+    childRecords?: RowItem[];
 }
 
 const props = defineProps<Props>();
@@ -18,6 +20,8 @@ const emit = defineEmits<{
     close: [];
     update: [data: Partial<RowItem>];
     delete: [];
+    openRelated: [record: RowItem];
+    createChild: [];
 }>();
 
 const {
@@ -49,6 +53,8 @@ const detailCommentsMap = reactive<Record<string, DetailComment[]>>({});
 const detailLogsMap = reactive<Record<string, DetailLog[]>>({});
 
 const detailCurrentRecord = computed(() => record.value);
+const parentRecord = computed(() => props.parentRecord || null);
+const childRecords = computed(() => props.childRecords || []);
 
 const detailComments = computed(() => {
     if (!props.workNo) return [];
@@ -94,7 +100,9 @@ const ensureDetailPanelsData = () => {
 
 const appendDetailLog = (action: string) => {
     if (!detailLogsMap[props.workNo]) detailLogsMap[props.workNo] = [];
-    detailLogsMap[props.workNo].unshift({
+    const logs = detailLogsMap[props.workNo];
+    if (!logs) return;
+    logs.unshift({
         id: `${props.workNo}-l-${Date.now()}`,
         actor: detailCurrentUser,
         createdAt: "刚刚",
@@ -185,7 +193,9 @@ const submitDetailComment = () => {
         return;
     }
     if (!detailCommentsMap[props.workNo]) detailCommentsMap[props.workNo] = [];
-    detailCommentsMap[props.workNo].unshift({
+    const comments = detailCommentsMap[props.workNo];
+    if (!comments) return;
+    comments.unshift({
         id: `${props.workNo}-c-${Date.now()}`,
         author: detailCurrentUser,
         createdAt: "刚刚",
@@ -201,6 +211,10 @@ onMounted(async () => {
     detailAssigneeGroupOpen["全部成员"] = true;
     ensureDetailPanelsData();
 });
+
+watch(() => props.initialData, (value) => {
+    record.value = value || null;
+}, { immediate: true });
 </script>
 
 <template>
@@ -263,6 +277,12 @@ onMounted(async () => {
             <p class="bug-detail-sub">
                 {{ record.owner || "未指派" }}，创建于 {{ record.createdAt }}，最近更新于 {{ record.createdAt }}
             </p>
+            <div v-if="record.type === '需求'" class="story-detail-actions">
+                <div v-if="parentRecord" class="story-parent-link" @click="emit('openRelated', parentRecord)">
+                    父需求：{{ parentRecord.title }}
+                </div>
+                <VortButton variant="text" size="small" @click="emit('createChild')">拆分为子需求</VortButton>
+            </div>
 
             <div class="bug-detail-tabs">
                 <button :class="{ active: detailActiveTab === 'detail' }" @click="detailActiveTab = 'detail'">详情</button>
@@ -471,7 +491,21 @@ onMounted(async () => {
                 <p class="bug-detail-empty">暂无工作日志</p>
             </div>
             <div class="bug-detail-panel" v-else-if="detailActiveTab === 'related'">
-                <p class="bug-detail-empty">暂无关联工作项</p>
+                <template v-if="record.type === '需求' && childRecords.length > 0">
+                    <div class="story-children-list">
+                        <button
+                            v-for="child in childRecords"
+                            :key="child.backendId || child.workNo"
+                            type="button"
+                            class="story-children-item"
+                            @click="emit('openRelated', child)"
+                        >
+                            <span class="story-children-title">{{ child.title }}</span>
+                            <span class="story-children-status">{{ child.status }}</span>
+                        </button>
+                    </div>
+                </template>
+                <p v-else class="bug-detail-empty">暂无关联工作项</p>
             </div>
             <div class="bug-detail-panel" v-else-if="detailActiveTab === 'test'">
                 <p class="bug-detail-empty">暂无关联测试用例</p>
@@ -585,6 +619,24 @@ onMounted(async () => {
     font-size: 13px;
     color: #64748b;
     margin: 0 0 20px 0;
+}
+
+.story-detail-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.story-parent-link {
+    color: #4f46e5;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.story-parent-link:hover {
+    text-decoration: underline;
 }
 
 .bug-detail-tabs {
@@ -861,6 +913,41 @@ onMounted(async () => {
     padding: 40px;
     color: #94a3b8;
     font-size: 14px;
+}
+
+.story-children-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.story-children-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    background: #fff;
+    text-align: left;
+}
+
+.story-children-item:hover {
+    border-color: #c7d2fe;
+    background: #f8faff;
+}
+
+.story-children-title {
+    color: #111827;
+    font-size: 14px;
+}
+
+.story-children-status {
+    color: #6b7280;
+    font-size: 12px;
+    white-space: nowrap;
 }
 
 .bug-detail-comment-list {

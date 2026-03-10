@@ -36,6 +36,7 @@ class IntakeStoryTool(BaseTool):
                 "title": {"type": "string", "description": "需求标题"},
                 "description": {"type": "string", "description": "需求详细描述", "default": ""},
                 "project_id": {"type": "string", "description": "所属项目 ID（可通过 vortflow_query 查询）"},
+                "parent_id": {"type": "string", "description": "父需求 ID（创建子需求时使用）", "default": ""},
                 "priority": {
                     "type": "integer",
                     "description": "优先级: 1=紧急 2=高 3=中 4=低",
@@ -46,20 +47,36 @@ class IntakeStoryTool(BaseTool):
                 "submitter_name": {"type": "string", "description": "提需求的人的名字（用于记录）", "default": ""},
                 "image_urls": {"type": "array", "items": {"type": "string"},
                                "description": "截图 URL 列表（用户发送的图片地址，从 _image_urls 获取）"},
+                "children": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {"type": "string"},
+                            "description": {"type": "string", "default": ""},
+                        },
+                        "required": ["title"],
+                    },
+                    "description": "子需求列表。当一个需求包含多个独立功能点时，拆分为子需求",
+                    "default": [],
+                },
             },
             "required": ["title", "project_id"],
         }
 
     async def execute(self, params: dict) -> str:
         from datetime import datetime
+        import uuid
 
         from openvort.plugins.vortflow.models import FlowEvent, FlowProject, FlowStory
 
         title = params["title"]
         project_id = params["project_id"]
+        parent_id = (params.get("parent_id", "") or "").strip() or None
         description = params.get("description", "")
         priority = params.get("priority", 3)
         deadline_str = params.get("deadline", "")
+        children = params.get("children", []) or []
 
         image_urls = params.get("image_urls", []) or []
         injected_urls = params.get("_image_urls", []) or []
@@ -87,8 +104,14 @@ class IntakeStoryTool(BaseTool):
             if not project:
                 return json.dumps({"ok": False, "message": f"项目不存在: {project_id}"})
 
+            if parent_id:
+                parent_story = await session.get(FlowStory, parent_id)
+                if not parent_story:
+                    return json.dumps({"ok": False, "message": f"父需求不存在: {parent_id}"}, ensure_ascii=False)
+                if parent_story.project_id != project_id:
+                    return json.dumps({"ok": False, "message": "父需求必须与当前项目一致"}, ensure_ascii=False)
+
             # 创建需求（自动记录提交人）
-            import uuid
             story_id = uuid.uuid4().hex
 
             story = FlowStory(
@@ -98,6 +121,7 @@ class IntakeStoryTool(BaseTool):
                 description=description,
                 state="intake",
                 priority=priority,
+                parent_id=parent_id,
                 deadline=deadline,
                 submitter_id=member_id or None,
             )
@@ -112,6 +136,39 @@ class IntakeStoryTool(BaseTool):
                 detail=json.dumps({"title": title, "project": project.name}, ensure_ascii=False),
             )
             session.add(event)
+
+            child_story_ids: list[str] = []
+            child_story_titles: list[str] = []
+            for child in children:
+                child_title = str(child.get("title", "")).strip()
+                if not child_title:
+                    continue
+                child_id = uuid.uuid4().hex
+                child_story = FlowStory(
+                    id=child_id,
+                    project_id=project_id,
+                    parent_id=story_id,
+                    title=child_title,
+                    description=str(child.get("description", "") or ""),
+                    state="intake",
+                    priority=priority,
+                    submitter_id=member_id or None,
+                )
+                session.add(child_story)
+                session.add(
+                    FlowEvent(
+                        entity_type="story",
+                        entity_id=child_id,
+                        action="created",
+                        actor_id=member_id or None,
+                        detail=json.dumps(
+                            {"title": child_title, "project": project.name, "parent_id": story_id},
+                            ensure_ascii=False,
+                        ),
+                    )
+                )
+                child_story_ids.append(child_id)
+                child_story_titles.append(child_title)
             await session.commit()
 
         # 同步到外部系统（如果有）
@@ -141,5 +198,7 @@ class IntakeStoryTool(BaseTool):
             "ok": True,
             "message": f"需求「{title}」已录入，当前状态: intake（待评审）",
             "story_id": story_id,
+            "parent_id": parent_id,
+            "children": [{"id": child_id, "title": child_title} for child_id, child_title in zip(child_story_ids, child_story_titles)],
             "project": project.name,
         }, ensure_ascii=False)

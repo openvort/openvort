@@ -47,6 +47,7 @@ class StoryCreate(BaseModel):
     title: str
     description: str = ""
     priority: int = 3
+    parent_id: str | None = None
     tags: list[str] = []
     collaborators: list[str] = []
     deadline: str | None = None
@@ -56,6 +57,7 @@ class StoryUpdate(BaseModel):
     description: str | None = None
     state: str | None = None
     priority: int | None = None
+    parent_id: str | None = None
     tags: list[str] | None = None
     collaborators: list[str] | None = None
     deadline: str | None = None
@@ -225,6 +227,7 @@ def _story_dict(r: FlowStory) -> dict:
     return {
         "id": r.id, "title": r.title, "description": r.description,
         "state": r.state, "priority": r.priority,
+        "parent_id": r.parent_id,
         "project_id": r.project_id, "submitter_id": r.submitter_id,
         "pm_id": r.pm_id, "designer_id": r.designer_id, "reviewer_id": r.reviewer_id,
         "tags": _parse_json_list(r.tags_json),
@@ -299,6 +302,52 @@ async def _log_event(session, entity_type: str, entity_id: str, action: str, det
     ev = FlowEvent(entity_type=entity_type, entity_id=entity_id, action=action,
                    detail=json.dumps(detail or {}, ensure_ascii=False))
     session.add(ev)
+
+
+async def _validate_story_parent(
+    session,
+    *,
+    project_id: str,
+    parent_id: str | None,
+    story_id: str | None = None,
+) -> tuple[str | None, str | None]:
+    normalized_parent_id = (parent_id or "").strip() or None
+    if normalized_parent_id is None:
+        return None, None
+    if story_id and normalized_parent_id == story_id:
+        return None, "父需求不能是自身"
+
+    parent = await session.get(FlowStory, normalized_parent_id)
+    if not parent:
+        return None, "父需求不存在"
+    if parent.project_id != project_id:
+        return None, "父需求必须和当前需求属于同一个项目"
+
+    if story_id:
+        cursor = parent
+        while cursor and cursor.parent_id:
+            if cursor.parent_id == story_id:
+                return None, "不能将需求移动到自己的子需求下"
+            cursor = await session.get(FlowStory, cursor.parent_id)
+
+    return normalized_parent_id, None
+
+
+async def _collect_story_descendant_ids(session, story_ids: list[str]) -> list[str]:
+    pending_ids = [story_id for story_id in story_ids if story_id]
+    descendant_ids: list[str] = []
+    seen: set[str] = set(pending_ids)
+    while pending_ids:
+        child_rows = (
+            await session.execute(select(FlowStory.id).where(FlowStory.parent_id.in_(pending_ids)))
+        ).scalars().all()
+        next_ids = [child_id for child_id in child_rows if child_id not in seen]
+        if not next_ids:
+            break
+        descendant_ids.extend(next_ids)
+        seen.update(next_ids)
+        pending_ids = next_ids
+    return descendant_ids
 
 # ============ Project CRUD ============
 
@@ -432,6 +481,7 @@ async def list_stories(
     state: str = Query("", description="按状态过滤"),
     keyword: str = Query("", description="关键词搜索"),
     priority: int = Query(0, description="按优先级过滤"),
+    parent_id: str | None = Query(None, description="按父需求过滤，root 表示仅顶层需求"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):
@@ -452,10 +502,32 @@ async def list_stories(
         if priority:
             stmt = stmt.where(FlowStory.priority == priority)
             count_stmt = count_stmt.where(FlowStory.priority == priority)
+        if parent_id == "root":
+            stmt = stmt.where(FlowStory.parent_id.is_(None))
+            count_stmt = count_stmt.where(FlowStory.parent_id.is_(None))
+        elif parent_id:
+            stmt = stmt.where(FlowStory.parent_id == parent_id)
+            count_stmt = count_stmt.where(FlowStory.parent_id == parent_id)
         total = (await session.execute(count_stmt)).scalar_one()
         stmt = stmt.offset((page - 1) * page_size).limit(page_size)
         rows = (await session.execute(stmt)).scalars().all()
-    return {"total": total, "items": [_story_dict(r) for r in rows]}
+        story_ids = [row.id for row in rows]
+        child_count_map: dict[str, int] = {}
+        if story_ids:
+            child_count_rows = await session.execute(
+                select(FlowStory.parent_id, func.count())
+                .where(FlowStory.parent_id.in_(story_ids))
+                .group_by(FlowStory.parent_id)
+            )
+            child_count_map = {
+                parent_story_id: child_count
+                for parent_story_id, child_count in child_count_rows.all()
+                if parent_story_id
+            }
+    return {
+        "total": total,
+        "items": [{**_story_dict(r), "children_count": child_count_map.get(r.id, 0)} for r in rows],
+    }
 
 @router.get("/stories/{story_id}")
 async def get_story(story_id: str):
@@ -471,22 +543,44 @@ async def get_story(story_id: str):
         bug_count = (await session.execute(
             select(func.count()).select_from(FlowBug).where(FlowBug.story_id == story_id)
         )).scalar_one()
-    return {**_story_dict(r), "task_count": task_count, "bug_count": bug_count}
+        children_count = (await session.execute(
+            select(func.count()).select_from(FlowStory).where(FlowStory.parent_id == story_id)
+        )).scalar_one()
+    return {
+        **_story_dict(r),
+        "task_count": task_count,
+        "bug_count": bug_count,
+        "children_count": children_count,
+    }
 
 @router.post("/stories")
 async def create_story(body: StoryCreate):
     sf = get_session_factory()
     async with sf() as session:
+        normalized_parent_id, parent_error = await _validate_story_parent(
+            session,
+            project_id=body.project_id,
+            parent_id=body.parent_id,
+        )
+        if parent_error:
+            return {"error": parent_error}
         s = FlowStory(
             project_id=body.project_id, title=body.title,
             description=body.description, priority=body.priority,
+            parent_id=normalized_parent_id,
             tags_json=json.dumps(body.tags or [], ensure_ascii=False),
             collaborators_json=json.dumps(body.collaborators or [], ensure_ascii=False),
             deadline=_parse_dt(body.deadline),
         )
         session.add(s)
         await session.flush()
-        await _log_event(session, "story", s.id, "created", {"title": body.title})
+        await _log_event(
+            session,
+            "story",
+            s.id,
+            "created",
+            {"title": body.title, "parent_id": normalized_parent_id},
+        )
         await session.commit()
         await session.refresh(s)
     return _story_dict(s)
@@ -499,6 +593,17 @@ async def update_story(story_id: str, body: StoryUpdate):
         if not s:
             return {"error": "需求不存在"}
         changes = {}
+        if body.parent_id is not None:
+            normalized_parent_id, parent_error = await _validate_story_parent(
+                session,
+                project_id=s.project_id,
+                parent_id=body.parent_id,
+                story_id=story_id,
+            )
+            if parent_error:
+                return {"error": parent_error}
+            changes["parent_id"] = normalized_parent_id
+            s.parent_id = normalized_parent_id
         for field in ["title", "description", "state", "priority", "pm_id"]:
             val = getattr(body, field)
             if val is not None:
@@ -526,11 +631,20 @@ async def delete_story(story_id: str):
         s = await session.get(FlowStory, story_id)
         if not s:
             return {"error": "需求不存在"}
-        # Delete related tasks and bugs
-        await session.execute(sa_delete(FlowTask).where(FlowTask.story_id == story_id))
-        await session.execute(sa_delete(FlowBug).where(FlowBug.story_id == story_id))
+        descendant_ids = await _collect_story_descendant_ids(session, [story_id])
+        target_story_ids = [story_id, *descendant_ids]
+        # Delete related tasks and bugs for the full story subtree.
+        await session.execute(sa_delete(FlowTask).where(FlowTask.story_id.in_(target_story_ids)))
+        await session.execute(sa_delete(FlowBug).where(FlowBug.story_id.in_(target_story_ids)))
+        await session.execute(sa_delete(FlowStory).where(FlowStory.id.in_(descendant_ids)))
         await session.delete(s)
-        await _log_event(session, "story", story_id, "deleted", {"title": s.title})
+        await _log_event(
+            session,
+            "story",
+            story_id,
+            "deleted",
+            {"title": s.title, "deleted_children": len(descendant_ids)},
+        )
         await session.commit()
     return {"ok": True}
 

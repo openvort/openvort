@@ -13,7 +13,7 @@ import WorkItemDetail from "./work-item/WorkItemDetail.vue";
 import WorkItemCreate from "./work-item/WorkItemCreate.vue";
 import { useWorkItemCommon } from "./work-item/useWorkItemCommon";
 import {
-    getVortflowStories, getVortflowTasks, getVortflowBugs,
+    getVortflowStory, getVortflowStories, getVortflowTasks, getVortflowBugs,
     getVortflowProjects, createVortflowStory, createVortflowTask, createVortflowBug,
     deleteVortflowStory, deleteVortflowTask, deleteVortflowBug,
     updateVortflowStory, updateVortflowTask, updateVortflowBug
@@ -98,7 +98,7 @@ const createBugDrawerOpen = computed({
     },
     set: (val: boolean) => {
         if (!val) {
-            router.replace({ query: { ...route.query, action: undefined, id: undefined } });
+            router.replace({ query: { ...route.query, action: undefined, id: undefined, parentId: undefined } });
         }
     }
 });
@@ -151,8 +151,10 @@ const createInitialBugForm = (): NewBugForm => ({
     type: props.type ?? "缺陷",
     planTime: [],
     project: "VortMall",
+    projectId: "",
     iteration: "",
     version: "",
+    parentId: "",
     priority: "",
     tags: [],
     repo: "",
@@ -165,6 +167,11 @@ const createInitialBugForm = (): NewBugForm => ({
 const createBugForm = reactive<NewBugForm>(createInitialBugForm());
 const apiProjects = ref<Array<{ id: string; name: string }>>([]);
 const apiStories = ref<Array<{ id: string; title: string }>>([]);
+const storyRowsById = reactive<Record<string, RowItem>>({});
+const storyChildrenMap = reactive<Record<string, RowItem[]>>({});
+const expandedStoryIds = reactive<Record<string, boolean>>({});
+const createParentStoryId = ref("");
+const createProjectId = ref("");
 const selectedRowKeys = ref<Array<string | number>>([]);
 const selectedRows = ref<RowItem[]>([]);
 const pinnedRowsByType = reactive<Record<WorkItemType, RowItem[]>>({
@@ -552,6 +559,51 @@ const prependPinnedRow = (typeValue: WorkItemType, row: RowItem) => {
     pinnedRowsByType[typeValue] = [row, ...list.filter((x) => (x.backendId || x.workNo) !== rowId)];
 };
 
+const cacheStoryRows = (rows: RowItem[]) => {
+    for (const row of rows) {
+        if (row.type !== "需求" || !row.backendId) continue;
+        storyRowsById[row.backendId] = row;
+    }
+};
+
+const findStoryRowById = (storyId?: string): RowItem | null => {
+    if (!storyId) return null;
+    return storyRowsById[storyId] || null;
+};
+
+const loadStoryById = async (storyId?: string): Promise<RowItem | null> => {
+    if (!storyId) return null;
+    const cached = findStoryRowById(storyId);
+    if (cached) return cached;
+    try {
+        const res: any = await getVortflowStory(storyId);
+        if (!res?.id) return null;
+        const row = mapBackendItemToRow(res, "需求", 0);
+        storyRowsById[storyId] = row;
+        return row;
+    } catch {
+        return null;
+    }
+};
+
+const loadChildStories = async (parentStoryId: string, projectId?: string): Promise<RowItem[]> => {
+    if (!parentStoryId) return [];
+    const res: any = await getVortflowStories({
+        parent_id: parentStoryId,
+        project_id: projectId,
+        page: 1,
+        page_size: 100,
+    });
+    const rows = ((res?.items || []) as any[]).map((item, index) => {
+        const row = mapBackendItemToRow(item, "需求", index);
+        row.isChild = true;
+        return row;
+    });
+    cacheStoryRows(rows);
+    storyChildrenMap[parentStoryId] = rows;
+    return rows;
+};
+
 const mapBackendItemToRow = (item: any, typeValue: WorkItemType, index: number): RowItem => {
     const created = item?.created_at ? new Date(item.created_at) : new Date();
     const createdAt = formatCnTime(created);
@@ -585,6 +637,10 @@ const mapBackendItemToRow = (item: any, typeValue: WorkItemType, index: number):
         backendId,
         workNo,
         title: getBackendDisplayTitle(String(item?.title || ""), typeValue, index),
+        parentId: item?.parent_id ? String(item.parent_id) : "",
+        parentTitle: "",
+        childrenCount: Number(item?.children_count || 0),
+        isChild: Boolean(item?.parent_id),
         priority: mapBackendPriority(item, typeValue),
         tags,
         status: mapBackendStateToStatus(typeValue, String(item?.state || "")),
@@ -595,6 +651,8 @@ const mapBackendItemToRow = (item: any, typeValue: WorkItemType, index: number):
         description: item?.description || "",
         owner: ownerName,
         creator: creatorName,
+        projectId: item?.project_id ? String(item.project_id) : "",
+        projectName: "",
     };
 };
 
@@ -615,7 +673,9 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
         }
 
         const requestByState = async (state?: string, page = current, size = pageSize) => {
-            if (workType === "需求") return getVortflowStories({ keyword: kw, state, page, page_size: size });
+            if (workType === "需求") {
+                return getVortflowStories({ keyword: kw, state, parent_id: "root", page, page_size: size });
+            }
             if (workType === "任务") return getVortflowTasks({ keyword: kw, state, page, page_size: size });
             return getVortflowBugs({ keyword: kw, state, page, page_size: size });
         };
@@ -634,7 +694,11 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
             return allItems;
         };
         const buildRowsFromItems = (items: any[]): RowItem[] => {
-            return items.map((item: any, idx: number) => mapBackendItemToRow(item, workType, idx));
+            const rows = items.map((item: any, idx: number) => mapBackendItemToRow(item, workType, idx));
+            if (workType === "需求") {
+                cacheStoryRows(rows);
+            }
+            return rows;
         };
 
         let rows: RowItem[] = [];
@@ -683,6 +747,20 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
             const pinnedIds = new Set(pinnedRows.map((x) => x.backendId || x.workNo));
             rows = [...pinnedRows, ...rows.filter((x) => !pinnedIds.has(x.backendId || x.workNo))];
             rows = rows.slice(0, pageSize);
+        }
+        if (workType === "需求") {
+            const flattenedRows: RowItem[] = [];
+            for (const row of rows) {
+                flattenedRows.push(row);
+                const storyId = String(row.backendId || "").trim();
+                if (!storyId || !expandedStoryIds[storyId]) continue;
+                const children = (storyChildrenMap[storyId] || [])
+                    .filter((child) => !statusValue || child.status === statusValue)
+                    .filter((child) => !ownerValue || child.owner === ownerValue)
+                    .map((child) => ({ ...child, isChild: true }));
+                flattenedRows.push(...children);
+            }
+            rows = flattenedRows;
         }
         collectTagOptions(rows);
         totalCount.value = totalFromApi;
@@ -807,13 +885,17 @@ const resetCreateBugForm = () => {
 const handleCreateBug = async () => {
     await loadApiMetadata(props.type === "任务");
     createBugDrawerMode.value = "create";
+    createParentStoryId.value = "";
+    createProjectId.value = "";
     resetCreateBugForm();
     createBugForm.type = props.type ?? createBugForm.type;
-    router.replace({ query: { ...route.query, action: "create" } });
+    router.replace({ query: { ...route.query, action: "create", parentId: undefined } });
 };
 
 const handleCancelCreateBug = () => {
     createBugDrawerOpen.value = false;
+    createParentStoryId.value = "";
+    createProjectId.value = "";
     createBugPriorityDropdownOpen.value = false;
     createAssigneeDropdownOpen.value = false;
     createTagDropdownOpen.value = false;
@@ -832,6 +914,46 @@ const handleDetailUpdate = (data: Partial<RowItem>) => {
         Object.assign(detailCurrentRecord.value, data);
         tableRef.value?.refresh?.();
     }
+};
+
+const toggleStoryExpand = async (record: RowItem) => {
+    if (record.type !== "需求" || !record.childrenCount || !record.backendId) return;
+    const storyId = String(record.backendId);
+    if (expandedStoryIds[storyId]) {
+        expandedStoryIds[storyId] = false;
+        tableRef.value?.refresh?.();
+        return;
+    }
+    if (!storyChildrenMap[storyId]) {
+        await loadChildStories(storyId, record.projectId);
+    }
+    expandedStoryIds[storyId] = true;
+    tableRef.value?.refresh?.();
+};
+
+const detailParentRecord = ref<RowItem | null>(null);
+const detailChildRecords = ref<RowItem[]>([]);
+
+const syncDetailRelations = async (record: RowItem) => {
+    if (record.type !== "需求") {
+        detailParentRecord.value = null;
+        detailChildRecords.value = [];
+        return;
+    }
+    detailParentRecord.value = await loadStoryById(record.parentId);
+    if (record.backendId && record.childrenCount) {
+        detailChildRecords.value = await loadChildStories(record.backendId, record.projectId);
+    } else {
+        detailChildRecords.value = [];
+    }
+};
+
+const handleCreateChildFromDetail = () => {
+    if (!detailCurrentRecord.value?.backendId) return;
+    createParentStoryId.value = detailCurrentRecord.value.backendId;
+    createProjectId.value = detailCurrentRecord.value.projectId || "";
+    createBugDrawerMode.value = "create";
+    router.replace({ query: { ...route.query, action: "create", parentId: createParentStoryId.value } });
 };
 
 const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) => {
@@ -853,12 +975,13 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
             let createdItem: any = null;
             const ownerId = getMemberIdByName(formData.owner) || undefined;
             if (type === "需求") {
-                const defaultProject = resolveCreateProjectId();
+                const defaultProject = formData.projectId || createProjectId.value || resolveCreateProjectId();
                 createdItem = await createVortflowStory({
                     project_id: defaultProject,
                     title,
                     description: formData.description || defaultBugDescription,
                     priority: formData.priority === "urgent" ? 1 : formData.priority === "high" ? 2 : formData.priority === "medium" ? 3 : 4,
+                    parent_id: formData.parentId || undefined,
                     tags: [...formData.tags],
                     collaborators: [...formData.collaborators],
                     deadline: formData.planTime?.[1] || undefined,
@@ -902,7 +1025,18 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
             }
             if (createdItem) {
                 const pinnedRow = mapBackendItemToRow(createdItem, type, 0);
-                prependPinnedRow(type, pinnedRow);
+                if (type === "需求" && formData.parentId) {
+                    const parentId = formData.parentId;
+                    const existingChildren = storyChildrenMap[parentId] || [];
+                    storyChildrenMap[parentId] = [{ ...pinnedRow, isChild: true }, ...existingChildren];
+                    const parentRow = storyRowsById[parentId];
+                    if (parentRow) {
+                        parentRow.childrenCount = (parentRow.childrenCount || 0) + 1;
+                    }
+                    expandedStoryIds[parentId] = true;
+                } else {
+                    prependPinnedRow(type, pinnedRow);
+                }
             }
             tableRef.value?.refresh?.();
             message.success("新建成功");
@@ -931,6 +1065,9 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
     const newRow: RowItem = {
         workNo,
         title,
+        parentId: formData.parentId || "",
+        childrenCount: 0,
+        isChild: Boolean(formData.parentId),
         priority: newPriority,
         tags: [...formData.tags],
         status: "待确认",
@@ -940,7 +1077,9 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
         planTime,
         description: formData.description || defaultBugDescription,
         owner: ownerName,
-        creator: "当前用户"
+        creator: "当前用户",
+        projectId: formData.projectId || "",
+        projectName: formData.project || "",
     };
 
     allData.value.unshift(newRow);
@@ -991,7 +1130,7 @@ const removeCreateAttachment = (id: string) => {
 
 const detailRecordSnapshot = ref<RowItem | null>(null);
 
-const handleOpenBugDetail = (record: RowItem) => {
+const handleOpenBugDetail = async (record: RowItem) => {
     detailSelectedWorkNo.value = record.workNo;
     detailRecordSnapshot.value = record;
     detailActiveTab.value = "detail";
@@ -1004,6 +1143,7 @@ const handleOpenBugDetail = (record: RowItem) => {
     detailDescEditing.value = false;
     detailDescDraft.value = "";
     ensureDetailPanelsData(record);
+    await syncDetailRelations(record);
 
     const currentPriority = getRowPriority(record, record.priority);
     const currentTags = getRowTags(record, record.tags);
@@ -1730,8 +1870,13 @@ onMounted(async () => {
     // Handle route query parameters for direct access
     const action = route.query.action as string;
     const id = route.query.id as string;
+    const parentId = route.query.parentId as string;
     if (action === "create") {
-        handleCreateBug();
+        await handleCreateBug();
+        if (parentId) {
+            createParentStoryId.value = parentId;
+            createProjectId.value = findStoryRowById(parentId)?.projectId || "";
+        }
     } else if (action === "detail" && id) {
         // Find the record by workNo and open detail
         const record = allData.value.find(x => x.workNo === id);
@@ -1782,7 +1927,17 @@ onMounted(async () => {
             >
                 <template #title="{ text, record }">
                     <VortButton class="title-link-cell" :title="text" variant="link" @click.stop="handleOpenBugDetail(record)">
-                        <span class="title-link-text">{{ text }}</span>
+                        <span
+                            v-if="record.type === '需求' && record.childrenCount"
+                            class="story-expand-toggle"
+                            :class="{ expanded: expandedStoryIds[String(record.backendId || '')] }"
+                            @click.stop="toggleStoryExpand(record)"
+                        >
+                            ▶
+                        </span>
+                        <span v-else-if="record.type === '需求' && record.isChild" class="story-child-prefix">└</span>
+                        <span class="title-link-text" :class="{ 'story-child-text': record.type === '需求' && record.isChild }">{{ text }}</span>
+                        <span v-if="record.type === '需求' && record.childrenCount" class="story-children-badge">{{ record.childrenCount }}</span>
                     </VortButton>
                 </template>
 
@@ -2081,8 +2236,12 @@ onMounted(async () => {
                     v-if="detailCurrentRecord"
                     :work-no="detailCurrentRecord.workNo"
                     :initial-data="detailCurrentRecord"
+                    :parent-record="detailParentRecord"
+                    :child-records="detailChildRecords"
                     @close="handleCancelCreateBug"
                     @update="handleDetailUpdate"
+                    @open-related="handleOpenBugDetail"
+                    @create-child="handleCreateChildFromDetail"
                 />
             </template>
             <template v-else>
@@ -2090,6 +2249,9 @@ onMounted(async () => {
                     ref="createWorkItemRef"
                     :type="props.type"
                     :title="props.createDrawerTitle"
+                    :use-api="props.useApi"
+                    :project-id="createProjectId"
+                    :parent-id="createParentStoryId"
                     @close="handleCancelCreateBug"
                     @success="handleCreateSuccess"
                 />
@@ -2148,6 +2310,47 @@ onMounted(async () => {
 
 .title-link-text {
     @apply truncate text-blue-600 hover:underline;
+}
+
+.story-expand-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    margin-right: 4px;
+    color: var(--vort-text-secondary, rgba(0, 0, 0, 0.45));
+    transition: transform 0.2s ease;
+}
+
+.story-expand-toggle.expanded {
+    transform: rotate(90deg);
+}
+
+.story-child-prefix {
+    display: inline-flex;
+    align-items: center;
+    margin-right: 6px;
+    padding-left: 18px;
+    color: var(--vort-text-secondary, rgba(0, 0, 0, 0.45));
+}
+
+.story-child-text {
+    padding-left: 0;
+}
+
+.story-children-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 6px;
+    margin-left: 6px;
+    border-radius: 999px;
+    background: rgba(99, 102, 241, 0.12);
+    color: #4f46e5;
+    font-size: 12px;
+    line-height: 20px;
 }
 
 .plan-time-picker {

@@ -81,6 +81,12 @@ async def init_db(database_url: str) -> None:
             text("ALTER TABLE IF EXISTS flow_stories ADD COLUMN IF NOT EXISTS collaborators_json TEXT DEFAULT '[]'")
         )
         await conn.execute(
+            text("ALTER TABLE IF EXISTS flow_stories ADD COLUMN IF NOT EXISTS parent_id VARCHAR(32) REFERENCES flow_stories(id)")
+        )
+        await conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_flow_stories_parent_id ON flow_stories(parent_id)")
+        )
+        await conn.execute(
             text("ALTER TABLE IF EXISTS flow_tasks ADD COLUMN IF NOT EXISTS tags_json TEXT DEFAULT '[]'")
         )
         await conn.execute(
