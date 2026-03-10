@@ -379,10 +379,13 @@ async def _start_service(poll_db_json: str | None, web_flag: bool | None):
     else:
         log.info("未配置 Embedding Provider，知识库检索功能不可用")
 
-    # 将 TTS 服务注入到 wecom_send_voice 工具
+    # 将 TTS 服务注入到语音发送工具
     voice_tool = registry.get_tool("wecom_send_voice")
     if voice_tool and hasattr(voice_tool, "set_tts_service"):
         voice_tool.set_tts_service(tts_service)
+    feishu_voice_tool = registry.get_tool("feishu_send_voice")
+    if feishu_voice_tool and hasattr(feishu_voice_tool, "set_tts_service"):
+        feishu_voice_tool.set_tts_service(tts_service)
 
     # 配置 Channel
     channels = registry.list_channels()
@@ -552,6 +555,26 @@ async def _start_service(poll_db_json: str | None, web_flag: bool | None):
         if ch.name == "feishu" and ch.is_configured():
             from openvort.channels.feishu.channel import FeishuChannel as _FeishuCh
             _fs_ch: _FeishuCh = ch  # type: ignore[assignment]
+            if hasattr(_fs_ch, "set_asr_service"):
+                _fs_ch.set_asr_service(asr_service)
+
+            async def feishu_stream_handler(msg):
+                from openvort.core.setup import is_initialized as _is_init
+                if not await _is_init(session_factory):
+                    yield {"type": "text", "text": "系统正在初始化中，请稍后再试。"}
+                    return
+
+                cmd_result = await command_handler.handle(msg.channel, msg.sender_id, msg.content)
+                if cmd_result.handled:
+                    if cmd_result.reply:
+                        yield {"type": "text", "text": cmd_result.reply}
+                    return
+
+                ctx = await build_context(msg.channel, msg.sender_id)
+                ctx.images = getattr(msg, "images", []) or []
+
+                async for event in agent.process_stream_im(ctx, msg.content):
+                    yield event
 
             async def handle_feishu_message(msg):
                 from openvort.core.setup import is_initialized as _is_init
@@ -571,11 +594,12 @@ async def _start_service(poll_db_json: str | None, web_flag: bool | None):
                 async def send_fn(reply_):
                     log.info(f"飞书回复: {reply_[:50]}")
                     from openvort.plugin.base import Message as Msg
-                    await _fs_ch.send(msg.sender_id, Msg(content=reply_, channel="feishu"))
+                    await _fs_ch.send(msg.sender_id, Msg(content=reply_, channel="feishu", raw=msg.raw))
 
                 reply = await dispatcher.dispatch(ctx, msg.content, process_fn, send_fn)
                 return reply
 
+            _fs_ch.set_stream_handler(feishu_stream_handler)
             _fs_ch.on_message(handle_feishu_message)
 
             if _fs_ch.is_ws_configured():
@@ -742,6 +766,16 @@ async def _start_service(poll_db_json: str | None, web_flag: bool | None):
             install_log_handler()
 
             web_app = create_app()
+            try:
+                _feishu_ch = registry.get_channel("feishu")
+                if _feishu_ch and _feishu_ch.is_configured():
+                    from openvort.channels.feishu.callback import create_feishu_callback_router
+
+                    web_app.include_router(create_feishu_callback_router(_feishu_ch), tags=["feishu-callback"])
+                    log.info("已挂载飞书回调路由: /callback/feishu")
+            except Exception as e:
+                log.warning(f"挂载飞书回调路由失败: {e}")
+
             config = uvicorn.Config(
                 web_app,
                 host=settings.web.host,
@@ -1077,7 +1111,8 @@ async def _contacts_sync(platform: str | None):
             stats = await service.sync_from_provider(provider)
             click.echo(
                 f"  ✅ 新建 {stats['created']}, 更新 {stats['updated']}, "
-                f"自动关联 {stats['matched']}, 待确认 {stats['pending']}"
+                f"自动关联 {stats['matched']}, 待确认 {stats['pending']}, "
+                f"跳过 {stats.get('skipped', 0)}"
             )
         except Exception as e:
             click.echo(f"  ❌ 同步失败: {e}")

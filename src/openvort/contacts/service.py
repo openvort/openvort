@@ -99,7 +99,7 @@ class ContactService:
         platform = provider.platform
         log.info(f"开始同步通讯录: {platform}")
 
-        stats = {"created": 0, "updated": 0, "matched": 0, "pending": 0}
+        stats = {"created": 0, "updated": 0, "matched": 0, "pending": 0, "skipped": 0}
 
         # 1. 同步部门
         try:
@@ -158,6 +158,13 @@ class ContactService:
                 return "updated"
 
             # 不存在，尝试智能匹配
+            if not self._has_matchable_identity_info(contact):
+                log.warning(
+                    "跳过创建联系人: platform=%s, user_id=%s, 缺少姓名/邮箱/手机号",
+                    platform, contact.user_id,
+                )
+                return "skipped"
+
             matcher = IdentityMatcher(session, self._auto_threshold)
             suggestions = await matcher.find_matches(contact)
 
@@ -683,6 +690,10 @@ class ContactService:
         if contact.avatar_url and _avatar_priority(contact.platform) >= _avatar_priority(member.avatar_source):
             member.avatar_url = contact.avatar_url
             member.avatar_source = contact.platform
+
+    @staticmethod
+    def _has_matchable_identity_info(contact: PlatformContact) -> bool:
+        return bool(contact.display_name or contact.email or contact.phone)
 
     # ---- 角色映射 ----
 

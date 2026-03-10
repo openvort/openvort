@@ -1,6 +1,7 @@
 """Aliyun CosyVoice TTS Provider."""
 
 import asyncio
+from xml.sax.saxutils import escape
 
 from openvort.services.tts.providers.base import TTSProviderBase
 from openvort.utils.logging import get_logger
@@ -48,7 +49,10 @@ class AliyunTTSProvider(TTSProviderBase):
         # run in executor to avoid blocking the event loop.
         def _call():
             synth = SpeechSynthesizer(model=model, voice=use_voice)
-            return synth.call(text)
+            # dashscope SDK forces enable_ssml=True internally for call(),
+            # so plain text must be wrapped as minimal SSML.
+            ssml_text = f"<speak>{escape(text.strip())}</speak>"
+            return synth.call(ssml_text)
 
         loop = asyncio.get_running_loop()
         audio = await loop.run_in_executor(None, _call)

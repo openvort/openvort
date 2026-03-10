@@ -116,6 +116,19 @@ class WeComSettings(BaseSettings):
     bot_secret: str = ""
 
 
+class FeishuSettings(BaseSettings):
+    """飞书 Channel 配置"""
+
+    model_config = SettingsConfigDict(
+        env_prefix="OPENVORT_FEISHU_", env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore",
+    )
+
+    app_id: str = ""
+    app_secret: str = ""
+    verification_token: str = ""
+    encrypt_key: str = ""
+    api_base: str = "https://open.feishu.cn/open-apis"
+
 
 class ContactsSettings(BaseSettings):
     """通讯录配置"""
@@ -196,6 +209,9 @@ class Settings(BaseSettings):
 
     # 企微
     wecom: WeComSettings = Field(default_factory=WeComSettings)
+
+    # 飞书
+    feishu: FeishuSettings = Field(default_factory=FeishuSettings)
 
     # 通讯录
     contacts: ContactsSettings = Field(default_factory=ContactsSettings)

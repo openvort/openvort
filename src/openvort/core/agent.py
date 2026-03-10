@@ -7,6 +7,8 @@ Agent Runtime
 """
 
 import asyncio
+import json
+import re
 
 from openvort.config.settings import LLMSettings
 from openvort.core.context import RequestContext
@@ -70,15 +72,19 @@ SYSTEM_PROMPT = """你是 OpenVort 助手，一个智能研发工作流引擎。
 | 创建/查询/管理项目、需求、任务、Bug | VortFlow 相关工具 |
 | 创建/管理定时任务 | Schedule 相关工具 |
 | 配置通道、系统诊断 | System 相关工具 |
+| 给企业微信/飞书发消息、代发提醒、主动通知某人 | `wecom_send_message` / `wecom_send_voice` / `feishu_send_message` / `feishu_send_voice` |
 | 纯知识问答，不需要执行操作 | 无需工具，直接回答 |
 
 如果用户的请求涉及某个仓库但你不确定是哪个，先用 `git_list_repos` 查一下。
+如果用户说“给我的飞书/企微发消息”，优先直接调用对应的发消息工具；未明确 user_id 时，可省略该参数，默认发送给当前对话者已绑定的账号。
 
 ## 回复规则
 
 - 只输出回复内容，不加多余前缀
 - 提及团队成员时使用中文名
 - 涉及敏感信息不回答，引导找相关负责人
+- 当用户消息以 `[语音消息]` 开头时，表示系统已经完成语音转写，后续文字就是用户原话
+- 对于已转写的语音消息，禁止再说“无法识别语音内容”或要求用户把语音改成文字
 """
 
 
@@ -117,6 +123,15 @@ class AgentRuntime:
             if not ctx.images:
                 log.warning(f"收到空消息，跳过处理 ({ctx.channel}:{ctx.user_id})")
                 return ""
+
+        direct_action = await self._maybe_handle_direct_channel_send(ctx, content)
+        if direct_action:
+            messages = await self._sessions.get_messages(ctx.channel, ctx.user_id)
+            user_content = self._build_user_content(content, ctx.images)
+            messages.append({"role": "user", "content": user_content})
+            messages.append({"role": "assistant", "content": [{"type": "text", "text": direct_action["reply_text"]}]})
+            await self._sessions.save_messages(ctx.channel, ctx.user_id, messages)
+            return direct_action["reply_text"]
 
         # 1. 加载对话历史，追加用户消息
         messages = await self._sessions.get_messages(ctx.channel, ctx.user_id)
@@ -157,6 +172,7 @@ class AgentRuntime:
         # 移除未就绪插件的工具，用户必须先完成引导（同步通讯录 + 绑定身份）
         if blocked_tools:
             tools = [t for t in tools if t["name"] not in blocked_tools]
+        tools = self._prioritize_tools_for_intent(content, tools)
 
         # 4. Agentic loop
         max_rounds = 10
@@ -174,6 +190,9 @@ class AgentRuntime:
                 system = self._system_prompt + sender_context
                 if channel_prompt:
                     system += f"\n\n# 渠道回复规范\n\n{channel_prompt}"
+                action_hint = self._build_action_hint(content)
+                if action_hint:
+                    system += f"\n\n# 当前操作提示\n\n{action_hint}"
 
                 if ctx.group_prompt:
                     system += f"\n\n{ctx.group_prompt}"
@@ -210,6 +229,15 @@ class AgentRuntime:
 
             # 不是 tool_use — 检查是否虚假完成后结束
             if response.stop_reason != "tool_use":
+                if (not any_tool_called and not correction_injected
+                        and self._requires_channel_send_tool(content)):
+                    log.warning("检测到通道发消息请求未调用工具，注入纠正提示重试")
+                    correction_injected = True
+                    messages.append({
+                        "role": "user",
+                        "content": self._CHANNEL_SEND_ACTION_CORRECTION,
+                    })
+                    continue
                 if (not any_tool_called and not correction_injected
                         and self._detect_empty_action(response)):
                     log.warning("检测到空操作：模型声称已完成但未调用工具，注入纠正提示重试")
@@ -354,6 +382,19 @@ class AgentRuntime:
             if not ctx.images:
                 return
 
+        direct_action = await self._maybe_handle_direct_channel_send(ctx, content)
+        if direct_action:
+            messages = await self._sessions.get_messages(ctx.channel, ctx.user_id)
+            user_content = self._build_user_content(content, ctx.images)
+            messages.append({"role": "user", "content": user_content})
+            messages.append({"role": "assistant", "content": [{"type": "text", "text": direct_action["reply_text"]}]})
+            await self._sessions.save_messages(ctx.channel, ctx.user_id, messages)
+            yield {"type": "tool_use", "name": direct_action["tool_name"], "id": "direct-channel-send"}
+            yield {"type": "tool_result", "name": direct_action["tool_name"], "result": direct_action["tool_result"]}
+            yield {"type": "text_delta", "text": direct_action["reply_text"]}
+            yield {"type": "text", "text": direct_action["reply_text"]}
+            return
+
         messages = await self._sessions.get_messages(ctx.channel, ctx.user_id)
         user_content = self._build_user_content(content, ctx.images)
         messages.append({"role": "user", "content": user_content})
@@ -387,6 +428,7 @@ class AgentRuntime:
         )
         if blocked_tools:
             tools = [t for t in tools if t["name"] not in blocked_tools]
+        tools = self._prioritize_tools_for_intent(content, tools)
 
         thinking_level = self._sessions.get_thinking_level(ctx.channel, ctx.user_id)
         thinking_param = self._build_thinking_param(thinking_level)
@@ -404,6 +446,9 @@ class AgentRuntime:
                     system += f"\n\n# 渠道回复规范\n\n{channel_prompt}"
                 if ctx.group_prompt:
                     system += f"\n\n{ctx.group_prompt}"
+                action_hint = self._build_action_hint(content)
+                if action_hint:
+                    system += f"\n\n# 当前操作提示\n\n{action_hint}"
                 if ctx.member and ctx.member.is_virtual and ctx.member.virtual_system_prompt:
                     system += f"\n\n# AI 员工人设\n\n{ctx.member.virtual_system_prompt}"
                 plugin_prompts = self._registry.get_system_prompt_extension()
@@ -449,6 +494,15 @@ class AgentRuntime:
             messages.append({"role": "assistant", "content": self._serialize_content(response.content)})
 
             if response.stop_reason != "tool_use":
+                if (not any_tool_called and not correction_injected
+                        and self._requires_channel_send_tool(content)):
+                    correction_injected = True
+                    accumulated_text = ""
+                    messages.append({
+                        "role": "user",
+                        "content": self._CHANNEL_SEND_ACTION_CORRECTION,
+                    })
+                    continue
                 if (not any_tool_called and not correction_injected
                         and self._text_claims_action(accumulated_text)):
                     correction_injected = True
@@ -562,6 +616,18 @@ class AgentRuntime:
             log.warning(f"[web] 空消息，跳过处理: member_id={member_id}, session_id={session_id}")
             return
 
+        direct_action = await self._maybe_handle_direct_channel_send(ctx, content)
+        if direct_action:
+            messages = await self._sessions.get_messages(ctx.channel, ctx.user_id, session_id)
+            user_content = self._build_user_content(content, images or [])
+            messages.append({"role": "user", "content": user_content})
+            messages.append({"role": "assistant", "content": [{"type": "text", "text": direct_action["reply_text"]}]})
+            await self._sessions.save_messages(ctx.channel, ctx.user_id, messages, session_id)
+            yield {"type": "tool_use", "name": direct_action["tool_name"], "id": "direct-channel-send"}
+            yield {"type": "tool_result", "name": direct_action["tool_name"], "result": direct_action["tool_result"]}
+            yield {"type": "text", "text": direct_action["reply_text"]}
+            return
+
         messages = await self._sessions.get_messages(ctx.channel, ctx.user_id, session_id)
         user_content = self._build_user_content(content, images or [])
         messages.append({"role": "user", "content": user_content})
@@ -594,6 +660,9 @@ class AgentRuntime:
         else:
             system = self._system_prompt + sender_context
 
+        action_hint = self._build_action_hint(content)
+        if action_hint:
+            system += f"\n\n# 当前操作提示\n\n{action_hint}"
         plugin_prompts = self._registry.get_system_prompt_extension()
         if plugin_prompts:
             system += "\n\n" + plugin_prompts
@@ -603,6 +672,7 @@ class AgentRuntime:
         tools = self._registry.to_claude_tools(permissions=ctx.permissions if ctx.permissions else {"*"})
         if blocked_tools:
             tools = [t for t in tools if t["name"] not in blocked_tools]
+        tools = self._prioritize_tools_for_intent(content, tools)
 
         max_rounds = 10
         current_text = ""
@@ -675,6 +745,17 @@ class AgentRuntime:
                 messages.append({"role": "assistant", "content": self._serialize_content(response.content)})
 
                 if response.stop_reason != "tool_use":
+                    if (not any_tool_called and not correction_injected
+                            and self._requires_channel_send_tool(content)):
+                        log.warning("[web] 检测到通道发消息请求未调用工具，注入纠正提示重试")
+                        correction_injected = True
+                        current_text = ""
+                        yield {"type": "text", "text": ""}
+                        messages.append({
+                            "role": "user",
+                            "content": self._CHANNEL_SEND_ACTION_CORRECTION,
+                        })
+                        continue
                     if (not any_tool_called and not correction_injected
                             and self._text_claims_action(current_text)):
                         log.warning("[web] 检测到空操作：模型声称已完成但未调用工具，注入纠正提示重试")
@@ -899,6 +980,12 @@ class AgentRuntime:
         "请重新检查用户的请求，从可用工具中选择合适的工具并立即调用。"
         "如果没有合适的工具，请明确告知用户当前无法执行该操作及原因。"
     )
+    _CHANNEL_SEND_ACTION_CORRECTION = (
+        "[系统自动检查] 用户当前是在要求你主动通过 IM 发消息，这是执行操作，不是知识问答。"
+        "如果可用工具中有 `feishu_send_message`、`feishu_send_voice`、`wecom_send_message` 或 `wecom_send_voice`，你必须立即调用对应工具。"
+        "当用户说“给我的飞书/企微发消息”时，可省略 user_id，让工具默认发送给当前用户已绑定的账号。"
+        "如果当前用户没有绑定对应账号，也要通过工具返回真实错误，不要只做解释。"
+    )
 
     @classmethod
     def _text_claims_action(cls, text: str) -> bool:
@@ -906,6 +993,128 @@ class AgentRuntime:
         if not text:
             return False
         return any(claim in text for claim in cls._ACTION_CLAIMS)
+
+    @staticmethod
+    def _requires_channel_send_tool(text: str) -> bool:
+        """Detect requests that should use IM channel send tools."""
+        if not text:
+            return False
+        normalized = "".join(text.split())
+        if any(keyword in normalized for keyword in ("怎么", "如何", "为什么", "能不能", "可不可以")):
+            return False
+        mentions_channel = any(keyword in normalized for keyword in ("飞书", "企微", "企业微信"))
+        mentions_send = any(keyword in normalized for keyword in ("发消息", "发送消息", "发一条", "发个", "通知", "提醒", "代发", "主动发", "发语音", "语音提醒", "语音通知"))
+        mentions_target = any(keyword in normalized for keyword in ("给我", "给我的", "帮我", "替我", "给", "发给"))
+        return mentions_channel and mentions_send and mentions_target
+
+    @classmethod
+    def _build_action_hint(cls, text: str) -> str:
+        if not cls._requires_channel_send_tool(text):
+            return ""
+        return (
+            "用户当前是在要求你主动通过飞书/企微发送消息。"
+            "这类请求必须调用对应的通道工具执行，不要只回复说明文字。"
+        )
+
+    @classmethod
+    def _prioritize_tools_for_intent(cls, text: str, tools: list[dict]) -> list[dict]:
+        if not cls._requires_channel_send_tool(text):
+            return tools
+
+        normalized = "".join((text or "").split())
+        tool_map = {tool["name"]: tool for tool in tools}
+        prioritized_names: list[str] = []
+
+        if "飞书" in normalized:
+            if "语音" in normalized:
+                prioritized_names.append("feishu_send_voice")
+            prioritized_names.extend(["feishu_send_message"] if "语音" in normalized else ["feishu_send_message", "feishu_send_voice"])
+        if "企微" in normalized or "企业微信" in normalized:
+            if "语音" in normalized:
+                prioritized_names.append("wecom_send_voice")
+            prioritized_names.extend(["wecom_send_message", "wecom_send_voice"])
+
+        prioritized_names.append("contacts_search")
+        prioritized = [tool_map[name] for name in prioritized_names if name in tool_map]
+        return prioritized or tools
+
+    async def _maybe_handle_direct_channel_send(self, ctx: RequestContext, text: str) -> dict | None:
+        """Handle simple 'send a message to my bound IM account' requests without relying on LLM routing."""
+        parsed = self._parse_direct_channel_send_request(text)
+        if not parsed:
+            return None
+
+        log.info(f"命中直发通道消息兜底: tool={parsed['tool_name']} text={text[:80]}")
+        tool_name = parsed["tool_name"]
+        payload_key = "text" if tool_name in {"wecom_send_voice", "feishu_send_voice"} else "content"
+        tool_input = {
+            payload_key: parsed["message"],
+            "_caller_id": ctx.user_id,
+            "_caller_member_id": getattr(ctx, "caller_member_id", "") or ctx.user_id,
+            "_target_member_id": getattr(ctx, "target_member_id", "") or "",
+        }
+        if ctx.member:
+            tool_input["_member_id"] = ctx.member.id
+
+        tool_result = await self._registry.execute_tool(tool_name, tool_input)
+        log.info(f"直发通道消息结果: tool={tool_name} result={tool_result[:200]}")
+        reply_text = self._format_direct_channel_send_reply(tool_result)
+        return {
+            "tool_name": tool_name,
+            "tool_result": tool_result,
+            "reply_text": reply_text,
+        }
+
+    @classmethod
+    def _parse_direct_channel_send_request(cls, text: str) -> dict | None:
+        if not text:
+            return None
+        normalized = "".join(text.split())
+        if not cls._requires_channel_send_tool(normalized):
+            return None
+        if not any(keyword in normalized for keyword in ("给我的", "给我", "我的飞书", "我的企微", "我的企业微信")):
+            return None
+
+        tool_name = ""
+        if "飞书" in normalized:
+            tool_name = "feishu_send_voice" if "语音" in normalized else "feishu_send_message"
+        elif "企微" in normalized or "企业微信" in normalized:
+            tool_name = "wecom_send_voice" if "语音" in normalized else "wecom_send_message"
+        if not tool_name:
+            return None
+
+        message = cls._extract_direct_channel_message(text)
+        if not message:
+            return None
+        return {"tool_name": tool_name, "message": message}
+
+    @staticmethod
+    def _extract_direct_channel_message(text: str) -> str:
+        patterns = [
+            r"发(?:一条|条|个|一下)?[\"“']?(?P<msg>.+?)[\"”']?(?:的)?(?:消息|信息)",
+            r"发送(?:一条|条|个)?[\"“']?(?P<msg>.+?)[\"”']?(?:的)?(?:消息|信息)",
+            r"发(?:个|一下)?语音(?:提醒|通知)?[\"“']?(?P<msg>.+?)[\"”']?$",
+            r"发送语音(?:提醒|通知)?[\"“']?(?P<msg>.+?)[\"”']?$",
+            r"说[\"“']?(?P<msg>.+?)[\"”']?$",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, text)
+            if not match:
+                continue
+            message = (match.group("msg") or "").strip().strip("“”\"'")
+            if message:
+                return message
+        return ""
+
+    @staticmethod
+    def _format_direct_channel_send_reply(tool_result: str) -> str:
+        try:
+            payload = json.loads(tool_result)
+        except json.JSONDecodeError:
+            return tool_result
+        if isinstance(payload, dict):
+            return str(payload.get("message") or tool_result)
+        return tool_result
 
     def _detect_empty_action(self, response: LLMResponse) -> bool:
         """Check if LLM response claims completion without having called tools."""
@@ -1042,8 +1251,9 @@ class AgentRuntime:
         同时把 pic_url 写入文本，确保后续轮次 AI 也能引用图片 URL。
         file_url is persisted in image blocks for history recovery.
         """
+        normalized_text = AgentRuntime._normalize_user_text(text)
         if not images:
-            return text
+            return normalized_text
 
         blocks: list[dict] = []
         pic_urls = []
@@ -1072,10 +1282,23 @@ class AgentRuntime:
             url_list = "\n".join(pic_urls)
             url_hint = f"\n\n[图片URL，可用于嵌入禅道]\n{url_list}"
 
-        if text and text.strip():
-            blocks.append({"type": "text", "text": text + url_hint})
+        if normalized_text and normalized_text.strip():
+            blocks.append({"type": "text", "text": normalized_text + url_hint})
         else:
             blocks.append({"type": "text", "text": "请看图片" + url_hint})
-            blocks.append({"type": "text", "text": "请看图片"})
 
         return blocks
+
+    @staticmethod
+    def _normalize_user_text(text: str) -> str:
+        """Normalize special channel markers before sending them to the LLM."""
+        value = text or ""
+        if value.startswith("[语音消息]"):
+            spoken_text = value[len("[语音消息]"):].lstrip("\n").strip()
+            if spoken_text:
+                return (
+                    "[系统说明] 以下内容来自一条已经完成 ASR 转写的语音消息，"
+                    "请直接按用户原话理解并回答，不要再说无法识别语音。\n"
+                    f"{spoken_text}"
+                )
+        return value

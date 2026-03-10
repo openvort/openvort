@@ -208,6 +208,18 @@ class PluginLoader:
                 log.info(f"已注册 Channel 工具: {voice_tool.name}")
             except Exception as e:
                 log.error(f"注册企微 Channel 工具失败: {e}")
+        elif channel.name == "feishu":
+            try:
+                from openvort.channels.feishu.tools import SendFeishuMessageTool, SendFeishuVoiceTool
+
+                tool = SendFeishuMessageTool(channel=channel)
+                self.registry.register_tool(tool)
+                log.info(f"已注册 Channel 工具: {tool.name}")
+                voice_tool = SendFeishuVoiceTool(channel=channel)
+                self.registry.register_tool(voice_tool)
+                log.info(f"已注册 Channel 工具: {voice_tool.name}")
+            except Exception as e:
+                log.error(f"注册飞书 Channel 工具失败: {e}")
 
     def _load_tools(self) -> None:
         """从 entry_points 加载独立 Tool 插件（非 Plugin 管理的散装 Tool）"""
