@@ -1,7 +1,5 @@
 """
 需求录入工具 — vortflow_intake_story
-
-通过 AI 对话录入需求，创建到 VortFlow 本地 + 可选同步到外部系统。
 """
 
 import json
@@ -23,9 +21,8 @@ class IntakeStoryTool(BaseTool):
     )
     required_permission = "vortflow.story"
 
-    def __init__(self, get_session_factory, adapter, notifier, engine):
+    def __init__(self, get_session_factory, notifier, engine):
         self._get_sf = get_session_factory
-        self._adapter = adapter
         self._notifier = notifier
         self._engine = engine
 
@@ -170,29 +167,6 @@ class IntakeStoryTool(BaseTool):
                 child_story_ids.append(child_id)
                 child_story_titles.append(child_title)
             await session.commit()
-
-        # 同步到外部系统（如果有）
-        if self._adapter and self._adapter.name != "local":
-            try:
-                external_id = await self._adapter.create_story({
-                    "title": title,
-                    "description": description,
-                    "priority": priority,
-                })
-                if external_id:
-                    from openvort.plugins.vortflow.models import FlowExternalMapping
-
-                    async with sf() as session:
-                        mapping = FlowExternalMapping(
-                            local_type="story",
-                            local_id=story_id,
-                            adapter=self._adapter.name,
-                            external_id=external_id,
-                        )
-                        session.add(mapping)
-                        await session.commit()
-            except Exception as e:
-                log.warning(f"同步需求到外部系统失败: {e}")
 
         return json.dumps({
             "ok": True,

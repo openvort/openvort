@@ -61,7 +61,7 @@ def set_webhook_runtime(agent=None, notify_fn=None) -> None:
 def _verify_signature(payload: bytes, signature: str, secret: str) -> bool:
     """验证 webhook 签名（支持 GitHub/GitLab/OpenClaw 风格）"""
     if not secret:
-        return True
+        return False
     if not signature:
         return False
 
@@ -326,15 +326,21 @@ async def handle_webhook(webhook_name: str, request: Request):
         body = {"raw": body_bytes.decode(errors="replace")}
 
     # 签名验证
-    if config.secret:
-        signature = (
-            request.headers.get("x-hub-signature-256", "") or
-            request.headers.get("x-gitlab-token", "") or
-            request.headers.get("x-webhook-secret", "") or
-            request.headers.get("x-openclaw-token", "")
+    if not config.secret:
+        log.warning(
+            f"Webhook [{webhook_name}] 未配置 secret，拒绝请求。"
+            "请在 Webhook 配置中设置签名密钥以启用此端点。"
         )
-        if not _verify_signature(body_bytes, signature, config.secret):
-            raise HTTPException(status_code=403, detail="签名验证失败")
+        raise HTTPException(status_code=403, detail="Webhook 未配置签名密钥，拒绝处理")
+
+    signature = (
+        request.headers.get("x-hub-signature-256", "") or
+        request.headers.get("x-gitlab-token", "") or
+        request.headers.get("x-webhook-secret", "") or
+        request.headers.get("x-openclaw-token", "")
+    )
+    if not _verify_signature(body_bytes, signature, config.secret):
+        raise HTTPException(status_code=403, detail="签名验证失败")
 
     # 解析事件
     headers = dict(request.headers)

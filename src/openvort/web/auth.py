@@ -10,6 +10,8 @@ import hmac
 import json
 import base64
 
+from passlib.hash import bcrypt as _bcrypt
+
 from openvort.config.settings import get_settings
 
 TOKEN_EXPIRE_HOURS = 24
@@ -82,13 +84,27 @@ def verify_token(token: str) -> dict | None:
 
 
 def hash_password(password: str) -> str:
-    """对密码做 SHA-256 哈希（简单方案，与 JWT 签名复用 hashlib）"""
-    return hashlib.sha256(password.encode()).hexdigest()
+    """Hash password using bcrypt (cost factor 12)."""
+    return _bcrypt.using(rounds=12).hash(password)
+
+
+def _is_legacy_sha256(password_hash: str) -> bool:
+    """Detect legacy SHA-256 hex digest (64 hex chars, no bcrypt prefix)."""
+    return len(password_hash) == 64 and all(c in "0123456789abcdef" for c in password_hash)
 
 
 def verify_password(password: str, password_hash: str) -> bool:
-    """验证密码是否匹配哈希"""
-    return hmac.compare_digest(hash_password(password), password_hash)
+    """Verify password against stored hash.
+
+    Supports both bcrypt and legacy SHA-256 for migration compatibility.
+    """
+    if _is_legacy_sha256(password_hash):
+        legacy = hashlib.sha256(password.encode()).hexdigest()
+        return hmac.compare_digest(legacy, password_hash)
+    try:
+        return _bcrypt.verify(password, password_hash)
+    except Exception:
+        return False
 
 
 async def authenticate_member(user_id: str, password: str) -> dict | None:
@@ -147,6 +163,11 @@ async def authenticate_member(user_id: str, password: str) -> dict | None:
         if member.password_hash:
             if not verify_password(password, member.password_hash):
                 return None
+            # Transparently upgrade legacy SHA-256 hash to bcrypt
+            if _is_legacy_sha256(member.password_hash):
+                member.password_hash = hash_password(password)
+                await session.commit()
+                log.info(f"已将成员 {member.id} 的密码哈希从 SHA-256 迁移到 bcrypt")
         else:
             if password != settings.web.default_password:
                 return None

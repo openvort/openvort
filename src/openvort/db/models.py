@@ -238,6 +238,22 @@ class WorkAssignment(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
+class GroupChat(Base):
+    """群聊记录 — 持久化群聊元数据及项目关联"""
+
+    __tablename__ = "group_chats"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    chat_id: Mapped[str] = mapped_column(String(128), unique=True, index=True)  # platform chat ID
+    platform: Mapped[str] = mapped_column(String(16), index=True)  # wecom / dingtalk / feishu
+    name: Mapped[str] = mapped_column(String(200), default="")
+    project_id: Mapped[str | None] = mapped_column(String(32), nullable=True)  # VortFlow project ID (no FK)
+    bound_by: Mapped[str | None] = mapped_column(String(32), nullable=True)  # member_id who bound the project
+    bound_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 class VoiceProvider(Base):
     """语音服务厂商配置 - 支持 ASR（语音识别）和 TTS（语音合成）"""
 
