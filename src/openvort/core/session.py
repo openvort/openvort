@@ -454,11 +454,65 @@ class SessionStore:
             except Exception as e:
                 log.warning(f"重命名会话失败: {e}")
 
-    async def auto_title(self, channel: str, user_id: str, session_id: str, content: str) -> str:
-        """根据首条消息自动设置标题，返回新标题"""
-        title = content.strip().replace("\n", " ")[:20]
+    async def auto_title(self, channel: str, user_id: str, session_id: str,
+                         llm_client=None) -> str:
+        """Use LLM to generate a concise title from conversation context."""
+        messages = await self.get_messages(channel, user_id, session_id)
+        if not messages:
+            return "新对话"
+
+        context_parts: list[str] = []
+        for msg in messages[:12]:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            if isinstance(content, str) and content.strip():
+                label = "用户" if role == "user" else "助手"
+                context_parts.append(f"{label}: {content[:200]}")
+            elif isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        text = block.get("text", "").strip()
+                        if text:
+                            label = "用户" if role == "user" else "助手"
+                            context_parts.append(f"{label}: {text[:200]}")
+                        break
+
+        if not context_parts:
+            return "新对话"
+
+        title = ""
+        if llm_client:
+            try:
+                resp = await llm_client.create(
+                    system="根据以下对话内容，生成一个简洁的对话标题（不超过15个字）。只输出标题本身，不要引号、标点或任何额外内容。",
+                    messages=[{"role": "user", "content": "\n".join(context_parts)}],
+                )
+                for block in resp.content:
+                    if getattr(block, "type", None) == "text":
+                        title += block.text
+                title = title.strip().strip('"\'""''').replace("\n", " ")[:30]
+            except Exception as e:
+                log.warning(f"LLM 生成标题失败，使用截取: {e}")
+
+        if not title:
+            for msg in messages:
+                if msg.get("role") != "user":
+                    continue
+                c = msg.get("content", "")
+                if isinstance(c, str) and c.strip():
+                    title = c.strip().replace("\n", " ")[:15]
+                    break
+                if isinstance(c, list):
+                    for block in c:
+                        if isinstance(block, dict) and block.get("type") == "text":
+                            title = block.get("text", "").strip().replace("\n", " ")[:15]
+                            break
+                    if title:
+                        break
+
         if not title:
             title = "新对话"
+
         await self.rename_session(channel, user_id, session_id, title)
         return title
 
