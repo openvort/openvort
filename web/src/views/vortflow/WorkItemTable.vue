@@ -926,6 +926,16 @@ const handleCreateBug = async () => {
     router.replace({ query: { ...route.query, action: "create", parentId: undefined } });
 };
 
+const handleCreateChildStory = async (record: RowItem) => {
+    if (record.type !== "需求" || !record.backendId) return;
+    await loadApiMetadata(false);
+    createBugDrawerMode.value = "create";
+    createParentStoryId.value = String(record.backendId);
+    createProjectId.value = record.projectId || "";
+    resetCreateBugForm();
+    router.replace({ query: { ...route.query, action: "create", parentId: String(record.backendId), id: undefined } });
+};
+
 const handleCancelCreateBug = () => {
     createBugDrawerOpen.value = false;
     createParentStoryId.value = "";
@@ -2276,6 +2286,7 @@ onMounted(async () => {
                     @close="handleCancelCreateBug"
                     @update="handleDetailUpdate"
                     @open-related="handleOpenBugDetail"
+                    @create-child="handleCreateChildStory"
                 />
             </template>
             <template v-else>

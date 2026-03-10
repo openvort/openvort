@@ -21,6 +21,7 @@ const emit = defineEmits<{
     update: [data: Partial<RowItem>];
     delete: [];
     openRelated: [record: RowItem];
+    createChild: [record: RowItem];
 }>();
 
 const {
@@ -54,6 +55,7 @@ const detailLogsMap = reactive<Record<string, DetailLog[]>>({});
 const detailCurrentRecord = computed(() => record.value);
 const parentRecord = computed(() => props.parentRecord || null);
 const childRecords = computed(() => props.childRecords || []);
+const canCreateChild = computed(() => Boolean(record.value?.backendId) && record.value?.type === "需求");
 
 const detailComments = computed(() => {
     if (!props.workNo) return [];
@@ -418,6 +420,66 @@ watch(() => props.initialData, (value) => {
                         <div class="bug-detail-info-item bug-detail-info-item-row"><label>版本</label><div>未设置</div></div>
                     </div>
                 </div>
+
+                <!-- 子需求栏目 -->
+                <div class="bug-detail-sub-items" v-if="record.type === '需求'">
+                    <div class="bug-detail-sub-items-head">
+                        <div class="flex items-center gap-2">
+                            <h4>子需求</h4>
+                            <span class="count">{{ childRecords.length }}</span>
+                        </div>
+                        <VortButton
+                            class="add-sub-item-btn"
+                            variant="text"
+                            size="small"
+                            :disabled="!canCreateChild"
+                            @click="record && emit('createChild', record)"
+                        >
+                            <span class="icon">+</span> 添加子需求
+                        </VortButton>
+                    </div>
+                    
+                    <div class="bug-detail-sub-items-content">
+                        <div v-if="childRecords.length === 0" class="bug-detail-sub-items-empty">
+                            <span class="empty-text">暂无关联的子需求</span>
+                        </div>
+                        <div v-else class="bug-detail-sub-items-list">
+                            <div 
+                                v-for="child in childRecords" 
+                                :key="child.backendId || child.workNo"
+                                class="bug-detail-sub-item group"
+                                @click="emit('openRelated', child)"
+                            >
+                                <div class="sub-item-left">
+                                    <span class="work-type-icon-small text-indigo-500">
+                                        <svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" role="img" width="1em" height="1em" viewBox="0 0 16 16">
+                                            <g fill="none" fill-rule="evenodd">
+                                                <path d="M0 0h16v16H0z"></path>
+                                                <path fill="currentColor" fill-rule="nonzero" d="M13.5 1.5a1 1 0 011 1v11a1 1 0 01-1 1h-11a1 1 0 01-1-1v-11a1 1 0 011-1zm-.25 1H2.75a.25.25 0 00-.243.193L2.5 2.75v10.5a.25.25 0 00.193.243l.057.007h10.5a.25.25 0 00.243-.193l.007-.057V2.75a.25.25 0 00-.25-.25zm-7.8 6.05a1.7 1.7 0 110 3.4 1.7 1.7 0 010-3.4zm0 .9a.8.8 0 100 1.6.8.8 0 000-1.6zm6.55.3a.5.5 0 110 1H9a.5.5 0 110-1zM7.736 4.146a.5.5 0 010 .708l-2.122 2.12a.5.5 0 01-.707 0l-1.06-1.06a.5.5 0 11.707-.707l.706.708 1.768-1.769a.5.5 0 01.708 0zM12 5.25a.5.5 0 110 1H9a.5.5 0 110-1z"></path>
+                                            </g>
+                                        </svg>
+                                    </span>
+                                    <span class="sub-item-no">{{ child.workNo }}</span>
+                                    <span class="sub-item-title group-hover:text-blue-600">{{ child.title }}</span>
+                                </div>
+                                <div class="sub-item-right">
+                                    <div class="sub-item-owner">
+                                        <span class="detail-assignee-avatar overflow-hidden" :style="{ backgroundColor: getAvatarBg(child.owner || '未指派'), width: '20px', height: '20px', fontSize: '10px' }">
+                                            <img v-if="getMemberAvatarUrl(child.owner || '')" :src="getMemberAvatarUrl(child.owner || '')" class="w-full h-full object-cover" />
+                                            <template v-else>{{ getAvatarLabel(child.owner || '未指派') }}</template>
+                                        </span>
+                                        <span class="owner-name">{{ child.owner || '未指派' }}</span>
+                                    </div>
+                                    <div class="sub-item-status">
+                                        <span class="status-icon" :class="getStatusOption(child.status, child.type).iconClass">{{ getStatusOption(child.status, child.type).icon }}</span>
+                                        <span class="status-text">{{ child.status }}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="bug-detail-desc">
                     <div class="bug-detail-desc-head">
                         <h4>描述</h4>
@@ -716,7 +778,7 @@ watch(() => props.initialData, (value) => {
 .bug-detail-top-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 24px;
+    gap: 16px 48px;
     margin-bottom: 24px;
 }
 
@@ -724,7 +786,7 @@ watch(() => props.initialData, (value) => {
 .bug-detail-right-col {
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 12px;
 }
 
 .bug-detail-info-item {
@@ -734,28 +796,177 @@ watch(() => props.initialData, (value) => {
 }
 
 .bug-detail-info-item label {
-    font-size: 12px;
-    color: #94a3b8;
-    font-weight: 500;
+    font-size: 13px;
+    color: #64748b;
+    font-weight: 400;
 }
 
 .bug-detail-info-item > div {
     font-size: 14px;
-    color: #334155;
+    color: #1e293b;
 }
 
 .bug-detail-info-item-row {
     flex-direction: row;
-    justify-content: space-between;
+    justify-content: flex-start;
     align-items: center;
+    min-height: 32px;
 }
 
 .bug-detail-info-item-row label {
     flex-shrink: 0;
+    width: 100px;
 }
 
 .bug-detail-info-assignee {
     cursor: pointer;
+}
+
+/* 子需求栏目样式 */
+.bug-detail-sub-items {
+    margin-bottom: 24px;
+}
+
+.bug-detail-sub-items-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.bug-detail-sub-items-head h4 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #334155;
+    margin: 0;
+}
+
+.bug-detail-sub-items-head .count {
+    background: #f1f5f9;
+    color: #64748b;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.add-sub-item-btn {
+    color: #3b82f6 !important;
+    font-size: 13px !important;
+    padding: 4px 8px !important;
+    height: auto !important;
+}
+
+.add-sub-item-btn:hover {
+    background: #eff6ff !important;
+}
+
+.add-sub-item-btn .icon {
+    margin-right: 4px;
+    font-size: 16px;
+    line-height: 1;
+}
+
+.bug-detail-sub-items-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 0;
+    background: rgba(248, 250, 252, 0.5);
+    border: 1px dashed #e2e8f0;
+    border-radius: 8px;
+}
+
+.bug-detail-sub-items-empty .empty-text {
+    color: #94a3b8;
+    font-size: 13px;
+}
+
+.bug-detail-sub-items-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.bug-detail-sub-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    background: #ffffff;
+    border: 1px solid #f1f5f9;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.bug-detail-sub-item:hover {
+    border-color: #bfdbfe;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
+}
+
+.sub-item-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    overflow: hidden;
+}
+
+.sub-item-no {
+    font-size: 12px;
+    font-weight: 500;
+    color: #94a3b8;
+    flex-shrink: 0;
+}
+
+.sub-item-title {
+    font-size: 13px;
+    color: #334155;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: color 0.2s;
+}
+
+.sub-item-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-shrink: 0;
+    margin-left: 16px;
+}
+
+.sub-item-owner {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.sub-item-owner .owner-name {
+    font-size: 12px;
+    color: #64748b;
+}
+
+.sub-item-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    background: #f8fafc;
+    border: 1px solid #f1f5f9;
+    border-radius: 4px;
+    min-width: 72px;
+    justify-content: center;
+}
+
+.sub-item-status .status-icon {
+    font-size: 12px;
+    line-height: 1;
+}
+
+.sub-item-status .status-text {
+    font-size: 12px;
+    color: #475569;
 }
 
 .detail-assignee-trigger {
@@ -764,6 +975,7 @@ watch(() => props.initialData, (value) => {
     padding: 6px 10px;
     border-radius: 6px;
     border: 1px solid transparent;
+    margin-left: -10px;
 }
 
 .detail-assignee-trigger:hover,
