@@ -406,15 +406,15 @@ for (const row of allData.value) {
 const nextWorkNoIndex = ref(allData.value.length + 1);
 
 const columns = computed<ProTableColumn<RowItem>[]>(() => [
-    { title: "工作编号", dataIndex: "workNo", width: 130, sorter: true, align: "left", fixed: "left" },
+    { title: "工作编号", dataIndex: "workNo", width: 130, sorter: true, align: "left", fixed: "left", slot: "workNo" },
     { title: "标题", dataIndex: "title", width: 228, ellipsis: true, align: "left", fixed: "left", slot: "title" },
     { title: "状态", dataIndex: "status", width: 120, slot: "status", align: "left" },
     { title: "负责人", dataIndex: "owner", width: 160, sorter: true, align: "left", slot: "owner" },
     { title: "优先级", dataIndex: "priority", width: 120, slot: "priority", align: "left" },
     { title: "标签", dataIndex: "tags", width: 180, slot: "tags", align: "left" },
-    { title: "创建时间", dataIndex: "createdAt", width: 150, sorter: true, align: "left" },
+    { title: "创建时间", dataIndex: "createdAt", width: 150, sorter: true, align: "left", slot: "createdAt" },
     { title: "协作者", dataIndex: "collaborators", width: 140, slot: "collaborators", align: "left" },
-    { title: "工作项类型", dataIndex: "type", width: 120, sorter: true, align: "left" },
+    { title: "工作项类型", dataIndex: "type", width: 120, sorter: true, align: "left", slot: "type" },
     { title: "计划时间", dataIndex: "planTime", width: 260, sorter: true, align: "left", slot: "planTime" },
     { title: "创建人", dataIndex: "creator", width: 160, sorter: true, align: "left", slot: "creator" }
 ]);
@@ -1950,38 +1950,48 @@ onMounted(async () => {
                 :toolbar="false"
                 bordered
             >
-                <template #title="{ text, record }">
-                    <VortButton class="title-link-cell" :title="text" variant="link" @click.stop="handleOpenBugDetail(record)">
-                        <span
-                            v-if="record.type === '需求' && record.childrenCount"
-                            class="story-expand-toggle"
-                            :class="{
-                                expanded: expandedStoryIds[String(record.backendId || '')],
-                                loading: expandingStoryIds[String(record.backendId || '')]
-                            }"
-                            @click.stop="toggleStoryExpand(record)"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" aria-hidden="true" role="img" class="flex-shrink-0 iconify iconify--gitee icon-caret-down" width="1em" height="1em" preserveAspectRatio="xMidYMid meet" viewBox="0 0 16 16"><g fill="none" fill-rule="evenodd"><path d="M0 0h16v16H0z"></path><path fill="currentColor" fill-rule="nonzero" d="m10.835 7.638-2.388 2.666a.628.628 0 01-.441.196.57.57 0 01-.426-.195L5.192 7.638c-.188-.19-.24-.478-.147-.725s.313-.413.556-.413h4.793c.243 0 .462.162.556.411.093.25.058.537-.115.727z"></path></g></svg>
-                        </span>
-                        <span v-else-if="record.isChild" class="story-child-indent"></span>
-                        <span v-else class="story-expand-placeholder"></span>
-                        
-                        <span class="work-type-icon" :class="getWorkItemTypeIconClass(record.type)">
-                            {{ getWorkItemTypeIconSymbol(record.type) }}
-                        </span>
+                <template #workNo="{ text }">
+                    <TableCell>
+                        <span class="text-sm text-gray-700">{{ text }}</span>
+                    </TableCell>
+                </template>
 
-                        <span class="title-link-text" :class="{ 'story-child-text': record.isChild }">{{ text }}</span>
-                    </VortButton>
+                <template #title="{ text, record }">
+                    <TableCell>
+                        <VortButton class="title-link-cell" :title="text" variant="link" @click.stop="handleOpenBugDetail(record)">
+                            <span
+                                v-if="record.type === '需求' && record.childrenCount"
+                                class="story-expand-toggle"
+                                :class="{
+                                    expanded: expandedStoryIds[String(record.backendId || '')],
+                                    loading: expandingStoryIds[String(record.backendId || '')]
+                                }"
+                                @click.stop="toggleStoryExpand(record)"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" aria-hidden="true" role="img" class="flex-shrink-0 iconify iconify--gitee icon-caret-down" width="1em" height="1em" preserveAspectRatio="xMidYMid meet" viewBox="0 0 16 16"><g fill="none" fill-rule="evenodd"><path d="M0 0h16v16H0z"></path><path fill="currentColor" fill-rule="nonzero" d="m10.835 7.638-2.388 2.666a.628.628 0 01-.441.196.57.57 0 01-.426-.195L5.192 7.638c-.188-.19-.24-.478-.147-.725s.313-.413.556-.413h4.793c.243 0 .462.162.556.411.093.25.058.537-.115.727z"></path></g></svg>
+                            </span>
+                            <span v-else-if="record.isChild" class="story-child-indent"></span>
+                            <span v-else class="story-expand-placeholder"></span>
+                            
+                            <span class="work-type-icon" :class="getWorkItemTypeIconClass(record.type)">
+                                {{ getWorkItemTypeIconSymbol(record.type) }}
+                            </span>
+
+                            <span class="title-link-text" :class="{ 'story-child-text': record.isChild }">{{ text }}</span>
+                        </VortButton>
+                    </TableCell>
                 </template>
 
                 <template #priority="{ text, record }">
-                    <WorkItemPriority
-                        :model-value="getRowPriority(record, text)"
-                        :open="openPriorityFor === record.workNo"
-                        @update:open="(open) => { if (!open && openPriorityFor === record.workNo) openPriorityFor = null; }"
-                        @click.stop="togglePriorityMenu(record.workNo)"
-                        @change="(value) => selectPriority(record, value)"
-                    />
+                    <TableCell @click.stop="togglePriorityMenu(record.workNo)">
+                        <WorkItemPriority
+                            :model-value="getRowPriority(record, text)"
+                            :open="openPriorityFor === record.workNo"
+                            @update:open="(open) => { if (!open && openPriorityFor === record.workNo) openPriorityFor = null; }"
+                            @click.stop="togglePriorityMenu(record.workNo)"
+                            @change="(value) => selectPriority(record, value)"
+                        />
+                    </TableCell>
                 </template>
 
                 <template #tags="{ text, record, resolvedWidth }">
@@ -2058,18 +2068,21 @@ onMounted(async () => {
                 </template>
 
                 <template #status="{ text, record }">
-                    <WorkItemStatus
-                        :model-value="getRowStatus(record, text)"
-                        :options="filteredRowStatusOptions"
-                        :open="openStatusFor === record.workNo"
-                        v-model:keyword="rowStatusKeyword"
-                        @update:open="(open) => { if (!open && openStatusFor === record.workNo) openStatusFor = null; }"
-                        @click.stop="toggleRowStatusMenu(record)"
-                        @change="(value) => selectRowStatus(record, value)"
-                    />
+                    <TableCell @click.stop="toggleRowStatusMenu(record)">
+                        <WorkItemStatus
+                            :model-value="getRowStatus(record, text)"
+                            :options="filteredRowStatusOptions"
+                            :open="openStatusFor === record.workNo"
+                            v-model:keyword="rowStatusKeyword"
+                            @update:open="(open) => { if (!open && openStatusFor === record.workNo) openStatusFor = null; }"
+                            @click.stop="toggleRowStatusMenu(record)"
+                            @change="(value) => selectRowStatus(record, value)"
+                        />
+                    </TableCell>
                 </template>
 
                 <template #owner="{ text, record }">
+                    <TableCell @click.stop="toggleRowOwnerMenu(record.workNo)">
                     <Popover
                         :open="openOwnerFor === record.workNo"
                         trigger="click"
@@ -2077,10 +2090,8 @@ onMounted(async () => {
                         :arrow="false"
                         @update:open="(open) => { if (!open && openOwnerFor === record.workNo) openOwnerFor = null; }"
                     >
-                        <VortButton
-                            class="h-8 max-w-[150px] px-2 rounded-md bg-transparent flex items-center gap-2"
-                            variant="text"
-                            :class="openOwnerFor === record.workNo ? 'ring-1 ring-blue-200' : ''"
+                        <div
+                            class="h-8 max-w-[150px] px-2 rounded-md bg-transparent flex items-center gap-2 cursor-pointer"
                             @click.stop="toggleRowOwnerMenu(record.workNo)"
                         >
                             <span
@@ -2091,7 +2102,7 @@ onMounted(async () => {
                                 <template v-else>{{ getAvatarLabel(getRowOwner(record, text)) }}</template>
                             </span>
                             <span class="text-sm text-gray-700 truncate">{{ getRowOwner(record, text) }}</span>
-                        </VortButton>
+                        </div>
 
                         <template #content>
                             <div class="w-[260px] p-3" @click.stop>
@@ -2139,21 +2150,25 @@ onMounted(async () => {
                             </div>
                         </template>
                     </Popover>
+                    </TableCell>
                 </template>
 
                 <template #creator="{ text }">
-                    <div class="h-8 max-w-[150px] px-2 rounded-md bg-transparent flex items-center gap-2">
-                        <span
-                            class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center shrink-0"
-                            :style="{ backgroundColor: getAvatarBg(text) }"
-                        >
-                            {{ getAvatarLabel(text) }}
-                        </span>
-                        <span class="text-sm text-gray-700 truncate">{{ text }}</span>
-                    </div>
+                    <TableCell>
+                        <div class="h-8 max-w-[150px] px-2 rounded-md bg-transparent flex items-center gap-2">
+                            <span
+                                class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center shrink-0"
+                                :style="{ backgroundColor: getAvatarBg(text) }"
+                            >
+                                {{ getAvatarLabel(text) }}
+                            </span>
+                            <span class="text-sm text-gray-700 truncate">{{ text }}</span>
+                        </div>
+                    </TableCell>
                 </template>
 
                 <template #collaborators="{ text, record }">
+                    <TableCell @click.stop="toggleCollaboratorMenu(record.workNo)">
                     <Popover
                         :open="openCollaboratorFor === record.workNo"
                         trigger="click"
@@ -2161,9 +2176,8 @@ onMounted(async () => {
                         :arrow="false"
                         @update:open="(open) => { if (!open && openCollaboratorFor === record.workNo) openCollaboratorFor = null; }"
                     >
-                        <VortButton
-                            class="h-8 px-1 rounded-md bg-transparent flex items-center"
-                            variant="text"
+                        <div
+                            class="h-8 px-1 rounded-md bg-transparent flex items-center cursor-pointer"
                             @click.stop="toggleCollaboratorMenu(record.workNo)"
                         >
                             <div class="flex items-center">
@@ -2177,7 +2191,7 @@ onMounted(async () => {
                                     {{ getAvatarLabel(name) }}
                                 </div>
                             </div>
-                        </VortButton>
+                        </div>
 
                         <template #content>
                             <div class="w-[260px] p-3" @click.stop>
@@ -2224,30 +2238,44 @@ onMounted(async () => {
                             </div>
                         </template>
                     </Popover>
+                    </TableCell>
                 </template>
 
                 <template #planTime="{ text, record }">
-                    <div class="relative inline-block" @click.stop>
-                        <VortButton
-                            v-if="openPlanTimeFor !== record.workNo"
-                            class="plan-time-display"
-                            variant="text"
-                            @click.stop="togglePlanTimeMenu(record.workNo, record, text)"
-                        >
-                            {{ getRowPlanTimeText(record, text) }}
-                        </VortButton>
-                        <vort-range-picker
-                            v-else
-                            v-model="planTimeModel[record.workNo]"
-                            value-format="YYYY-MM-DD"
-                            format="YYYY-MM-DD"
-                            separator="~"
-                            :placeholder="['开始日期', '结束日期']"
-                            class="plan-time-picker"
-                            @change="(value: any) => onPlanTimeChange(record, value || text)"
-                            @click.stop
-                        />
-                    </div>
+                    <TableCell @click.stop="togglePlanTimeMenu(record.workNo, record, text)">
+                        <div class="relative inline-block" @click.stop>
+                            <span
+                                v-if="openPlanTimeFor !== record.workNo"
+                                class="plan-time-display text-sm text-gray-700 cursor-pointer"
+                                @click.stop="togglePlanTimeMenu(record.workNo, record, text)"
+                            >
+                                {{ getRowPlanTimeText(record, text) }}
+                            </span>
+                            <vort-range-picker
+                                v-else
+                                v-model="planTimeModel[record.workNo]"
+                                value-format="YYYY-MM-DD"
+                                format="YYYY-MM-DD"
+                                separator="~"
+                                :placeholder="['开始日期', '结束日期']"
+                                class="plan-time-picker"
+                                @change="(value: any) => onPlanTimeChange(record, value || text)"
+                                @click.stop
+                            />
+                        </div>
+                    </TableCell>
+                </template>
+
+                <template #createdAt="{ text }">
+                    <TableCell>
+                        <span class="text-sm text-gray-700">{{ text }}</span>
+                    </TableCell>
+                </template>
+
+                <template #type="{ text }">
+                    <TableCell>
+                        <span class="text-sm text-gray-700">{{ text }}</span>
+                    </TableCell>
                 </template>
             </ProTable>
         </div>
