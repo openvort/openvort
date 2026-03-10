@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, useAttrs } from "vue";
+import type { PropType } from "vue";
 import { LoadingOutlined } from "@/components/vort/icons";
 import type { SwitchSize, SwitchValue } from "./types";
 
@@ -7,35 +8,62 @@ defineOptions({ name: "VortSwitch", inheritAttrs: false });
 
 /** Vort Switch - 开关组件 */
 
-interface Props {
+const props = defineProps({
     /** 指定当前值（v-model:checked），支持 boolean / number / string */
-    checked?: SwitchValue;
+    checked: {
+        type: [Boolean, Number, String] as PropType<SwitchValue>,
+        default: undefined
+    },
     /** 是否禁用 */
-    disabled?: boolean;
+    disabled: {
+        type: Boolean,
+        default: false
+    },
     /** 加载中 */
-    loading?: boolean;
+    loading: {
+        type: Boolean,
+        default: false
+    },
     /** 开关大小 */
-    size?: SwitchSize;
+    size: {
+        type: String as PropType<SwitchSize>,
+        default: "default"
+    },
     /** 选中时对应的值 */
-    checkedValue?: SwitchValue;
+    checkedValue: {
+        type: [Boolean, Number, String] as PropType<SwitchValue>,
+        default: undefined
+    },
     /** 非选中时对应的值（推荐） */
-    uncheckedValue?: SwitchValue;
+    uncheckedValue: {
+        type: [Boolean, Number, String] as PropType<SwitchValue>,
+        default: undefined
+    },
     /** 非选中时对应的值（兼容命名） */
-    unCheckedValue?: SwitchValue;
+    unCheckedValue: {
+        type: [Boolean, Number, String] as PropType<SwitchValue>,
+        default: undefined
+    },
     /** 选中时的内容 */
-    checkedChildren?: string;
+    checkedChildren: {
+        type: String,
+        default: undefined
+    },
     /** 非选中时的内容（模板写法：un-checked-children） */
-    unCheckedChildren?: string;
+    unCheckedChildren: {
+        type: String,
+        default: undefined
+    },
     /** 自定义类名 */
-    class?: string;
+    class: {
+        type: String,
+        default: undefined
+    },
     /** 切换前的钩子，返回 false 或 Promise reject 会阻止切换 */
-    beforeChange?: () => Promise<boolean> | boolean;
-}
-
-const props = withDefaults(defineProps<Props>(), {
-    disabled: false,
-    loading: false,
-    size: "default"
+    beforeChange: {
+        type: Function as PropType<() => Promise<boolean> | boolean>,
+        default: undefined
+    }
 });
 
 const emit = defineEmits<{
