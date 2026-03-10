@@ -230,6 +230,32 @@ function isGroupPartial(group: PermGroup): boolean {
     return sel.length > 0 && sel.length < group.permissions.length;
 }
 
+function isSectionAllSelected(groups: PermGroup[]): boolean {
+    return groups.length > 0 && groups.every(g => isGroupAllSelected(g));
+}
+
+function isSectionPartial(groups: PermGroup[]): boolean {
+    const allCodes = groups.flatMap(g => g.permissions.map(p => p.code));
+    const selected = allCodes.filter(c => activePermCodes.value.includes(c));
+    return selected.length > 0 && selected.length < allCodes.length;
+}
+
+function toggleSection(groups: PermGroup[]) {
+    if (!canEditPermissions.value) return;
+    ensureEditingPerms();
+    const allCodes = groups.flatMap(g => g.permissions.map(p => p.code));
+    const allSelected = allCodes.every(c => editingPerms.value!.includes(c));
+    if (allSelected) {
+        const codesSet = new Set(allCodes);
+        editingPerms.value = editingPerms.value!.filter(c => !codesSet.has(c));
+    } else {
+        const existing = new Set(editingPerms.value!);
+        for (const c of allCodes) {
+            if (!existing.has(c)) editingPerms.value!.push(c);
+        }
+    }
+}
+
 function ensureEditingPerms() {
     if (editingPerms.value === null && selectedRole.value) {
         editingPerms.value = selectedRole.value.permissions.map(p => p.code);
@@ -760,6 +786,30 @@ function toggleDialogGroup(group: PermGroup) {
         const existing = new Set(roleEditForm.value.permissions);
         for (const p of group.permissions) {
             if (!existing.has(p.code)) roleEditForm.value.permissions.push(p.code);
+        }
+    }
+}
+
+function isDialogSectionAllSelected(groups: PermGroup[]): boolean {
+    return groups.length > 0 && groups.every(g => isDialogGroupAllSelected(g));
+}
+
+function isDialogSectionPartial(groups: PermGroup[]): boolean {
+    const allCodes = groups.flatMap(g => g.permissions.map(p => p.code));
+    const selected = allCodes.filter(c => roleEditForm.value.permissions.includes(c));
+    return selected.length > 0 && selected.length < allCodes.length;
+}
+
+function toggleDialogSection(groups: PermGroup[]) {
+    const allCodes = groups.flatMap(g => g.permissions.map(p => p.code));
+    const allSelected = allCodes.every(c => roleEditForm.value.permissions.includes(c));
+    if (allSelected) {
+        const codesSet = new Set(allCodes);
+        roleEditForm.value.permissions = roleEditForm.value.permissions.filter(c => !codesSet.has(c));
+    } else {
+        const existing = new Set(roleEditForm.value.permissions);
+        for (const c of allCodes) {
+            if (!existing.has(c)) roleEditForm.value.permissions.push(c);
         }
     }
 }
@@ -1643,19 +1693,28 @@ onMounted(() => {
                                 <div class="mb-6">
                                     <!-- 系统权限 -->
                                     <div v-if="groupedPermissions.coreGroups.length" class="mb-4">
-                                        <div class="text-sm font-medium text-gray-500 mb-2">系统权限</div>
+                                        <div class="flex items-center gap-2 mb-2">
+                                            <VortCheckbox
+                                                :checked="isSectionAllSelected(groupedPermissions.coreGroups)"
+                                                :indeterminate="isSectionPartial(groupedPermissions.coreGroups)"
+                                                :disabled="!canEditPermissions"
+                                                @change="toggleSection(groupedPermissions.coreGroups)"
+                                            />
+                                            <span class="text-sm font-medium text-gray-500">系统权限</span>
+                                        </div>
                                         <div class="border border-gray-200 rounded-lg divide-y divide-gray-100">
-                                            <div v-for="group in groupedPermissions.coreGroups" :key="group.key" class="flex items-start">
-                                                <div class="w-28 flex-shrink-0 px-4 py-3 bg-gray-50/60 border-r border-gray-100 flex flex-col items-start gap-1.5">
-                                                    <span class="text-xs font-medium text-gray-600">{{ group.label }}</span>
+                                            <div v-for="group in groupedPermissions.coreGroups" :key="group.key" class="flex items-center">
+                                                <div class="w-42 flex-shrink-0 px-4 py-2.5 bg-gray-50/60 border-r border-gray-100">
                                                     <VortCheckbox
                                                         :checked="isGroupAllSelected(group)"
                                                         :indeterminate="isGroupPartial(group)"
                                                         :disabled="!canEditPermissions"
                                                         @change="toggleGroup(group)"
-                                                    />
+                                                    >
+                                                        <span class="text-xs font-medium text-gray-600">{{ group.label }}</span>
+                                                    </VortCheckbox>
                                                 </div>
-                                                <div class="flex-1 px-4 py-3 flex flex-wrap gap-x-4 gap-y-1">
+                                                <div class="flex-1 px-4 py-2.5 flex flex-wrap gap-x-4 gap-y-1">
                                                     <VortCheckbox
                                                         v-for="p in group.permissions" :key="p.code"
                                                         :checked="isPermSelected(p.code)"
@@ -1669,19 +1728,28 @@ onMounted(() => {
 
                                     <!-- 插件权限 -->
                                     <div v-if="groupedPermissions.pluginGroups.length">
-                                        <div class="text-sm font-medium text-gray-500 mb-2">插件权限</div>
+                                        <div class="flex items-center gap-2 mb-2">
+                                            <VortCheckbox
+                                                :checked="isSectionAllSelected(groupedPermissions.pluginGroups)"
+                                                :indeterminate="isSectionPartial(groupedPermissions.pluginGroups)"
+                                                :disabled="!canEditPermissions"
+                                                @change="toggleSection(groupedPermissions.pluginGroups)"
+                                            />
+                                            <span class="text-sm font-medium text-gray-500">插件权限</span>
+                                        </div>
                                         <div class="border border-gray-200 rounded-lg divide-y divide-gray-100">
-                                            <div v-for="group in groupedPermissions.pluginGroups" :key="group.key" class="flex items-start">
-                                                <div class="w-28 flex-shrink-0 px-4 py-3 bg-gray-50/60 border-r border-gray-100 flex flex-col items-start gap-1.5">
-                                                    <span class="text-xs font-medium text-gray-600">{{ group.label }}</span>
+                                            <div v-for="group in groupedPermissions.pluginGroups" :key="group.key" class="flex items-center">
+                                                <div class="w-42 flex-shrink-0 px-4 py-2.5 bg-gray-50/60 border-r border-gray-100">
                                                     <VortCheckbox
                                                         :checked="isGroupAllSelected(group)"
                                                         :indeterminate="isGroupPartial(group)"
                                                         :disabled="!canEditPermissions"
                                                         @change="toggleGroup(group)"
-                                                    />
+                                                    >
+                                                        <span class="text-xs font-medium text-gray-600">{{ group.label }}</span>
+                                                    </VortCheckbox>
                                                 </div>
-                                                <div class="flex-1 px-4 py-3 flex flex-wrap gap-x-4 gap-y-1">
+                                                <div class="flex-1 px-4 py-2.5 flex flex-wrap gap-x-4 gap-y-1">
                                                     <VortCheckbox
                                                         v-for="p in group.permissions" :key="p.code"
                                                         :checked="isPermSelected(p.code)"
@@ -2185,18 +2253,26 @@ onMounted(() => {
                     <div v-if="allPermissions.length" class="max-h-80 overflow-y-auto">
                         <!-- 系统权限 -->
                         <div v-if="groupedPermissions.coreGroups.length" class="mb-3">
-                            <div class="text-xs font-medium text-gray-400 mb-1">系统权限</div>
+                            <div class="flex items-center gap-2 mb-1">
+                                <VortCheckbox
+                                    :checked="isDialogSectionAllSelected(groupedPermissions.coreGroups)"
+                                    :indeterminate="isDialogSectionPartial(groupedPermissions.coreGroups)"
+                                    @change="toggleDialogSection(groupedPermissions.coreGroups)"
+                                />
+                                <span class="text-xs font-medium text-gray-400">系统权限</span>
+                            </div>
                             <div class="border border-gray-200 rounded-lg divide-y divide-gray-100">
-                                <div v-for="group in groupedPermissions.coreGroups" :key="group.key" class="flex items-start">
-                                    <div class="w-24 flex-shrink-0 px-3 py-2.5 bg-gray-50/60 border-r border-gray-100 flex flex-col items-start gap-1">
-                                        <span class="text-xs font-medium text-gray-600">{{ group.label }}</span>
+                                <div v-for="group in groupedPermissions.coreGroups" :key="group.key" class="flex items-center">
+                                    <div class="w-34 flex-shrink-0 px-3 py-2 bg-gray-50/60 border-r border-gray-100">
                                         <VortCheckbox
                                             :checked="isDialogGroupAllSelected(group)"
                                             :indeterminate="isDialogGroupPartial(group)"
                                             @change="toggleDialogGroup(group)"
-                                        />
+                                        >
+                                            <span class="text-xs font-medium text-gray-600">{{ group.label }}</span>
+                                        </VortCheckbox>
                                     </div>
-                                    <div class="flex-1 px-3 py-2.5 flex flex-wrap gap-x-3 gap-y-0.5">
+                                    <div class="flex-1 px-3 py-2 flex flex-wrap gap-x-3 gap-y-0.5">
                                         <VortCheckbox
                                             v-for="p in group.permissions" :key="p.code"
                                             :checked="roleEditForm.permissions.includes(p.code)"
@@ -2208,18 +2284,26 @@ onMounted(() => {
                         </div>
                         <!-- 插件权限 -->
                         <div v-if="groupedPermissions.pluginGroups.length">
-                            <div class="text-xs font-medium text-gray-400 mb-1">插件权限</div>
+                            <div class="flex items-center gap-2 mb-1">
+                                <VortCheckbox
+                                    :checked="isDialogSectionAllSelected(groupedPermissions.pluginGroups)"
+                                    :indeterminate="isDialogSectionPartial(groupedPermissions.pluginGroups)"
+                                    @change="toggleDialogSection(groupedPermissions.pluginGroups)"
+                                />
+                                <span class="text-xs font-medium text-gray-400">插件权限</span>
+                            </div>
                             <div class="border border-gray-200 rounded-lg divide-y divide-gray-100">
-                                <div v-for="group in groupedPermissions.pluginGroups" :key="group.key" class="flex items-start">
-                                    <div class="w-24 flex-shrink-0 px-3 py-2.5 bg-gray-50/60 border-r border-gray-100 flex flex-col items-start gap-1">
-                                        <span class="text-xs font-medium text-gray-600">{{ group.label }}</span>
+                                <div v-for="group in groupedPermissions.pluginGroups" :key="group.key" class="flex items-center">
+                                    <div class="w-34 flex-shrink-0 px-3 py-2 bg-gray-50/60 border-r border-gray-100">
                                         <VortCheckbox
                                             :checked="isDialogGroupAllSelected(group)"
                                             :indeterminate="isDialogGroupPartial(group)"
                                             @change="toggleDialogGroup(group)"
-                                        />
+                                        >
+                                            <span class="text-xs font-medium text-gray-600">{{ group.label }}</span>
+                                        </VortCheckbox>
                                     </div>
-                                    <div class="flex-1 px-3 py-2.5 flex flex-wrap gap-x-3 gap-y-0.5">
+                                    <div class="flex-1 px-3 py-2 flex flex-wrap gap-x-3 gap-y-0.5">
                                         <VortCheckbox
                                             v-for="p in group.permissions" :key="p.code"
                                             :checked="roleEditForm.permissions.includes(p.code)"
