@@ -14,6 +14,7 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<{
     (e: "update:modelValue", value: Priority): void;
     (e: "change", value: Priority): void;
+    (e: "click", event: MouseEvent): void;
 }>();
 
 const priorityOptions: Array<{ label: string; value: Priority }> = [
@@ -47,6 +48,10 @@ const handleSelect = (value: Priority) => {
     emit("change", value);
     open.value = false;
 };
+
+const handleTriggerClick = (event: MouseEvent) => {
+    emit("click", event);
+};
 </script>
 
 <template>
@@ -58,7 +63,7 @@ const handleSelect = (value: Priority) => {
         :disabled="disabled"
     >
         <slot>
-            <div class="priority-cell-trigger" :class="{ 'is-disabled': disabled }">
+            <div class="priority-cell-trigger" :class="{ 'is-disabled': disabled }" @click="handleTriggerClick">
                 <span class="priority-pill" :class="priorityClassMap[modelValue]">
                     {{ priorityLabelMap[modelValue] }}
                 </span>
