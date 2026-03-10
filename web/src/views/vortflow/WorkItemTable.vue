@@ -170,6 +170,7 @@ const apiStories = ref<Array<{ id: string; title: string }>>([]);
 const storyRowsById = reactive<Record<string, RowItem>>({});
 const storyChildrenMap = reactive<Record<string, RowItem[]>>({});
 const expandedStoryIds = reactive<Record<string, boolean>>({});
+const expandingStoryIds = reactive<Record<string, boolean>>({});
 const createParentStoryId = ref("");
 const createProjectId = ref("");
 const selectedRowKeys = ref<Array<string | number>>([]);
@@ -656,10 +657,42 @@ const mapBackendItemToRow = (item: any, typeValue: WorkItemType, index: number):
     };
 };
 
+const createOwnerMatcher = (ownerValue: string) => {
+    const normalizedOwner = String(ownerValue || "").trim();
+    const ownerMemberId = normalizedOwner && normalizedOwner !== "未指派" ? getMemberIdByName(normalizedOwner) : "";
+    const matchOwner = (row: RowItem) => {
+        if (!normalizedOwner) return true;
+        if (normalizedOwner === "未指派") return !String(row.ownerId || "").trim();
+        if (ownerMemberId) return String(row.ownerId || "").trim() === ownerMemberId;
+        return row.owner === normalizedOwner;
+    };
+    return { ownerMemberId, matchOwner };
+};
+
+const getVisibleStoryRows = (rows: RowItem[], ownerValue = owner.value, statusValue = status.value) => {
+    const currentType = String(props.type ?? type.value ?? "").trim();
+    if (!props.useApi || currentType !== "需求") return rows;
+    const { matchOwner } = createOwnerMatcher(ownerValue);
+    const flattenedRows: RowItem[] = [];
+    for (const row of rows) {
+        flattenedRows.push(row);
+        const storyId = String(row.backendId || "").trim();
+        if (!storyId || !expandedStoryIds[storyId]) continue;
+        const children = (storyChildrenMap[storyId] || [])
+            .filter((child) => !statusValue || child.status === statusValue)
+            .filter(matchOwner)
+            .map((child) => ({ ...child, isChild: true }));
+        flattenedRows.push(...children);
+    }
+    return flattenedRows;
+};
+
+const postProcessTableRows = (rows: RowItem[]) => getVisibleStoryRows(rows);
+
 const request = async (params: ProTableRequestParams): Promise<ProTableResponse<RowItem>> => {
     const kw = String(params.keyword ?? "").trim().toLowerCase();
     const ownerValue = String(params.owner ?? "").trim();
-    const ownerMemberId = ownerValue && ownerValue !== "未指派" ? getMemberIdByName(ownerValue) : "";
+    const { ownerMemberId, matchOwner } = createOwnerMatcher(ownerValue);
     const typeValue = String(props.type ?? params.type ?? "").trim();
     const statusValue = String(params.status ?? "").trim();
     const current = Number(params.current || 1);
@@ -672,13 +705,6 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
             totalCount.value = 0;
             return { data: [], total: 0, current, pageSize };
         }
-
-        const matchOwner = (row: RowItem) => {
-            if (!ownerValue) return true;
-            if (ownerValue === "未指派") return !String(row.ownerId || "").trim();
-            if (ownerMemberId) return String(row.ownerId || "").trim() === ownerMemberId;
-            return row.owner === ownerValue;
-        };
         const requestByState = async (state?: string, page = current, size = pageSize) => {
             if (workType === "需求") {
                 return getVortflowStories({ keyword: kw, state, parent_id: "root", page, page_size: size });
@@ -770,21 +796,7 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
             rows = [...pinnedRows, ...rows.filter((x) => !pinnedIds.has(x.backendId || x.workNo))];
             rows = rows.slice(0, pageSize);
         }
-        if (workType === "需求") {
-            const flattenedRows: RowItem[] = [];
-            for (const row of rows) {
-                flattenedRows.push(row);
-                const storyId = String(row.backendId || "").trim();
-                if (!storyId || !expandedStoryIds[storyId]) continue;
-                const children = (storyChildrenMap[storyId] || [])
-                    .filter((child) => !statusValue || child.status === statusValue)
-                    .filter(matchOwner)
-                    .map((child) => ({ ...child, isChild: true }));
-                flattenedRows.push(...children);
-            }
-            rows = flattenedRows;
-        }
-        collectTagOptions(rows);
+        collectTagOptions(workType === "需求" ? getVisibleStoryRows(rows, ownerValue, statusValue) : rows);
         totalCount.value = totalFromApi;
         return { data: rows, total: totalFromApi, current, pageSize };
     }
@@ -941,16 +953,20 @@ const handleDetailUpdate = (data: Partial<RowItem>) => {
 const toggleStoryExpand = async (record: RowItem) => {
     if (record.type !== "需求" || !record.childrenCount || !record.backendId) return;
     const storyId = String(record.backendId);
+    if (expandingStoryIds[storyId]) return;
     if (expandedStoryIds[storyId]) {
         expandedStoryIds[storyId] = false;
-        tableRef.value?.refresh?.();
         return;
     }
     if (!storyChildrenMap[storyId]) {
-        await loadChildStories(storyId, record.projectId);
+        expandingStoryIds[storyId] = true;
+        try {
+            await loadChildStories(storyId, record.projectId);
+        } finally {
+            expandingStoryIds[storyId] = false;
+        }
     }
     expandedStoryIds[storyId] = true;
-    tableRef.value?.refresh?.();
 };
 
 const detailParentRecord = ref<RowItem | null>(null);
@@ -1936,6 +1952,7 @@ onMounted(async () => {
                 ref="tableRef"
                 :columns="columns"
                 :request="request"
+                :post-process-data="postProcessTableRows"
                 :params="queryParams"
                 :row-key="rowKeyGetter"
                 :row-selection="rowSelection"
@@ -1948,14 +1965,22 @@ onMounted(async () => {
                         <span
                             v-if="record.type === '需求' && record.childrenCount"
                             class="story-expand-toggle"
-                            :class="{ expanded: expandedStoryIds[String(record.backendId || '')] }"
+                            :class="{
+                                expanded: expandedStoryIds[String(record.backendId || '')],
+                                loading: expandingStoryIds[String(record.backendId || '')]
+                            }"
                             @click.stop="toggleStoryExpand(record)"
                         >
-                            ▶
+                            <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" aria-hidden="true" role="img" class="flex-shrink-0 iconify iconify--gitee icon-caret-down" width="1em" height="1em" preserveAspectRatio="xMidYMid meet" viewBox="0 0 16 16"><g fill="none" fill-rule="evenodd"><path d="M0 0h16v16H0z"></path><path fill="currentColor" fill-rule="nonzero" d="m10.835 7.638-2.388 2.666a.628.628 0 01-.441.196.57.57 0 01-.426-.195L5.192 7.638c-.188-.19-.24-.478-.147-.725s.313-.413.556-.413h4.793c.243 0 .462.162.556.411.093.25.058.537-.115.727z"></path></g></svg>
                         </span>
-                        <span v-else-if="record.type === '需求' && record.isChild" class="story-child-prefix">└</span>
-                        <span class="title-link-text" :class="{ 'story-child-text': record.type === '需求' && record.isChild }">{{ text }}</span>
-                        <span v-if="record.type === '需求' && record.childrenCount" class="story-children-badge">{{ record.childrenCount }}</span>
+                        <span v-else-if="record.isChild" class="story-child-indent"></span>
+                        <span v-else class="story-expand-placeholder"></span>
+                        
+                        <span class="work-type-icon" :class="getWorkItemTypeIconClass(record.type)">
+                            {{ getWorkItemTypeIconSymbol(record.type) }}
+                        </span>
+
+                        <span class="title-link-text" :class="{ 'story-child-text': record.isChild }">{{ text }}</span>
                     </VortButton>
                 </template>
 
@@ -2323,7 +2348,7 @@ onMounted(async () => {
 @reference "../../assets/styles/index.css";
 
 .title-link-cell {
-    @apply flex items-center gap-2 cursor-pointer max-w-full;
+    @apply flex items-center justify-start gap-2 cursor-pointer max-w-full !p-0 !h-auto !bg-transparent;
 }
 
 .title-link-text {
@@ -2334,22 +2359,79 @@ onMounted(async () => {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 16px;
-    margin-right: 4px;
-    color: var(--vort-text-secondary, rgba(0, 0, 0, 0.45));
+    width: 18px;
+    height: 18px;
+    color: var(--vort-text-tertiary, rgba(0, 0, 0, 0.45));
+    transition: transform 0.2s ease, color 0.2s ease;
+    flex-shrink: 0;
+}
+
+.story-expand-toggle svg {
+    width: 18px;
+    height: 18px;
+    transform: rotate(-90deg);
     transition: transform 0.2s ease;
 }
 
-.story-expand-toggle.expanded {
-    transform: rotate(90deg);
+.story-expand-toggle.expanded svg {
+    transform: rotate(0deg);
 }
 
-.story-child-prefix {
+.story-expand-toggle.expanded {
+    transform: none;
+}
+
+.story-expand-toggle.loading {
+    pointer-events: none;
+}
+
+.story-expand-toggle.loading svg {
+    animation: story-expand-spin 0.8s linear infinite;
+}
+
+.story-expand-placeholder {
+    display: inline-block;
+    width: 20px;
+    flex-shrink: 0;
+}
+
+.story-child-indent {
+    display: inline-block;
+    width: 44px;
+    flex-shrink: 0;
+}
+
+@keyframes story-expand-spin {
+    from {
+        transform: rotate(-90deg);
+    }
+    to {
+        transform: rotate(270deg);
+    }
+}
+
+.work-type-icon {
     display: inline-flex;
     align-items: center;
-    margin-right: 6px;
-    padding-left: 18px;
-    color: var(--vort-text-secondary, rgba(0, 0, 0, 0.45));
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    font-size: 12px;
+    color: #fff;
+    flex-shrink: 0;
+}
+
+.work-type-icon-demand {
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+}
+
+.work-type-icon-task {
+    background: linear-gradient(135deg, #0ea5e9 0%, #06b6d4 100%);
+}
+
+.work-type-icon-bug {
+    background: linear-gradient(135deg, #ef4444 0%, #f97316 100%);
 }
 
 .story-child-text {

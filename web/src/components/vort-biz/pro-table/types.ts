@@ -170,6 +170,7 @@ export interface ProTableResponse<T = any> {
 export interface ProTableProps<T = any> {
   columns?: ProTableColumn<T>[];
   dataSource?: T[];
+  postProcessData?: (rows: T[]) => T[];
   request?: (params: ProTableRequestParams) => Promise<ProTableResponse<T>>;
   params?: Record<string, any>;
   rowKey?: string | ((record: T) => string | number);
