@@ -268,16 +268,21 @@ async def stream_response(message_id: str, request: Request):
                     yield {"event": "interrupted", "data": "aborted"}
                 return
 
-            # 自动标题：前几轮对话动态更新标题
+            # Auto-title: use LLM to summarize for the first 5 user messages
             if msg["content"].strip() and session_id != "default":
-                info = session_store.get_session_info("web", member_id, session_id)
-                msg_count = info.get("message_count", 0)
-                if msg_count <= 6:
-                    # 用最新的用户消息更新标题，取前15字符
-                    title_text = msg["content"].strip().replace("\n", " ")[:15]
-                    if title_text:
-                        await session_store.rename_session("web", member_id, session_id, title_text)
-                        yield {"event": "title_updated", "data": json.dumps({"session_id": session_id, "title": title_text}, ensure_ascii=False)}
+                messages = await session_store.get_messages("web", member_id, session_id)
+                user_text_count = sum(
+                    1 for m in messages
+                    if m.get("role") == "user" and isinstance(m.get("content"), str)
+                )
+                if user_text_count <= 5:
+                    try:
+                        title = await session_store.auto_title(
+                            "web", member_id, session_id, llm_client=agent._llm,
+                        )
+                        yield {"event": "title_updated", "data": json.dumps({"session_id": session_id, "title": title}, ensure_ascii=False)}
+                    except Exception as e:
+                        log.warning(f"自动标题生成失败: {e}")
 
             log.info(f"流式响应完成: message_id={message_id}, member_id={member_id}, session_id={session_id}")
             yield {"event": "done", "data": "ok"}
