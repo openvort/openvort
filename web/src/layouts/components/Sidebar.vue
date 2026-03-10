@@ -3,6 +3,7 @@ import { computed, ref, watch, onUnmounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useAppStore, useUserStore, usePluginStore } from "@/stores";
 import { menuConfig, type MenuConfig } from "@/router/menus";
+import openvortLogo from "@/assets/brand/openvort-logo.png";
 import {
     Home, BarChart2, FileText, FileBarChart, Table, File, AlertTriangle,
     CheckCircle, User, Settings, ChevronDown, PanelLeftClose, PanelLeftOpen,
@@ -243,19 +244,7 @@ watch([collapsed, () => props.isMobile, () => route.path], () => {
     >
         <!-- Logo -->
         <div class="flex items-center h-[56px] px-4 border-b border-gray-100 flex-shrink-0 overflow-hidden">
-            <div class="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center flex-shrink-0">
-                <span class="text-white font-bold text-sm">O</span>
-            </div>
-            <h1
-                class="ml-3 text-[16px] font-semibold text-gray-900 whitespace-nowrap overflow-hidden"
-                :style="{
-                    maxWidth: `${156 * collapseProgress}px`,
-                    opacity: collapseProgress,
-                    transition: 'none'
-                }"
-            >
-                OpenVort
-            </h1>
+            <img :src="openvortLogo" alt="OpenVort" class="h-8 w-auto max-w-none" />
         </div>
 
         <!-- 菜单 -->

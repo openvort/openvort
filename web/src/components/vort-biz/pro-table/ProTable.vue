@@ -19,6 +19,7 @@ defineOptions({ name: "VortProTable" });
 interface Props<T = any> {
   columns?: ProTableColumn<T>[];
   dataSource?: T[];
+  postProcessData?: (rows: T[]) => T[];
   request?: (params: ProTableRequestParams) => Promise<ProTableResponse<T>>;
   params?: Record<string, any>;
   rowKey?: string | ((record: T) => string | number);
@@ -35,6 +36,7 @@ interface Props<T = any> {
 const props = withDefaults(defineProps<Props<T>>(), {
   columns: () => [],
   dataSource: () => [],
+  postProcessData: undefined,
   params: () => ({}),
   rowKey: "id",
   bordered: false,
@@ -68,9 +70,10 @@ const requestParams = ref<ProTableRequestParams>({
 });
 
 const tableData = computed<T[]>(() => {
-  return props.request
+  const rows = props.request
     ? (internalDataSource.value as unknown as T[])
     : (props.dataSource as T[]);
+  return props.postProcessData ? props.postProcessData(rows) : rows;
 });
 
 // ==================== 排序状态 ====================

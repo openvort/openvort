@@ -464,8 +464,16 @@ async def _start_service(poll_db_json: str | None, web_flag: bool | None):
                     content = msg.content
                     if is_group:
                         ctx.user_id = session_uid
+                        ctx.group_id = chat_id
                         sender_name = ctx.member.name if ctx.member else msg.sender_id
                         content = f"[{sender_name}]: {content}"
+
+                        try:
+                            from openvort.core.group_context import group_context_manager as gcm
+                            await gcm.get_or_create(chat_id, msg.channel)
+                            ctx.group_prompt = await gcm.build_group_prompt(chat_id)
+                        except Exception as e:
+                            log.warning(f"群聊上下文加载失败: {e}")
 
                     async for event in agent.process_stream_im(ctx, content):
                         yield event

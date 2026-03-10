@@ -3,6 +3,7 @@ import { ref, reactive } from "vue";
 import { z } from "zod";
 import { useRouter } from "vue-router";
 import { useUserStore } from "@/stores";
+import openvortLogo from "@/assets/brand/openvort-logo.png";
 import { User, Lock } from "lucide-vue-next";
 import { message } from "@/components/vort";
 import { login } from "@/api";
@@ -50,11 +51,8 @@ const handleLogin = async () => {
 <template>
     <div class="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
         <!-- Logo -->
-        <div class="flex items-center mb-8">
-            <div class="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center mr-3">
-                <span class="text-white font-bold text-lg">O</span>
-            </div>
-            <h1 class="text-2xl font-semibold text-gray-800">OpenVort</h1>
+        <div class="mb-8 flex justify-center">
+            <img :src="openvortLogo" alt="OpenVort" class="h-14 w-auto object-contain" />
         </div>
 
         <p class="text-gray-400 text-sm mb-8">AI 研发工作流引擎</p>

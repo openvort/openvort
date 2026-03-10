@@ -1360,7 +1360,7 @@ onMounted(() => {
                                         <span v-if="!row.roles?.length" class="text-gray-400 text-sm">-</span>
                                     </template>
                                 </VortTableColumn>
-                                <VortTableColumn label="平台绑定" :width="160">
+                                <VortTableColumn label="身份绑定" :width="160">
                                     <template #default="{ row }">
                                         <div v-if="row.platform_accounts && Object.keys(row.platform_accounts).length" class="flex flex-wrap gap-1">
                                             <VortTag v-for="(_account, platform) in row.platform_accounts" :key="platform" color="blue" :bordered="false">

@@ -44,8 +44,11 @@ export interface NewBugForm {
     type: WorkItemType;
     planTime: DateRange | [];
     project: string;
+    projectId?: string;
     iteration: string;
     version: string;
+    parentId?: string;
+    storyId?: string;
     priority: Priority | "";
     tags: string[];
     repo: string;
@@ -60,6 +63,10 @@ export interface RowItem {
     backendId?: string;
     workNo: string;
     title: string;
+    parentId?: string;
+    parentTitle?: string;
+    childrenCount?: number;
+    isChild?: boolean;
     priority: Priority;
     tags: string[];
     status: Status;
@@ -68,8 +75,12 @@ export interface RowItem {
     type: WorkItemType;
     planTime: DateRange;
     description: string;
+    ownerId?: string;
     owner: string;
     creator: string;
+    projectId?: string;
+    projectName?: string;
+    children?: RowItem[];
 }
 
 export interface DetailComment {

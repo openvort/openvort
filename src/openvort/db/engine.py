@@ -116,6 +116,12 @@ async def init_db(database_url: str) -> None:
             text("ALTER TABLE IF EXISTS flow_stories ADD COLUMN IF NOT EXISTS collaborators_json TEXT DEFAULT '[]'")
         )
         await conn.execute(
+            text("ALTER TABLE IF EXISTS flow_stories ADD COLUMN IF NOT EXISTS parent_id VARCHAR(32) REFERENCES flow_stories(id)")
+        )
+        await conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_flow_stories_parent_id ON flow_stories(parent_id)")
+        )
+        await conn.execute(
             text("ALTER TABLE IF EXISTS flow_tasks ADD COLUMN IF NOT EXISTS tags_json TEXT DEFAULT '[]'")
         )
         await conn.execute(
@@ -238,6 +244,28 @@ async def init_db(database_url: str) -> None:
         ))
         await conn.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_flow_iteration_tasks_task_id ON flow_iteration_tasks(task_id)"
+        ))
+
+    # Group chat table (group-project binding)
+    async with _engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS group_chats (
+                id VARCHAR(32) PRIMARY KEY,
+                chat_id VARCHAR(128) NOT NULL UNIQUE,
+                platform VARCHAR(16) NOT NULL,
+                name VARCHAR(200) DEFAULT '',
+                project_id VARCHAR(32),
+                bound_by VARCHAR(32),
+                bound_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT now(),
+                updated_at TIMESTAMP DEFAULT now()
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_group_chats_chat_id ON group_chats(chat_id)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_group_chats_platform ON group_chats(platform)"
         ))
 
     # Knowledge base tables (requires pgvector for kb_chunks.embedding column)

@@ -95,7 +95,7 @@ class GitHubImporter:
             if self.github_token:
                 clone_url = f"https://{self.github_token}@github.com/{owner}/{repo}.git"
 
-            log.info(f"克隆仓库: {clone_url}")
+            log.info(f"克隆仓库: {owner}/{repo}")
             result = subprocess.run(
                 ["git", "clone", "--depth", "1", clone_url, str(repo_dir)],
                 capture_output=True,

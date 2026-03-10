@@ -19,6 +19,7 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<{
     (e: "update:modelValue", value: Status): void;
     (e: "change", value: Status): void;
+    (e: "click", event: MouseEvent): void;
 }>();
 
 const statusClassMap: Record<string, string> = {
@@ -60,6 +61,10 @@ const handleSelect = (value: Status) => {
     open.value = false;
     keyword.value = "";
 };
+
+const handleTriggerClick = (event: MouseEvent) => {
+    emit("click", event);
+};
 </script>
 
 <template>
@@ -71,7 +76,7 @@ const handleSelect = (value: Status) => {
         :disabled="disabled"
     >
         <slot>
-            <div class="status-cell-trigger" :class="{ 'is-disabled': disabled }">
+            <div class="status-cell-trigger" :class="{ 'is-disabled': disabled }" @click="handleTriggerClick">
                 <span class="status-badge" :class="statusClassMap[modelValue] || ''">
                     {{ modelValue || placeholder }}
                 </span>

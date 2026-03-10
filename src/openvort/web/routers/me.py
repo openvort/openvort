@@ -12,7 +12,7 @@ from openvort.web.deps import get_db_session_factory, get_auth_service
 
 router = APIRouter()
 
-UPLOAD_DIR = Path(__file__).parent.parent.parent.parent / "web" / "dist" / "uploads" / "avatars"
+UPLOAD_DIR = Path(__file__).parent.parent.parent.parent.parent / "web" / "dist" / "uploads" / "avatars"
 
 
 # ---- 辅助 ----

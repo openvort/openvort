@@ -1,20 +1,34 @@
 <script setup lang="ts">
-import { ref, computed, reactive, onMounted } from "vue";
+import { ref, computed, reactive, onMounted, watch } from "vue";
 import { pinyin } from "pinyin-pro";
 import { Popover, message } from "@/components/vort";
 import { DownOutlined } from "@/components/vort/icons";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
+import {
+    getVortflowProjects,
+    getVortflowStories,
+    getVortgitRepos,
+    getVortgitRepoBranches,
+    getVortflowIterations,
+    getVortflowVersions,
+} from "@/api";
 import { useWorkItemCommon } from "./useWorkItemCommon";
 import type { WorkItemType, Priority, DateRange, NewBugForm } from "@/components/vort-biz/work-item/WorkItemTable.types";
 
 interface Props {
     type?: WorkItemType;
     title?: string;
+    useApi?: boolean;
+    projectId?: string;
+    parentId?: string;
 }
 
 const props = withDefaults(defineProps<Props>(), {
     type: "缺陷",
-    title: "新建缺陷"
+    title: "新建缺陷",
+    useApi: false,
+    projectId: "",
+    parentId: "",
 });
 
 const emit = defineEmits<{
@@ -56,8 +70,11 @@ const createInitialBugForm = (): NewBugForm => ({
     type: props.type,
     planTime: [],
     project: "VortMall",
+    projectId: props.projectId || "",
     iteration: "",
     version: "",
+    parentId: props.parentId || "",
+    storyId: "",
     priority: "" as any,
     tags: [],
     repo: "",
@@ -76,12 +93,47 @@ const createAssigneeKeyword = ref("");
 const createTagDropdownOpen = ref(false);
 const createTagKeyword = ref("");
 const createAttachments = ref<any[]>([]);
+const apiProjects = ref<Array<{ id: string; name: string }>>([]);
+const parentStoryOptions = ref<Array<{ id: string; title: string }>>([]);
+const apiRepos = ref<Array<{ id: string; name: string }>>([]);
+const apiBranches = ref<Array<{ name: string }>>([]);
+const apiIterations = ref<Array<{ id: string; name: string }>>([]);
+const apiVersions = ref<Array<{ id: string; name: string }>>([]);
+const branchLoading = ref(false);
 
 const projectOptions = ["VortMall", "VortAdmin", "VortCMS", "OpenVort"];
-const iterationOptions = ["Sprint 1", "Sprint 2", "Sprint 3"];
-const versionOptions = ["v1.0.0", "v1.1.0", "v1.2.0"];
-const repoOptions = ["frontend", "backend", "mobile"];
-const branchOptions = ["main", "develop", "feature/xxx"];
+const staticIterationOptions = [
+    { id: "Sprint 1", name: "Sprint 1" },
+    { id: "Sprint 2", name: "Sprint 2" },
+    { id: "Sprint 3", name: "Sprint 3" },
+];
+const staticVersionOptions = [
+    { id: "v1.0.0", name: "v1.0.0" },
+    { id: "v1.1.0", name: "v1.1.0" },
+    { id: "v1.2.0", name: "v1.2.0" },
+];
+const staticRepoOptions = [
+    { id: "frontend", name: "frontend" },
+    { id: "backend", name: "backend" },
+    { id: "mobile", name: "mobile" },
+];
+const staticBranchOptions = [
+    { name: "main" },
+    { name: "develop" },
+    { name: "feature/xxx" },
+];
+
+const createProjectOptions = computed(() => {
+    if (props.useApi && apiProjects.value.length > 0) {
+        return apiProjects.value.map((item) => item.name);
+    }
+    return projectOptions;
+});
+
+const repoSelectOptions = computed(() => (props.useApi ? apiRepos.value : staticRepoOptions));
+const branchSelectOptions = computed(() => (props.useApi ? apiBranches.value : staticBranchOptions));
+const iterationSelectOptions = computed(() => (props.useApi ? apiIterations.value : staticIterationOptions));
+const versionSelectOptions = computed(() => (props.useApi ? apiVersions.value : staticVersionOptions));
 
 type MemberSearchMeta = {
     normalizedName: string;
@@ -233,6 +285,197 @@ const filteredTagOptions = computed(() => {
     return tagOptions.filter((t) => t.includes(kw));
 });
 
+const currentCreateType = computed(() => props.type || createBugForm.type);
+
+const shouldShowParentSelector = computed(() => {
+    return currentCreateType.value === "需求";
+});
+
+const shouldShowStorySelector = computed(() => {
+    return currentCreateType.value === "任务" || currentCreateType.value === "缺陷";
+});
+
+const storySelectorPlaceholder = computed(() => "选择关联需求（可选）");
+
+const isStoryOptionValid = (storyId?: string): boolean => {
+    if (!storyId) return false;
+    return parentStoryOptions.value.some((item) => item.id === storyId);
+};
+
+const resolveSelectedProjectId = (): string => {
+    if (!apiProjects.value.length) return createBugForm.projectId || props.projectId || "";
+    const selected = String(createBugForm.project || "").trim();
+    const match = apiProjects.value.find((item) => item.name === selected || item.id === selected);
+    if (match) return match.id;
+    if (createBugForm.projectId && apiProjects.value.some((item) => item.id === createBugForm.projectId)) {
+        return createBugForm.projectId;
+    }
+    return props.projectId || apiProjects.value[0]?.id || "";
+};
+
+const loadApiProjects = async () => {
+    if (!props.useApi) return;
+    const res: any = await getVortflowProjects();
+    apiProjects.value = ((res?.items || []) as any[]).map((item) => ({
+        id: String(item.id || ""),
+        name: String(item.name || item.id || ""),
+    })).filter((item) => item.id && item.name);
+    const initialProjectId = props.projectId || createBugForm.projectId || apiProjects.value[0]?.id || "";
+    if (!initialProjectId) return;
+    const matchedProject = apiProjects.value.find((item) => item.id === initialProjectId) || apiProjects.value[0];
+    if (!matchedProject) return;
+    createBugForm.projectId = matchedProject.id;
+    createBugForm.project = matchedProject.name;
+};
+
+const loadParentStoryOptions = async () => {
+    if (!props.useApi || (!shouldShowParentSelector.value && !shouldShowStorySelector.value)) {
+        parentStoryOptions.value = [];
+        createBugForm.storyId = "";
+        return;
+    }
+    const selectedProjectId = resolveSelectedProjectId();
+    if (!selectedProjectId) {
+        parentStoryOptions.value = [];
+        createBugForm.storyId = "";
+        return;
+    }
+    const res: any = await getVortflowStories({
+        project_id: selectedProjectId,
+        page: 1,
+        page_size: 100,
+    });
+    parentStoryOptions.value = ((res?.items || []) as any[]).map((item) => ({
+        id: String(item.id || ""),
+        title: String(item.title || item.id || ""),
+    })).filter((item) => item.id && item.title);
+    if (createBugForm.parentId && !parentStoryOptions.value.some((item) => item.id === createBugForm.parentId)) {
+        createBugForm.parentId = "";
+    }
+    if (createBugForm.storyId && !isStoryOptionValid(createBugForm.storyId)) {
+        createBugForm.storyId = "";
+    }
+};
+
+const loadRepos = async () => {
+    if (!props.useApi) return;
+    const selectedProjectId = resolveSelectedProjectId();
+    if (!selectedProjectId) {
+        apiRepos.value = [];
+        apiBranches.value = [];
+        createBugForm.repo = "";
+        createBugForm.branch = "";
+        return;
+    }
+    const res: any = await getVortgitRepos({
+        project_id: selectedProjectId,
+        page: 1,
+        page_size: 100,
+    });
+    apiRepos.value = ((res?.items || []) as any[])
+        .map((item) => ({
+            id: String(item.id || ""),
+            name: String(item.name || item.full_name || item.id || ""),
+        }))
+        .filter((item) => item.id && item.name);
+    if (createBugForm.repo && !apiRepos.value.some((item) => item.id === createBugForm.repo)) {
+        createBugForm.repo = "";
+        createBugForm.branch = "";
+        apiBranches.value = [];
+    }
+};
+
+const loadBranches = async (repoId?: string) => {
+    if (!props.useApi) return;
+    if (!repoId) {
+        apiBranches.value = [];
+        createBugForm.branch = "";
+        return;
+    }
+    branchLoading.value = true;
+    try {
+        const res: any = await getVortgitRepoBranches(repoId);
+        apiBranches.value = ((res?.items || []) as any[])
+            .map((item) => ({
+                name: String(item.name || ""),
+            }))
+            .filter((item) => item.name);
+        if (createBugForm.branch && !apiBranches.value.some((item) => item.name === createBugForm.branch)) {
+            createBugForm.branch = "";
+        }
+    } catch {
+        apiBranches.value = [];
+        createBugForm.branch = "";
+    } finally {
+        branchLoading.value = false;
+    }
+};
+
+const loadIterations = async () => {
+    if (!props.useApi) return;
+    const selectedProjectId = resolveSelectedProjectId();
+    if (!selectedProjectId) {
+        apiIterations.value = [];
+        createBugForm.iteration = "";
+        return;
+    }
+    const res: any = await getVortflowIterations({
+        project_id: selectedProjectId,
+        page: 1,
+        page_size: 100,
+    });
+    apiIterations.value = ((res?.items || []) as any[])
+        .map((item) => ({
+            id: String(item.id || ""),
+            name: String(item.name || item.id || ""),
+        }))
+        .filter((item) => item.id && item.name);
+    if (createBugForm.iteration && !apiIterations.value.some((item) => item.id === createBugForm.iteration)) {
+        createBugForm.iteration = "";
+    }
+};
+
+const loadVersions = async () => {
+    if (!props.useApi) return;
+    const selectedProjectId = resolveSelectedProjectId();
+    if (!selectedProjectId) {
+        apiVersions.value = [];
+        createBugForm.version = "";
+        return;
+    }
+    const res: any = await getVortflowVersions({
+        project_id: selectedProjectId,
+        page: 1,
+        page_size: 100,
+    });
+    apiVersions.value = ((res?.items || []) as any[])
+        .map((item) => ({
+            id: String(item.id || ""),
+            name: String(item.name || item.id || ""),
+        }))
+        .filter((item) => item.id && item.name);
+    if (createBugForm.version && !apiVersions.value.some((item) => item.id === createBugForm.version)) {
+        createBugForm.version = "";
+    }
+};
+
+const loadProjectLinkedOptions = async (resetSelections = false) => {
+    if (!props.useApi) return;
+    if (resetSelections) {
+        createBugForm.iteration = "";
+        createBugForm.version = "";
+        createBugForm.repo = "";
+        createBugForm.branch = "";
+        apiBranches.value = [];
+    }
+    await Promise.all([
+        loadParentStoryOptions(),
+        loadRepos(),
+        loadIterations(),
+        loadVersions(),
+    ]);
+};
+
 const createBugPlanTimeModel = computed<any>({
     get: () => (createBugForm.planTime.length === 2 ? [...createBugForm.planTime] as DateRange : undefined),
     set: (value) => {
@@ -262,6 +505,22 @@ const toggleCreateTagOption = (tag: string) => {
 
 const resetForm = () => {
     Object.assign(createBugForm, createInitialBugForm());
+    if (props.projectId) {
+        createBugForm.projectId = props.projectId;
+    }
+    if (props.useApi && apiProjects.value.length > 0) {
+        const matchedProject =
+            apiProjects.value.find((item) => item.id === createBugForm.projectId)
+            || apiProjects.value.find((item) => item.name === createBugForm.project)
+            || apiProjects.value[0];
+        if (matchedProject) {
+            createBugForm.projectId = matchedProject.id;
+            createBugForm.project = matchedProject.name;
+        }
+    }
+    if (props.parentId) {
+        createBugForm.parentId = props.parentId;
+    }
 };
 
 const submitForm = (): NewBugForm | null => {
@@ -291,6 +550,62 @@ defineExpose({
 
 onMounted(async () => {
     await loadMemberOptions();
+    if (props.useApi) {
+        await loadApiProjects();
+        await loadProjectLinkedOptions();
+        if (createBugForm.repo) {
+            await loadBranches(createBugForm.repo);
+        }
+    }
+});
+
+watch(() => props.parentId, (value) => {
+    createBugForm.parentId = value || "";
+});
+
+watch(() => props.projectId, async (value) => {
+    if (!value) return;
+    createBugForm.projectId = value;
+    const match = apiProjects.value.find((item) => item.id === value);
+    if (match && createBugForm.project !== match.name) {
+        createBugForm.project = match.name;
+    }
+    await loadProjectLinkedOptions(true);
+});
+
+watch(() => createBugForm.project, async (_value, oldValue) => {
+    if (!props.useApi) return;
+    const previousProjectId = createBugForm.projectId;
+    createBugForm.projectId = resolveSelectedProjectId();
+    const projectChanged = oldValue !== undefined && previousProjectId !== createBugForm.projectId;
+    await loadProjectLinkedOptions(projectChanged);
+});
+
+watch(() => createBugForm.type, async (value) => {
+    if (value === "需求") {
+        createBugForm.storyId = "";
+        await loadParentStoryOptions();
+        return;
+    }
+    createBugForm.parentId = "";
+    if (value === "任务" || value === "缺陷") {
+        await loadParentStoryOptions();
+        return;
+    }
+    createBugForm.storyId = "";
+    parentStoryOptions.value = [];
+});
+
+watch(() => createBugForm.repo, async (value, oldValue) => {
+    if (!props.useApi) return;
+    if (value === oldValue) return;
+    if (!value) {
+        apiBranches.value = [];
+        createBugForm.branch = "";
+        return;
+    }
+    createBugForm.branch = "";
+    await loadBranches(value);
 });
 </script>
 
@@ -425,6 +740,32 @@ onMounted(async () => {
                         <vort-select-option value="任务">任务</vort-select-option>
                     </vort-select>
                 </div>
+                <div v-if="shouldShowParentSelector" class="create-bug-field">
+                    <label class="create-bug-label">父需求</label>
+                    <vort-select v-model="createBugForm.parentId" placeholder="选择父需求" allow-clear>
+                        <vort-select-option value="">无</vort-select-option>
+                        <vort-select-option
+                            v-for="item in parentStoryOptions"
+                            :key="item.id"
+                            :value="item.id"
+                        >
+                            {{ item.title }}
+                        </vort-select-option>
+                    </vort-select>
+                </div>
+                <div v-if="shouldShowStorySelector" class="create-bug-field">
+                    <label class="create-bug-label">关联需求</label>
+                    <vort-select v-model="createBugForm.storyId" :placeholder="storySelectorPlaceholder" allow-clear>
+                        <vort-select-option value="">无</vort-select-option>
+                        <vort-select-option
+                            v-for="item in parentStoryOptions"
+                            :key="`story-${item.id}`"
+                            :value="item.id"
+                        >
+                            {{ item.title }}
+                        </vort-select-option>
+                    </vort-select>
+                </div>
             </div>
 
             <div class="create-bug-row">
@@ -441,7 +782,7 @@ onMounted(async () => {
                 <div class="create-bug-field">
                     <label class="create-bug-label">关联项目</label>
                     <vort-select v-model="createBugForm.project">
-                        <vort-select-option v-for="item in projectOptions" :key="item" :value="item">{{ item }}</vort-select-option>
+                        <vort-select-option v-for="item in createProjectOptions" :key="item" :value="item">{{ item }}</vort-select-option>
                     </vort-select>
                 </div>
             </div>
@@ -450,13 +791,13 @@ onMounted(async () => {
                 <div class="create-bug-field">
                     <label class="create-bug-label">迭代</label>
                     <vort-select v-model="createBugForm.iteration" placeholder="选择迭代" allow-clear>
-                        <vort-select-option v-for="item in iterationOptions" :key="item" :value="item">{{ item }}</vort-select-option>
+                        <vort-select-option v-for="item in iterationSelectOptions" :key="item.id" :value="item.id">{{ item.name }}</vort-select-option>
                     </vort-select>
                 </div>
                 <div class="create-bug-field">
                     <label class="create-bug-label">版本</label>
                     <vort-select v-model="createBugForm.version" placeholder="选择版本" allow-clear>
-                        <vort-select-option v-for="item in versionOptions" :key="item" :value="item">{{ item }}</vort-select-option>
+                        <vort-select-option v-for="item in versionSelectOptions" :key="item.id" :value="item.id">{{ item.name }}</vort-select-option>
                     </vort-select>
                 </div>
             </div>
@@ -571,13 +912,18 @@ onMounted(async () => {
             <div class="create-bug-field">
                 <label class="create-bug-label">关联仓库</label>
                 <vort-select v-model="createBugForm.repo" placeholder="选择仓库" allow-clear>
-                    <vort-select-option v-for="item in repoOptions" :key="item" :value="item">{{ item }}</vort-select-option>
+                    <vort-select-option v-for="item in repoSelectOptions" :key="item.id" :value="item.id">{{ item.name }}</vort-select-option>
                 </vort-select>
             </div>
             <div class="create-bug-field">
                 <label class="create-bug-label">关联分支</label>
-                <vort-select v-model="createBugForm.branch" placeholder="选择分支" allow-clear>
-                    <vort-select-option v-for="item in branchOptions" :key="item" :value="item">{{ item }}</vort-select-option>
+                <vort-select
+                    v-model="createBugForm.branch"
+                    :placeholder="createBugForm.repo ? (branchLoading ? '分支加载中' : '选择分支') : '请先选择仓库'"
+                    :disabled="!createBugForm.repo"
+                    allow-clear
+                >
+                    <vort-select-option v-for="item in branchSelectOptions" :key="item.name" :value="item.name">{{ item.name }}</vort-select-option>
                 </vort-select>
             </div>
             <div class="create-bug-field">

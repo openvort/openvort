@@ -42,6 +42,9 @@ class FlowStory(Base):
     description: Mapped[str] = mapped_column(Text, default="")
     state: Mapped[str] = mapped_column(String(32), default="intake", index=True)
     priority: Mapped[int] = mapped_column(Integer, default=3)  # 1=紧急 2=高 3=中 4=低
+    parent_id: Mapped[str | None] = mapped_column(
+        String(32), ForeignKey("flow_stories.id"), nullable=True, index=True
+    )
     submitter_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("members.id"), nullable=True)
     pm_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("members.id"), nullable=True)
     designer_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("members.id"), nullable=True)

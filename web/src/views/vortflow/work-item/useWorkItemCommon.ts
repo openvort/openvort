@@ -34,24 +34,15 @@ export function useWorkItemCommon() {
         { label: "待确认", value: "待确认", icon: "○", iconClass: "text-gray-400" },
         { label: "修复中", value: "修复中", icon: "◔", iconClass: "text-blue-500" },
         { label: "已修复", value: "已修复", icon: "✓", iconClass: "text-blue-500" },
-        { label: "延期处理", value: "延期处理", icon: "▷", iconClass: "text-blue-500" },
-        { label: "设计如此", value: "设计如此", icon: "⌛", iconClass: "text-amber-500" },
-        { label: "再次打开", value: "再次打开", icon: "⚡", iconClass: "text-red-500" },
-        { label: "无法复现", value: "无法复现", icon: "!", iconClass: "text-amber-500" },
         { label: "已关闭", value: "已关闭", icon: "✓", iconClass: "text-gray-700" },
-        { label: "暂时搁置", value: "暂时搁置", icon: "⌛", iconClass: "text-slate-400" }
     ];
 
     const demandStatusFilterOptions: StatusOption[] = [
         { label: "已取消", value: "已取消", icon: "✕", iconClass: "text-red-500" },
         { label: "意向", value: "意向", icon: "○", iconClass: "text-slate-500" },
-        { label: "暂搁置", value: "暂搁置", icon: "⌛", iconClass: "text-slate-400" },
         { label: "设计中", value: "设计中", icon: "✎", iconClass: "text-indigo-500" },
         { label: "开发中", value: "开发中", icon: "◔", iconClass: "text-blue-500" },
-        { label: "开发完成", value: "开发完成", icon: "✓", iconClass: "text-cyan-600" },
         { label: "测试完成", value: "测试完成", icon: "✓", iconClass: "text-violet-600" },
-        { label: "待发布", value: "待发布", icon: "◌", iconClass: "text-amber-600" },
-        { label: "发布完成", value: "发布完成", icon: "✓", iconClass: "text-emerald-600" },
         { label: "已完成", value: "已完成", icon: "✓", iconClass: "text-emerald-700" },
     ];
 
@@ -181,7 +172,7 @@ export function useWorkItemCommon() {
                 intake: "意向", review: "意向", rejected: "已取消",
                 pm_refine: "设计中", design: "设计中", breakdown: "开发中",
                 dev_assign: "开发中", in_progress: "开发中", testing: "测试完成",
-                bugfix: "开发中", done: "已完成", closed: "发布完成",
+                bugfix: "开发中", done: "已完成",
             };
             return map[normalized] || "意向";
         }
@@ -193,11 +184,12 @@ export function useWorkItemCommon() {
             return map[normalized] || "待办的";
         }
         const map: Record<string, Status> = {
-            intake: "待确认", review: "待确认", rejected: "暂时搁置",
-            pm_refine: "设计如此", design: "延期处理", breakdown: "待确认",
-            dev_assign: "待确认", in_progress: "修复中", testing: "延期处理",
-            bugfix: "再次打开", done: "已修复", todo: "待确认", closed: "已关闭",
-            open: "待确认", confirmed: "待确认", fixing: "修复中", resolved: "已修复", verified: "已关闭",
+            open: "待确认",
+            confirmed: "待确认",
+            fixing: "修复中",
+            resolved: "已修复",
+            verified: "已关闭",
+            closed: "已关闭",
         };
         return map[normalized] || "待确认";
     };
@@ -245,9 +237,9 @@ export function useWorkItemCommon() {
 
     const getBackendStatesByDisplayStatus = (typeValue: WorkItemType, statusValue: string): string[] | undefined => {
         const statusToStateMap: Record<WorkItemType, Partial<Record<Status, string[]>>> = {
-            需求: { 已取消: ["rejected"], 意向: ["intake", "review"], 暂搁置: ["rejected"], 设计中: ["pm_refine", "design"], 开发中: ["breakdown", "dev_assign", "in_progress", "bugfix"], 开发完成: ["testing"], 测试完成: ["testing"], 待发布: ["done"], 发布完成: ["done"], 已完成: ["done"] },
-            任务: { 待办的: ["todo"], 进行中: ["in_progress", "fixing"], 已完成: ["done"], 已取消: ["closed"] },
-            缺陷: { 待确认: ["open", "confirmed"], 修复中: ["fixing"], 已修复: ["resolved"], 已关闭: ["closed"], 再次打开: ["open"] },
+            需求: { 已取消: ["rejected"], 意向: ["intake", "review"], 设计中: ["pm_refine", "design"], 开发中: ["breakdown", "dev_assign", "in_progress", "bugfix"], 测试完成: ["testing"], 已完成: ["done"] },
+            任务: { 待办的: ["todo"], 进行中: ["in_progress"], 已完成: ["done"], 已取消: ["closed"] },
+            缺陷: { 待确认: ["open", "confirmed"], 修复中: ["fixing"], 已修复: ["resolved"], 已关闭: ["verified", "closed"] },
         };
         return statusToStateMap[typeValue]?.[statusValue as Status];
     };

@@ -13,7 +13,7 @@ import WorkItemDetail from "./work-item/WorkItemDetail.vue";
 import WorkItemCreate from "./work-item/WorkItemCreate.vue";
 import { useWorkItemCommon } from "./work-item/useWorkItemCommon";
 import {
-    getVortflowStories, getVortflowTasks, getVortflowBugs,
+    getVortflowStory, getVortflowStories, getVortflowTasks, getVortflowBugs,
     getVortflowProjects, createVortflowStory, createVortflowTask, createVortflowBug,
     deleteVortflowStory, deleteVortflowTask, deleteVortflowBug,
     updateVortflowStory, updateVortflowTask, updateVortflowBug
@@ -98,7 +98,7 @@ const createBugDrawerOpen = computed({
     },
     set: (val: boolean) => {
         if (!val) {
-            router.replace({ query: { ...route.query, action: undefined, id: undefined } });
+            router.replace({ query: { ...route.query, action: undefined, id: undefined, parentId: undefined } });
         }
     }
 });
@@ -151,8 +151,10 @@ const createInitialBugForm = (): NewBugForm => ({
     type: props.type ?? "缺陷",
     planTime: [],
     project: "VortMall",
+    projectId: "",
     iteration: "",
     version: "",
+    parentId: "",
     priority: "",
     tags: [],
     repo: "",
@@ -165,6 +167,12 @@ const createInitialBugForm = (): NewBugForm => ({
 const createBugForm = reactive<NewBugForm>(createInitialBugForm());
 const apiProjects = ref<Array<{ id: string; name: string }>>([]);
 const apiStories = ref<Array<{ id: string; title: string }>>([]);
+const storyRowsById = reactive<Record<string, RowItem>>({});
+const storyChildrenMap = reactive<Record<string, RowItem[]>>({});
+const expandedStoryIds = reactive<Record<string, boolean>>({});
+const expandingStoryIds = reactive<Record<string, boolean>>({});
+const createParentStoryId = ref("");
+const createProjectId = ref("");
 const selectedRowKeys = ref<Array<string | number>>([]);
 const selectedRows = ref<RowItem[]>([]);
 const pinnedRowsByType = reactive<Record<WorkItemType, RowItem[]>>({
@@ -198,7 +206,7 @@ const newTagName = ref("");
 const newTagColor = ref<string>("");
 const newTagTargetRecord = ref<RowItem | null>(null);
 const newTagTargetText = ref<string[] | undefined>(undefined);
-const planTimeModel = reactive<Record<string, DateRange>>({});
+const planTimeModel = reactive<Record<string, any>>({});
 const typeGroupOpen = reactive<Record<WorkItemType, boolean>>({
     需求: true,
     任务: true,
@@ -552,6 +560,51 @@ const prependPinnedRow = (typeValue: WorkItemType, row: RowItem) => {
     pinnedRowsByType[typeValue] = [row, ...list.filter((x) => (x.backendId || x.workNo) !== rowId)];
 };
 
+const cacheStoryRows = (rows: RowItem[]) => {
+    for (const row of rows) {
+        if (row.type !== "需求" || !row.backendId) continue;
+        storyRowsById[row.backendId] = row;
+    }
+};
+
+const findStoryRowById = (storyId?: string): RowItem | null => {
+    if (!storyId) return null;
+    return storyRowsById[storyId] || null;
+};
+
+const loadStoryById = async (storyId?: string): Promise<RowItem | null> => {
+    if (!storyId) return null;
+    const cached = findStoryRowById(storyId);
+    if (cached) return cached;
+    try {
+        const res: any = await getVortflowStory(storyId);
+        if (!res?.id) return null;
+        const row = mapBackendItemToRow(res, "需求", 0);
+        storyRowsById[storyId] = row;
+        return row;
+    } catch {
+        return null;
+    }
+};
+
+const loadChildStories = async (parentStoryId: string, projectId?: string): Promise<RowItem[]> => {
+    if (!parentStoryId) return [];
+    const res: any = await getVortflowStories({
+        parent_id: parentStoryId,
+        project_id: projectId,
+        page: 1,
+        page_size: 100,
+    });
+    const rows = ((res?.items || []) as any[]).map((item, index) => {
+        const row = mapBackendItemToRow(item, "需求", index);
+        row.isChild = true;
+        return row;
+    });
+    cacheStoryRows(rows);
+    storyChildrenMap[parentStoryId] = rows;
+    return rows;
+};
+
 const mapBackendItemToRow = (item: any, typeValue: WorkItemType, index: number): RowItem => {
     const created = item?.created_at ? new Date(item.created_at) : new Date();
     const createdAt = formatCnTime(created);
@@ -560,10 +613,9 @@ const mapBackendItemToRow = (item: any, typeValue: WorkItemType, index: number):
     const workNo = `#${backendId.replace(/-/g, "").slice(0, 6).toUpperCase().padEnd(6, "X")}`;
     const ownerSourceId = String(item?.assignee_id || item?.pm_id || item?.developer_id || "").trim();
     const ownerSourceName = getMemberNameById(ownerSourceId);
-    const ownerSeed = ownerSourceId || `${backendId}-owner`;
     const creatorSeed = String(item?.reporter_id || `${backendId}-creator`);
     const collabSeed = String(item?.story_id || item?.task_id || `${backendId}-collab`);
-    const ownerName = ownerSourceName || pickStableRandomPerson(ownerSeed);
+    const ownerName = ownerSourceName || (ownerSourceId ? ownerSourceId : "未指派");
     const creatorName = pickStableRandomPerson(creatorSeed);
     const collaboratorName = pickStableRandomPerson(collabSeed);
     const fallbackCollaborator = pickStableRandomPerson(`${collabSeed}-alt`);
@@ -585,6 +637,10 @@ const mapBackendItemToRow = (item: any, typeValue: WorkItemType, index: number):
         backendId,
         workNo,
         title: getBackendDisplayTitle(String(item?.title || ""), typeValue, index),
+        parentId: item?.parent_id ? String(item.parent_id) : "",
+        parentTitle: "",
+        childrenCount: Number(item?.children_count || 0),
+        isChild: Boolean(item?.parent_id),
         priority: mapBackendPriority(item, typeValue),
         tags,
         status: mapBackendStateToStatus(typeValue, String(item?.state || "")),
@@ -593,14 +649,50 @@ const mapBackendItemToRow = (item: any, typeValue: WorkItemType, index: number):
         type: typeValue,
         planTime: [planDate, planDate],
         description: item?.description || "",
+        ownerId: ownerSourceId,
         owner: ownerName,
         creator: creatorName,
+        projectId: item?.project_id ? String(item.project_id) : "",
+        projectName: "",
     };
 };
+
+const createOwnerMatcher = (ownerValue: string) => {
+    const normalizedOwner = String(ownerValue || "").trim();
+    const ownerMemberId = normalizedOwner && normalizedOwner !== "未指派" ? getMemberIdByName(normalizedOwner) : "";
+    const matchOwner = (row: RowItem) => {
+        if (!normalizedOwner) return true;
+        if (normalizedOwner === "未指派") return !String(row.ownerId || "").trim();
+        if (ownerMemberId) return String(row.ownerId || "").trim() === ownerMemberId;
+        return row.owner === normalizedOwner;
+    };
+    return { ownerMemberId, matchOwner };
+};
+
+const getVisibleStoryRows = (rows: RowItem[], ownerValue = owner.value, statusValue = status.value) => {
+    const currentType = String(props.type ?? type.value ?? "").trim();
+    if (!props.useApi || currentType !== "需求") return rows;
+    const { matchOwner } = createOwnerMatcher(ownerValue);
+    const flattenedRows: RowItem[] = [];
+    for (const row of rows) {
+        flattenedRows.push(row);
+        const storyId = String(row.backendId || "").trim();
+        if (!storyId || !expandedStoryIds[storyId]) continue;
+        const children = (storyChildrenMap[storyId] || [])
+            .filter((child) => !statusValue || child.status === statusValue)
+            .filter(matchOwner)
+            .map((child) => ({ ...child, isChild: true }));
+        flattenedRows.push(...children);
+    }
+    return flattenedRows;
+};
+
+const postProcessTableRows = (rows: RowItem[]) => getVisibleStoryRows(rows);
 
 const request = async (params: ProTableRequestParams): Promise<ProTableResponse<RowItem>> => {
     const kw = String(params.keyword ?? "").trim().toLowerCase();
     const ownerValue = String(params.owner ?? "").trim();
+    const { ownerMemberId, matchOwner } = createOwnerMatcher(ownerValue);
     const typeValue = String(props.type ?? params.type ?? "").trim();
     const statusValue = String(params.status ?? "").trim();
     const current = Number(params.current || 1);
@@ -613,14 +705,29 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
             totalCount.value = 0;
             return { data: [], total: 0, current, pageSize };
         }
-
         const requestByState = async (state?: string, page = current, size = pageSize) => {
-            if (workType === "需求") return getVortflowStories({ keyword: kw, state, page, page_size: size });
-            if (workType === "任务") return getVortflowTasks({ keyword: kw, state, page, page_size: size });
-            return getVortflowBugs({ keyword: kw, state, page, page_size: size });
+            if (workType === "需求") {
+                return getVortflowStories({ keyword: kw, state, parent_id: "root", page, page_size: size });
+            }
+            if (workType === "任务") {
+                return getVortflowTasks({
+                    keyword: kw,
+                    state,
+                    assignee_id: ownerMemberId || undefined,
+                    page,
+                    page_size: size
+                });
+            }
+            return getVortflowBugs({
+                keyword: kw,
+                state,
+                assignee_id: ownerMemberId || undefined,
+                page,
+                page_size: size
+            });
         };
         const fetchAllItemsByState = async (state?: string): Promise<any[]> => {
-            const batchSize = 200;
+            const batchSize = 100;
             const firstRes: any = await requestByState(state, 1, batchSize);
             const allItems: any[] = [...((firstRes as any)?.items || [])];
             const total = Number((firstRes as any)?.total || allItems.length);
@@ -634,7 +741,11 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
             return allItems;
         };
         const buildRowsFromItems = (items: any[]): RowItem[] => {
-            return items.map((item: any, idx: number) => mapBackendItemToRow(item, workType, idx));
+            const rows = items.map((item: any, idx: number) => mapBackendItemToRow(item, workType, idx));
+            if (workType === "需求") {
+                cacheStoryRows(rows);
+            }
+            return rows;
         };
 
         let rows: RowItem[] = [];
@@ -654,17 +765,17 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
             const mergedItems = [...merged.values()];
             const allRows = buildRowsFromItems(mergedItems)
                 .filter((x) => !statusValue || x.status === statusValue)
-                .filter((x) => !ownerValue || x.owner === ownerValue);
+                .filter(matchOwner);
             totalFromApi = allRows.length;
             const start = (current - 1) * pageSize;
             rows = allRows.slice(start, start + pageSize);
         } else {
             const backendState = backendStates?.[0];
-            if (ownerValue) {
+            if (ownerValue && (workType === "需求" || ownerValue === "未指派" || !ownerMemberId)) {
                 const allItems = await fetchAllItemsByState(backendState);
                 const allRows = buildRowsFromItems(allItems)
                     .filter((x) => !statusValue || x.status === statusValue)
-                    .filter((x) => x.owner === ownerValue);
+                    .filter(matchOwner);
                 totalFromApi = allRows.length;
                 const start = (current - 1) * pageSize;
                 rows = allRows.slice(start, start + pageSize);
@@ -672,6 +783,7 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
                 const res: any = await requestByState(backendState, current, pageSize);
                 rows = buildRowsFromItems((res as any)?.items || []);
                 if (statusValue) rows = rows.filter((x) => x.status === statusValue);
+                if (ownerValue) rows = rows.filter(matchOwner);
                 totalFromApi = Number((res as any)?.total || rows.length);
             }
         }
@@ -679,12 +791,12 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
         if (current === 1) {
             let pinnedRows = pinnedRowsByType[workType] || [];
             if (statusValue) pinnedRows = pinnedRows.filter((x) => x.status === statusValue);
-            if (ownerValue) pinnedRows = pinnedRows.filter((x) => x.owner === ownerValue);
+            if (ownerValue) pinnedRows = pinnedRows.filter(matchOwner);
             const pinnedIds = new Set(pinnedRows.map((x) => x.backendId || x.workNo));
             rows = [...pinnedRows, ...rows.filter((x) => !pinnedIds.has(x.backendId || x.workNo))];
             rows = rows.slice(0, pageSize);
         }
-        collectTagOptions(rows);
+        collectTagOptions(workType === "需求" ? getVisibleStoryRows(rows, ownerValue, statusValue) : rows);
         totalCount.value = totalFromApi;
         return { data: rows, total: totalFromApi, current, pageSize };
     }
@@ -725,7 +837,7 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
     };
 };
 
-const tableRef = ref<InstanceType<typeof ProTable> | null>(null);
+const tableRef = ref<any>(null);
 
 const queryParams = computed(() => ({
     keyword: keyword.value,
@@ -807,13 +919,27 @@ const resetCreateBugForm = () => {
 const handleCreateBug = async () => {
     await loadApiMetadata(props.type === "任务");
     createBugDrawerMode.value = "create";
+    createParentStoryId.value = "";
+    createProjectId.value = "";
     resetCreateBugForm();
     createBugForm.type = props.type ?? createBugForm.type;
-    router.replace({ query: { ...route.query, action: "create" } });
+    router.replace({ query: { ...route.query, action: "create", parentId: undefined } });
+};
+
+const handleCreateChildStory = async (record: RowItem) => {
+    if (record.type !== "需求" || !record.backendId) return;
+    await loadApiMetadata(false);
+    createBugDrawerMode.value = "create";
+    createParentStoryId.value = String(record.backendId);
+    createProjectId.value = record.projectId || "";
+    resetCreateBugForm();
+    router.replace({ query: { ...route.query, action: "create", parentId: String(record.backendId), id: undefined } });
 };
 
 const handleCancelCreateBug = () => {
     createBugDrawerOpen.value = false;
+    createParentStoryId.value = "";
+    createProjectId.value = "";
     createBugPriorityDropdownOpen.value = false;
     createAssigneeDropdownOpen.value = false;
     createTagDropdownOpen.value = false;
@@ -831,6 +957,42 @@ const handleDetailUpdate = (data: Partial<RowItem>) => {
     if (detailCurrentRecord.value) {
         Object.assign(detailCurrentRecord.value, data);
         tableRef.value?.refresh?.();
+    }
+};
+
+const toggleStoryExpand = async (record: RowItem) => {
+    if (record.type !== "需求" || !record.childrenCount || !record.backendId) return;
+    const storyId = String(record.backendId);
+    if (expandingStoryIds[storyId]) return;
+    if (expandedStoryIds[storyId]) {
+        expandedStoryIds[storyId] = false;
+        return;
+    }
+    if (!storyChildrenMap[storyId]) {
+        expandingStoryIds[storyId] = true;
+        try {
+            await loadChildStories(storyId, record.projectId);
+        } finally {
+            expandingStoryIds[storyId] = false;
+        }
+    }
+    expandedStoryIds[storyId] = true;
+};
+
+const detailParentRecord = ref<RowItem | null>(null);
+const detailChildRecords = ref<RowItem[]>([]);
+
+const syncDetailRelations = async (record: RowItem) => {
+    if (record.type !== "需求") {
+        detailParentRecord.value = null;
+        detailChildRecords.value = [];
+        return;
+    }
+    detailParentRecord.value = await loadStoryById(record.parentId);
+    if (record.backendId && record.childrenCount) {
+        detailChildRecords.value = await loadChildStories(record.backendId, record.projectId);
+    } else {
+        detailChildRecords.value = [];
     }
 };
 
@@ -853,12 +1015,13 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
             let createdItem: any = null;
             const ownerId = getMemberIdByName(formData.owner) || undefined;
             if (type === "需求") {
-                const defaultProject = resolveCreateProjectId();
+                const defaultProject = formData.projectId || createProjectId.value || resolveCreateProjectId();
                 createdItem = await createVortflowStory({
                     project_id: defaultProject,
                     title,
                     description: formData.description || defaultBugDescription,
                     priority: formData.priority === "urgent" ? 1 : formData.priority === "high" ? 2 : formData.priority === "medium" ? 3 : 4,
+                    parent_id: formData.parentId || undefined,
                     tags: [...formData.tags],
                     collaborators: [...formData.collaborators],
                     deadline: formData.planTime?.[1] || undefined,
@@ -871,17 +1034,8 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
                     }
                 }
             } else if (type === "任务") {
-                if (!apiStories.value.length) {
-                    try {
-                        const storiesRes = await getVortflowStories({ page: 1, page_size: 100 });
-                        apiStories.value = ((storiesRes as any)?.items || []).map((x: any) => ({ id: String(x.id), title: String(x.title || x.id) }));
-                    } catch {
-                        // fallback handled below
-                    }
-                }
-                const selectedStoryId = apiStories.value[0]?.id || "";
                 createdItem = await createVortflowTask({
-                    story_id: selectedStoryId,
+                    story_id: String(formData.storyId || ""),
                     title,
                     description: formData.description || "",
                     task_type: "develop",
@@ -892,6 +1046,7 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
                 });
             } else {
                 createdItem = await createVortflowBug({
+                    story_id: formData.storyId || undefined,
                     title,
                     description: formData.description || defaultBugDescription,
                     severity: formData.priority === "urgent" ? 1 : formData.priority === "high" ? 2 : formData.priority === "medium" ? 3 : 4,
@@ -902,7 +1057,18 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
             }
             if (createdItem) {
                 const pinnedRow = mapBackendItemToRow(createdItem, type, 0);
-                prependPinnedRow(type, pinnedRow);
+                if (type === "需求" && formData.parentId) {
+                    const parentId = formData.parentId;
+                    const existingChildren = storyChildrenMap[parentId] || [];
+                    storyChildrenMap[parentId] = [{ ...pinnedRow, isChild: true }, ...existingChildren];
+                    const parentRow = storyRowsById[parentId];
+                    if (parentRow) {
+                        parentRow.childrenCount = (parentRow.childrenCount || 0) + 1;
+                    }
+                    expandedStoryIds[parentId] = true;
+                } else {
+                    prependPinnedRow(type, pinnedRow);
+                }
             }
             tableRef.value?.refresh?.();
             message.success("新建成功");
@@ -931,6 +1097,9 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
     const newRow: RowItem = {
         workNo,
         title,
+        parentId: formData.parentId || "",
+        childrenCount: 0,
+        isChild: Boolean(formData.parentId),
         priority: newPriority,
         tags: [...formData.tags],
         status: "待确认",
@@ -939,8 +1108,11 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
         type: formData.type || props.type || "缺陷",
         planTime,
         description: formData.description || defaultBugDescription,
+        ownerId: "",
         owner: ownerName,
-        creator: "当前用户"
+        creator: "当前用户",
+        projectId: formData.projectId || "",
+        projectName: formData.project || "",
     };
 
     allData.value.unshift(newRow);
@@ -991,7 +1163,7 @@ const removeCreateAttachment = (id: string) => {
 
 const detailRecordSnapshot = ref<RowItem | null>(null);
 
-const handleOpenBugDetail = (record: RowItem) => {
+const handleOpenBugDetail = async (record: RowItem) => {
     detailSelectedWorkNo.value = record.workNo;
     detailRecordSnapshot.value = record;
     detailActiveTab.value = "detail";
@@ -1004,6 +1176,7 @@ const handleOpenBugDetail = (record: RowItem) => {
     detailDescEditing.value = false;
     detailDescDraft.value = "";
     ensureDetailPanelsData(record);
+    await syncDetailRelations(record);
 
     const currentPriority = getRowPriority(record, record.priority);
     const currentTags = getRowTags(record, record.tags);
@@ -1726,12 +1899,20 @@ onMounted(async () => {
     ensureOwnerGroupMapEntries();
     rebuildMockDataset();
     await loadApiMetadata(false);
+    if (props.useApi) {
+        tableRef.value?.refresh?.();
+    }
 
     // Handle route query parameters for direct access
     const action = route.query.action as string;
     const id = route.query.id as string;
+    const parentId = route.query.parentId as string;
     if (action === "create") {
-        handleCreateBug();
+        await handleCreateBug();
+        if (parentId) {
+            createParentStoryId.value = parentId;
+            createProjectId.value = findStoryRowById(parentId)?.projectId || "";
+        }
     } else if (action === "detail" && id) {
         // Find the record by workNo and open detail
         const record = allData.value.find(x => x.workNo === id);
@@ -1773,6 +1954,7 @@ onMounted(async () => {
                 ref="tableRef"
                 :columns="columns"
                 :request="request"
+                :post-process-data="postProcessTableRows"
                 :params="queryParams"
                 :row-key="rowKeyGetter"
                 :row-selection="rowSelection"
@@ -1782,7 +1964,25 @@ onMounted(async () => {
             >
                 <template #title="{ text, record }">
                     <VortButton class="title-link-cell" :title="text" variant="link" @click.stop="handleOpenBugDetail(record)">
-                        <span class="title-link-text">{{ text }}</span>
+                        <span
+                            v-if="record.type === '需求' && record.childrenCount"
+                            class="story-expand-toggle"
+                            :class="{
+                                expanded: expandedStoryIds[String(record.backendId || '')],
+                                loading: expandingStoryIds[String(record.backendId || '')]
+                            }"
+                            @click.stop="toggleStoryExpand(record)"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" aria-hidden="true" role="img" class="flex-shrink-0 iconify iconify--gitee icon-caret-down" width="1em" height="1em" preserveAspectRatio="xMidYMid meet" viewBox="0 0 16 16"><g fill="none" fill-rule="evenodd"><path d="M0 0h16v16H0z"></path><path fill="currentColor" fill-rule="nonzero" d="m10.835 7.638-2.388 2.666a.628.628 0 01-.441.196.57.57 0 01-.426-.195L5.192 7.638c-.188-.19-.24-.478-.147-.725s.313-.413.556-.413h4.793c.243 0 .462.162.556.411.093.25.058.537-.115.727z"></path></g></svg>
+                        </span>
+                        <span v-else-if="record.isChild" class="story-child-indent"></span>
+                        <span v-else class="story-expand-placeholder"></span>
+                        
+                        <span class="work-type-icon" :class="getWorkItemTypeIconClass(record.type)">
+                            {{ getWorkItemTypeIconSymbol(record.type) }}
+                        </span>
+
+                        <span class="title-link-text" :class="{ 'story-child-text': record.isChild }">{{ text }}</span>
                     </VortButton>
                 </template>
 
@@ -1857,7 +2057,7 @@ onMounted(async () => {
                                     <button
                                         type="button"
                                         class="inline-flex items-center gap-1 px-2 py-1 text-sm text-blue-600 hover:text-blue-700"
-                                        @click.stop="openCreateTagDialog"
+                                        @click.stop="openCreateTagDialog()"
                                     >
                                         <span class="text-base leading-none">+</span>
                                         <span>新建标签</span>
@@ -2062,7 +2262,7 @@ onMounted(async () => {
                             separator="~"
                             :placeholder="['开始日期', '结束日期']"
                             class="plan-time-picker"
-                            @change="(value: DateRange) => onPlanTimeChange(record, value || text)"
+                            @change="(value: any) => onPlanTimeChange(record, value || text)"
                             @click.stop
                         />
                     </div>
@@ -2081,8 +2281,12 @@ onMounted(async () => {
                     v-if="detailCurrentRecord"
                     :work-no="detailCurrentRecord.workNo"
                     :initial-data="detailCurrentRecord"
+                    :parent-record="detailParentRecord"
+                    :child-records="detailChildRecords"
                     @close="handleCancelCreateBug"
                     @update="handleDetailUpdate"
+                    @open-related="handleOpenBugDetail"
+                    @create-child="handleCreateChildStory"
                 />
             </template>
             <template v-else>
@@ -2090,6 +2294,9 @@ onMounted(async () => {
                     ref="createWorkItemRef"
                     :type="props.type"
                     :title="props.createDrawerTitle"
+                    :use-api="props.useApi"
+                    :project-id="createProjectId"
+                    :parent-id="createParentStoryId"
                     @close="handleCancelCreateBug"
                     @success="handleCreateSuccess"
                 />
@@ -2143,11 +2350,109 @@ onMounted(async () => {
 @reference "../../assets/styles/index.css";
 
 .title-link-cell {
-    @apply flex items-center gap-2 cursor-pointer max-w-full;
+    @apply flex items-center justify-start gap-2 cursor-pointer max-w-full !p-0 !h-auto !bg-transparent;
 }
 
 .title-link-text {
     @apply truncate text-blue-600 hover:underline;
+}
+
+.story-expand-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    color: var(--vort-text-tertiary, rgba(0, 0, 0, 0.45));
+    transition: transform 0.2s ease, color 0.2s ease;
+    flex-shrink: 0;
+}
+
+.story-expand-toggle svg {
+    width: 18px;
+    height: 18px;
+    transform: rotate(-90deg);
+    transition: transform 0.2s ease;
+}
+
+.story-expand-toggle.expanded svg {
+    transform: rotate(0deg);
+}
+
+.story-expand-toggle.expanded {
+    transform: none;
+}
+
+.story-expand-toggle.loading {
+    pointer-events: none;
+}
+
+.story-expand-toggle.loading svg {
+    animation: story-expand-spin 0.8s linear infinite;
+}
+
+.story-expand-placeholder {
+    display: inline-block;
+    width: 20px;
+    flex-shrink: 0;
+}
+
+.story-child-indent {
+    display: inline-block;
+    width: 44px;
+    flex-shrink: 0;
+}
+
+@keyframes story-expand-spin {
+    from {
+        transform: rotate(-90deg);
+    }
+    to {
+        transform: rotate(270deg);
+    }
+}
+
+.work-type-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    font-size: 12px;
+    color: #fff;
+    flex-shrink: 0;
+}
+
+.work-type-icon-demand {
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+}
+
+.work-type-icon-task {
+    background: linear-gradient(135deg, #0ea5e9 0%, #06b6d4 100%);
+}
+
+.work-type-icon-bug {
+    background: linear-gradient(135deg, #ef4444 0%, #f97316 100%);
+}
+
+.story-child-text {
+    padding-left: 0;
+}
+
+.story-children-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 6px;
+    margin-left: 6px;
+    border-radius: 999px;
+    background: rgba(99, 102, 241, 0.12);
+    color: #4f46e5;
+    font-size: 12px;
+    line-height: 20px;
 }
 
 .plan-time-picker {
@@ -2159,8 +2464,4 @@ onMounted(async () => {
     gap: 12px;
 }
 
-:deep(.table-cell) {
-    .vort-popover-trigger{
-    }
-}
 </style>

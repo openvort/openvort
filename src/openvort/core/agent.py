@@ -175,6 +175,9 @@ class AgentRuntime:
                 if channel_prompt:
                     system += f"\n\n# 渠道回复规范\n\n{channel_prompt}"
 
+                if ctx.group_prompt:
+                    system += f"\n\n{ctx.group_prompt}"
+
                 # 检查是否为 AI 员工，注入人设
                 if ctx.member and ctx.member.is_virtual and ctx.member.virtual_system_prompt:
                     system += f"\n\n# AI 员工人设\n\n{ctx.member.virtual_system_prompt}"
@@ -399,6 +402,8 @@ class AgentRuntime:
                 system = self._system_prompt + sender_context
                 if channel_prompt:
                     system += f"\n\n# 渠道回复规范\n\n{channel_prompt}"
+                if ctx.group_prompt:
+                    system += f"\n\n{ctx.group_prompt}"
                 if ctx.member and ctx.member.is_virtual and ctx.member.virtual_system_prompt:
                     system += f"\n\n# AI 员工人设\n\n{ctx.member.virtual_system_prompt}"
                 plugin_prompts = self._registry.get_system_prompt_extension()

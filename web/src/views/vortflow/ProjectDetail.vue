@@ -41,7 +41,7 @@ const stateColorMap: Record<string, string> = {
 };
 
 const stateLabels: Record<string, string> = {
-    intake: "录入", review: "评审", rejected: "已驳回", pm_refine: "产品完善",
+    intake: "意向", review: "评审", rejected: "已驳回", pm_refine: "产品完善",
     design: "UI 设计", breakdown: "拆分估时", dev_assign: "分配开发",
     in_progress: "进行中", testing: "测试中", bugfix: "Bug 修复", done: "已完成",
     todo: "待办", closed: "已关闭",
