@@ -22,12 +22,14 @@ class WeComContactSyncProvider(ContactSyncProvider):
     async def fetch_members(self) -> list[PlatformContact]:
         """拉取企微全量成员（从根部门递归）"""
         contacts = []
-        dept_ids = await self._get_all_department_ids()
+        dept_map = await self._get_department_map()
+        dept_ids = list(dept_map.keys())
 
         for dept_id in dept_ids:
             try:
                 users = await self._api.get_department_users(dept_id)
                 for u in users:
+                    dept_names = [dept_map.get(d, str(d)) for d in u.get("department", [])]
                     contacts.append(PlatformContact(
                         platform="wecom",
                         user_id=u.get("userid", ""),
@@ -37,7 +39,7 @@ class WeComContactSyncProvider(ContactSyncProvider):
                         phone=u.get("mobile", ""),
                         avatar_url=u.get("avatar", "") or u.get("thumb_avatar", ""),
                         position=u.get("position", ""),
-                        department=",".join(str(d) for d in u.get("department", [])),
+                        department=",".join(dept_names),
                         raw_data=u,
                     ))
             except Exception as e:
@@ -66,7 +68,7 @@ class WeComContactSyncProvider(ContactSyncProvider):
             ))
         return departments
 
-    async def _get_all_department_ids(self) -> list[int]:
-        """获取所有部门 ID"""
+    async def _get_department_map(self) -> dict[int, str]:
+        """获取部门 ID -> 名称 映射"""
         data = await self._api._request("GET", "/department/list")
-        return [d["id"] for d in data.get("department", [])]
+        return {d["id"]: d.get("name", str(d["id"])) for d in data.get("department", [])}
