@@ -48,6 +48,7 @@ export interface NewBugForm {
     iteration: string;
     version: string;
     parentId?: string;
+    storyId?: string;
     priority: Priority | "";
     tags: string[];
     repo: string;
@@ -74,6 +75,7 @@ export interface RowItem {
     type: WorkItemType;
     planTime: DateRange;
     description: string;
+    ownerId?: string;
     owner: string;
     creator: string;
     projectId?: string;

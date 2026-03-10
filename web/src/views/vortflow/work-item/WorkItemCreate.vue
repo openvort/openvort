@@ -74,6 +74,7 @@ const createInitialBugForm = (): NewBugForm => ({
     iteration: "",
     version: "",
     parentId: props.parentId || "",
+    storyId: "",
     priority: "" as any,
     tags: [],
     repo: "",
@@ -284,9 +285,22 @@ const filteredTagOptions = computed(() => {
     return tagOptions.filter((t) => t.includes(kw));
 });
 
+const currentCreateType = computed(() => props.type || createBugForm.type);
+
 const shouldShowParentSelector = computed(() => {
-    return (props.type || createBugForm.type) === "需求";
+    return currentCreateType.value === "需求";
 });
+
+const shouldShowStorySelector = computed(() => {
+    return currentCreateType.value === "任务" || currentCreateType.value === "缺陷";
+});
+
+const storySelectorPlaceholder = computed(() => "选择关联需求（可选）");
+
+const isStoryOptionValid = (storyId?: string): boolean => {
+    if (!storyId) return false;
+    return parentStoryOptions.value.some((item) => item.id === storyId);
+};
 
 const resolveSelectedProjectId = (): string => {
     if (!apiProjects.value.length) return createBugForm.projectId || props.projectId || "";
@@ -315,13 +329,15 @@ const loadApiProjects = async () => {
 };
 
 const loadParentStoryOptions = async () => {
-    if (!props.useApi || !shouldShowParentSelector.value) {
+    if (!props.useApi || (!shouldShowParentSelector.value && !shouldShowStorySelector.value)) {
         parentStoryOptions.value = [];
+        createBugForm.storyId = "";
         return;
     }
     const selectedProjectId = resolveSelectedProjectId();
     if (!selectedProjectId) {
         parentStoryOptions.value = [];
+        createBugForm.storyId = "";
         return;
     }
     const res: any = await getVortflowStories({
@@ -335,6 +351,9 @@ const loadParentStoryOptions = async () => {
     })).filter((item) => item.id && item.title);
     if (createBugForm.parentId && !parentStoryOptions.value.some((item) => item.id === createBugForm.parentId)) {
         createBugForm.parentId = "";
+    }
+    if (createBugForm.storyId && !isStoryOptionValid(createBugForm.storyId)) {
+        createBugForm.storyId = "";
     }
 };
 
@@ -563,12 +582,18 @@ watch(() => createBugForm.project, async (_value, oldValue) => {
 });
 
 watch(() => createBugForm.type, async (value) => {
-    if (value !== "需求") {
-        createBugForm.parentId = "";
-        parentStoryOptions.value = [];
+    if (value === "需求") {
+        createBugForm.storyId = "";
+        await loadParentStoryOptions();
         return;
     }
-    await loadParentStoryOptions();
+    createBugForm.parentId = "";
+    if (value === "任务" || value === "缺陷") {
+        await loadParentStoryOptions();
+        return;
+    }
+    createBugForm.storyId = "";
+    parentStoryOptions.value = [];
 });
 
 watch(() => createBugForm.repo, async (value, oldValue) => {
@@ -722,6 +747,19 @@ watch(() => createBugForm.repo, async (value, oldValue) => {
                         <vort-select-option
                             v-for="item in parentStoryOptions"
                             :key="item.id"
+                            :value="item.id"
+                        >
+                            {{ item.title }}
+                        </vort-select-option>
+                    </vort-select>
+                </div>
+                <div v-if="shouldShowStorySelector" class="create-bug-field">
+                    <label class="create-bug-label">关联需求</label>
+                    <vort-select v-model="createBugForm.storyId" :placeholder="storySelectorPlaceholder" allow-clear>
+                        <vort-select-option value="">无</vort-select-option>
+                        <vort-select-option
+                            v-for="item in parentStoryOptions"
+                            :key="`story-${item.id}`"
                             :value="item.id"
                         >
                             {{ item.title }}

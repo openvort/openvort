@@ -7,7 +7,7 @@ export interface WorkItemFiltersProps {
     keyword?: string;
     owner?: string;
     type?: WorkItemType | "";
-    status?: string[];
+    status?: string;
     pageTitle?: string;
     createButtonText?: string;
     totalCount?: number;
@@ -22,7 +22,7 @@ const props = withDefaults(defineProps<WorkItemFiltersProps>(), {
     keyword: "",
     owner: "",
     type: "",
-    status: () => [],
+    status: "",
     pageTitle: "缺陷",
     createButtonText: "+ 新建缺陷",
     totalCount: 0,
@@ -37,7 +37,7 @@ const emit = defineEmits<{
     "update:keyword": [value: string];
     "update:owner": [value: string];
     "update:type": [value: string];
-    "update:status": [value: string[]];
+    "update:status": [value: string];
     search: [];
     reset: [];
     create: [];
@@ -60,16 +60,13 @@ const type = computed({
 
 const status = computed({
     get: () => props.status,
-    set: (val: string[]) => emit("update:status", val)
+    set: (val: string) => emit("update:status", val)
 });
 
 const statusDisplayText = computed(() => {
-    if (!status.value.length) return "状态";
-    if (status.value.length === 1) {
-        const opt = props.statusOptions.find(o => o.value === status.value[0]);
-        return opt?.label || status.value[0];
-    }
-    return `${status.value.length}个状态`;
+    if (!status.value) return "状态";
+    const opt = props.statusOptions.find(o => o.value === status.value);
+    return opt?.label || status.value;
 });
 
 const ownerDropdownOpen = ref(false);
@@ -80,7 +77,6 @@ const statusDropdownOpen = ref(false);
 const statusKeyword = ref("");
 
 const ownerGroupOpen = reactive<Record<string, boolean>>({});
-const typeGroupOpen = reactive<Record<WorkItemType, boolean>>({});
 
 const filteredOwnerGroups = computed(() => {
     const kw = ownerKeyword.value.trim();
@@ -106,10 +102,6 @@ const toggleOwnerGroup = (group: string) => {
     ownerGroupOpen[group] = !ownerGroupOpen[group];
 };
 
-const toggleTypeGroup = (typeOption: WorkItemType) => {
-    typeGroupOpen[typeOption] = !typeGroupOpen[typeOption];
-};
-
 const selectOwner = (value: string) => {
     owner.value = value;
     ownerDropdownOpen.value = false;
@@ -122,22 +114,17 @@ const selectType = (value: WorkItemType) => {
     typeKeyword.value = "";
 };
 
-const toggleStatus = (value: string) => {
-    const current = [...status.value];
-    const idx = current.indexOf(value);
-    if (idx >= 0) {
-        current.splice(idx, 1);
-    } else {
-        current.push(value);
-    }
-    status.value = current;
+const selectStatus = (value: string) => {
+    status.value = value;
+    statusDropdownOpen.value = false;
+    statusKeyword.value = "";
 };
 
 const avatarBgPalette = ["#2f80ed", "#5b8ff9", "#9b59b6", "#27ae60", "#f39c12", "#e67e22", "#16a085", "#8e44ad"];
 const getAvatarBg = (name: string): string => {
     let hash = 0;
     for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-    return avatarBgPalette[Math.abs(hash) % avatarBgPalette.length];
+    return avatarBgPalette[Math.abs(hash) % avatarBgPalette.length] || avatarBgPalette[0]!;
 };
 const getAvatarLabel = (name: string) => name.slice(0, 1).toUpperCase();
 const getMemberAvatarUrl = (name: string): string => props.memberOptions.find(m => m.name === name)?.avatarUrl || "";
@@ -179,7 +166,12 @@ const onCreate = () => emit("create");
                                 @click.stop="selectOwner('')"
                             >
                                 <div class="flex items-center gap-3">
-                                    <vort-checkbox :checked="owner === ''" @click.stop style="min-height: 24px;" />
+                                    <vort-checkbox
+                                        :checked="owner === ''"
+                                        style="min-height: 24px;"
+                                        @click.stop
+                                        @update:checked="selectOwner('')"
+                                    />
                                     <span class="text-sm text-gray-700 leading-5">全部</span>
                                 </div>
                             </div>
@@ -189,7 +181,12 @@ const onCreate = () => emit("create");
                                 @click.stop="selectOwner('未指派')"
                             >
                                 <div class="flex items-center gap-3">
-                                    <vort-checkbox :checked="owner === '未指派'" @click.stop style="min-height: 24px;" />
+                                    <vort-checkbox
+                                        :checked="owner === '未指派'"
+                                        style="min-height: 24px;"
+                                        @click.stop
+                                        @update:checked="selectOwner('未指派')"
+                                    />
                                     <span class="text-sm text-gray-700 leading-5">未指派</span>
                                 </div>
                             </div>
@@ -210,7 +207,12 @@ const onCreate = () => emit("create");
                                     @click.stop="selectOwner(member)"
                                 >
                                     <div class="flex items-center gap-3">
-                                        <vort-checkbox :checked="owner === member" @click.stop style="min-height: 24px;" />
+                                        <vort-checkbox
+                                            :checked="owner === member"
+                                            style="min-height: 24px;"
+                                            @click.stop
+                                            @update:checked="selectOwner(member)"
+                                        />
                                         <span
                                             class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center overflow-hidden flex-shrink-0"
                                             :style="{ backgroundColor: getAvatarBg(member) }"
@@ -277,17 +279,33 @@ const onCreate = () => emit("create");
                         </div>
                         <div class="max-h-[220px] overflow-y-auto pr-1">
                             <div
-                                v-for="opt in filteredStatusOptions"
-                                :key="opt.value"
                                 class="w-full px-2 py-1 rounded-md hover:bg-gray-50 cursor-pointer"
-                                :class="status.includes(opt.value) ? 'bg-slate-100' : ''"
-                                @click.stop="toggleStatus(opt.value)"
+                                :class="status === '' ? 'bg-slate-100' : ''"
+                                @click.stop="selectStatus('')"
                             >
                                 <div class="flex items-center gap-3">
                                     <vort-checkbox
-                                        :checked="status.includes(opt.value)"
-                                        @click.stop="toggleStatus(opt.value)"
+                                        :checked="status === ''"
                                         style="min-height: 24px;"
+                                        @click.stop
+                                        @update:checked="selectStatus('')"
+                                    />
+                                    <span class="text-sm text-gray-700 leading-5">全部</span>
+                                </div>
+                            </div>
+                            <div
+                                v-for="opt in filteredStatusOptions"
+                                :key="opt.value"
+                                class="w-full px-2 py-1 rounded-md hover:bg-gray-50 cursor-pointer"
+                                :class="status === opt.value ? 'bg-slate-100' : ''"
+                                @click.stop="selectStatus(opt.value)"
+                            >
+                                <div class="flex items-center gap-3">
+                                    <vort-checkbox
+                                        :checked="status === opt.value"
+                                        style="min-height: 24px;"
+                                        @click.stop
+                                        @update:checked="selectStatus(opt.value)"
                                     />
                                     <span class="text-sm text-gray-700 leading-5">{{ opt.label }}</span>
                                 </div>

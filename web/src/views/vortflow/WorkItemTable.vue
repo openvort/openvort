@@ -205,7 +205,7 @@ const newTagName = ref("");
 const newTagColor = ref<string>("");
 const newTagTargetRecord = ref<RowItem | null>(null);
 const newTagTargetText = ref<string[] | undefined>(undefined);
-const planTimeModel = reactive<Record<string, DateRange>>({});
+const planTimeModel = reactive<Record<string, any>>({});
 const typeGroupOpen = reactive<Record<WorkItemType, boolean>>({
     需求: true,
     任务: true,
@@ -612,10 +612,9 @@ const mapBackendItemToRow = (item: any, typeValue: WorkItemType, index: number):
     const workNo = `#${backendId.replace(/-/g, "").slice(0, 6).toUpperCase().padEnd(6, "X")}`;
     const ownerSourceId = String(item?.assignee_id || item?.pm_id || item?.developer_id || "").trim();
     const ownerSourceName = getMemberNameById(ownerSourceId);
-    const ownerSeed = ownerSourceId || `${backendId}-owner`;
     const creatorSeed = String(item?.reporter_id || `${backendId}-creator`);
     const collabSeed = String(item?.story_id || item?.task_id || `${backendId}-collab`);
-    const ownerName = ownerSourceName || pickStableRandomPerson(ownerSeed);
+    const ownerName = ownerSourceName || (ownerSourceId ? ownerSourceId : "未指派");
     const creatorName = pickStableRandomPerson(creatorSeed);
     const collaboratorName = pickStableRandomPerson(collabSeed);
     const fallbackCollaborator = pickStableRandomPerson(`${collabSeed}-alt`);
@@ -649,6 +648,7 @@ const mapBackendItemToRow = (item: any, typeValue: WorkItemType, index: number):
         type: typeValue,
         planTime: [planDate, planDate],
         description: item?.description || "",
+        ownerId: ownerSourceId,
         owner: ownerName,
         creator: creatorName,
         projectId: item?.project_id ? String(item.project_id) : "",
@@ -659,6 +659,7 @@ const mapBackendItemToRow = (item: any, typeValue: WorkItemType, index: number):
 const request = async (params: ProTableRequestParams): Promise<ProTableResponse<RowItem>> => {
     const kw = String(params.keyword ?? "").trim().toLowerCase();
     const ownerValue = String(params.owner ?? "").trim();
+    const ownerMemberId = ownerValue && ownerValue !== "未指派" ? getMemberIdByName(ownerValue) : "";
     const typeValue = String(props.type ?? params.type ?? "").trim();
     const statusValue = String(params.status ?? "").trim();
     const current = Number(params.current || 1);
@@ -672,15 +673,35 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
             return { data: [], total: 0, current, pageSize };
         }
 
+        const matchOwner = (row: RowItem) => {
+            if (!ownerValue) return true;
+            if (ownerValue === "未指派") return !String(row.ownerId || "").trim();
+            if (ownerMemberId) return String(row.ownerId || "").trim() === ownerMemberId;
+            return row.owner === ownerValue;
+        };
         const requestByState = async (state?: string, page = current, size = pageSize) => {
             if (workType === "需求") {
                 return getVortflowStories({ keyword: kw, state, parent_id: "root", page, page_size: size });
             }
-            if (workType === "任务") return getVortflowTasks({ keyword: kw, state, page, page_size: size });
-            return getVortflowBugs({ keyword: kw, state, page, page_size: size });
+            if (workType === "任务") {
+                return getVortflowTasks({
+                    keyword: kw,
+                    state,
+                    assignee_id: ownerMemberId || undefined,
+                    page,
+                    page_size: size
+                });
+            }
+            return getVortflowBugs({
+                keyword: kw,
+                state,
+                assignee_id: ownerMemberId || undefined,
+                page,
+                page_size: size
+            });
         };
         const fetchAllItemsByState = async (state?: string): Promise<any[]> => {
-            const batchSize = 200;
+            const batchSize = 100;
             const firstRes: any = await requestByState(state, 1, batchSize);
             const allItems: any[] = [...((firstRes as any)?.items || [])];
             const total = Number((firstRes as any)?.total || allItems.length);
@@ -718,17 +739,17 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
             const mergedItems = [...merged.values()];
             const allRows = buildRowsFromItems(mergedItems)
                 .filter((x) => !statusValue || x.status === statusValue)
-                .filter((x) => !ownerValue || x.owner === ownerValue);
+                .filter(matchOwner);
             totalFromApi = allRows.length;
             const start = (current - 1) * pageSize;
             rows = allRows.slice(start, start + pageSize);
         } else {
             const backendState = backendStates?.[0];
-            if (ownerValue) {
+            if (ownerValue && (workType === "需求" || ownerValue === "未指派" || !ownerMemberId)) {
                 const allItems = await fetchAllItemsByState(backendState);
                 const allRows = buildRowsFromItems(allItems)
                     .filter((x) => !statusValue || x.status === statusValue)
-                    .filter((x) => x.owner === ownerValue);
+                    .filter(matchOwner);
                 totalFromApi = allRows.length;
                 const start = (current - 1) * pageSize;
                 rows = allRows.slice(start, start + pageSize);
@@ -736,6 +757,7 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
                 const res: any = await requestByState(backendState, current, pageSize);
                 rows = buildRowsFromItems((res as any)?.items || []);
                 if (statusValue) rows = rows.filter((x) => x.status === statusValue);
+                if (ownerValue) rows = rows.filter(matchOwner);
                 totalFromApi = Number((res as any)?.total || rows.length);
             }
         }
@@ -743,7 +765,7 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
         if (current === 1) {
             let pinnedRows = pinnedRowsByType[workType] || [];
             if (statusValue) pinnedRows = pinnedRows.filter((x) => x.status === statusValue);
-            if (ownerValue) pinnedRows = pinnedRows.filter((x) => x.owner === ownerValue);
+            if (ownerValue) pinnedRows = pinnedRows.filter(matchOwner);
             const pinnedIds = new Set(pinnedRows.map((x) => x.backendId || x.workNo));
             rows = [...pinnedRows, ...rows.filter((x) => !pinnedIds.has(x.backendId || x.workNo))];
             rows = rows.slice(0, pageSize);
@@ -756,7 +778,7 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
                 if (!storyId || !expandedStoryIds[storyId]) continue;
                 const children = (storyChildrenMap[storyId] || [])
                     .filter((child) => !statusValue || child.status === statusValue)
-                    .filter((child) => !ownerValue || child.owner === ownerValue)
+                    .filter(matchOwner)
                     .map((child) => ({ ...child, isChild: true }));
                 flattenedRows.push(...children);
             }
@@ -803,7 +825,7 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
     };
 };
 
-const tableRef = ref<InstanceType<typeof ProTable> | null>(null);
+const tableRef = ref<any>(null);
 
 const queryParams = computed(() => ({
     keyword: keyword.value,
@@ -994,17 +1016,8 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
                     }
                 }
             } else if (type === "任务") {
-                if (!apiStories.value.length) {
-                    try {
-                        const storiesRes = await getVortflowStories({ page: 1, page_size: 100 });
-                        apiStories.value = ((storiesRes as any)?.items || []).map((x: any) => ({ id: String(x.id), title: String(x.title || x.id) }));
-                    } catch {
-                        // fallback handled below
-                    }
-                }
-                const selectedStoryId = apiStories.value[0]?.id || "";
                 createdItem = await createVortflowTask({
-                    story_id: selectedStoryId,
+                    story_id: String(formData.storyId || ""),
                     title,
                     description: formData.description || "",
                     task_type: "develop",
@@ -1015,6 +1028,7 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
                 });
             } else {
                 createdItem = await createVortflowBug({
+                    story_id: formData.storyId || undefined,
                     title,
                     description: formData.description || defaultBugDescription,
                     severity: formData.priority === "urgent" ? 1 : formData.priority === "high" ? 2 : formData.priority === "medium" ? 3 : 4,
@@ -1076,6 +1090,7 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
         type: formData.type || props.type || "缺陷",
         planTime,
         description: formData.description || defaultBugDescription,
+        ownerId: "",
         owner: ownerName,
         creator: "当前用户",
         projectId: formData.projectId || "",
@@ -1866,6 +1881,9 @@ onMounted(async () => {
     ensureOwnerGroupMapEntries();
     rebuildMockDataset();
     await loadApiMetadata(false);
+    if (props.useApi) {
+        tableRef.value?.refresh?.();
+    }
 
     // Handle route query parameters for direct access
     const action = route.query.action as string;
@@ -2012,7 +2030,7 @@ onMounted(async () => {
                                     <button
                                         type="button"
                                         class="inline-flex items-center gap-1 px-2 py-1 text-sm text-blue-600 hover:text-blue-700"
-                                        @click.stop="openCreateTagDialog"
+                                        @click.stop="openCreateTagDialog()"
                                     >
                                         <span class="text-base leading-none">+</span>
                                         <span>新建标签</span>
@@ -2217,7 +2235,7 @@ onMounted(async () => {
                             separator="~"
                             :placeholder="['开始日期', '结束日期']"
                             class="plan-time-picker"
-                            @change="(value: DateRange) => onPlanTimeChange(record, value || text)"
+                            @change="(value: any) => onPlanTimeChange(record, value || text)"
                             @click.stop
                         />
                     </div>
