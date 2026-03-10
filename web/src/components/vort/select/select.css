@@ -122,6 +122,7 @@
 
 .vort-select-dropdown[data-side="bottom"][data-state="closed"] {
     animation: vort-dropdown-slide-up-out var(--vort-duration-normal, 150ms) var(--vort-ease-accelerate, cubic-bezier(0.4, 0, 1, 1)) forwards;
+    pointer-events: none;
 }
 
 /* 下拉在 trigger 上方 */
@@ -131,6 +132,7 @@
 
 .vort-select-dropdown[data-side="top"][data-state="closed"] {
     animation: vort-dropdown-slide-down-out var(--vort-duration-normal, 150ms) var(--vort-ease-accelerate, cubic-bezier(0.4, 0, 1, 1)) forwards;
+    pointer-events: none;
 }
 
 /* ========================================

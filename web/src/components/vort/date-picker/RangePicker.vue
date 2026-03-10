@@ -1292,7 +1292,12 @@ defineExpose({
         <!-- 后缀图标 -->
         <span class="vort-rangepicker-suffix">
             <!-- 清除按钮 -->
-            <span v-if="showClearButton" class="vort-rangepicker-clear" @click="handleClear" @mousedown.prevent>
+            <span
+                class="vort-rangepicker-clear"
+                :class="{ 'vort-rangepicker-clear-visible': showClearButton }"
+                @click="handleClear"
+                @mousedown.prevent
+            >
                 <CloseCircleFilled />
             </span>
         </span>
@@ -1892,14 +1897,29 @@ defineExpose({
     align-items: center;
     flex-shrink: 0;
     margin-left: 4px;
+    width: 14px;
+    height: 14px;
+    justify-content: center;
 }
 
 .vort-rangepicker-clear {
     display: flex;
     align-items: center;
+    justify-content: center;
     color: var(--vort-text-quaternary, rgba(0, 0, 0, 0.25));
     cursor: pointer;
-    transition: color var(--vort-transition-colors, 0.1s);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition:
+        color var(--vort-transition-colors, 0.1s),
+        opacity var(--vort-transition-colors, 0.1s);
+}
+
+.vort-rangepicker-clear-visible {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
 }
 
 .vort-rangepicker-clear:hover {

@@ -9,6 +9,10 @@ const fromInternal = (v: string) => (v === EMPTY_SENTINEL ? "" : v);
 // ============ 全局 Select 实例管理器（模块级别，所有实例共享） ============
 // 用于协调多个 Select 实例，确保同时只有一个打开
 const selectInstances = new Set<() => void>();
+let lastClosedSelectSelector: HTMLElement | null = null;
+let lastClosedSelectAnimationAt = 0;
+let lastGlobalPointerDownTarget: EventTarget | null = null;
+let lastGlobalPointerDownAt = 0;
 
 // 关闭所有其他 Select
 const closeAllOtherSelects = (currentClose: () => void) => {
@@ -24,8 +28,8 @@ export type { SelectProps, SelectOption, SelectOptionContext, SelectSize, Select
 </script>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, provide, ref, useAttrs } from "vue";
-import type { StyleValue } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, useAttrs } from "vue";
+import type { ComponentPublicInstance, StyleValue } from "vue";
 import type { SelectProps, SelectOption, SelectOptionContext } from "./types";
 import "./select.css";
 import {
@@ -98,6 +102,10 @@ const searchValue = ref("");
 const isHovered = ref(false);
 const isFocused = ref(false);
 const inputRef = ref<any>(null);
+const selectorRef = ref<any>(null);
+const lastOpenedAt = ref(0);
+const OPEN_FOCUS_OUTSIDE_GUARD_MS = 80;
+const CLOSED_SELECT_REF0CUS_GUARD_MS = 120;
 
 /** 获取 inputRef 底层的 DOM 元素 */
 const getInputEl = (): HTMLInputElement | null => {
@@ -105,14 +113,73 @@ const getInputEl = (): HTMLInputElement | null => {
     // 如果是组件实例，通过 $el 获取 DOM 元素
     return inputRef.value.$el ?? inputRef.value;
 };
+
+const getSelectorEl = (): HTMLElement | null => {
+    if (!selectorRef.value) return null;
+    return selectorRef.value.$el ?? selectorRef.value;
+};
+
 const triggerRef = ref<HTMLElement | null>(null);
+const setSingleSelectorRef = (el: Element | ComponentPublicInstance | null) => {
+    const resolvedEl = ((el as ComponentPublicInstance | null)?.$el ?? el) as HTMLElement | null;
+    selectorRef.value = resolvedEl;
+    triggerRef.value = resolvedEl;
+};
+
+const getOriginalEvent = (event: Event) => {
+    return ((event as CustomEvent<{ originalEvent?: Event }>).detail?.originalEvent ?? event) as Event;
+};
+
+const getEventTarget = (event: Event) => {
+    return getOriginalEvent(event).target as HTMLElement | null;
+};
+
+const isRecentlyClosedSelectRefocusTarget = (target: HTMLElement | null) => {
+    if (!target || !lastClosedSelectSelector) return false;
+    return lastClosedSelectSelector.contains(target) && Date.now() - lastClosedSelectAnimationAt < CLOSED_SELECT_REF0CUS_GUARD_MS;
+};
+
+const hasRecentUserPointerOnTarget = (target: HTMLElement | null) => {
+    if (!target || !(lastGlobalPointerDownTarget instanceof Node)) return false;
+    return Date.now() - lastGlobalPointerDownAt < CLOSED_SELECT_REF0CUS_GUARD_MS && target.contains(lastGlobalPointerDownTarget);
+};
 
 // 从子组件收集的选项
 const slotOptions = ref<SelectOption[]>([]);
 
+const resetFocusState = () => {
+    isFocused.value = false;
+
+    const inputEl = getInputEl();
+    if (inputEl && document.activeElement === inputEl) {
+        inputEl.blur();
+    }
+
+    if (triggerRef.value && document.activeElement === triggerRef.value) {
+        triggerRef.value.blur();
+    }
+
+    const blurActiveElementWithinSelect = () => {
+        const selectorEl = getSelectorEl();
+        const activeElement = document.activeElement;
+        if (selectorEl && activeElement instanceof HTMLElement && selectorEl.contains(activeElement)) {
+            activeElement.blur();
+        }
+    };
+
+    blurActiveElementWithinSelect();
+    setTimeout(() => {
+        blurActiveElementWithinSelect();
+    }, 0);
+};
+
 // 关闭当前 Select 的函数
 const closeThis = () => {
     isOpen.value = false;
+    if (props.autoClearSearchValue) {
+        searchValue.value = "";
+    }
+    resetFocusState();
 };
 
 // 注册到全局管理器
@@ -255,6 +322,9 @@ const showClearButton = computed(() => {
     return !!internalValue.value;
 });
 
+// 悬浮时才显示清除按钮，但始终保留后缀图标占位，避免布局抖动
+const isClearButtonVisible = computed(() => showClearButton.value && isHovered.value);
+
 // 是否显示占位符
 const showPlaceholder = computed(() => {
     if (isMultiple.value) {
@@ -304,6 +374,7 @@ const handleOpenChange = (open: boolean) => {
         closeAllOtherSelects(closeThis);
         shouldRenderPortal.value = true; // 打开时先渲染 Portal
         isOpen.value = true;
+        lastOpenedAt.value = Date.now();
         nextTick(() => {
             document.body.style.pointerEvents = "";
             // 自动聚焦搜索框
@@ -316,12 +387,15 @@ const handleOpenChange = (open: boolean) => {
         if (props.autoClearSearchValue) {
             searchValue.value = "";
         }
+        resetFocusState();
     }
 };
 
 // 处理关闭动画完成后移除 Portal
-const handleAnimationEnd = () => {
+const handleAnimationEnd = (event: AnimationEvent) => {
     if (!isOpen.value) {
+        lastClosedSelectSelector = getSelectorEl();
+        lastClosedSelectAnimationAt = Date.now();
         shouldRenderPortal.value = false;
     }
 };
@@ -374,7 +448,8 @@ const handleSearchInput = (val: string) => {
 };
 
 const handleFocus = (e: FocusEvent) => {
-    isFocused.value = true;
+    const target = e.target as HTMLElement | null;
+    isFocused.value = !!target?.matches?.(":focus-visible");
     emit("focus", e);
 };
 
@@ -388,6 +463,40 @@ const handleTriggerClick = () => {
     // 切换打开/关闭状态
     handleOpenChange(!isOpen.value);
 };
+
+const handleFocusOutside = (event: Event) => {
+    const target = getEventTarget(event);
+    // 当一个 Select 关闭动画尚未结束时，点击另一个 Select 会让新的弹层
+    // 在同一轮交互中收到一条误判的 focus-outside。这里只屏蔽打开后的首个短暂窗口。
+    if (isOpen.value && Date.now() - lastOpenedAt.value < OPEN_FOCUS_OUTSIDE_GUARD_MS) {
+        event.preventDefault();
+    }
+
+    // 上一个 Select 在关闭动画结束后会被内部逻辑重新聚焦，导致当前打开的 Select
+    // 收到一条伪造的 focus-outside。这里仅拦截这种“刚完成关闭动画且没有新的用户指针操作”的回焦。
+    if (isOpen.value && isRecentlyClosedSelectRefocusTarget(target) && !hasRecentUserPointerOnTarget(target)) {
+        event.preventDefault();
+
+        setTimeout(() => {
+            const activeElement = document.activeElement;
+            if (target && activeElement instanceof HTMLElement && target.contains(activeElement)) {
+                activeElement.blur();
+            }
+        }, 0);
+    }
+};
+
+onMounted(() => {
+    const handleDocumentPointerDown = (event: PointerEvent) => {
+        lastGlobalPointerDownTarget = event.target;
+        lastGlobalPointerDownAt = Date.now();
+    };
+
+    document.addEventListener("pointerdown", handleDocumentPointerDown, true);
+    onBeforeUnmount(() => {
+        document.removeEventListener("pointerdown", handleDocumentPointerDown, true);
+    });
+});
 
 // ============ 暴露方法 ============
 defineExpose({
@@ -425,6 +534,7 @@ defineExpose({
             <!-- 多选模式 -->
             <template v-if="isMultiple">
                 <TagsInputRoot
+                    ref="selectorRef"
                     v-model="internalValue as string[]"
                     :disabled="disabled"
                     :class="triggerClasses"
@@ -477,15 +587,26 @@ defineExpose({
                         <!-- 自定义后缀 -->
                         <slot name="suffix" />
 
-                        <!-- 清除按钮 -->
-                        <span v-if="showClearButton && isHovered" class="vort-select-clear" @click="handleClear" @mousedown.prevent>
-                            <CloseCircleFilled />
-                        </span>
+                        <span class="vort-select-indicator">
+                            <!-- 清除按钮 -->
+                            <span
+                                class="vort-select-clear"
+                                :class="{ 'vort-select-clear-visible': isClearButtonVisible }"
+                                @click="handleClear"
+                                @mousedown.prevent
+                            >
+                                <CloseCircleFilled />
+                            </span>
 
-                        <!-- 下拉箭头 -->
-                        <ComboboxTrigger v-else class="vort-select-arrow-wrapper" @click.stop>
-                            <DownOutlined :class="['vort-select-arrow', isOpen && 'vort-select-arrow-open']" />
-                        </ComboboxTrigger>
+                            <!-- 下拉箭头 -->
+                            <ComboboxTrigger
+                                class="vort-select-arrow-wrapper"
+                                :class="{ 'vort-select-arrow-wrapper-hidden': isClearButtonVisible }"
+                                @click.stop
+                            >
+                                <DownOutlined :class="['vort-select-arrow', isOpen && 'vort-select-arrow-open']" />
+                            </ComboboxTrigger>
+                        </span>
                     </span>
                 </TagsInputRoot>
             </template>
@@ -493,7 +614,7 @@ defineExpose({
             <!-- 单选模式 -->
             <template v-else>
                 <div
-                    ref="triggerRef"
+                    :ref="setSingleSelectorRef"
                     :class="triggerClasses"
                     :style="attrsStyle"
                     tabindex="0"
@@ -540,15 +661,26 @@ defineExpose({
                         <!-- 自定义后缀 -->
                         <slot name="suffix" />
 
-                        <!-- 清除按钮 -->
-                        <span v-if="showClearButton && isHovered" class="vort-select-clear" @click="handleClear" @mousedown.prevent>
-                            <CloseCircleFilled />
-                        </span>
+                        <span class="vort-select-indicator">
+                            <!-- 清除按钮 -->
+                            <span
+                                class="vort-select-clear"
+                                :class="{ 'vort-select-clear-visible': isClearButtonVisible }"
+                                @click="handleClear"
+                                @mousedown.prevent
+                            >
+                                <CloseCircleFilled />
+                            </span>
 
-                        <!-- 下拉箭头 -->
-                        <ComboboxTrigger v-else class="vort-select-arrow-wrapper" @click.stop>
-                            <DownOutlined :class="['vort-select-arrow', isOpen && 'vort-select-arrow-open']" />
-                        </ComboboxTrigger>
+                            <!-- 下拉箭头 -->
+                            <ComboboxTrigger
+                                class="vort-select-arrow-wrapper"
+                                :class="{ 'vort-select-arrow-wrapper-hidden': isClearButtonVisible }"
+                                @click.stop
+                            >
+                                <DownOutlined :class="['vort-select-arrow', isOpen && 'vort-select-arrow-open']" />
+                            </ComboboxTrigger>
+                        </span>
                     </span>
                 </div>
             </template>
@@ -556,7 +688,14 @@ defineExpose({
 
         <!-- 下拉内容 -->
         <ComboboxPortal v-if="shouldRenderPortal" :to="popupContainer">
-            <ComboboxContent :class="contentClasses" position="popper" :side-offset="4" :body-lock="false" @animationend="handleAnimationEnd">
+            <ComboboxContent
+                :class="contentClasses"
+                position="popper"
+                :side-offset="4"
+                :body-lock="false"
+                @focus-outside="handleFocusOutside"
+                @animationend="handleAnimationEnd"
+            >
                 <!-- 搜索框（下拉内嵌搜索，用于非 showSearch 模式下提供下拉内搜索） -->
                 <div v-if="$slots.dropdownSearch" class="vort-select-dropdown-search">
                     <slot name="dropdownSearch" />
@@ -766,16 +905,40 @@ defineExpose({
     gap: 4px;
 }
 
+.vort-select-indicator {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+}
+
 /* ========================================
    内部元素 - 清除按钮
    ======================================== */
 .vort-select-clear {
+    position: absolute;
+    inset: 0;
     display: flex;
     align-items: center;
+    justify-content: center;
     font-size: 14px;
     color: var(--vort-text-quaternary, rgba(0, 0, 0, 0.25));
     cursor: pointer;
-    transition: color var(--vort-transition-colors, 0.1s);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition:
+        color var(--vort-transition-colors, 0.1s),
+        opacity var(--vort-transition-colors, 0.1s);
+}
+
+.vort-select-clear-visible {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
 }
 
 .vort-select-clear:hover {
@@ -786,6 +949,8 @@ defineExpose({
    内部元素 - 下拉箭头
    ======================================== */
 .vort-select-arrow-wrapper {
+    position: absolute;
+    inset: 0;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -799,6 +964,13 @@ defineExpose({
     appearance: none;
     -webkit-appearance: none;
     line-height: 1;
+    transition: opacity var(--vort-transition-colors, 0.1s);
+}
+
+.vort-select-arrow-wrapper-hidden {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
 }
 
 .vort-select-arrow-wrapper:hover,
