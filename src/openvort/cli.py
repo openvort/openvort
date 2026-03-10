@@ -238,6 +238,15 @@ async def _start_service(poll_db_json: str | None, web_flag: bool | None):
     loader.load_all()
     await loader.load_all_async()
 
+    # 注入 OpenClaw 远程工作节点服务到 AI Tool
+    try:
+        from openvort.core.openclaw_node import OpenClawNodeService
+        from openvort.core.openclaw_tool import set_openclaw_tool_runtime
+        openclaw_node_service = OpenClawNodeService(session_factory)
+        set_openclaw_tool_runtime(openclaw_node_service, session_factory)
+    except Exception as e:
+        log.warning(f"OpenClaw 节点服务初始化失败: {e}")
+
     # 加载 Skill（知识注入，DB 驱动）
     from openvort.skill.loader import SkillLoader
     skill_loader = SkillLoader(registry)

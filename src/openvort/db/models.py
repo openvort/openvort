@@ -238,6 +238,26 @@ class WorkAssignment(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
+class OpenClawNode(Base):
+    """OpenClaw 远程工作节点 — AI 员工可绑定的远程执行环境"""
+
+    __tablename__ = "openclaw_nodes"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(64), index=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    gateway_url: Mapped[str] = mapped_column(String(512))  # http://192.168.1.100:18789
+    gateway_token: Mapped[str] = mapped_column(Text, default="")  # Fernet encrypted
+    status: Mapped[str] = mapped_column(String(16), default="unknown")  # online / offline / unknown
+    machine_info: Mapped[str] = mapped_column(Text, default="{}")  # JSON: {"os": "macOS", "hostname": "dev-a"}
+    last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    def __repr__(self) -> str:
+        return f"<OpenClawNode {self.id[:8]} {self.name}>"
+
+
 class VoiceProvider(Base):
     """语音服务厂商配置 - 支持 ASR（语音识别）和 TTS（语音合成）"""
 
