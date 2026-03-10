@@ -18,6 +18,139 @@ from openvort.utils.logging import get_logger
 
 log = get_logger("plugins.browser")
 
+_INTERACTIVE_ELEMENTS_LIMIT = 30
+
+_SCAN_INTERACTIVE_JS = """
+() => {
+    const selectors = 'a[href], button, input:not([type="hidden"]), textarea, select, [role="button"], [role="textbox"], [role="link"], [contenteditable="true"]';
+    const els = Array.from(document.querySelectorAll(selectors));
+    const results = [];
+    for (const el of els) {
+        const rect = el.getBoundingClientRect();
+        const visible = !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+        if (!visible) continue;
+        const tag = el.tagName.toLowerCase();
+        const type = el.getAttribute('type') || '';
+        const id = el.id ? '#' + el.id : '';
+        const cls = el.className && typeof el.className === 'string'
+            ? '.' + el.className.trim().split(/\\s+/).slice(0, 2).join('.')
+            : '';
+        const name = el.getAttribute('name') ? '[name="' + el.getAttribute('name') + '"]' : '';
+        const role = el.getAttribute('role') ? '[role="' + el.getAttribute('role') + '"]' : '';
+        const selector = id || (tag + (name || cls));
+        const text = (el.innerText || el.value || '').trim().slice(0, 40);
+        const placeholder = el.getAttribute('placeholder') || '';
+        let desc = '';
+        if (text) desc = '"' + text + '"';
+        else if (placeholder) desc = 'placeholder="' + placeholder + '"';
+        results.push({
+            tag, type, selector, desc,
+            pos: Math.round(rect.x) + ',' + Math.round(rect.y) + ' ' + Math.round(rect.width) + 'x' + Math.round(rect.height),
+        });
+        if (results.length >= """ + str(_INTERACTIVE_ELEMENTS_LIMIT) + """) break;
+    }
+    return results;
+}
+"""
+
+_SCAN_INPUT_JS = """
+() => {
+    const els = Array.from(document.querySelectorAll('input:not([type="hidden"]), textarea, [role="textbox"], [contenteditable="true"]'));
+    const results = [];
+    for (const el of els) {
+        const visible = !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+        if (!visible) continue;
+        const tag = el.tagName.toLowerCase();
+        const id = el.id ? '#' + el.id : '';
+        const name = el.getAttribute('name') ? '[name="' + el.getAttribute('name') + '"]' : '';
+        const cls = el.className && typeof el.className === 'string'
+            ? '.' + el.className.trim().split(/\\s+/).slice(0, 2).join('.')
+            : '';
+        const selector = id || (tag + (name || cls));
+        const placeholder = el.getAttribute('placeholder') || '';
+        const rect = el.getBoundingClientRect();
+        results.push({
+            tag, selector, placeholder,
+            pos: Math.round(rect.x) + ',' + Math.round(rect.y) + ' ' + Math.round(rect.width) + 'x' + Math.round(rect.height),
+        });
+        if (results.length >= 10) break;
+    }
+    return results;
+}
+"""
+
+_SCAN_CLICKABLE_JS = """
+() => {
+    const els = Array.from(document.querySelectorAll('a[href], button, input[type="submit"], input[type="button"], [role="button"]'));
+    const results = [];
+    for (const el of els) {
+        const visible = !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+        if (!visible) continue;
+        const tag = el.tagName.toLowerCase();
+        const id = el.id ? '#' + el.id : '';
+        const cls = el.className && typeof el.className === 'string'
+            ? '.' + el.className.trim().split(/\\s+/).slice(0, 2).join('.')
+            : '';
+        const text = (el.innerText || el.value || '').trim().slice(0, 40);
+        const selector = id || (tag + cls);
+        const rect = el.getBoundingClientRect();
+        results.push({
+            tag, selector, text,
+            pos: Math.round(rect.x) + ',' + Math.round(rect.y) + ' ' + Math.round(rect.width) + 'x' + Math.round(rect.height),
+        });
+        if (results.length >= 10) break;
+    }
+    return results;
+}
+"""
+
+
+async def _scan_interactive_elements(page) -> str:
+    """Scan visible interactive elements, return formatted summary."""
+    try:
+        elements = await page.evaluate(_SCAN_INTERACTIVE_JS)
+        if not elements:
+            return ""
+        lines = []
+        for i, el in enumerate(elements):
+            desc = f' ({el["desc"]})' if el.get("desc") else ""
+            type_info = f' type="{el["type"]}"' if el.get("type") else ""
+            lines.append(f"  [{i}] {el['tag']}{type_info} {el['selector']}{desc} [{el['pos']}]")
+        return "\n可交互元素:\n" + "\n".join(lines)
+    except Exception as e:
+        log.debug(f"扫描可交互元素失败: {e}")
+        return ""
+
+
+async def _scan_visible_inputs(page) -> str:
+    """Scan visible input elements for fallback suggestions."""
+    try:
+        elements = await page.evaluate(_SCAN_INPUT_JS)
+        if not elements:
+            return ""
+        lines = []
+        for el in elements:
+            ph = f' placeholder="{el["placeholder"]}"' if el.get("placeholder") else ""
+            lines.append(f"  {el['tag']} {el['selector']}{ph} [{el['pos']}]")
+        return "\n页面上可见的输入元素:\n" + "\n".join(lines)
+    except Exception:
+        return ""
+
+
+async def _scan_visible_clickables(page) -> str:
+    """Scan visible clickable elements for fallback suggestions."""
+    try:
+        elements = await page.evaluate(_SCAN_CLICKABLE_JS)
+        if not elements:
+            return ""
+        lines = []
+        for el in elements:
+            text = f' "{el["text"]}"' if el.get("text") else ""
+            lines.append(f"  {el['tag']} {el['selector']}{text} [{el['pos']}]")
+        return "\n页面上可见的可点击元素:\n" + "\n".join(lines)
+    except Exception:
+        return ""
+
 
 async def _take_screenshots(count: int = 1) -> list[str]:
     """连续截取多张页面截图，返回 base64 编码的图片列表"""
@@ -124,7 +257,9 @@ class BrowserNavigateTool(BaseTool):
             title = await page.title()
             status = resp.status if resp else "unknown"
             result = f"已导航到: {url}\n标题: {title}\n状态码: {status}"
-            # 仅在需要时截图
+            elements_summary = await _scan_interactive_elements(page)
+            if elements_summary:
+                result += elements_summary
             if screenshot_count > 0:
                 if screenshot_count > 1:
                     _output(f"正在截取 {screenshot_count} 张截图...")
@@ -312,7 +447,6 @@ class BrowserClickTool(BaseTool):
                 result = f"已点击: {selector}"
             else:
                 return "请提供 selector 或 text"
-            # 仅在需要时截图
             if screenshot_count > 0:
                 if screenshot_count > 1:
                     _output(f"正在截取 {screenshot_count} 张截图...")
@@ -322,7 +456,16 @@ class BrowserClickTool(BaseTool):
                 _output("完成")
             return result
         except Exception as e:
-            return f"点击失败: {e}"
+            target = f"文本 '{text}'" if text else f"{selector}"
+            msg = f"点击失败: {target} 元素不可见或不存在"
+            try:
+                page = await _get_page()
+                suggestions = await _scan_visible_clickables(page)
+                if suggestions:
+                    msg += suggestions + "\n建议使用上述可见元素的选择器重试。"
+            except Exception:
+                pass
+            return msg
 
 
 class BrowserTypeTool(BaseTool):
@@ -370,7 +513,6 @@ class BrowserTypeTool(BaseTool):
             _output(f"正在输入: {text}")
             await page.fill(selector, text, timeout=10000)
             result = f"已输入: {selector} = '{text}'"
-            # 仅在需要时截图
             if screenshot_count > 0:
                 if screenshot_count > 1:
                     _output(f"正在截取 {screenshot_count} 张截图...")
@@ -380,7 +522,15 @@ class BrowserTypeTool(BaseTool):
                 _output("完成")
             return result
         except Exception as e:
-            return f"输入失败: {e}"
+            msg = f"输入失败: {selector} 元素不可见或不可编辑"
+            try:
+                page = await _get_page()
+                suggestions = await _scan_visible_inputs(page)
+                if suggestions:
+                    msg += suggestions + "\n建议使用上述可见输入元素的选择器重试。"
+            except Exception:
+                pass
+            return msg
 
 
 class BrowserPlugin(BasePlugin):
@@ -413,7 +563,11 @@ class BrowserPlugin(BasePlugin):
             "- 打开网页查看内容 (browser_navigate + browser_snapshot)\n"
             "- 截取页面截图 (browser_screenshot)\n"
             "- 与页面交互：点击按钮、填写表单 (browser_click + browser_type)\n"
-            "- 适用场景：测试验证、文档查阅、页面截图\n"
+            "- 适用场景：测试验证、文档查阅、页面截图\n\n"
+            "### 操作规范\n"
+            "- browser_navigate 会返回页面上可见的可交互元素列表，**必须根据该列表选择选择器**，不要凭记忆假设页面结构\n"
+            "- 如果 browser_type 或 browser_click 失败，工具会返回页面上可见的替代元素，请根据建议选择正确的选择器重试\n"
+            "- 如果工具返回了失败信息，**必须如实告知用户操作失败**，不得编造成功结果\n"
         ]
 
     def validate_credentials(self) -> bool:
