@@ -1709,3 +1709,35 @@ export function deleteWorkAssignment(assignmentId: number) {
 export function updateWorkAssignmentStatus(assignmentId: number, status: string) {
     return request.post(`/work-assignments/${assignmentId}/update_status`, null, { params: { status } });
 }
+
+// ---- OpenClaw 节点管理 ----
+
+/** OpenClaw 节点列表 */
+export function getOpenClawNodes() {
+    return request.get("/admin/openclaw-nodes");
+}
+
+/** 创建 OpenClaw 节点 */
+export function createOpenClawNode(data: { name: string; gateway_url: string; gateway_token: string; description?: string }) {
+    return request.post("/admin/openclaw-nodes", data);
+}
+
+/** 更新 OpenClaw 节点 */
+export function updateOpenClawNode(nodeId: string, data: { name?: string; gateway_url?: string; gateway_token?: string; description?: string }) {
+    return request.put(`/admin/openclaw-nodes/${nodeId}`, data);
+}
+
+/** 删除 OpenClaw 节点 */
+export function deleteOpenClawNode(nodeId: string) {
+    return request.delete(`/admin/openclaw-nodes/${nodeId}`);
+}
+
+/** 测试 OpenClaw 节点连接 */
+export function testOpenClawNode(nodeId: string) {
+    return request.post(`/admin/openclaw-nodes/${nodeId}/test`);
+}
+
+/** 获取 OpenClaw 节点绑定的 AI 员工 */
+export function getOpenClawNodeMembers(nodeId: string) {
+    return request.get(`/admin/openclaw-nodes/${nodeId}/members`);
+}

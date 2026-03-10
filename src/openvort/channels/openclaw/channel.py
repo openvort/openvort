@@ -218,20 +218,35 @@ class OpenClawChannel(BaseChannel):
             return {"ok": False, "message": "请先配置 Gateway 地址和 Hook Token"}
         try:
             http = self._get_http()
-            resp = await http.post(
-                f"{self._gateway_url}/hooks/wake",
-                headers={
-                    "Authorization": f"Bearer {self._hook_token}",
-                    "Content-Type": "application/json",
-                },
-                json={"text": "OpenVort connection test", "mode": "now"},
-            )
-            if resp.status_code == 200:
-                return {"ok": True, "message": f"连接成功 (Gateway: {self._gateway_url})"}
-            elif resp.status_code == 401:
-                return {"ok": False, "message": "认证失败，请检查 Hook Token"}
-            else:
-                return {"ok": False, "message": f"Gateway 响应异常: {resp.status_code}"}
+            resp = await http.get(self._gateway_url)
+            if resp.status_code >= 500:
+                return {"ok": False, "message": f"Gateway 返回服务端错误: {resp.status_code}"}
+
+            hooks_ok = False
+            hooks_detail = ""
+            try:
+                hr = await http.post(
+                    f"{self._gateway_url}/hooks/agent",
+                    headers={
+                        "Authorization": f"Bearer {self._hook_token}",
+                        "Content-Type": "application/json",
+                    },
+                    json={"message": "ping", "name": "OpenVort", "type": "ping", "deliver": False},
+                )
+                if hr.status_code in (200, 202):
+                    hooks_ok = True
+                elif hr.status_code == 401:
+                    hooks_detail = "，Hooks 认证失败（请检查 Token）"
+                elif hr.status_code == 404:
+                    hooks_detail = "，Hooks 未启用（需在 openclaw.json 配置 hooks.enabled）"
+                else:
+                    hooks_detail = f"，Hooks 端点异常: {hr.status_code}"
+            except Exception:
+                hooks_detail = "，Hooks 端点检测失败"
+
+            if hooks_ok:
+                return {"ok": True, "message": f"连接成功，Hooks 可用 (Gateway: {self._gateway_url})"}
+            return {"ok": True, "message": f"Gateway 可达{hooks_detail} (Gateway: {self._gateway_url})"}
         except httpx.ConnectError:
             return {"ok": False, "message": f"无法连接到 {self._gateway_url}，请确认 OpenClaw Gateway 已启动"}
         except Exception as e:

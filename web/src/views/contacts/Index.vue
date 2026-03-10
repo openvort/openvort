@@ -14,12 +14,13 @@ import {
     removeDepartmentMember, getChannels,
     getOrgCalendar, createOrgCalendarEntry, deleteOrgCalendarEntry, syncHolidays, getWorkSettings, updateWorkSettings,
     getWebhooks,
+    getOpenClawNodes,
 } from "@/api";
 import {
     RefreshCw, Search, Shield, UserCheck, UserX, Key,
     AlertTriangle, Check, X, Link, Unlink, Lock, Trash2,
     ChevronDown, FolderTree, Plus, Pencil, UserPlus,
-    Download, Calendar, CloudDownload, Webhook, User, IdCard,
+    Download, Calendar, CloudDownload, Webhook, User, IdCard, Cpu,
 } from "lucide-vue-next";
 import { message, dialog } from "@/components/vort";
 import { DeptTree } from "@/components/vort-biz/dept-tree";
@@ -49,6 +50,7 @@ interface MemberItem {
 interface MemberDetail extends Omit<MemberItem, 'departments'> {
     avatar_url: string;
     permissions: string[];
+    openclaw_node_id: string;
     departments: { id: number; name: string }[];
     identities: {
         id: number;
@@ -256,6 +258,37 @@ const reportFrequencyOptions = [
     { value: "daily", label: "每日" },
     { value: "weekly", label: "每周" },
 ];
+
+// OpenClaw nodes for binding
+interface OpenClawNodeOption {
+    id: string;
+    name: string;
+    gateway_url: string;
+    status: string;
+}
+const openclawNodes = ref<OpenClawNodeOption[]>([]);
+const savingNodeBinding = ref(false);
+
+async function loadOpenClawNodes() {
+    try {
+        const res: any = await getOpenClawNodes();
+        openclawNodes.value = (res?.nodes || []).map((n: any) => ({
+            id: n.id, name: n.name, gateway_url: n.gateway_url, status: n.status,
+        }));
+    } catch { /* ignore */ }
+}
+
+async function handleBindOpenClawNode(memberId: string, nodeId: string) {
+    savingNodeBinding.value = true;
+    try {
+        const res: any = await updateMember(memberId, { openclaw_node_id: nodeId });
+        if (res?.success) {
+            message.success(nodeId ? "节点已绑定" : "已解除绑定");
+            await openMemberDrawer(memberId);
+        } else { message.error("绑定失败"); }
+    } catch { message.error("绑定失败"); }
+    finally { savingNodeBinding.value = false; }
+}
 
 // 向导式创建成员
 const wizardOpen = ref(false);
@@ -1089,6 +1122,7 @@ onMounted(() => {
     loadCalendar();
     loadWorkSettings();
     loadSkillOptions();
+    loadOpenClawNodes();
 });
 </script>
 
@@ -1774,6 +1808,40 @@ onMounted(() => {
                                 <Unlink :size="14" /> 暂无外部连接
                                 <router-link to="/webhooks" class="text-blue-600 hover:underline ml-1">前往配置</router-link>
                             </div>
+                        </div>
+                    </div>
+
+                    <!-- 远程工作节点（仅 AI 员工） -->
+                    <div v-if="currentMember.is_virtual" class="rounded-lg border border-gray-100 bg-white">
+                        <div class="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50/60 rounded-t-lg">
+                            <Cpu :size="15" class="text-gray-400" />
+                            <h4 class="text-sm font-semibold text-gray-700">远程工作节点</h4>
+                        </div>
+                        <div class="px-4 py-3">
+                            <VortSpin :spinning="savingNodeBinding">
+                                <VortSelect
+                                    :model-value="currentMember.openclaw_node_id || ''"
+                                    placeholder="未绑定（选择节点后可远程执行任务）"
+                                    allow-clear
+                                    style="width: 100%"
+                                    @update:model-value="(val: string) => handleBindOpenClawNode(currentMember!.id, val || '')"
+                                >
+                                    <VortSelectOption v-for="node in openclawNodes" :key="node.id" :value="node.id">
+                                        <div class="flex items-center gap-2">
+                                            <span
+                                                class="w-2 h-2 rounded-full flex-shrink-0"
+                                                :class="node.status === 'online' ? 'bg-green-500' : node.status === 'offline' ? 'bg-red-400' : 'bg-gray-300'"
+                                            />
+                                            <span>{{ node.name }}</span>
+                                            <span class="text-xs text-gray-400">{{ node.gateway_url }}</span>
+                                        </div>
+                                    </VortSelectOption>
+                                </VortSelect>
+                                <div class="mt-2 text-xs text-gray-400">
+                                    绑定后，该 AI 员工可通过 OpenClaw 在远程电脑上执行工作任务。
+                                    <router-link to="/openclaw-nodes" class="text-blue-600 hover:underline">管理节点</router-link>
+                                </div>
+                            </VortSpin>
                         </div>
                     </div>
 

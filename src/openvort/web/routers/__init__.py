@@ -28,6 +28,7 @@ from openvort.web.routers.voice_providers import router as voice_providers_route
 # 保留旧名称的别名，保持向后兼容
 virtual_roles_router = posts_router
 from openvort.web.routers.work_assignments import work_assignments_router
+from openvort.web.routers.openclaw_nodes import router as openclaw_nodes_router
 
 __all__ = [
     "auth_router",
@@ -55,4 +56,5 @@ __all__ = [
     "virtual_roles_router",  # 兼容旧名称
     "work_assignments_router",
     "voice_providers_router",
+    "openclaw_nodes_router",
 ]

@@ -51,6 +51,7 @@ const routes: RouteRecordRaw[] = [
             { path: "ai-config", name: "ai-config", component: () => import("@/views/ai-config/Index.vue"), meta: { title: "AI 配置", requiredRole: "admin" } },
             { path: "upgrade", name: "upgrade", component: () => import("@/views/upgrade/Index.vue"), meta: { title: "系统升级", requiredRole: "admin" } },
             { path: "admin/posts", name: "posts", component: () => import("@/views/admin/Posts.vue"), meta: { title: "AI 员工岗位", requiredRole: "admin" } },
+            { path: "openclaw-nodes", name: "openclaw-nodes", component: () => import("@/views/openclaw-nodes/Index.vue"), meta: { title: "OpenClaw 节点", requiredRole: "admin" } },
             { path: "models", redirect: "/ai-config" },
             { path: "settings", redirect: "/ai-config" },
             // 异常页
