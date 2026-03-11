@@ -130,6 +130,22 @@ class FeishuSettings(BaseSettings):
     api_base: str = "https://open.feishu.cn/open-apis"
 
 
+class DingTalkSettings(BaseSettings):
+    """钉钉 Channel 配置"""
+
+    model_config = SettingsConfigDict(
+        env_prefix="OPENVORT_DINGTALK_", env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore",
+    )
+
+    app_key: str = ""
+    app_secret: str = ""
+    robot_code: str = ""
+    message_type: str = "markdown"
+    card_template_id: str = ""
+    card_template_key: str = "content"
+    api_base: str = "https://api.dingtalk.com"
+
+
 class ContactsSettings(BaseSettings):
     """通讯录配置"""
 
@@ -212,6 +228,9 @@ class Settings(BaseSettings):
 
     # 飞书
     feishu: FeishuSettings = Field(default_factory=FeishuSettings)
+
+    # 钉钉
+    dingtalk: DingTalkSettings = Field(default_factory=DingTalkSettings)
 
     # 通讯录
     contacts: ContactsSettings = Field(default_factory=ContactsSettings)

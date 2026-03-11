@@ -73,6 +73,18 @@ npm run dev   # Vite dev server，默认 http://localhost:5173
 
 完整配置参考 [`.env.example`](.env.example)。
 
+钉钉渠道当前推荐使用 `Stream` 长连接模式，只需配置：
+- `OPENVORT_DINGTALK_APP_KEY`
+- `OPENVORT_DINGTALK_APP_SECRET`
+- `OPENVORT_DINGTALK_ROBOT_CODE`
+
+若要启用流式输出，还需要额外配置：
+- `OPENVORT_DINGTALK_MESSAGE_TYPE=card`
+- `OPENVORT_DINGTALK_CARD_TEMPLATE_ID`
+- `OPENVORT_DINGTALK_CARD_TEMPLATE_KEY`
+
+本期不要求公网回调地址；群聊场景默认仅在显式 `@` 机器人时处理。
+
 ## 项目结构
 
 ```
