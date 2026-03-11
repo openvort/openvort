@@ -20,6 +20,16 @@ export function uploadAvatar(file: File) {
     });
 }
 
+/** 管理员上传成员头像 */
+export function uploadMemberAvatar(memberId: string, file: File) {
+    const formData = new FormData();
+    formData.append("file", file);
+    return request.post(`/admin/members/${memberId}/avatar`, formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+        timeout: 30000,
+    });
+}
+
 /** 更新个人资料 */
 export function updateProfile(data: { name?: string; email?: string; phone?: string; position?: string; department?: string; bio?: string }) {
     return request.put("/me/profile", data);
@@ -183,6 +193,7 @@ export function createMember(data: {
     is_account?: boolean;
     is_virtual?: boolean;
     virtual_role?: string;
+    posts?: string[];
     skills?: string[];
     auto_report?: boolean;
     report_frequency?: string;
@@ -206,10 +217,12 @@ export function updateMember(id: string, data: {
     email?: string;
     phone?: string;
     position?: string;
+    bio?: string;
     status?: string;
     is_account?: boolean;
     is_virtual?: boolean;
     virtual_role?: string;
+    posts?: string[];
     skills?: string[];
     auto_report?: boolean;
     report_frequency?: string;

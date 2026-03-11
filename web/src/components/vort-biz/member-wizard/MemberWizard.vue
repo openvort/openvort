@@ -155,8 +155,10 @@ async function complete() {
     };
 
     if (formData.value.memberType === "virtual") {
+        const selectedPosts = formData.value.roles.map(role => role.trim()).filter(Boolean);
         data.is_virtual = true;
-        data.virtual_role = formData.value.roles[0] || "";
+        data.virtual_role = selectedPosts[0] || "";
+        data.posts = selectedPosts;
         data.auto_report = formData.value.autoReport;
         data.report_frequency = formData.value.reportFrequency;
     }

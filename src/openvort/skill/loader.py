@@ -756,22 +756,29 @@ class SkillLoader:
                     seen_ids.add(skill.id)
                     contents.append(content)
 
-            # 2. Subscribed public/workflow skills (non-role source)
-            result = await db.execute(
-                select(SkillModel, MemberSkill).join(
-                    MemberSkill, MemberSkill.skill_id == SkillModel.id
-                ).where(
+            # 2. Public skills: default all enabled, minus user opt-outs
+            disabled_result = await db.execute(
+                select(MemberSkill.skill_id).where(
                     MemberSkill.member_id == member_id,
-                    MemberSkill.enabled == True,  # noqa: E712
+                    MemberSkill.enabled == False,  # noqa: E712
                     ~MemberSkill.source.like("role:%"),
-                    SkillModel.enabled == True,  # noqa: E712
-                ).order_by(SkillModel.sort_order)
+                )
             )
-            for skill, ms in result.all():
-                content = ms.custom_content or skill.content
-                if content and skill.id not in seen_ids:
+            disabled_skill_ids = {row[0] for row in disabled_result.all()}
+
+            query = select(SkillModel).where(
+                SkillModel.scope == "public",
+                SkillModel.enabled == True,  # noqa: E712
+            )
+            if disabled_skill_ids:
+                query = query.where(SkillModel.id.notin_(disabled_skill_ids))
+            query = query.order_by(SkillModel.sort_order)
+
+            result = await db.execute(query)
+            for skill in result.scalars().all():
+                if skill.content and skill.id not in seen_ids:
                     seen_ids.add(skill.id)
-                    contents.append(content)
+                    contents.append(skill.content)
 
             # 3. Personal skills (scope=personal, owner_id=member_id)
             result = await db.execute(

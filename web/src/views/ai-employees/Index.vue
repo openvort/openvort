@@ -4,10 +4,12 @@ import { useRouter } from "vue-router";
 import {
     getMembers, getMember, updateMember, deleteMember, startMemberChat,
     getVirtualRoles, createVirtualRole, updateVirtualRole, deleteVirtualRole,
-    getWebhooks, getRemoteNodes,
+    getWebhooks, getRemoteNodes, uploadMemberAvatar,
 } from "@/api";
 import { message } from "@/components/vort";
 import { MemberWizard } from "@/components/vort-biz/member-wizard";
+import AvatarCropper from "vue-avatar-cropper";
+import "cropperjs/dist/cropper.min.css";
 import {
     Plus, Settings, Bot, MessageSquare, Trash2,
     Webhook, Cpu, Unlink, Pencil, Users, BarChart3, MessageCircle, Clock,
@@ -42,6 +44,7 @@ interface AIEmployee {
     virtual_role?: string;
     virtual_role_name?: string;
     post?: string;
+    posts?: string[];
     has_password: boolean;
     roles: string[];
     platform_accounts: Record<string, string>;
@@ -89,8 +92,10 @@ const stats = ref<Record<string, { total_sessions: number; today_sessions: numbe
 const detailOpen = ref(false);
 const detailLoading = ref(false);
 const currentEmployee = ref<EmployeeDetail | null>(null);
-const editForm = ref({ name: "", email: "", phone: "", position: "", virtual_role: "" });
+const editForm = ref({ name: "", email: "", phone: "", bio: "", virtual_role: "", posts: [] as string[] });
 const savingEdit = ref(false);
+const showAvatarCropper = ref(false);
+const uploadingAvatar = ref(false);
 const memberWebhooks = ref<any[]>([]);
 const remoteNodes = ref<RemoteNodeOption[]>([]);
 const savingNodeBinding = ref(false);
@@ -158,6 +163,11 @@ function getPostColor(postKey: string): string {
 function getPostName(postKey: string): string {
     const p = posts.value.find(p => p.key === postKey);
     return p?.name || postKey || "未分配岗位";
+}
+
+function getEmployeePosts(employee: Pick<AIEmployee, "posts" | "post" | "virtual_role">): string[] {
+    const raw = employee.posts?.length ? employee.posts : [employee.post || employee.virtual_role || ""];
+    return Array.from(new Set(raw.map(item => (item || "").trim()).filter(Boolean)));
 }
 
 // ---- Load data ----
@@ -235,8 +245,9 @@ async function openDetail(emp: AIEmployee) {
             name: res.name || "",
             email: res.email || "",
             phone: res.phone || "",
-            position: res.position || "",
+            bio: res.bio || "",
             virtual_role: res.post || res.virtual_role || emp.post || emp.virtual_role || "",
+            posts: getEmployeePosts(res),
         };
         try {
             const whRes: any = await getWebhooks();
@@ -251,7 +262,12 @@ async function handleSaveEdit() {
     if (!currentEmployee.value) return;
     savingEdit.value = true;
     try {
-        const res: any = await updateMember(currentEmployee.value.id, editForm.value);
+        const normalizedPosts = Array.from(new Set(editForm.value.posts.map(item => item.trim()).filter(Boolean)));
+        const res: any = await updateMember(currentEmployee.value.id, {
+            ...editForm.value,
+            posts: normalizedPosts,
+            virtual_role: normalizedPosts[0] || "",
+        });
         if (res?.success) {
             message.success("保存成功");
             await loadEmployees();
@@ -259,6 +275,32 @@ async function handleSaveEdit() {
         } else { message.error(res?.error || "保存失败"); }
     } catch { message.error("保存失败"); }
     finally { savingEdit.value = false; }
+}
+
+async function handleAvatarUpload(cropper: any) {
+    if (!currentEmployee.value) return;
+    const canvas = cropper.getCroppedCanvas({ width: 512, height: 512 });
+    if (!canvas) return;
+
+    uploadingAvatar.value = true;
+    try {
+        const blob: Blob = await new Promise((resolve) =>
+            canvas.toBlob((b: Blob) => resolve(b), "image/png", 0.9)
+        );
+        const file = new File([blob], "avatar.png", { type: "image/png" });
+        const res: any = await uploadMemberAvatar(currentEmployee.value.id, file);
+        if (res?.success && res.avatar_url) {
+            message.success("头像已更新");
+            await loadEmployees();
+            await openDetail(currentEmployee.value);
+        } else {
+            message.error(res?.error || "上传失败");
+        }
+    } catch {
+        message.error("上传失败");
+    } finally {
+        uploadingAvatar.value = false;
+    }
 }
 
 async function handleDeleteEmployee(emp: EmployeeDetail) {
@@ -526,31 +568,26 @@ async function loadRemoteNodes() {
                         </div>
                         <div class="min-w-0 flex-1">
                             <div class="font-medium text-gray-800 truncate">{{ emp.name }}</div>
-                            <VortTag size="small" :bordered="false" class="mt-0.5">
-                                {{ getPostName(emp.post || emp.virtual_role || '') }}
-                            </VortTag>
+                            <div class="flex flex-wrap gap-1 mt-1">
+                                <VortTag
+                                    v-for="postKey in getEmployeePosts(emp).slice(0, 2)"
+                                    :key="postKey"
+                                    size="small"
+                                    color="blue"
+                                    :bordered="false"
+                                >
+                                    {{ getPostName(postKey) }}
+                                </VortTag>
+                                <VortTag v-if="getEmployeePosts(emp).length > 2" size="small" color="blue" :bordered="false">
+                                    +{{ getEmployeePosts(emp).length - 2 }}
+                                </VortTag>
+                            </div>
                         </div>
                     </div>
 
                     <!-- Description -->
                     <div class="text-xs text-gray-500 mt-3 line-clamp-2 min-h-[32px]">
-                        {{ emp.position || emp.bio || '暂无描述' }}
-                    </div>
-
-                    <!-- Skills -->
-                    <div v-if="emp.roles?.length" class="flex flex-wrap gap-1 mt-2">
-                        <VortTag
-                            v-for="role in emp.roles.slice(0, 2)"
-                            :key="role"
-                            size="small"
-                            color="blue"
-                            :bordered="false"
-                        >
-                            {{ role }}
-                        </VortTag>
-                        <VortTag v-if="emp.roles.length > 2" size="small" :bordered="false">
-                            +{{ emp.roles.length - 2 }}
-                        </VortTag>
+                        {{ emp.bio || '暂无描述' }}
                     </div>
 
                     <!-- Bottom: stats + action -->
@@ -601,6 +638,26 @@ async function loadRemoteNodes() {
                             <h4 class="text-sm font-semibold text-gray-700">基本信息</h4>
                         </div>
                         <div class="px-4 py-3">
+                            <div class="flex items-center gap-4 pb-4 mb-4 border-b border-gray-100">
+                                <div class="w-16 h-16 rounded-xl bg-blue-50 flex items-center justify-center overflow-hidden flex-shrink-0">
+                                    <img v-if="currentEmployee.avatar_url" :src="currentEmployee.avatar_url" class="w-full h-full object-cover" />
+                                    <span v-else class="text-xl font-medium text-blue-600">{{ (editForm.name || currentEmployee.name || "?")[0] }}</span>
+                                </div>
+                                <div class="min-w-0 flex-1">
+                                    <div class="text-sm font-medium text-gray-800">员工头像</div>
+                                    <div class="text-xs text-gray-400 mt-1">支持 jpg/png/gif/webp，上传后会同步用于聊天和列表展示</div>
+                                </div>
+                                <VortButton size="small" :loading="uploadingAvatar" @click="showAvatarCropper = true">
+                                    更换头像
+                                </VortButton>
+                                <avatar-cropper
+                                    v-model="showAvatarCropper"
+                                    :upload-handler="handleAvatarUpload"
+                                    :cropper-options="{ aspectRatio: 1, autoCropArea: 1, viewMode: 1, movable: true, zoomable: true }"
+                                    :output-options="{ width: 512, height: 512 }"
+                                    output-mime="image/png"
+                                />
+                            </div>
                             <VortForm label-width="70px" size="small">
                                 <VortFormItem label="姓名">
                                     <VortInput v-model="editForm.name" />
@@ -612,14 +669,21 @@ async function loadRemoteNodes() {
                                     <VortInput v-model="editForm.phone" placeholder="请输入手机号" />
                                 </VortFormItem>
                                 <VortFormItem label="岗位">
-                                    <VortSelect v-model="editForm.virtual_role" placeholder="请选择岗位" allow-clear style="width: 100%">
+                                    <VortSelect
+                                        v-model="editForm.posts"
+                                        mode="multiple"
+                                        placeholder="请选择一个或多个岗位"
+                                        allow-clear
+                                        :max-tag-count="3"
+                                        style="width: 100%"
+                                    >
                                         <VortSelectOption v-for="post in posts" :key="post.key" :value="post.key">
                                             {{ post.name }}
                                         </VortSelectOption>
                                     </VortSelect>
                                 </VortFormItem>
-                                <VortFormItem label="职位">
-                                    <VortInput v-model="editForm.position" placeholder="AI 员工的职位描述" />
+                                <VortFormItem label="描述">
+                                    <VortTextarea v-model="editForm.bio" placeholder="AI 员工的个人简介" :rows="3" />
                                 </VortFormItem>
                                 <VortFormItem>
                                     <VortButton variant="primary" size="small" :loading="savingEdit" @click="handleSaveEdit">

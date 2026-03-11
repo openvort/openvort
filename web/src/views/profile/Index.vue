@@ -404,7 +404,7 @@ async function handleSaveNotify() {
 interface SkillItem { id: string; name: string; description: string; content?: string; enabled?: boolean; }
 
 const mySkills = ref<SkillItem[]>([]);
-const subscribedSkillIds = ref<Set<string>>(new Set());
+const disabledSkillIds = ref<Set<string>>(new Set());
 const publicSkillsList = ref<SkillItem[]>([]);
 const skillsLoading = ref(false);
 const skillsLoaded = ref(false);
@@ -425,9 +425,9 @@ async function loadMySkills() {
         mySkills.value = memberRes?.personal || [];
         publicSkillsList.value = publicRes?.skills || [];
 
-        const subIds = new Set<string>();
-        for (const s of (memberRes?.subscribed || [])) subIds.add(s.id);
-        subscribedSkillIds.value = subIds;
+        const disabled = new Set<string>();
+        for (const id of (memberRes?.disabled_public_skill_ids || [])) disabled.add(id);
+        disabledSkillIds.value = disabled;
         skillsLoaded.value = true;
     } catch { /* ignore */ }
     finally { skillsLoading.value = false; }
@@ -480,20 +480,20 @@ function handleDeleteMySkill(skill: SkillItem) {
 }
 
 async function toggleSubscribe(skill: SkillItem) {
-    const isSubscribed = subscribedSkillIds.value.has(skill.id);
+    const isDisabled = disabledSkillIds.value.has(skill.id);
     try {
-        if (isSubscribed) {
-            await unsubscribeMemberSkill(profile.value.member_id, skill.id);
-            const next = new Set(subscribedSkillIds.value);
-            next.delete(skill.id);
-            subscribedSkillIds.value = next;
-            message.success("已取消订阅");
-        } else {
+        if (isDisabled) {
             await subscribeMemberSkill(profile.value.member_id, skill.id);
-            const next = new Set(subscribedSkillIds.value);
+            const next = new Set(disabledSkillIds.value);
+            next.delete(skill.id);
+            disabledSkillIds.value = next;
+            message.success("已启用");
+        } else {
+            await unsubscribeMemberSkill(profile.value.member_id, skill.id);
+            const next = new Set(disabledSkillIds.value);
             next.add(skill.id);
-            subscribedSkillIds.value = next;
-            message.success("已订阅");
+            disabledSkillIds.value = next;
+            message.success("已关闭");
         }
     } catch (e: any) {
         message.error(e?.response?.data?.detail || "操作失败");
@@ -649,7 +649,7 @@ function handleMenuClick(key: string) {
                                 <!-- 公共技能订阅 -->
                                 <div v-if="publicSkillsList.length > 0">
                                     <h4 class="text-sm font-medium text-gray-600 mb-3">公共技能订阅</h4>
-                                    <p class="text-xs text-gray-400 mb-3">订阅后，AI 代理会额外具备这些技能知识</p>
+                                    <p class="text-xs text-gray-400 mb-3">默认全部启用，不需要的可以关闭</p>
                                     <div class="space-y-2">
                                         <div v-for="skill in publicSkillsList" :key="skill.id"
                                             class="flex items-center justify-between px-4 py-3 rounded-lg border border-gray-100">
@@ -660,7 +660,7 @@ function handleMenuClick(key: string) {
                                                     <div v-if="skill.description" class="text-xs text-gray-400 truncate mt-0.5">{{ skill.description }}</div>
                                                 </div>
                                             </div>
-                                            <VortSwitch :checked="subscribedSkillIds.has(skill.id)" size="small" @change="toggleSubscribe(skill)" />
+                                            <VortSwitch :checked="!disabledSkillIds.has(skill.id)" size="small" @change="toggleSubscribe(skill)" />
                                         </div>
                                     </div>
                                 </div>
@@ -863,7 +863,14 @@ function handleMenuClick(key: string) {
     </VortDialog>
 
     <!-- 个人技能编辑弹窗 -->
-    <VortDialog :open="mySkillDrawerOpen" :title="mySkillMode === 'add' ? '添加技能' : '编辑技能'" :width="520" @update:open="mySkillDrawerOpen = $event">
+    <VortDialog
+        :open="mySkillDrawerOpen"
+        :title="mySkillMode === 'add' ? '添加技能' : '编辑技能'"
+        :width="520"
+        :confirm-loading="mySkillSaving"
+        @ok="handleSaveMySkill"
+        @update:open="mySkillDrawerOpen = $event"
+    >
         <VortForm label-width="80px" class="mt-2">
             <VortFormItem label="名称" required>
                 <VortInput v-model="mySkillForm.name" placeholder="如：Python 开发、项目管理" />
@@ -875,12 +882,6 @@ function handleMenuClick(key: string) {
                 <VortTextarea v-model="mySkillForm.content"
                     placeholder="详细描述你在此技能方面的专业知识、经验和能力..." :rows="8"
                     style="font-family: monospace; font-size: 13px;" />
-            </VortFormItem>
-            <VortFormItem>
-                <div class="flex gap-3">
-                    <VortButton variant="primary" :loading="mySkillSaving" @click="handleSaveMySkill">保存</VortButton>
-                    <VortButton @click="mySkillDrawerOpen = false">取消</VortButton>
-                </div>
             </VortFormItem>
         </VortForm>
     </VortDialog>

@@ -34,7 +34,7 @@ class UpdateMemberBioRequest(BaseModel):
 
 @router.get("/member/{member_id}")
 async def get_member_skills(member_id: str):
-    """获取成员的个人技能 + 已订阅的公共技能"""
+    """获取成员的个人技能 + 公共技能禁用列表（公共技能默认全部启用）"""
     factory = get_db_session_factory()
     async with factory() as db:
         member = await db.get(Member, member_id)
@@ -53,24 +53,21 @@ async def get_member_skills(member_id: str):
             for s in result.scalars().all()
         ]
 
-        # Subscribed public skills
+        # Public skills opt-out: IDs explicitly disabled by this member
         result = await db.execute(
-            select(Skill, MemberSkill.enabled).join(
-                MemberSkill, MemberSkill.skill_id == Skill.id
-            ).where(MemberSkill.member_id == member_id)
+            select(MemberSkill.skill_id).where(
+                MemberSkill.member_id == member_id,
+                MemberSkill.enabled == False,  # noqa: E712
+            )
         )
-        subscribed = [
-            {"id": row[0].id, "name": row[0].name, "description": row[0].description,
-             "subscribed": True, "enabled": row[1]}
-            for row in result.all()
-        ]
+        disabled_public_skill_ids = [row[0] for row in result.all()]
 
     return {
         "member_id": member_id,
         "name": member.name,
         "bio": member.bio,
         "personal": personal,
-        "subscribed": subscribed,
+        "disabled_public_skill_ids": disabled_public_skill_ids,
     }
 
 
@@ -159,42 +156,45 @@ async def list_public_skills():
 
 @router.post("/member/{member_id}/subscribe/{skill_id}")
 async def subscribe_skill(member_id: str, skill_id: str):
-    """成员订阅公共技能"""
+    """重新启用公共技能（删除 opt-out 记录）"""
     factory = get_db_session_factory()
     async with factory() as db:
         skill = await db.get(Skill, skill_id)
         if not skill or skill.scope != "public":
             raise HTTPException(status_code=404, detail="公共技能不存在")
 
-        existing = await db.execute(
-            select(MemberSkill).where(
-                MemberSkill.member_id == member_id, MemberSkill.skill_id == skill_id
-            )
-        )
-        if existing.scalar_one_or_none():
-            raise HTTPException(status_code=409, detail="已订阅")
-
-        db.add(MemberSkill(member_id=member_id, skill_id=skill_id))
-        await db.commit()
-
-    return {"success": True}
-
-
-@router.delete("/member/{member_id}/subscribe/{skill_id}")
-async def unsubscribe_skill(member_id: str, skill_id: str):
-    """成员取消订阅公共技能"""
-    factory = get_db_session_factory()
-    async with factory() as db:
         result = await db.execute(
             select(MemberSkill).where(
                 MemberSkill.member_id == member_id, MemberSkill.skill_id == skill_id
             )
         )
         row = result.scalar_one_or_none()
-        if not row:
-            raise HTTPException(status_code=404, detail="未订阅")
+        if row:
+            await db.delete(row)
+            await db.commit()
 
-        await db.delete(row)
+    return {"success": True}
+
+
+@router.delete("/member/{member_id}/subscribe/{skill_id}")
+async def unsubscribe_skill(member_id: str, skill_id: str):
+    """禁用公共技能（创建 opt-out 记录）"""
+    factory = get_db_session_factory()
+    async with factory() as db:
+        skill = await db.get(Skill, skill_id)
+        if not skill or skill.scope != "public":
+            raise HTTPException(status_code=404, detail="公共技能不存在")
+
+        result = await db.execute(
+            select(MemberSkill).where(
+                MemberSkill.member_id == member_id, MemberSkill.skill_id == skill_id
+            )
+        )
+        row = result.scalar_one_or_none()
+        if row:
+            row.enabled = False
+        else:
+            db.add(MemberSkill(member_id=member_id, skill_id=skill_id, enabled=False))
         await db.commit()
 
     return {"success": True}

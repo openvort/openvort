@@ -1,13 +1,51 @@
 """成员管理路由"""
 
 import json
-from fastapi import APIRouter
+import uuid
+from fastapi import APIRouter, File, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import select, func as sa_func
 
+from openvort.config.settings import get_settings
 from openvort.web.deps import get_db_session_factory, get_auth_service
 
 router = APIRouter()
+UPLOAD_DIR = get_settings().data_dir / "uploads" / "avatars"
+
+
+def _normalize_member_posts(posts: list[str] | None) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw in posts or []:
+        key = str(raw or "").strip()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        normalized.append(key)
+    return normalized
+
+
+def _resolve_member_posts(req_posts: list[str] | None, virtual_role: str | None, fallback_skills: list[str] | None = None) -> list[str]:
+    if req_posts is not None:
+        return _normalize_member_posts(req_posts)
+    if virtual_role is not None:
+        return _normalize_member_posts([virtual_role])
+    return _normalize_member_posts(fallback_skills)
+
+
+def _extract_member_posts(member) -> list[str]:
+    stored_posts: list[str] = []
+    try:
+        parsed = json.loads(member.skills or "[]")
+        if isinstance(parsed, list):
+            stored_posts = _normalize_member_posts([str(item) for item in parsed])
+    except Exception:
+        stored_posts = []
+
+    primary_post = (member.post or member.virtual_role or "").strip()
+    if primary_post and primary_post not in stored_posts:
+        stored_posts.insert(0, primary_post)
+    return stored_posts
 
 
 # ---- 请求模型 ----
@@ -20,6 +58,7 @@ class CreateMemberRequest(BaseModel):
     is_account: bool = False
     is_virtual: bool = False
     virtual_role: str = ""
+    posts: list[str] = []
     skills: list[str] = []
     auto_report: bool = False
     report_frequency: str = "daily"
@@ -34,9 +73,11 @@ class UpdateMemberRequest(BaseModel):
     is_account: bool | None = None
     is_virtual: bool | None = None
     virtual_role: str | None = None
+    posts: list[str] | None = None
     skills: list[str] | None = None
     auto_report: bool | None = None
     report_frequency: str | None = None
+    bio: str | None = None
     remote_node_id: str | None = None
 
 
@@ -133,7 +174,8 @@ async def create_member(req: CreateMemberRequest):
 
     session_factory = get_db_session_factory()
 
-    role_key = (req.virtual_role or "").strip()
+    member_posts = _resolve_member_posts(req.posts, req.virtual_role, req.skills)
+    role_key = member_posts[0] if member_posts else ""
     virtual_system_prompt = ""
     if req.is_virtual and role_key:
         builtin_dir = Path(__file__).parent.parent.parent / "skills"
@@ -154,7 +196,7 @@ async def create_member(req: CreateMemberRequest):
             post=role_key,
             virtual_role=role_key,
             virtual_system_prompt=virtual_system_prompt,
-            skills=_json.dumps(req.skills) if req.skills else "[]",
+            skills=_json.dumps(member_posts) if member_posts else "[]",
             auto_report=req.auto_report,
             report_frequency=req.report_frequency,
         )
@@ -215,6 +257,7 @@ async def list_members(search: str = "", role: str = "", department_id: int | No
         # 组装返回数据
         items = []
         for m in members:
+            member_posts = _extract_member_posts(m)
             # 查角色
             roles = await auth_service.get_member_roles(m.id)
             # 查平台身份
@@ -240,12 +283,14 @@ async def list_members(search: str = "", role: str = "", department_id: int | No
                 "email": m.email or "",
                 "phone": m.phone or "",
                 "position": m.position or "",
+                "bio": m.bio or "",
                 "avatar_url": m.avatar_url or "",
                 "status": m.status,
                 "is_account": m.is_account,
                 "is_virtual": m.is_virtual,
-                "post": m.post or m.virtual_role or "",
-                "virtual_role": m.post or m.virtual_role or "",
+                "post": member_posts[0] if member_posts else "",
+                "posts": member_posts,
+                "virtual_role": member_posts[0] if member_posts else "",
                 "has_password": bool(m.password_hash),
                 "roles": roles or [],
                 "platform_accounts": platform_accounts,
@@ -352,18 +397,21 @@ async def get_member(member_id: str):
         dept_result = await session.execute(dept_stmt)
         departments = [{"id": row[0], "name": row[1]} for row in dept_result.all()]
 
+        member_posts = _extract_member_posts(member)
         return {
             "id": member.id,
             "name": member.name,
             "email": member.email or "",
             "phone": member.phone or "",
             "position": member.position or "",
+            "bio": member.bio or "",
             "avatar_url": member.avatar_url or "",
             "status": member.status,
             "is_account": member.is_account,
             "is_virtual": member.is_virtual,
-            "post": member.post or member.virtual_role or "",
-            "virtual_role": member.post or member.virtual_role or "",
+            "post": member_posts[0] if member_posts else "",
+            "posts": member_posts,
+            "virtual_role": member_posts[0] if member_posts else "",
             "has_password": bool(member.password_hash),
             "remote_node_id": member.remote_node_id or "",
             "roles": roles or [],
@@ -417,10 +465,12 @@ async def update_member(member_id: str, req: UpdateMemberRequest):
             member.is_account = req.is_account
         if req.is_virtual is not None:
             member.is_virtual = req.is_virtual
-        if req.virtual_role is not None:
-            role_key = req.virtual_role.strip()
+        if req.posts is not None or req.virtual_role is not None:
+            role_key_list = _resolve_member_posts(req.posts, req.virtual_role, req.skills)
+            role_key = role_key_list[0] if role_key_list else ""
             member.post = role_key
             member.virtual_role = role_key
+            member.skills = _json.dumps(role_key_list) if role_key_list else "[]"
             # 重新加载角色模板
             if role_key:
                 builtin_dir = Path(__file__).parent.parent.parent / "skills"
@@ -431,8 +481,10 @@ async def update_member(member_id: str, req: UpdateMemberRequest):
                         member.virtual_system_prompt = parsed.get("content", "")
             else:
                 member.virtual_system_prompt = ""
-        if req.skills is not None:
+        elif req.skills is not None:
             member.skills = _json.dumps(req.skills)
+        if req.bio is not None:
+            member.bio = req.bio
         if req.auto_report is not None:
             member.auto_report = req.auto_report
         if req.report_frequency is not None:
@@ -442,6 +494,41 @@ async def update_member(member_id: str, req: UpdateMemberRequest):
 
         await session.commit()
         return {"success": True}
+
+
+@router.post("/{member_id}/avatar")
+async def upload_member_avatar(member_id: str, file: UploadFile = File(...)):
+    """管理员上传成员头像"""
+    from openvort.contacts.models import Member
+
+    allowed = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+    if file.content_type not in allowed:
+        return {"error": "仅支持 jpg/png/gif/webp 格式"}
+
+    content = await file.read()
+    if len(content) > 5 * 1024 * 1024:
+        return {"error": "文件大小不能超过 5MB"}
+
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    ext = file.filename.rsplit(".", 1)[-1] if file.filename and "." in file.filename else "png"
+    filename = f"{uuid.uuid4().hex}.{ext}"
+    filepath = UPLOAD_DIR / filename
+    filepath.write_bytes(content)
+
+    session_factory = get_db_session_factory()
+    async with session_factory() as session:
+        stmt = select(Member).where(Member.id == member_id)
+        result = await session.execute(stmt)
+        member = result.scalar_one_or_none()
+        if not member:
+            return {"error": "成员不存在"}
+
+        avatar_url = f"/uploads/avatars/{filename}"
+        member.avatar_url = avatar_url
+        member.avatar_source = "manual"
+        await session.commit()
+
+    return {"success": True, "avatar_url": avatar_url}
 
 
 @router.post("/{member_id}/reset-password")

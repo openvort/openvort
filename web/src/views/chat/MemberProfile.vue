@@ -25,7 +25,7 @@ const router = useRouter();
 const loading = ref(false);
 const bio = ref("");
 const personalSkills = ref<any[]>([]);
-const subscribedSkillIds = ref<Set<string>>(new Set());
+const disabledSkillIds = ref<Set<string>>(new Set());
 const publicSkills = ref<any[]>([]);
 const savingBio = ref(false);
 
@@ -61,11 +61,11 @@ async function loadData() {
         bio.value = memberRes?.bio || "";
         publicSkills.value = publicRes?.skills || [];
 
-        const subIds = new Set<string>();
-        for (const s of (memberRes?.subscribed || [])) {
-            subIds.add(s.id);
+        const disabled = new Set<string>();
+        for (const id of (memberRes?.disabled_public_skill_ids || [])) {
+            disabled.add(id);
         }
-        subscribedSkillIds.value = subIds;
+        disabledSkillIds.value = disabled;
     } catch { /* ignore */ }
     finally { loading.value = false; }
 }
@@ -173,22 +173,22 @@ function handleDeleteSkill(skill: any) {
     });
 }
 
-// ---- Public skill subscription ----
+// ---- Public skill subscription (opt-out model: default all enabled) ----
 async function toggleSubscribe(skill: any) {
-    const isSubscribed = subscribedSkillIds.value.has(skill.id);
+    const isDisabled = disabledSkillIds.value.has(skill.id);
     try {
-        if (isSubscribed) {
-            await unsubscribeMemberSkill(props.memberId, skill.id);
-            const next = new Set(subscribedSkillIds.value);
-            next.delete(skill.id);
-            subscribedSkillIds.value = next;
-            message.success("已取消订阅");
-        } else {
+        if (isDisabled) {
             await subscribeMemberSkill(props.memberId, skill.id);
-            const next = new Set(subscribedSkillIds.value);
+            const next = new Set(disabledSkillIds.value);
+            next.delete(skill.id);
+            disabledSkillIds.value = next;
+            message.success("已启用");
+        } else {
+            await unsubscribeMemberSkill(props.memberId, skill.id);
+            const next = new Set(disabledSkillIds.value);
             next.add(skill.id);
-            subscribedSkillIds.value = next;
-            message.success("已订阅");
+            disabledSkillIds.value = next;
+            message.success("已关闭");
         }
     } catch (e: any) {
         message.error(e?.response?.data?.detail || "操作失败");
@@ -324,7 +324,7 @@ const sourceTypeLabels: Record<string, string> = {
                                     <div v-if="skill.description" class="text-xs text-gray-400 truncate">{{ skill.description }}</div>
                                 </div>
                             </div>
-                            <VortSwitch :checked="subscribedSkillIds.has(skill.id)" size="small" @change="toggleSubscribe(skill)" />
+                            <VortSwitch :checked="!disabledSkillIds.has(skill.id)" size="small" @change="toggleSubscribe(skill)" />
                         </div>
                     </div>
                 </div>
