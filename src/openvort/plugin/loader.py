@@ -31,6 +31,7 @@ class PluginLoader:
         self._load_local_plugins()
         self._load_channels()
         self._load_tools()
+        self._load_core_tools()
         self._inject_sync_providers()
 
     async def load_all_async(self) -> None:
@@ -248,6 +249,15 @@ class PluginLoader:
                     log.warning(f"Tool entry_point '{ep.name}' 不是 BaseTool 子类，跳过")
             except Exception as e:
                 log.error(f"加载 Tool '{ep.name}' 失败: {e}")
+
+    def _load_core_tools(self) -> None:
+        """Register core infrastructure tools (OpenClaw remote work, etc.)."""
+        try:
+            from openvort.core.openclaw_tool import get_openclaw_tools
+            for tool in get_openclaw_tools():
+                self.registry.register_tool(tool)
+        except Exception as e:
+            log.warning(f"加载 OpenClaw 核心工具失败: {e}")
 
     def _inject_sync_providers(self) -> None:
         """收集所有 SyncProvider 并注入到 ContactsPlugin"""

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from "vue";
+import { ref, onMounted, computed, watch } from "vue";
 import {
     getMembers, getMember, createMember, updateMember, resetMemberPassword,
     toggleMemberAccount, assignMemberRole, removeMemberRole,
@@ -14,12 +14,13 @@ import {
     removeDepartmentMember, getChannels,
     getOrgCalendar, createOrgCalendarEntry, deleteOrgCalendarEntry, syncHolidays, getWorkSettings, updateWorkSettings,
     getWebhooks,
+    getOpenClawNodes,
 } from "@/api";
 import {
     RefreshCw, Search, Shield, UserCheck, UserX, Key,
     AlertTriangle, Check, X, Link, Unlink, Lock, Trash2,
     ChevronDown, FolderTree, Plus, Pencil, UserPlus,
-    Download, Calendar, CloudDownload, Webhook, User, IdCard,
+    Download, Calendar, CloudDownload, Webhook, User, IdCard, Cpu,
 } from "lucide-vue-next";
 import { message, dialog } from "@/components/vort";
 import { DeptTree } from "@/components/vort-biz/dept-tree";
@@ -49,6 +50,7 @@ interface MemberItem {
 interface MemberDetail extends Omit<MemberItem, 'departments'> {
     avatar_url: string;
     permissions: string[];
+    openclaw_node_id: string;
     departments: { id: number; name: string }[];
     identities: {
         id: number;
@@ -129,6 +131,181 @@ interface PermissionItem {
     source: string;
 }
 const allPermissions = ref<PermissionItem[]>([]);
+
+// 权限分组
+interface PermGroup {
+    key: string;
+    label: string;
+    permissions: PermissionItem[];
+}
+
+const CORE_SUBGROUPS: Record<string, string> = {
+    contacts: "通讯录",
+    members: "成员管理",
+    departments: "部门管理",
+    plugins: "插件管理",
+    skills: "Skill 管理",
+    channels: "通道管理",
+    settings: "系统设置",
+    logs: "日志",
+    dashboard: "仪表盘",
+    schedules: "定时任务",
+    webhooks: "Webhook",
+    agents: "Agent",
+};
+
+const PLUGIN_DISPLAY_NAMES: Record<string, string> = {
+    browser: "浏览器",
+    vortflow: "VortFlow 项目管理",
+    vortgit: "VortGit 代码仓库",
+    zentao: "禅道",
+    jenkins: "Jenkins",
+    report: "汇报",
+    schedule: "定时任务",
+};
+
+const groupedPermissions = computed(() => {
+    const corePerms = allPermissions.value.filter(p => p.source === "core");
+    const pluginPerms = allPermissions.value.filter(p => p.source !== "core");
+
+    const coreGroups: PermGroup[] = [];
+    const coreMap = new Map<string, PermissionItem[]>();
+    for (const p of corePerms) {
+        const prefix = p.code.split(".")[0];
+        if (!coreMap.has(prefix)) coreMap.set(prefix, []);
+        coreMap.get(prefix)!.push(p);
+    }
+    for (const [prefix, perms] of coreMap) {
+        coreGroups.push({ key: `core.${prefix}`, label: CORE_SUBGROUPS[prefix] || prefix, permissions: perms });
+    }
+
+    const pluginGroups: PermGroup[] = [];
+    const pluginMap = new Map<string, PermissionItem[]>();
+    for (const p of pluginPerms) {
+        if (!pluginMap.has(p.source)) pluginMap.set(p.source, []);
+        pluginMap.get(p.source)!.push(p);
+    }
+    for (const [source, perms] of pluginMap) {
+        pluginGroups.push({ key: source, label: PLUGIN_DISPLAY_NAMES[source] || source, permissions: perms });
+    }
+
+    return { coreGroups, pluginGroups };
+});
+
+// 内联编辑状态
+const editingPerms = ref<string[] | null>(null);
+const savingPermsInline = ref(false);
+
+const canEditPermissions = computed(() => {
+    if (!selectedRole.value) return false;
+    return !selectedRole.value.is_admin && !selectedRole.value.is_builtin;
+});
+
+const activePermCodes = computed(() => {
+    if (editingPerms.value !== null) return editingPerms.value;
+    if (!selectedRole.value) return [];
+    if (selectedRole.value.is_admin) return allPermissions.value.map(p => p.code);
+    return selectedRole.value.permissions.map(p => p.code);
+});
+
+const hasPermChanges = computed(() => {
+    if (editingPerms.value === null || !selectedRole.value) return false;
+    const original = new Set(selectedRole.value.permissions.map(p => p.code));
+    const current = new Set(editingPerms.value);
+    if (original.size !== current.size) return true;
+    for (const c of original) { if (!current.has(c)) return true; }
+    return false;
+});
+
+function isPermSelected(code: string): boolean {
+    return activePermCodes.value.includes(code);
+}
+
+function isGroupAllSelected(group: PermGroup): boolean {
+    return group.permissions.every(p => activePermCodes.value.includes(p.code));
+}
+
+function isGroupPartial(group: PermGroup): boolean {
+    const sel = group.permissions.filter(p => activePermCodes.value.includes(p.code));
+    return sel.length > 0 && sel.length < group.permissions.length;
+}
+
+function isSectionAllSelected(groups: PermGroup[]): boolean {
+    return groups.length > 0 && groups.every(g => isGroupAllSelected(g));
+}
+
+function isSectionPartial(groups: PermGroup[]): boolean {
+    const allCodes = groups.flatMap(g => g.permissions.map(p => p.code));
+    const selected = allCodes.filter(c => activePermCodes.value.includes(c));
+    return selected.length > 0 && selected.length < allCodes.length;
+}
+
+function toggleSection(groups: PermGroup[]) {
+    if (!canEditPermissions.value) return;
+    ensureEditingPerms();
+    const allCodes = groups.flatMap(g => g.permissions.map(p => p.code));
+    const allSelected = allCodes.every(c => editingPerms.value!.includes(c));
+    if (allSelected) {
+        const codesSet = new Set(allCodes);
+        editingPerms.value = editingPerms.value!.filter(c => !codesSet.has(c));
+    } else {
+        const existing = new Set(editingPerms.value!);
+        for (const c of allCodes) {
+            if (!existing.has(c)) editingPerms.value!.push(c);
+        }
+    }
+}
+
+function ensureEditingPerms() {
+    if (editingPerms.value === null && selectedRole.value) {
+        editingPerms.value = selectedRole.value.permissions.map(p => p.code);
+    }
+}
+
+function togglePerm(code: string) {
+    if (!canEditPermissions.value) return;
+    ensureEditingPerms();
+    const idx = editingPerms.value!.indexOf(code);
+    if (idx >= 0) editingPerms.value!.splice(idx, 1);
+    else editingPerms.value!.push(code);
+}
+
+function toggleGroup(group: PermGroup) {
+    if (!canEditPermissions.value) return;
+    ensureEditingPerms();
+    const allSelected = group.permissions.every(p => editingPerms.value!.includes(p.code));
+    if (allSelected) {
+        const codes = new Set(group.permissions.map(p => p.code));
+        editingPerms.value = editingPerms.value!.filter(c => !codes.has(c));
+    } else {
+        const existing = new Set(editingPerms.value!);
+        for (const p of group.permissions) {
+            if (!existing.has(p.code)) editingPerms.value!.push(p.code);
+        }
+    }
+}
+
+async function savePermissionsInline() {
+    if (!selectedRole.value || editingPerms.value === null) return;
+    savingPermsInline.value = true;
+    try {
+        const res: any = await updateRole(selectedRole.value.id, { permissions: editingPerms.value });
+        if (res?.success) {
+            message.success("权限已保存");
+            editingPerms.value = null;
+            await loadRoles();
+        } else {
+            message.error(res?.error || "保存失败");
+        }
+    } catch { message.error("保存失败"); }
+    finally { savingPermsInline.value = false; }
+}
+
+function cancelPermEdit() {
+    editingPerms.value = null;
+}
+
+watch(selectedRoleIndex, () => { editingPerms.value = null; });
 
 // 角色编辑弹窗
 const roleEditDialogOpen = ref(false);
@@ -256,6 +433,37 @@ const reportFrequencyOptions = [
     { value: "daily", label: "每日" },
     { value: "weekly", label: "每周" },
 ];
+
+// OpenClaw nodes for binding
+interface OpenClawNodeOption {
+    id: string;
+    name: string;
+    gateway_url: string;
+    status: string;
+}
+const openclawNodes = ref<OpenClawNodeOption[]>([]);
+const savingNodeBinding = ref(false);
+
+async function loadOpenClawNodes() {
+    try {
+        const res: any = await getOpenClawNodes();
+        openclawNodes.value = (res?.nodes || []).map((n: any) => ({
+            id: n.id, name: n.name, gateway_url: n.gateway_url, status: n.status,
+        }));
+    } catch { /* ignore */ }
+}
+
+async function handleBindOpenClawNode(memberId: string, nodeId: string) {
+    savingNodeBinding.value = true;
+    try {
+        const res: any = await updateMember(memberId, { openclaw_node_id: nodeId });
+        if (res?.success) {
+            message.success(nodeId ? "节点已绑定" : "已解除绑定");
+            await openMemberDrawer(memberId);
+        } else { message.error("绑定失败"); }
+    } catch { message.error("绑定失败"); }
+    finally { savingNodeBinding.value = false; }
+}
 
 // 向导式创建成员
 const wizardOpen = ref(false);
@@ -516,9 +724,6 @@ async function handleSaveRole() {
         } else {
             if (!roleEditId.value) return;
             const data: any = { display_name: roleEditForm.value.display_name };
-            if (!roleEditIsBuiltin.value) {
-                data.permissions = roleEditForm.value.permissions;
-            }
             const res: any = await updateRole(roleEditId.value, data);
             if (res?.success) {
                 message.success("角色已更新");
@@ -560,6 +765,52 @@ function togglePermission(code: string) {
         roleEditForm.value.permissions.splice(idx, 1);
     } else {
         roleEditForm.value.permissions.push(code);
+    }
+}
+
+function isDialogGroupAllSelected(group: PermGroup): boolean {
+    return group.permissions.every(p => roleEditForm.value.permissions.includes(p.code));
+}
+
+function isDialogGroupPartial(group: PermGroup): boolean {
+    const sel = group.permissions.filter(p => roleEditForm.value.permissions.includes(p.code));
+    return sel.length > 0 && sel.length < group.permissions.length;
+}
+
+function toggleDialogGroup(group: PermGroup) {
+    const allSelected = isDialogGroupAllSelected(group);
+    if (allSelected) {
+        const codes = new Set(group.permissions.map(p => p.code));
+        roleEditForm.value.permissions = roleEditForm.value.permissions.filter(c => !codes.has(c));
+    } else {
+        const existing = new Set(roleEditForm.value.permissions);
+        for (const p of group.permissions) {
+            if (!existing.has(p.code)) roleEditForm.value.permissions.push(p.code);
+        }
+    }
+}
+
+function isDialogSectionAllSelected(groups: PermGroup[]): boolean {
+    return groups.length > 0 && groups.every(g => isDialogGroupAllSelected(g));
+}
+
+function isDialogSectionPartial(groups: PermGroup[]): boolean {
+    const allCodes = groups.flatMap(g => g.permissions.map(p => p.code));
+    const selected = allCodes.filter(c => roleEditForm.value.permissions.includes(c));
+    return selected.length > 0 && selected.length < allCodes.length;
+}
+
+function toggleDialogSection(groups: PermGroup[]) {
+    const allCodes = groups.flatMap(g => g.permissions.map(p => p.code));
+    const allSelected = allCodes.every(c => roleEditForm.value.permissions.includes(c));
+    if (allSelected) {
+        const codesSet = new Set(allCodes);
+        roleEditForm.value.permissions = roleEditForm.value.permissions.filter(c => !codesSet.has(c));
+    } else {
+        const existing = new Set(roleEditForm.value.permissions);
+        for (const c of allCodes) {
+            if (!existing.has(c)) roleEditForm.value.permissions.push(c);
+        }
     }
 }
 
@@ -1089,6 +1340,7 @@ onMounted(() => {
     loadCalendar();
     loadWorkSettings();
     loadSkillOptions();
+    loadOpenClawNodes();
 });
 </script>
 
@@ -1437,28 +1689,82 @@ onMounted(() => {
                                     </div>
                                 </div>
 
-                                <!-- 权限列表 -->
+                                <!-- 权限分组展示 -->
                                 <div class="mb-6">
-                                    <div class="text-sm font-medium text-gray-600 mb-2">权限</div>
-                                    <div class="flex flex-wrap gap-2">
-                                        <VortTag
-                                            v-for="perm in selectedRole.permissions" :key="perm.code"
-                                            :color="perm.code === '*' ? 'red' : 'blue'"
-                                        >
-                                            {{ perm.display_name || perm.code }}
-                                        </VortTag>
-                                        <span v-if="!selectedRole.permissions.length" class="text-gray-400 text-sm">无权限</span>
+                                    <!-- 系统权限 -->
+                                    <div v-if="groupedPermissions.coreGroups.length" class="mb-4">
+                                        <div class="flex items-center gap-2 mb-2">
+                                            <VortCheckbox
+                                                :checked="isSectionAllSelected(groupedPermissions.coreGroups)"
+                                                :indeterminate="isSectionPartial(groupedPermissions.coreGroups)"
+                                                :disabled="!canEditPermissions"
+                                                @change="toggleSection(groupedPermissions.coreGroups)"
+                                            />
+                                            <span class="text-sm font-medium text-gray-500">系统权限</span>
+                                        </div>
+                                        <div class="border border-gray-200 rounded-lg divide-y divide-gray-100">
+                                            <div v-for="group in groupedPermissions.coreGroups" :key="group.key" class="flex items-center">
+                                                <div class="w-42 flex-shrink-0 px-4 py-2.5 bg-gray-50/60 border-r border-gray-100">
+                                                    <VortCheckbox
+                                                        :checked="isGroupAllSelected(group)"
+                                                        :indeterminate="isGroupPartial(group)"
+                                                        :disabled="!canEditPermissions"
+                                                        @change="toggleGroup(group)"
+                                                    >
+                                                        <span class="text-xs font-medium text-gray-600">{{ group.label }}</span>
+                                                    </VortCheckbox>
+                                                </div>
+                                                <div class="flex-1 px-4 py-2.5 flex flex-wrap gap-x-4 gap-y-1">
+                                                    <VortCheckbox
+                                                        v-for="p in group.permissions" :key="p.code"
+                                                        :checked="isPermSelected(p.code)"
+                                                        :disabled="!canEditPermissions"
+                                                        @change="togglePerm(p.code)"
+                                                    >{{ p.display_name }}</VortCheckbox>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
-                                </div>
 
-                                <!-- 所有已注册权限一览 -->
-                                <div class="mb-6">
-                                    <div class="text-sm font-medium text-gray-600 mb-2">所有已注册权限</div>
-                                    <div class="flex flex-wrap gap-2">
-                                        <VortTag v-for="p in allPermissions" :key="p.code" color="default" :bordered="false">
-                                            {{ p.display_name }} <span class="text-gray-400 ml-1">({{ p.code }})</span>
-                                        </VortTag>
-                                        <span v-if="!allPermissions.length" class="text-gray-400 text-sm">暂无权限</span>
+                                    <!-- 插件权限 -->
+                                    <div v-if="groupedPermissions.pluginGroups.length">
+                                        <div class="flex items-center gap-2 mb-2">
+                                            <VortCheckbox
+                                                :checked="isSectionAllSelected(groupedPermissions.pluginGroups)"
+                                                :indeterminate="isSectionPartial(groupedPermissions.pluginGroups)"
+                                                :disabled="!canEditPermissions"
+                                                @change="toggleSection(groupedPermissions.pluginGroups)"
+                                            />
+                                            <span class="text-sm font-medium text-gray-500">插件权限</span>
+                                        </div>
+                                        <div class="border border-gray-200 rounded-lg divide-y divide-gray-100">
+                                            <div v-for="group in groupedPermissions.pluginGroups" :key="group.key" class="flex items-center">
+                                                <div class="w-42 flex-shrink-0 px-4 py-2.5 bg-gray-50/60 border-r border-gray-100">
+                                                    <VortCheckbox
+                                                        :checked="isGroupAllSelected(group)"
+                                                        :indeterminate="isGroupPartial(group)"
+                                                        :disabled="!canEditPermissions"
+                                                        @change="toggleGroup(group)"
+                                                    >
+                                                        <span class="text-xs font-medium text-gray-600">{{ group.label }}</span>
+                                                    </VortCheckbox>
+                                                </div>
+                                                <div class="flex-1 px-4 py-2.5 flex flex-wrap gap-x-4 gap-y-1">
+                                                    <VortCheckbox
+                                                        v-for="p in group.permissions" :key="p.code"
+                                                        :checked="isPermSelected(p.code)"
+                                                        :disabled="!canEditPermissions"
+                                                        @change="togglePerm(p.code)"
+                                                    >{{ p.display_name }}</VortCheckbox>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- 保存/取消 -->
+                                    <div v-if="hasPermChanges" class="mt-3 flex items-center gap-2">
+                                        <VortButton variant="primary" size="small" :loading="savingPermsInline" @click="savePermissionsInline">保存权限</VortButton>
+                                        <VortButton size="small" @click="cancelPermEdit">取消</VortButton>
                                     </div>
                                 </div>
 
@@ -1777,6 +2083,40 @@ onMounted(() => {
                         </div>
                     </div>
 
+                    <!-- 远程工作节点（仅 AI 员工） -->
+                    <div v-if="currentMember.is_virtual" class="rounded-lg border border-gray-100 bg-white">
+                        <div class="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50/60 rounded-t-lg">
+                            <Cpu :size="15" class="text-gray-400" />
+                            <h4 class="text-sm font-semibold text-gray-700">远程工作节点</h4>
+                        </div>
+                        <div class="px-4 py-3">
+                            <VortSpin :spinning="savingNodeBinding">
+                                <VortSelect
+                                    :model-value="currentMember.openclaw_node_id || ''"
+                                    placeholder="未绑定（选择节点后可远程执行任务）"
+                                    allow-clear
+                                    style="width: 100%"
+                                    @update:model-value="(val: string) => handleBindOpenClawNode(currentMember!.id, val || '')"
+                                >
+                                    <VortSelectOption v-for="node in openclawNodes" :key="node.id" :value="node.id">
+                                        <div class="flex items-center gap-2">
+                                            <span
+                                                class="w-2 h-2 rounded-full flex-shrink-0"
+                                                :class="node.status === 'online' ? 'bg-green-500' : node.status === 'offline' ? 'bg-red-400' : 'bg-gray-300'"
+                                            />
+                                            <span>{{ node.name }}</span>
+                                            <span class="text-xs text-gray-400">{{ node.gateway_url }}</span>
+                                        </div>
+                                    </VortSelectOption>
+                                </VortSelect>
+                                <div class="mt-2 text-xs text-gray-400">
+                                    绑定后，该 AI 员工可通过 OpenClaw 在远程电脑上执行工作任务。
+                                    <router-link to="/openclaw-nodes" class="text-blue-600 hover:underline">管理节点</router-link>
+                                </div>
+                            </VortSpin>
+                        </div>
+                    </div>
+
                     <!-- 平台身份 -->
                     <div class="rounded-lg border border-gray-100 bg-white">
                         <div class="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50/60 rounded-t-lg">
@@ -1894,6 +2234,7 @@ onMounted(() => {
             :title="roleEditMode === 'create' ? '新建角色' : '编辑角色'"
             :ok-text="roleEditMode === 'create' ? '创建' : '保存'"
             :confirm-loading="savingRole"
+            :width="roleEditMode === 'create' ? 640 : undefined"
             @update:open="roleEditDialogOpen = $event"
             @ok="handleSaveRole"
             @cancel="roleEditDialogOpen = false"
@@ -1907,27 +2248,73 @@ onMounted(() => {
                     <label class="block text-xs text-gray-500 mb-1">显示名称</label>
                     <VortInput v-model="roleEditForm.display_name" placeholder="如 开发者、测试人员" />
                 </div>
-                <div v-if="!roleEditIsBuiltin || roleEditMode === 'create'">
+                <div v-if="roleEditMode === 'create'">
                     <label class="block text-xs text-gray-500 mb-2">权限分配</label>
-                    <div v-if="allPermissions.length" class="max-h-60 overflow-y-auto space-y-1 border border-gray-100 rounded-lg p-3">
-                        <div
-                            v-for="p in allPermissions" :key="p.code"
-                            class="flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors"
-                            :class="roleEditForm.permissions.includes(p.code) ? 'bg-blue-50' : 'hover:bg-gray-50'"
-                            @click="togglePermission(p.code)"
-                        >
-                            <div>
-                                <div class="text-sm text-gray-700">{{ p.display_name }}</div>
-                                <div class="text-xs text-gray-400">{{ p.code }} · {{ p.source }}</div>
+                    <div v-if="allPermissions.length" class="max-h-80 overflow-y-auto">
+                        <!-- 系统权限 -->
+                        <div v-if="groupedPermissions.coreGroups.length" class="mb-3">
+                            <div class="flex items-center gap-2 mb-1">
+                                <VortCheckbox
+                                    :checked="isDialogSectionAllSelected(groupedPermissions.coreGroups)"
+                                    :indeterminate="isDialogSectionPartial(groupedPermissions.coreGroups)"
+                                    @change="toggleDialogSection(groupedPermissions.coreGroups)"
+                                />
+                                <span class="text-xs font-medium text-gray-400">系统权限</span>
                             </div>
-                            <VortCheckbox :checked="roleEditForm.permissions.includes(p.code)" />
+                            <div class="border border-gray-200 rounded-lg divide-y divide-gray-100">
+                                <div v-for="group in groupedPermissions.coreGroups" :key="group.key" class="flex items-center">
+                                    <div class="w-34 flex-shrink-0 px-3 py-2 bg-gray-50/60 border-r border-gray-100">
+                                        <VortCheckbox
+                                            :checked="isDialogGroupAllSelected(group)"
+                                            :indeterminate="isDialogGroupPartial(group)"
+                                            @change="toggleDialogGroup(group)"
+                                        >
+                                            <span class="text-xs font-medium text-gray-600">{{ group.label }}</span>
+                                        </VortCheckbox>
+                                    </div>
+                                    <div class="flex-1 px-3 py-2 flex flex-wrap gap-x-3 gap-y-0.5">
+                                        <VortCheckbox
+                                            v-for="p in group.permissions" :key="p.code"
+                                            :checked="roleEditForm.permissions.includes(p.code)"
+                                            @change="togglePermission(p.code)"
+                                        >{{ p.display_name }}</VortCheckbox>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- 插件权限 -->
+                        <div v-if="groupedPermissions.pluginGroups.length">
+                            <div class="flex items-center gap-2 mb-1">
+                                <VortCheckbox
+                                    :checked="isDialogSectionAllSelected(groupedPermissions.pluginGroups)"
+                                    :indeterminate="isDialogSectionPartial(groupedPermissions.pluginGroups)"
+                                    @change="toggleDialogSection(groupedPermissions.pluginGroups)"
+                                />
+                                <span class="text-xs font-medium text-gray-400">插件权限</span>
+                            </div>
+                            <div class="border border-gray-200 rounded-lg divide-y divide-gray-100">
+                                <div v-for="group in groupedPermissions.pluginGroups" :key="group.key" class="flex items-center">
+                                    <div class="w-34 flex-shrink-0 px-3 py-2 bg-gray-50/60 border-r border-gray-100">
+                                        <VortCheckbox
+                                            :checked="isDialogGroupAllSelected(group)"
+                                            :indeterminate="isDialogGroupPartial(group)"
+                                            @change="toggleDialogGroup(group)"
+                                        >
+                                            <span class="text-xs font-medium text-gray-600">{{ group.label }}</span>
+                                        </VortCheckbox>
+                                    </div>
+                                    <div class="flex-1 px-3 py-2 flex flex-wrap gap-x-3 gap-y-0.5">
+                                        <VortCheckbox
+                                            v-for="p in group.permissions" :key="p.code"
+                                            :checked="roleEditForm.permissions.includes(p.code)"
+                                            @change="togglePermission(p.code)"
+                                        >{{ p.display_name }}</VortCheckbox>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <div v-else class="text-gray-400 text-sm py-2">暂无可分配的权限</div>
-                </div>
-                <div v-else class="text-xs text-gray-400">
-                    <Shield :size="14" class="inline mr-1" />
-                    内置角色的权限不可修改
                 </div>
             </div>
         </VortDialog>

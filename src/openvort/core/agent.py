@@ -593,7 +593,7 @@ class AgentRuntime:
                   {"type": "tool_result", "name": "...", "result": "..."} |
                   {"type": "thinking"}
         """
-        log.info(f"[web] 开始处理流式请求: member_id={member_id}, session_id={session_id}, content_len={len(content) if content else 0}")
+        log.info(f"[web] 开始处理流式请求: member_id={member_id}, session_id={session_id}, content_len={len(content) if content else 0}, target_type={target_type}, target_id={target_id}")
         # 尝试用真实身份构建上下文
         from openvort.web.deps import get_build_context_fn
         build_context = get_build_context_fn()
@@ -780,6 +780,8 @@ class AgentRuntime:
                         log.info(f"[web] 调用工具: {block.name}({block.input})")
                         tool_input = dict(block.input)
                         tool_input["_caller_id"] = ctx.user_id
+                        tool_input["_target_member_id"] = getattr(ctx, "target_member_id", "") or ""
+                        tool_input["_caller_member_id"] = getattr(ctx, "caller_member_id", "") or ctx.user_id
                         # 注入用户输入（用于确认操作场景）
                         tool_input["_user_input"] = current_user_input
                         if ctx.member:
@@ -1175,18 +1177,41 @@ class AgentRuntime:
             except Exception:
                 pass
 
+            # Check if this AI employee has a bound OpenClaw remote node
+            openclaw_info = await self._get_openclaw_node_info(m)
+
             has_persona = bool(m.bio or skill_contents)
 
             if has_persona:
-                return self._build_rich_member_prompt(m, skill_contents)
+                return self._build_rich_member_prompt(m, skill_contents, openclaw_info)
             else:
-                return self._build_minimal_member_prompt(m)
+                return self._build_minimal_member_prompt(m, openclaw_info)
         except Exception as e:
             log.warning(f"[web] 构建成员对话上下文失败: {e}")
             return self._system_prompt
 
+    async def _get_openclaw_node_info(self, member) -> dict | None:
+        """Look up the OpenClaw node bound to this member, if any."""
+        node_id = getattr(member, "openclaw_node_id", "") or ""
+        if not node_id:
+            return None
+        try:
+            from openvort.web.deps import get_db_session_factory
+            from openvort.db.models import OpenClawNode
+
+            sf = get_db_session_factory()
+            if not sf:
+                return None
+            async with sf() as db:
+                node = await db.get(OpenClawNode, node_id)
+                if not node:
+                    return None
+                return {"name": node.name, "gateway_url": node.gateway_url, "status": node.status}
+        except Exception:
+            return None
+
     @staticmethod
-    def _build_minimal_member_prompt(member) -> str:
+    def _build_minimal_member_prompt(member, openclaw_info: dict | None = None) -> str:
         """Persona prompt for a member without skills/bio — a friendly colleague."""
         if member.position:
             parts = [f"你是「{member.name}」，团队的{member.position}。你正在通过 IM 跟同事聊天。"]
@@ -1202,6 +1227,9 @@ class AgentRuntime:
             info_lines.append(f"- 手机: {member.phone}")
         parts.append("\n## 基本信息\n" + "\n".join(info_lines))
 
+        if openclaw_info:
+            parts.append(AgentRuntime._build_openclaw_prompt_section(openclaw_info))
+
         parts.append(f"""
 ## 行为准则
 - 像正常同事聊天一样说话，简洁自然，不要太正式
@@ -1214,7 +1242,7 @@ class AgentRuntime:
         return "\n".join(parts)
 
     @staticmethod
-    def _build_rich_member_prompt(member, skill_contents: list[str]) -> str:
+    def _build_rich_member_prompt(member, skill_contents: list[str], openclaw_info: dict | None = None) -> str:
         """Persona prompt for a member with skills/bio — a domain expert."""
         if member.position:
             parts = [f"你是「{member.name}」，团队的{member.position}。"]
@@ -1237,6 +1265,9 @@ class AgentRuntime:
         if skill_contents:
             parts.append("\n## 专业技能与背景知识\n" + "\n\n".join(skill_contents))
 
+        if openclaw_info:
+            parts.append(AgentRuntime._build_openclaw_prompt_section(openclaw_info))
+
         parts.append(f"""
 ## 行为准则
 - 完全以{member.name}的身份交流，就像真正的{member.name}在跟同事说话
@@ -1248,6 +1279,28 @@ class AgentRuntime:
 - 绝对不要提到你是 AI、助手或机器人
 - 用中文回复""")
         return "\n".join(parts)
+
+    @staticmethod
+    def _build_openclaw_prompt_section(info: dict) -> str:
+        """Build system prompt section describing OpenClaw remote work capability."""
+        node_name = info.get("name", "远程节点")
+        status = info.get("status", "unknown")
+        status_label = {"online": "在线", "offline": "离线"}.get(status, "未知")
+        return f"""
+## 远程工作环境
+
+你拥有一台远程工作电脑「{node_name}」（当前状态: {status_label}），可以通过 `openclaw_work` 工具在上面执行实际操作。
+
+**使用场景**: 当同事要求你执行编码、运行命令、操作文件、部署、调试等需要在电脑上完成的任务时，使用 `openclaw_work` 工具将指令发送到远程电脑执行。
+
+**触发关键词**: 当对话中出现「远程」「openclaw」「在你电脑上」「帮我跑一下」「执行」「部署」「写代码」「改代码」「运行」等意图时，主动使用此工具。
+
+**使用方式**: 调用 `openclaw_work` 工具，在 `instruction` 参数中用自然语言描述要执行的任务。远程电脑会理解并执行指令，返回结果。
+
+**登录与认证**: 如果远程执行结果显示需要登录网站、授权第三方服务、输入验证码等需要人工交互的操作，你应该：
+1. 告知同事需要先在远程电脑「{node_name}」上手动完成登录/授权
+2. 说明具体需要登录哪个网站或服务
+3. 等同事确认登录完成后，再继续执行原任务"""
 
     @staticmethod
     def _build_user_content(text: str, images: list[dict]) -> str | list[dict]:

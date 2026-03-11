@@ -460,6 +460,8 @@ const showClearButton = computed(() => {
     return !!displayText.value;
 });
 
+const isClearButtonVisible = computed(() => showClearButton.value && isHovered.value);
+
 // 获取某一级的选项列表
 const getColumnsOptions = computed(() => {
     const columns: { options: CascaderOption[]; selectedValue: string | number | undefined }[] = [];
@@ -1092,14 +1094,21 @@ defineExpose({
 
             <!-- 后缀区域 -->
             <span class="vort-cascader-suffix">
-                <!-- 清除按钮 -->
-                <span v-if="showClearButton && isHovered" class="vort-cascader-clear" @click="handleClear" @mousedown.prevent>
-                    <CloseCircleFilled />
-                </span>
+                <span class="vort-cascader-indicator">
+                    <!-- 清除按钮 -->
+                    <span
+                        class="vort-cascader-clear"
+                        :class="{ 'vort-cascader-clear-visible': isClearButtonVisible }"
+                        @click="handleClear"
+                        @mousedown.prevent
+                    >
+                        <CloseCircleFilled />
+                    </span>
 
-                <!-- 下拉箭头 -->
-                <span v-else class="vort-cascader-arrow-wrapper">
-                    <DownOutlined :class="['vort-cascader-arrow', isOpen && 'vort-cascader-arrow-open']" />
+                    <!-- 下拉箭头 -->
+                    <span class="vort-cascader-arrow-wrapper" :class="{ 'vort-cascader-arrow-wrapper-hidden': isClearButtonVisible }">
+                        <DownOutlined :class="['vort-cascader-arrow', isOpen && 'vort-cascader-arrow-open']" />
+                    </span>
                 </span>
             </span>
         </div>
@@ -1390,13 +1399,37 @@ defineExpose({
     gap: 4px;
 }
 
+.vort-cascader-indicator {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+}
+
 .vort-cascader-clear {
+    position: absolute;
+    inset: 0;
     display: flex;
     align-items: center;
+    justify-content: center;
     font-size: 14px;
     color: var(--vort-text-quaternary, rgba(0, 0, 0, 0.25));
     cursor: pointer;
-    transition: color var(--vort-transition-colors, 0.1s);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition:
+        color var(--vort-transition-colors, 0.1s),
+        opacity var(--vort-transition-colors, 0.1s);
+}
+
+.vort-cascader-clear-visible {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
 }
 
 .vort-cascader-clear:hover {
@@ -1404,8 +1437,18 @@ defineExpose({
 }
 
 .vort-cascader-arrow-wrapper {
+    position: absolute;
+    inset: 0;
     display: flex;
     align-items: center;
+    justify-content: center;
+    transition: opacity var(--vort-transition-colors, 0.1s);
+}
+
+.vort-cascader-arrow-wrapper-hidden {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
 }
 
 .vort-cascader-arrow {

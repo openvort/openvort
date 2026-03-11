@@ -613,7 +613,12 @@ defineExpose({
         <!-- 后缀图标 -->
         <span class="vort-timepicker-suffix">
             <!-- 清除按钮 -->
-            <span v-if="showClearButton" class="vort-timepicker-clear" @click="handleClear" @mousedown.prevent>
+            <span
+                class="vort-timepicker-clear"
+                :class="{ 'vort-timepicker-clear-visible': showClearButton }"
+                @click="handleClear"
+                @mousedown.prevent
+            >
                 <CloseCircleFilled :class="iconSizeClass" />
             </span>
         </span>
@@ -800,15 +805,30 @@ defineExpose({
     align-items: center;
     flex-shrink: 0;
     margin-left: 4px;
+    width: 14px;
+    height: 14px;
+    justify-content: center;
 }
 
 /* 清除按钮 */
 .vort-timepicker-clear {
     display: flex;
     align-items: center;
+    justify-content: center;
     cursor: pointer;
     color: var(--vort-text-quaternary);
-    transition: color var(--vort-duration-fast, 100ms);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition:
+        color var(--vort-duration-fast, 100ms),
+        opacity var(--vort-duration-fast, 100ms);
+}
+
+.vort-timepicker-clear-visible {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
 }
 
 .vort-timepicker-clear:hover {

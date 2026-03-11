@@ -10,8 +10,6 @@ export type SwitchValue = boolean | number | string;
 
 /** Switch 组件 Props */
 export interface SwitchProps {
-    /** 指定当前值（v-model），兼容 modelValue 写法 */
-    modelValue?: SwitchValue;
     /** 指定当前值（v-model:checked），支持 boolean / number / string */
     checked?: SwitchValue;
     /** 是否禁用 */
@@ -38,8 +36,6 @@ export interface SwitchProps {
 
 /** Switch 组件 Emits */
 export interface SwitchEmits {
-    /** 更新选中状态（v-model） */
-    (e: "update:modelValue", value: SwitchValue): void;
     /** 更新选中状态 */
     (e: "update:checked", value: SwitchValue): void;
     /** 状态变化事件 */

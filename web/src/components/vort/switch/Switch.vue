@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, useAttrs } from "vue";
+import type { PropType } from "vue";
 import { LoadingOutlined } from "@/components/vort/icons";
 import type { SwitchSize, SwitchValue } from "./types";
 
@@ -7,41 +8,65 @@ defineOptions({ name: "VortSwitch", inheritAttrs: false });
 
 /** Vort Switch - 开关组件 */
 
-interface Props {
-    /** 指定当前值（v-model），兼容 modelValue 写法 */
-    modelValue?: SwitchValue;
+const props = defineProps({
     /** 指定当前值（v-model:checked），支持 boolean / number / string */
-    checked?: SwitchValue;
+    checked: {
+        type: [Boolean, Number, String] as PropType<SwitchValue>,
+        default: undefined
+    },
     /** 是否禁用 */
-    disabled?: boolean;
+    disabled: {
+        type: Boolean,
+        default: false
+    },
     /** 加载中 */
-    loading?: boolean;
+    loading: {
+        type: Boolean,
+        default: false
+    },
     /** 开关大小 */
-    size?: SwitchSize;
+    size: {
+        type: String as PropType<SwitchSize>,
+        default: "default"
+    },
     /** 选中时对应的值 */
-    checkedValue?: SwitchValue;
+    checkedValue: {
+        type: [Boolean, Number, String] as PropType<SwitchValue>,
+        default: undefined
+    },
     /** 非选中时对应的值（推荐） */
-    uncheckedValue?: SwitchValue;
+    uncheckedValue: {
+        type: [Boolean, Number, String] as PropType<SwitchValue>,
+        default: undefined
+    },
     /** 非选中时对应的值（兼容命名） */
-    unCheckedValue?: SwitchValue;
+    unCheckedValue: {
+        type: [Boolean, Number, String] as PropType<SwitchValue>,
+        default: undefined
+    },
     /** 选中时的内容 */
-    checkedChildren?: string;
+    checkedChildren: {
+        type: String,
+        default: undefined
+    },
     /** 非选中时的内容（模板写法：un-checked-children） */
-    unCheckedChildren?: string;
+    unCheckedChildren: {
+        type: String,
+        default: undefined
+    },
     /** 自定义类名 */
-    class?: string;
+    class: {
+        type: String,
+        default: undefined
+    },
     /** 切换前的钩子，返回 false 或 Promise reject 会阻止切换 */
-    beforeChange?: () => Promise<boolean> | boolean;
-}
-
-const props = withDefaults(defineProps<Props>(), {
-    disabled: false,
-    loading: false,
-    size: "default"
+    beforeChange: {
+        type: Function as PropType<() => Promise<boolean> | boolean>,
+        default: undefined
+    }
 });
 
 const emit = defineEmits<{
-    "update:modelValue": [value: SwitchValue];
     "update:checked": [value: SwitchValue];
     change: [value: SwitchValue, event: MouseEvent];
 }>();
@@ -61,25 +86,18 @@ const resolvedUncheckedValue = computed<SwitchValue>(() => props.uncheckedValue 
 // ==================== 计算属性 ====================
 
 /** 当前是否选中 */
-const currentValue = computed<SwitchValue | undefined>(() => {
-    // Prefer checked when both bindings are provided.
-    if (props.checked !== undefined) return props.checked;
-    return props.modelValue;
-});
-
-/** 当前是否选中 */
-const rawChecked = computed(() => {
+const isChecked = computed(() => {
     if (useValueMapping.value) {
-        return currentValue.value === resolvedCheckedValue.value;
+        return props.checked === resolvedCheckedValue.value;
     }
-    return Boolean(currentValue.value);
+    return Boolean(props.checked);
 });
 
-/** 当前是否选中（兼容历史语义：业务值与视觉态相反） */
-const isChecked = computed(() => !rawChecked.value);
+/** 是否阻断交互（外部 loading 只阻断交互，不直接设置原生 disabled） */
+const isInteractionBlocked = computed(() => props.disabled || props.loading || isLoading.value);
 
-/** 是否实际禁用（禁用或加载中都不可点击） */
-const isActuallyDisabled = computed(() => props.disabled || props.loading || isLoading.value);
+/** 是否使用原生 disabled（仅在真正禁用或内部切换中使用） */
+const isActuallyDisabled = computed(() => props.disabled || isLoading.value);
 
 /** 实际显示的加载状态 */
 const showLoading = computed(() => props.loading || isLoading.value);
@@ -89,7 +107,7 @@ const showLoading = computed(() => props.loading || isLoading.value);
 const switchClasses = computed(() => {
     const classes = ["vort-switch"];
     if (isChecked.value) classes.push("vort-switch-checked");
-    if (isActuallyDisabled.value) classes.push("vort-switch-disabled");
+    if (isInteractionBlocked.value) classes.push("vort-switch-disabled");
     if (props.size === "small") classes.push("vort-switch-small");
     if (props.class) classes.push(props.class);
     return classes;
@@ -99,7 +117,7 @@ const switchClasses = computed(() => {
 
 /** 计算切换后的新值 */
 const getNewValue = (): SwitchValue => {
-    const newChecked = !rawChecked.value;
+    const newChecked = !isChecked.value;
     if (useValueMapping.value) {
         return newChecked ? resolvedCheckedValue.value : resolvedUncheckedValue.value;
     }
@@ -114,7 +132,6 @@ const doSwitch = async (event: MouseEvent | KeyboardEvent): Promise<void> => {
             const result = await props.beforeChange();
             if (result) {
                 const newVal = getNewValue();
-                emit("update:modelValue", newVal);
                 emit("update:checked", newVal);
                 emit("change", newVal, event as MouseEvent);
             }
@@ -125,7 +142,6 @@ const doSwitch = async (event: MouseEvent | KeyboardEvent): Promise<void> => {
         }
     } else {
         const newVal = getNewValue();
-        emit("update:modelValue", newVal);
         emit("update:checked", newVal);
         emit("change", newVal, event as MouseEvent);
     }
@@ -133,7 +149,7 @@ const doSwitch = async (event: MouseEvent | KeyboardEvent): Promise<void> => {
 
 /** 处理点击 */
 const handleClick = (event: MouseEvent) => {
-    if (isActuallyDisabled.value) return;
+    if (isInteractionBlocked.value) return;
     doSwitch(event);
 };
 
@@ -141,7 +157,7 @@ const handleClick = (event: MouseEvent) => {
 const handleKeydown = (event: KeyboardEvent) => {
     if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
-        if (!isActuallyDisabled.value) {
+        if (!isInteractionBlocked.value) {
             doSwitch(event);
         }
     }
@@ -155,7 +171,7 @@ const handleKeydown = (event: KeyboardEvent) => {
         role="switch"
         v-bind="attrs"
         :aria-checked="isChecked"
-        :aria-disabled="isActuallyDisabled"
+        :aria-disabled="isInteractionBlocked"
         :class="switchClasses"
         :disabled="isActuallyDisabled"
         @click="handleClick"

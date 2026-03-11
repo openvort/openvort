@@ -37,6 +37,7 @@ class UpdateMemberRequest(BaseModel):
     skills: list[str] | None = None
     auto_report: bool | None = None
     report_frequency: str | None = None
+    openclaw_node_id: str | None = None
 
 
 class ResetPasswordRequest(BaseModel):
@@ -272,6 +273,7 @@ async def list_members(search: str = "", role: str = "", department_id: int | No
                 "roles": roles or [],
                 "platform_accounts": platform_accounts,
                 "departments": departments,
+                "openclaw_node_id": m.openclaw_node_id or "",
                 "created_at": m.created_at.isoformat() if m.created_at else "",
             })
 
@@ -322,6 +324,7 @@ async def get_member(member_id: str):
             "is_account": member.is_account,
             "is_virtual": member.is_virtual,
             "has_password": bool(member.password_hash),
+            "openclaw_node_id": member.openclaw_node_id or "",
             "roles": roles or [],
             "permissions": permissions,
             "departments": departments,
@@ -389,6 +392,8 @@ async def update_member(member_id: str, req: UpdateMemberRequest):
             member.auto_report = req.auto_report
         if req.report_frequency is not None:
             member.report_frequency = req.report_frequency
+        if req.openclaw_node_id is not None:
+            member.openclaw_node_id = req.openclaw_node_id
 
         await session.commit()
         return {"success": True}
