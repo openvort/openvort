@@ -70,7 +70,7 @@ def create_app() -> FastAPI:
         webhooks_admin_router, agents_router, models_router,
         member_skills_router, upgrade_router, posts_router,
         work_assignments_router, voice_providers_router,
-        openclaw_nodes_router,
+        remote_nodes_router,
     )
     from openvort.web.ws import ws_router
     from openvort.web.webhooks import webhooks_router
@@ -111,7 +111,7 @@ def create_app() -> FastAPI:
     app.include_router(models_router, prefix="/api/admin/models", tags=["admin-models"], dependencies=[Depends(require_admin)])
     app.include_router(voice_providers_router, prefix="/api/admin/voice-providers", tags=["admin-voice-providers"], dependencies=[Depends(require_admin)])
     app.include_router(upgrade_router, prefix="/api/admin/upgrade", tags=["admin-upgrade"], dependencies=[Depends(require_admin)])
-    app.include_router(openclaw_nodes_router, prefix="/api/admin/openclaw-nodes", tags=["admin-openclaw-nodes"], dependencies=[Depends(require_admin)])
+    app.include_router(remote_nodes_router, prefix="/api/admin/remote-nodes", tags=["admin-remote-nodes"], dependencies=[Depends(require_admin)])
 
     # ---- 动态挂载已启用插件的 API Router ----
     try:
@@ -229,11 +229,15 @@ def create_app() -> FastAPI:
             "release_notes": update_info.get("release_notes", ""),
         }
 
-    # 聊天图片（data_dir 下，不依赖前端构建产物）
+    # 上传文件统一放在 data_dir 下，避免依赖前端 dist 目录是否存在
     from openvort.config.settings import get_settings as _get_settings
-    _chat_uploads = _get_settings().data_dir / "uploads" / "chat"
+    _uploads_root = _get_settings().data_dir / "uploads"
+    _uploads_root.mkdir(parents=True, exist_ok=True)
+
+    _chat_uploads = _uploads_root / "chat"
     _chat_uploads.mkdir(parents=True, exist_ok=True)
     app.mount("/uploads/chat", StaticFiles(directory=str(_chat_uploads)), name="chat-uploads")
+    app.mount("/uploads", StaticFiles(directory=str(_uploads_root)), name="uploads")
 
     # 尝试挂载前端静态文件（构建产物）+ SPA fallback
     import os as _os
@@ -249,11 +253,6 @@ def create_app() -> FastAPI:
 
         # 静态资源（js/css/svg 等）
         app.mount("/assets", StaticFiles(directory=str(static_dir / "assets")), name="assets")
-
-        # 上传文件目录
-        uploads_dir = static_dir / "uploads"
-        uploads_dir.mkdir(parents=True, exist_ok=True)
-        app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
 
         # SPA fallback：非 /api 开头的请求都返回 index.html
         @app.get("/{full_path:path}")

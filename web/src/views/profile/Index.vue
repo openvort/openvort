@@ -137,6 +137,10 @@ onMounted(async () => {
         const res: any = await getProfile();
         if (res) {
             Object.assign(profile.value, res);
+            userStore.setUserInfo({
+                ...userStore.userInfo,
+                avatar_url: res.avatar_url || "",
+            });
             basicForm.value = {
                 name: res.name || userStore.userInfo.name || "",
                 email: res.email || userStore.userInfo.email || "",
@@ -198,6 +202,10 @@ async function handleAvatarUpload(cropper: any) {
         const res: any = await uploadAvatar(file);
         if (res?.success && res.avatar_url) {
             profile.value.avatar_url = res.avatar_url;
+            userStore.setUserInfo({
+                ...userStore.userInfo,
+                avatar_url: res.avatar_url,
+            });
             message.success("头像已更新");
         } else {
             message.error(res?.error || "上传失败");

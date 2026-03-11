@@ -10,16 +10,8 @@ interface RoleOption {
     description: string;
 }
 
-interface SkillOption {
-    id: string;
-    name: string;
-    description: string;
-    checked: boolean;
-    source: string;
-}
-
 interface StepConfig {
-    key: "type" | "role" | "skill" | "info";
+    key: "type" | "role" | "info";
     title: string;
 }
 
@@ -31,7 +23,6 @@ const REAL_STEPS: StepConfig[] = [
 const VIRTUAL_STEPS: StepConfig[] = [
     { key: "type", title: "选择类型" },
     { key: "role", title: "选择岗位" },
-    { key: "skill", title: "确认技能" },
     { key: "info", title: "填写信息" },
 ];
 
@@ -50,7 +41,6 @@ const currentStep = ref(1);
 const formData = ref({
     memberType: "" as "" | "real" | "virtual",
     roles: [] as string[],
-    skills: [] as SkillOption[],
     name: "",
     email: "",
     phone: "",
@@ -92,59 +82,6 @@ async function loadRoleOptions() {
     }
 }
 
-// 技能选项（从角色推荐中获取）
-const availableSkills = ref<SkillOption[]>([]);
-const loadingSkills = ref(false);
-
-async function loadRoleSkills() {
-    if (formData.value.roles.length === 0) {
-        availableSkills.value = [];
-        return;
-    }
-
-    loadingSkills.value = true;
-    try {
-        const { getRoleSkills } = await import("@/api");
-        const allSkills: SkillOption[] = [];
-
-        for (const role of formData.value.roles) {
-            const res: any = await getRoleSkills(role);
-            if (res?.skills) {
-                for (const skill of res.skills) {
-                    const exists = allSkills.find(s => s.id === skill.id);
-                    if (!exists) {
-                        allSkills.push({
-                            id: skill.id,
-                            name: skill.name,
-                            description: skill.description,
-                            checked: true,
-                            source: `role:${role}`,
-                        });
-                    }
-                }
-            }
-        }
-
-        availableSkills.value = allSkills;
-    } catch (e) {
-        console.error("加载岗位技能失败", e);
-    } finally {
-        loadingSkills.value = false;
-    }
-}
-
-watch(() => formData.value.roles, async () => {
-    if (currentStepKey.value === "skill") {
-        await loadRoleSkills();
-    }
-});
-
-watch(currentStepKey, async (key) => {
-    if (key === "skill") {
-        await loadRoleSkills();
-    }
-});
-
 // 打开弹窗时加载角色列表
 watch(() => props.open, (isOpen) => {
     if (isOpen) {
@@ -157,7 +94,6 @@ function resetForm() {
     formData.value = {
         memberType: "",
         roles: [],
-        skills: [],
         name: "",
         email: "",
         phone: "",
@@ -166,7 +102,6 @@ function resetForm() {
         autoReport: false,
         reportFrequency: "daily",
     };
-    availableSkills.value = [];
 }
 
 function handleClose() {
@@ -188,9 +123,6 @@ function nextStep() {
             message.warning("请至少选择一个岗位");
             return;
         }
-    }
-    if (key === "skill") {
-        formData.value.skills = availableSkills.value.filter(s => s.checked);
     }
     if (key === "info") {
         if (!formData.value.name.trim()) {
@@ -223,7 +155,6 @@ async function complete() {
     if (formData.value.memberType === "virtual") {
         data.is_virtual = true;
         data.virtual_role = formData.value.roles[0] || "";
-        data.skills = formData.value.skills.map(s => s.id);
         data.auto_report = formData.value.autoReport;
         data.report_frequency = formData.value.reportFrequency;
     }
@@ -326,7 +257,7 @@ async function complete() {
         <div v-if="currentStepKey === 'role'" class="space-y-4">
             <div class="text-center mb-6">
                 <div class="text-lg font-medium text-gray-800">选择岗位</div>
-                <div class="text-sm text-gray-400 mt-1">为 AI 员工选择一个或多个岗位，每个岗位会推荐一组技能</div>
+                <div class="text-sm text-gray-400 mt-1">为 AI 员工选择一个岗位</div>
             </div>
 
             <div class="grid grid-cols-2 gap-3 max-h-[400px] overflow-y-auto pr-1">
@@ -354,34 +285,6 @@ async function complete() {
                     </div>
                 </div>
             </div>
-        </div>
-
-        <!-- 确认技能（AI 员工） -->
-        <div v-if="currentStepKey === 'skill'" class="space-y-4">
-            <div class="text-center mb-6">
-                <div class="text-lg font-medium text-gray-800">确认技能</div>
-                <div class="text-sm text-gray-400 mt-1">根据选择的岗位自动推荐了以下技能，您可以调整</div>
-            </div>
-
-            <VortSpin :spinning="loadingSkills">
-                <div v-if="availableSkills.length" class="space-y-2 max-h-80 overflow-y-auto">
-                    <div
-                        v-for="skill in availableSkills"
-                        :key="skill.id"
-                        class="flex items-center gap-3 p-3 rounded-lg border border-gray-100 hover:bg-gray-50"
-                    >
-                        <VortCheckbox v-model:checked="skill.checked" />
-                        <div class="flex-1">
-                            <div class="font-medium text-gray-800">{{ skill.name }}</div>
-                            <div class="text-sm text-gray-500">{{ skill.description }}</div>
-                        </div>
-                        <VortTag size="small" color="blue">{{ skill.source }}</VortTag>
-                    </div>
-                </div>
-                <div v-else class="text-center py-8 text-gray-400">
-                    暂无推荐技能，请先选择岗位
-                </div>
-            </VortSpin>
         </div>
 
         <!-- 填写基本信息 -->

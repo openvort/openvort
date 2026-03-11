@@ -115,7 +115,7 @@ async def authenticate_member(user_id: str, password: str) -> dict | None:
     仅 is_account=True 且 status=active 的成员可登录。
 
     Returns:
-        { member_id, name, roles, position, department, platform_accounts } 或 None
+        { member_id, name, roles, position, department, platform_accounts, avatar_url } 或 None
     """
     from sqlalchemy import select
     from openvort.contacts.models import Member, PlatformIdentity
@@ -209,4 +209,5 @@ async def authenticate_member(user_id: str, password: str) -> dict | None:
             "position": position,
             "department": department,
             "platform_accounts": platform_accounts,
+            "avatar_url": member.avatar_url or "",
         }

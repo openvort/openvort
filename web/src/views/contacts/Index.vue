@@ -45,7 +45,7 @@ interface MemberItem {
 interface MemberDetail extends Omit<MemberItem, 'departments'> {
     avatar_url: string;
     permissions: string[];
-    openclaw_node_id: string;
+    remote_node_id: string;
     departments: { id: number; name: string }[];
     identities: {
         id: number;

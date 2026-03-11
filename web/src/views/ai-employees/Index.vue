@@ -4,8 +4,7 @@ import { useRouter } from "vue-router";
 import {
     getMembers, getMember, updateMember, deleteMember, startMemberChat,
     getVirtualRoles, createVirtualRole, updateVirtualRole, deleteVirtualRole,
-    getVirtualRoleSkills, bindVirtualRoleSkills,
-    getSkills, getWebhooks, getOpenClawNodes, getMemberSkillsWithSource,
+    getWebhooks, getRemoteNodes,
 } from "@/api";
 import { message } from "@/components/vort";
 import { MemberWizard } from "@/components/vort-biz/member-wizard";
@@ -29,14 +28,6 @@ interface PostItem {
     default_auto_report: boolean;
     default_report_frequency: string;
     enabled: boolean;
-}
-
-interface SkillItem {
-    id: string;
-    name: string;
-    description: string;
-    scope: string;
-    skill_type: string;
 }
 
 interface AIEmployee {
@@ -63,15 +54,16 @@ interface AIEmployee {
 }
 
 interface EmployeeDetail extends AIEmployee {
-    openclaw_node_id: string;
+    remote_node_id: string;
     identities: any[];
     departments: any[];
     permissions: string[];
 }
 
-interface OpenClawNodeOption {
+interface RemoteNodeOption {
     id: string;
     name: string;
+    node_type: string;
     gateway_url: string;
     status: string;
 }
@@ -100,9 +92,8 @@ const currentEmployee = ref<EmployeeDetail | null>(null);
 const editForm = ref({ name: "", email: "", phone: "", position: "" });
 const savingEdit = ref(false);
 const memberWebhooks = ref<any[]>([]);
-const openclawNodes = ref<OpenClawNodeOption[]>([]);
+const remoteNodes = ref<RemoteNodeOption[]>([]);
 const savingNodeBinding = ref(false);
-const memberSkills = ref<any[]>([]);
 
 // ---- State: post management dialog ----
 
@@ -111,9 +102,11 @@ const postList = ref<PostItem[]>([]);
 const postLoading = ref(false);
 const postEditing = ref<Partial<PostItem> | null>(null);
 const postEditMode = ref<"add" | "edit">("add");
-const allSkills = ref<SkillItem[]>([]);
-const postBoundSkills = ref<SkillItem[]>([]);
 const postSubmitting = ref(false);
+
+// ---- State: create wizard ----
+
+const wizardOpen = ref(false);
 
 // ---- State: category tabs ----
 
@@ -235,7 +228,6 @@ async function openDetail(emp: AIEmployee) {
     detailOpen.value = true;
     detailLoading.value = true;
     memberWebhooks.value = [];
-    memberSkills.value = [];
     try {
         const res: any = await getMember(emp.id);
         currentEmployee.value = res;
@@ -245,17 +237,11 @@ async function openDetail(emp: AIEmployee) {
             phone: res.phone || "",
             position: res.position || "",
         };
-        const [whRes, skillsRes] = await Promise.allSettled([
-            getWebhooks(),
-            getMemberSkillsWithSource(emp.id),
-        ]);
-        if (whRes.status === "fulfilled") {
-            const all = Array.isArray(whRes.value) ? whRes.value : [];
+        try {
+            const whRes: any = await getWebhooks();
+            const all = Array.isArray(whRes) ? whRes : [];
             memberWebhooks.value = all.filter((w: any) => w.member_id === emp.id);
-        }
-        if (skillsRes.status === "fulfilled") {
-            memberSkills.value = (skillsRes.value as any)?.skills || [];
-        }
+        } catch { /* ignore */ }
     } catch { message.error("加载详情失败"); }
     finally { detailLoading.value = false; }
 }
@@ -283,10 +269,10 @@ async function handleDeleteEmployee(emp: EmployeeDetail) {
     } catch { message.error("删除失败"); }
 }
 
-async function handleBindOpenClawNode(memberId: string, nodeId: string) {
+async function handleBindRemoteNode(memberId: string, nodeId: string) {
     savingNodeBinding.value = true;
     try {
-        const res: any = await updateMember(memberId, { openclaw_node_id: nodeId } as any);
+        const res: any = await updateMember(memberId, { remote_node_id: nodeId } as any);
         if (res?.success) {
             message.success(nodeId ? "节点已绑定" : "已解除绑定");
             if (currentEmployee.value) await openDetail(currentEmployee.value);
@@ -327,16 +313,11 @@ function startAddPost() {
         key: "", name: "", description: "", icon: "Bot",
         default_persona: "", default_auto_report: false, default_report_frequency: "daily", enabled: true,
     };
-    postBoundSkills.value = [];
 }
 
-async function startEditPost(post: PostItem) {
+function startEditPost(post: PostItem) {
     postEditMode.value = "edit";
     postEditing.value = { ...post };
-    try {
-        const res: any = await getVirtualRoleSkills(post.key);
-        postBoundSkills.value = res.skills || [];
-    } catch { postBoundSkills.value = []; }
 }
 
 function cancelPostEdit() {
@@ -372,11 +353,6 @@ async function handleSavePost() {
             });
             message.success("岗位已更新");
         }
-        if (postEditing.value.key) {
-            await bindVirtualRoleSkills(postEditing.value.key, {
-                skill_ids: postBoundSkills.value.map(s => s.id),
-            });
-        }
         postEditing.value = null;
         await Promise.all([loadPostList(), loadPosts()]);
     } catch (e: any) { message.error(e.message || "操作失败"); }
@@ -408,24 +384,17 @@ async function handleWizardComplete() {
 // ---- Init ----
 
 onMounted(async () => {
-    await Promise.all([loadPosts(), loadAllSkillsList()]);
+    await loadPosts();
     await loadEmployees();
     loadStats();
-    loadOpenClawNodes();
+    loadRemoteNodes();
 });
 
-async function loadAllSkillsList() {
+async function loadRemoteNodes() {
     try {
-        const res: any = await getSkills();
-        allSkills.value = res.skills || [];
-    } catch { /* ignore */ }
-}
-
-async function loadOpenClawNodes() {
-    try {
-        const res: any = await getOpenClawNodes();
-        openclawNodes.value = (res?.nodes || []).map((n: any) => ({
-            id: n.id, name: n.name, gateway_url: n.gateway_url, status: n.status,
+        const res: any = await getRemoteNodes();
+        remoteNodes.value = (res?.nodes || []).map((n: any) => ({
+            id: n.id, name: n.name, node_type: n.node_type || "openclaw", gateway_url: n.gateway_url, status: n.status,
         }));
     } catch { /* ignore */ }
 }
@@ -475,7 +444,7 @@ async function loadOpenClawNodes() {
             <div class="flex items-center justify-between mb-4">
                 <div>
                     <h2 class="text-lg font-medium text-gray-800">AI 员工</h2>
-                    <p class="text-sm text-gray-500 mt-1">管理团队的 AI 员工，配置岗位、技能和工作方式</p>
+                    <p class="text-sm text-gray-500 mt-1">管理团队的 AI 员工，配置岗位和工作方式</p>
                 </div>
                 <div class="flex items-center gap-2">
                     <VortButton @click="openPostDialog" class="bg-white border-gray-200">
@@ -653,22 +622,6 @@ async function loadOpenClawNodes() {
                         </div>
                     </div>
 
-                    <!-- Skills -->
-                    <div class="rounded-lg border border-gray-100 bg-white">
-                        <div class="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50/60 rounded-t-lg">
-                            <Settings :size="15" class="text-gray-400" />
-                            <h4 class="text-sm font-semibold text-gray-700">绑定技能</h4>
-                        </div>
-                        <div class="px-4 py-3">
-                            <div v-if="memberSkills.length" class="flex flex-wrap gap-2">
-                                <VortTag v-for="skill in memberSkills" :key="skill.id || skill.skill_id" color="blue">
-                                    {{ skill.name || skill.skill_name }}
-                                </VortTag>
-                            </div>
-                            <div v-else class="text-sm text-gray-400 py-0.5">暂无绑定技能</div>
-                        </div>
-                    </div>
-
                     <!-- Webhooks -->
                     <div class="rounded-lg border border-gray-100 bg-white">
                         <div class="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50/60 rounded-t-lg">
@@ -698,7 +651,7 @@ async function loadOpenClawNodes() {
                         </div>
                     </div>
 
-                    <!-- OpenClaw node -->
+                    <!-- Remote work node -->
                     <div class="rounded-lg border border-gray-100 bg-white">
                         <div class="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50/60 rounded-t-lg">
                             <Cpu :size="15" class="text-gray-400" />
@@ -707,13 +660,13 @@ async function loadOpenClawNodes() {
                         <div class="px-4 py-3">
                             <VortSpin :spinning="savingNodeBinding">
                                 <VortSelect
-                                    :model-value="currentEmployee.openclaw_node_id || ''"
+                                    :model-value="currentEmployee.remote_node_id || ''"
                                     placeholder="未绑定（选择节点后可远程执行任务）"
                                     allow-clear
                                     style="width: 100%"
-                                    @update:model-value="(val: string) => handleBindOpenClawNode(currentEmployee!.id, val || '')"
+                                    @update:model-value="(val: string) => handleBindRemoteNode(currentEmployee!.id, val || '')"
                                 >
-                                    <VortSelectOption v-for="node in openclawNodes" :key="node.id" :value="node.id">
+                                    <VortSelectOption v-for="node in remoteNodes" :key="node.id" :value="node.id">
                                         <div class="flex items-center gap-2">
                                             <span
                                                 class="w-2 h-2 rounded-full flex-shrink-0"
@@ -725,8 +678,8 @@ async function loadOpenClawNodes() {
                                     </VortSelectOption>
                                 </VortSelect>
                                 <div class="mt-2 text-xs text-gray-400">
-                                    绑定后，该 AI 员工可通过 OpenClaw 在远程电脑上执行工作任务。
-                                    <router-link to="/openclaw-nodes" class="text-blue-600 hover:underline">管理节点</router-link>
+                                    绑定后，该 AI 员工可通过远程工作节点在远程电脑上执行工作任务。
+                                    <router-link to="/remote-nodes" class="text-blue-600 hover:underline">管理节点</router-link>
                                 </div>
                             </VortSpin>
                         </div>
@@ -751,7 +704,7 @@ async function loadOpenClawNodes() {
         <VortDrawer v-model:open="postDialogOpen" title="岗位管理" :width="560">
             <div class="space-y-4">
                 <div class="flex items-center justify-between">
-                    <p class="text-sm text-gray-500">管理 AI 员工的岗位模板和推荐技能</p>
+                    <p class="text-sm text-gray-500">管理 AI 员工的岗位模板</p>
                     <VortButton size="small" @click="startAddPost">
                         <Plus :size="14" class="mr-1" /> 新增岗位
                     </VortButton>
@@ -790,36 +743,6 @@ async function loadOpenClawNodes() {
                             </div>
                         </VortFormItem>
                     </VortForm>
-
-                    <!-- Skill binding -->
-                    <div>
-                        <div class="text-xs font-medium text-gray-600 mb-2">推荐技能</div>
-                        <div class="space-y-1 max-h-36 overflow-y-auto">
-                            <div
-                                v-for="skill in allSkills"
-                                :key="skill.id"
-                                class="flex items-start gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors"
-                                :class="postBoundSkills.some(s => s.id === skill.id) ? 'bg-blue-50' : 'hover:bg-gray-50'"
-                                @click="() => {
-                                    if (postBoundSkills.some(s => s.id === skill.id)) {
-                                        postBoundSkills = postBoundSkills.filter(s => s.id !== skill.id);
-                                    } else {
-                                        postBoundSkills.push(skill);
-                                    }
-                                }"
-                            >
-                                <VortCheckbox
-                                    :checked="postBoundSkills.some(s => s.id === skill.id)"
-                                    class="mt-0.5"
-                                />
-                                <div class="min-w-0">
-                                    <div class="text-sm text-gray-800">{{ skill.name }}</div>
-                                    <div v-if="skill.description" class="text-xs text-gray-400 truncate">{{ skill.description }}</div>
-                                </div>
-                            </div>
-                            <div v-if="!allSkills.length" class="text-xs text-gray-400 py-2">暂无可用技能</div>
-                        </div>
-                    </div>
 
                     <div class="flex justify-end gap-2 pt-2">
                         <VortButton size="small" @click="cancelPostEdit">取消</VortButton>

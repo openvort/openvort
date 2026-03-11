@@ -778,8 +778,13 @@ export function runAdminSchedule(jobId: string) {
 
 // ---- Skill 管理（管理员：内置 + 公共）----
 
-/** Skill 列表（builtin + public），可按 skill_type 筛选 */
-export function getSkills(params?: { skill_type?: string }) {
+/** 获取所有已使用的标签 */
+export function getSkillTags() {
+    return request.get("/admin/skills/tags");
+}
+
+/** Skill 列表（builtin + public），可按 tag 筛选 */
+export function getSkills(params?: { skill_type?: string; tag?: string }) {
     return request.get("/admin/skills", { params });
 }
 
@@ -789,12 +794,12 @@ export function getSkill(id: string) {
 }
 
 /** 创建公共 Skill */
-export function createSkill(data: { name: string; description?: string; content?: string; skill_type?: string }) {
+export function createSkill(data: { name: string; description?: string; content?: string; skill_type?: string; tags?: string[] }) {
     return request.post("/admin/skills", data);
 }
 
 /** 更新公共 Skill */
-export function updateSkill(id: string, data: { name?: string; description?: string; content?: string; skill_type?: string }) {
+export function updateSkill(id: string, data: { name?: string; description?: string; content?: string; skill_type?: string; tags?: string[] }) {
     return request.put(`/admin/skills/${id}`, data);
 }
 
@@ -1715,34 +1720,34 @@ export function updateWorkAssignmentStatus(assignmentId: number, status: string)
     return request.post(`/work-assignments/${assignmentId}/update_status`, null, { params: { status } });
 }
 
-// ---- OpenClaw 节点管理 ----
+// ---- 远程工作节点管理 ----
 
-/** OpenClaw 节点列表 */
-export function getOpenClawNodes() {
-    return request.get("/admin/openclaw-nodes");
+/** 远程节点列表 */
+export function getRemoteNodes() {
+    return request.get("/admin/remote-nodes");
 }
 
-/** 创建 OpenClaw 节点 */
-export function createOpenClawNode(data: { name: string; gateway_url: string; gateway_token: string; description?: string }) {
-    return request.post("/admin/openclaw-nodes", data);
+/** 创建远程节点 */
+export function createRemoteNode(data: { name: string; gateway_url: string; gateway_token: string; description?: string; node_type?: string }) {
+    return request.post("/admin/remote-nodes", data);
 }
 
-/** 更新 OpenClaw 节点 */
-export function updateOpenClawNode(nodeId: string, data: { name?: string; gateway_url?: string; gateway_token?: string; description?: string }) {
-    return request.put(`/admin/openclaw-nodes/${nodeId}`, data);
+/** 更新远程节点 */
+export function updateRemoteNode(nodeId: string, data: { name?: string; gateway_url?: string; gateway_token?: string; description?: string; node_type?: string }) {
+    return request.put(`/admin/remote-nodes/${nodeId}`, data);
 }
 
-/** 删除 OpenClaw 节点 */
-export function deleteOpenClawNode(nodeId: string) {
-    return request.delete(`/admin/openclaw-nodes/${nodeId}`);
+/** 删除远程节点 */
+export function deleteRemoteNode(nodeId: string) {
+    return request.delete(`/admin/remote-nodes/${nodeId}`);
 }
 
-/** 测试 OpenClaw 节点连接 */
-export function testOpenClawNode(nodeId: string) {
-    return request.post(`/admin/openclaw-nodes/${nodeId}/test`);
+/** 测试远程节点连接 */
+export function testRemoteNode(nodeId: string) {
+    return request.post(`/admin/remote-nodes/${nodeId}/test`);
 }
 
-/** 获取 OpenClaw 节点绑定的 AI 员工 */
-export function getOpenClawNodeMembers(nodeId: string) {
-    return request.get(`/admin/openclaw-nodes/${nodeId}/members`);
+/** 获取远程节点绑定的 AI 员工 */
+export function getRemoteNodeMembers(nodeId: string) {
+    return request.get(`/admin/remote-nodes/${nodeId}/members`);
 }

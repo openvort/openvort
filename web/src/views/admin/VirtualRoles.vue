@@ -3,8 +3,7 @@ import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import {
     getVirtualRoles, getVirtualRole, createVirtualRole, updateVirtualRole, deleteVirtualRole,
-    getVirtualRoleSkills, bindVirtualRoleSkills,
-    getSkills, generateRolePersonaPrompt,
+    generateRolePersonaPrompt,
 } from "@/api";
 import { message } from "@/components/vort";
 import { Plus, Trash2, Save, Settings, Bot, Check } from "lucide-vue-next";
@@ -25,18 +24,9 @@ interface VirtualRoleItem {
     updated_at?: string;
 }
 
-interface SkillItem {
-    id: string;
-    name: string;
-    description: string;
-    scope: string;
-    skill_type: string;
-}
-
 // 列表数据
 const posts = ref<VirtualRoleItem[]>([]);
 const loading = ref(false);
-const allSkills = ref<SkillItem[]>([]);
 
 // 分页
 const pagination = ref({
@@ -52,9 +42,6 @@ const drawerMode = ref<"add" | "edit" | "view">("add");
 const currentRole = ref<Partial<VirtualRoleItem>>({});
 const submitting = ref(false);
 
-// 技能绑定
-const boundSkills = ref<SkillItem[]>([]);
-const loadingSkills = ref(false);
 
 // 加载角色列表
 async function loadRoles() {
@@ -67,30 +54,6 @@ async function loadRoles() {
         message.error("加载角色列表失败");
     } finally {
         loading.value = false;
-    }
-}
-
-// 加载所有技能
-async function loadAllSkills() {
-    try {
-        const res: any = await getSkills();
-        allSkills.value = res.skills || [];
-    } catch (e) {
-        console.error("加载技能列表失败", e);
-    }
-}
-
-// 加载角色的绑定技能
-async function loadBoundSkills(roleKey: string) {
-    loadingSkills.value = true;
-    try {
-        const res: any = await getVirtualRoleSkills(roleKey);
-        boundSkills.value = res.skills || [];
-    } catch (e) {
-        console.error("加载角色技能失败", e);
-        boundSkills.value = [];
-    } finally {
-        loadingSkills.value = false;
     }
 }
 
@@ -108,25 +71,22 @@ function handleAdd() {
         default_report_frequency: "daily",
         enabled: true,
     };
-    boundSkills.value = [];
     drawerVisible.value = true;
 }
 
 // 编辑
-async function handleEdit(row: VirtualRoleItem) {
+function handleEdit(row: VirtualRoleItem) {
     drawerMode.value = "edit";
     drawerTitle.value = "编辑角色";
     currentRole.value = { ...row };
-    await loadBoundSkills(row.key);
     drawerVisible.value = true;
 }
 
 // 查看
-async function handleView(row: VirtualRoleItem) {
+function handleView(row: VirtualRoleItem) {
     drawerMode.value = "view";
     drawerTitle.value = "角色详情";
     currentRole.value = { ...row };
-    await loadBoundSkills(row.key);
     drawerVisible.value = true;
 }
 
@@ -177,11 +137,6 @@ async function handleSave() {
             message.success("更新成功");
         }
 
-        // 保存技能绑定
-        await bindVirtualRoleSkills(currentRole.value.key, {
-            skill_ids: boundSkills.value.map(s => s.id),
-        });
-
         drawerVisible.value = false;
         loadRoles();
     } catch (e: any) {
@@ -221,7 +176,6 @@ async function handleAiGeneratePersona() {
 
 onMounted(() => {
     loadRoles();
-    loadAllSkills();
 });
 </script>
 
@@ -236,7 +190,7 @@ onMounted(() => {
                 </vort-button>
             </div>
             <div class="text-sm text-gray-500">
-                管理 AI 员工的角色模板，配置角色属性和推荐技能
+                管理 AI 员工的角色模板，配置角色属性
             </div>
         </div>
 
@@ -335,17 +289,6 @@ onMounted(() => {
                     </div>
                 </div>
 
-                <vort-divider />
-
-                <div>
-                    <span class="text-sm text-gray-400">推荐技能</span>
-                    <div class="flex flex-wrap gap-2 mt-2">
-                        <vort-tag v-for="skill in boundSkills" :key="skill.id" color="blue">
-                            {{ skill.name }}
-                        </vort-tag>
-                        <span v-if="boundSkills.length === 0" class="text-sm text-gray-400">暂无绑定</span>
-                    </div>
-                </div>
             </div>
 
             <!-- 编辑/新增模式 -->
@@ -389,39 +332,6 @@ onMounted(() => {
                         </vort-select>
                     </vort-form-item>
                 </vort-form>
-
-                <vort-divider />
-
-                <div>
-                    <div class="flex items-center justify-between mb-3">
-                        <span class="text-sm font-medium text-gray-700">推荐技能</span>
-                        <vort-spin v-if="loadingSkills" :spinning="true" :size="16" />
-                    </div>
-                    <div class="space-y-1 max-h-48 overflow-y-auto">
-                        <div
-                            v-for="skill in allSkills"
-                            :key="skill.id"
-                            class="flex items-start gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors"
-                            :class="boundSkills.some(s => s.id === skill.id) ? 'bg-blue-50' : 'hover:bg-gray-50'"
-                            @click="() => {
-                                if (boundSkills.some(s => s.id === skill.id)) {
-                                    boundSkills = boundSkills.filter(s => s.id !== skill.id);
-                                } else {
-                                    boundSkills.push(skill);
-                                }
-                            }"
-                        >
-                            <vort-checkbox
-                                :checked="boundSkills.some(s => s.id === skill.id)"
-                                class="mt-0.5"
-                            />
-                            <div class="min-w-0">
-                                <div class="text-sm text-gray-800">{{ skill.name }}</div>
-                                <div v-if="skill.description" class="text-xs text-gray-400 truncate">{{ skill.description }}</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
 
                 <div class="flex justify-end gap-3 mt-6">
                     <vort-button @click="drawerVisible = false">取消</vort-button>

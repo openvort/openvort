@@ -33,6 +33,7 @@ const handleLogin = async () => {
             member_id: res.user.member_id,
             name: res.user.name,
             email: res.user.email || "",
+            avatar_url: res.user.avatar_url || "",
             position: res.user.position || "",
             department: res.user.department || "",
             roles: res.user.roles || [],

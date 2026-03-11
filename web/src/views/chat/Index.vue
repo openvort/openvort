@@ -12,7 +12,7 @@ import { Popover as VortPopover, Image as VortImage, ImagePreviewGroup as VortIm
 import {
     sendChatMessage, getChatStreamUrl, getChatHistory, getChatSessionInfo,
     setChatThinking, compactChatSession, resetChatSession,
-    getChatSessions, createChatSession, getChatMembers, abortChatMessage, startMemberChat,
+    getChatSessions, createChatSession, getChatMembers, getChatContacts, abortChatMessage, startMemberChat,
     getVortflowBugs, getVortflowTasks, getVortflowStories, getVortflowMilestones
 } from "@/api";
 import { usePluginStore } from "@/stores/modules/plugin";
@@ -64,6 +64,16 @@ const currentSessionTitle = computed(() => {
 
 // ---- 草稿暂存（切换会话时保留未发送内容）----
 const drafts = new Map<string, Draft>();
+
+async function fetchLatestMemberContact(memberId: string): Promise<Contact | null> {
+    try {
+        const res: any = await getChatContacts();
+        const contacts = Array.isArray(res?.contacts) ? res.contacts as Contact[] : [];
+        return contacts.find(c => c.type === "member" && c.id === memberId) || null;
+    } catch {
+        return null;
+    }
+}
 
 function saveDraft() {
     const key = currentSessionId.value; // "" 代表新空对话
@@ -1443,19 +1453,22 @@ onMounted(async () => {
     } catch { /* ignore */ }
 
     if (restoredContact?.type === "member" && restoredContact.id) {
+        const latestContact = await fetchLatestMemberContact(restoredContact.id);
         activeContact.value = {
             type: "member",
             id: restoredContact.id,
-            name: restoredContact.name || "",
-            avatar_url: restoredContact.avatar_url || "",
-            position: restoredContact.position || "",
+            name: latestContact?.name || restoredContact.name || "",
+            avatar_url: latestContact?.avatar_url || restoredContact.avatar_url || "",
+            position: latestContact?.position || restoredContact.position || "",
             last_message: "",
             last_message_time: 0,
             unread: 0,
-            session_id: restoredContact.session_id || "",
+            session_id: latestContact?.session_id || restoredContact.session_id || "",
+            pinned: latestContact?.pinned,
+            is_virtual: latestContact?.is_virtual,
         };
         if (restoredContact.session_id) {
-            await switchSession(restoredContact.session_id);
+            await switchSession(latestContact?.session_id || restoredContact.session_id);
         } else {
             try {
                 const res: any = await startMemberChat(restoredContact.id);

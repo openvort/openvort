@@ -142,7 +142,8 @@ class Skill(Base):
     description: Mapped[str] = mapped_column(Text, default="")
     content: Mapped[str] = mapped_column(Text, default="")  # markdown
     scope: Mapped[str] = mapped_column(String(16), index=True)  # builtin / public / personal
-    skill_type: Mapped[str] = mapped_column(String(16), default="workflow")  # role / workflow / knowledge / template / guideline
+    skill_type: Mapped[str] = mapped_column(String(16), default="workflow")  # role / workflow / knowledge / template / guideline (legacy, kept for compat)
+    tags: Mapped[str] = mapped_column(Text, default="")  # JSON array of tag strings, e.g. '["工作流程","规范准则"]'
     owner_id: Mapped[str] = mapped_column(String(32), default="", index=True)  # personal → member.id
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
@@ -238,16 +239,18 @@ class WorkAssignment(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
-class OpenClawNode(Base):
-    """OpenClaw 远程工作节点 — AI 员工可绑定的远程执行环境"""
+class RemoteNode(Base):
+    """远程工作节点 — AI 员工可绑定的远程执行环境（支持多种节点类型）"""
 
-    __tablename__ = "openclaw_nodes"
+    __tablename__ = "remote_nodes"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(64), index=True)
+    node_type: Mapped[str] = mapped_column(String(32), default="openclaw")  # openclaw / ...
     description: Mapped[str] = mapped_column(Text, default="")
-    gateway_url: Mapped[str] = mapped_column(String(512))  # http://192.168.1.100:18789
+    gateway_url: Mapped[str] = mapped_column(String(512))
     gateway_token: Mapped[str] = mapped_column(Text, default="")  # Fernet encrypted
+    config: Mapped[str] = mapped_column(Text, default="{}")  # type-specific config JSON
     status: Mapped[str] = mapped_column(String(16), default="unknown")  # online / offline / unknown
     machine_info: Mapped[str] = mapped_column(Text, default="{}")  # JSON: {"os": "macOS", "hostname": "dev-a"}
     last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -255,7 +258,11 @@ class OpenClawNode(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
     def __repr__(self) -> str:
-        return f"<OpenClawNode {self.id[:8]} {self.name}>"
+        return f"<RemoteNode {self.id[:8]} {self.name} ({self.node_type})>"
+
+
+# Backward compatibility alias
+OpenClawNode = RemoteNode
 
 class GroupChat(Base):
     """群聊记录 — 持久化群聊元数据及项目关联"""

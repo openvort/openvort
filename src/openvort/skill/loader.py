@@ -37,6 +37,28 @@ BUILTIN_SKILL_TYPES: dict[str, str] = {
     "daily-report": "workflow",
 }
 
+# skill_type -> tag label mapping (for migration from fixed categories to tags)
+SKILL_TYPE_TO_TAG: dict[str, str] = {
+    "role": "角色人设",
+    "workflow": "工作流程",
+    "knowledge": "知识库",
+    "template": "输出模板",
+    "guideline": "规范准则",
+    "report": "输出模板",
+    "system": "规范准则",
+}
+
+# Builtin skill name -> default tags
+BUILTIN_SKILL_TAGS: dict[str, list[str]] = {
+    "developer": ["角色人设"],
+    "pm": ["角色人设"],
+    "qa": ["角色人设"],
+    "designer": ["角色人设"],
+    "assistant": ["角色人设"],
+    "code-review": ["工作流程", "规范准则"],
+    "daily-report": ["工作流程", "输出模板"],
+}
+
 # 默认岗位-技能映射配置
 DEFAULT_POST_SKILLS = {
     "developer": [
@@ -147,16 +169,12 @@ class SkillLoader:
             rows = result.scalars().all()
 
         enabled_count = 0
-        skipped_role = 0
         for row in rows:
             if row.content:
-                if row.skill_type == "role":
-                    skipped_role += 1
-                    continue
                 self.registry.register_prompt(row.content, source=f"skill:{row.name}")
                 enabled_count += 1
 
-        log.info(f"已加载 {enabled_count} 个全局 Skill（跳过 {skipped_role} 个角色类 Skill，按需加载）")
+        log.info(f"已加载 {enabled_count} 个全局 Skill")
 
     async def _migrate_schema(self) -> None:
         """自动迁移数据库结构"""
@@ -313,6 +331,38 @@ class SkillLoader:
                 if "already exists" not in str(e).lower():
                     log.warning(f"Migration members.avatar_source: {e}")
 
+            # 10. skills 表添加 tags 字段，并从 skill_type 自动迁移
+            try:
+                await db.execute(text(
+                    "ALTER TABLE skills ADD COLUMN IF NOT EXISTS tags TEXT DEFAULT ''"
+                ))
+                await db.commit()
+                log.info("Migration: added skills.tags")
+            except Exception as e:
+                await db.rollback()
+                if "already exists" not in str(e).lower():
+                    log.warning(f"Migration skills.tags: {e}")
+
+            # 10.1 迁移已有 skill_type 到 tags（仅空 tags 的行）
+            try:
+                import json as _json
+                result = await db.execute(text(
+                    "SELECT id, skill_type FROM skills WHERE tags IS NULL OR tags = '' OR tags = '[]'"
+                ))
+                rows = result.fetchall()
+                for row in rows:
+                    tag = SKILL_TYPE_TO_TAG.get(row[1], row[1])
+                    if tag:
+                        await db.execute(text(
+                            "UPDATE skills SET tags = :tags WHERE id = :id"
+                        ), {"tags": _json.dumps([tag], ensure_ascii=False), "id": row[0]})
+                await db.commit()
+                if rows:
+                    log.info(f"Migration: migrated {len(rows)} skills from skill_type to tags")
+            except Exception as e:
+                await db.rollback()
+                log.warning(f"Migration skill_type->tags: {e}")
+
     def load_all_sync(self) -> None:
         """Legacy sync loader for CLI commands without DB.
         Scans files only, registers to PluginRegistry.
@@ -383,6 +433,8 @@ class SkillLoader:
         if not file_skills:
             return
 
+        import json as _json
+
         async with self._session_factory() as db:
             result = await db.execute(
                 select(SkillModel).where(SkillModel.scope == scope)
@@ -390,14 +442,16 @@ class SkillLoader:
             existing = {row.name: row for row in result.scalars().all()}
 
             for name, data in file_skills.items():
-                # Determine skill_type based on name (keep existing logic)
                 stype = BUILTIN_SKILL_TYPES.get(name, "workflow")
+                default_tags = BUILTIN_SKILL_TAGS.get(name) or [SKILL_TYPE_TO_TAG.get(stype, stype)]
 
                 if name in existing:
                     row = existing[name]
                     row.description = data["description"]
                     row.content = data["content"]
                     row.skill_type = stype
+                    if not row.tags or row.tags in ("", "[]"):
+                        row.tags = _json.dumps(default_tags, ensure_ascii=False)
                 else:
                     db.add(SkillModel(
                         id=uuid.uuid4().hex,
@@ -406,6 +460,7 @@ class SkillLoader:
                         content=data["content"],
                         scope=scope,
                         skill_type=stype,
+                        tags=_json.dumps(default_tags, ensure_ascii=False),
                         enabled=data["enabled"],
                     ))
 

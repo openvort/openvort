@@ -9,6 +9,7 @@ export const useUserStore = defineStore(
             member_id: string;
             name: string;
             email: string;
+            avatar_url: string;
             position: string;
             department: string;
             roles: string[];
@@ -17,6 +18,7 @@ export const useUserStore = defineStore(
             member_id: "",
             name: "",
             email: "",
+            avatar_url: "",
             position: "",
             department: "",
             roles: [],
@@ -43,6 +45,7 @@ export const useUserStore = defineStore(
                 member_id: "",
                 name: "",
                 email: "",
+                avatar_url: "",
                 position: "",
                 department: "",
                 roles: [],

@@ -1,15 +1,14 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from "vue";
+import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import {
     getSkills, getSkill, createSkill, updateSkill, deleteSkill, toggleSkill,
-    getRoleSkills, addRoleSkill, removeRoleSkill,
-    getMemberSkillsWithSource, getMembers,
+    getSkillTags,
     searchOnlineSkills, importSkillFromGithub,
     generateSkillContentPrompt,
 } from "@/api";
 import { message, dialog } from "@/components/vort";
-import { Plus, Trash2, Save, User, Link, BookOpen, Zap, FileText, Settings, ChevronDown, ChevronUp, Code, ClipboardList, TestTube, Palette, Bot, Github } from "lucide-vue-next";
+import { Plus, Trash2, Save, BookOpen, Github, Bot, X, Tag, Search } from "lucide-vue-next";
 
 const router = useRouter();
 
@@ -19,92 +18,67 @@ interface SkillItem {
     description: string;
     scope: string;
     skill_type: string;
+    tags: string[];
     enabled: boolean;
     content?: string;
 }
 
-interface MemberOption {
-    id: string;
-    name: string;
+// ---- Tag system ----
+const allTags = ref<string[]>([]);
+const selectedTags = ref<string[]>([]);
+const searchKeyword = ref("");
+
+async function loadTags() {
+    try {
+        const res: any = await getSkillTags();
+        allTags.value = res?.tags || [];
+    } catch { /* ignore */ }
 }
 
-interface MemberSkillItem {
-    id: string;
-    name: string;
-    description: string;
-    scope: string;
-    skill_type: string;
-    source: string;
-    enabled: boolean;
+function toggleTag(tag: string) {
+    const idx = selectedTags.value.indexOf(tag);
+    if (idx >= 0) {
+        selectedTags.value.splice(idx, 1);
+    } else {
+        selectedTags.value.push(tag);
+    }
 }
 
-// ---- Skill type config ----
-const SKILL_TYPES = [
-    { key: "role", label: "角色人设", icon: User, color: "blue", desc: "定义 AI 的身份、性格与专业背景" },
-    { key: "workflow", label: "工作流程", icon: Zap, color: "green", desc: "工作方法、流程步骤、最佳实践" },
-    { key: "knowledge", label: "知识库", icon: BookOpen, color: "cyan", desc: "领域知识、参考资料、行业标准" },
-    { key: "template", label: "输出模板", icon: FileText, color: "orange", desc: "报告、文档、邮件等输出格式" },
-    { key: "guideline", label: "规范准则", icon: Settings, color: "purple", desc: "编码规范、质量标准、行为约束" },
-];
-
-const LEGACY_TYPE_MAP: Record<string, string> = {
-    report: "template",
-    system: "guideline",
-};
-
-const SKILL_TYPE_MAP: Record<string, typeof SKILL_TYPES[0]> = {};
-SKILL_TYPES.forEach(t => SKILL_TYPE_MAP[t.key] = t);
-
-const ROLE_ICON_MAP: Record<string, any> = {
-    developer: Code,
-    pm: ClipboardList,
-    qa: TestTube,
-    designer: Palette,
-    assistant: Bot,
-};
-
-const ROLE_OPTIONS = [
-    { value: "developer", label: "开发工程师" },
-    { value: "pm", label: "产品经理" },
-    { value: "qa", label: "测试工程师" },
-    { value: "designer", label: "设计师" },
-    { value: "assistant", label: "通用助手" },
-];
+function clearTags() {
+    selectedTags.value = [];
+}
 
 // ---- Skills list ----
 const skills = ref<SkillItem[]>([]);
 const loading = ref(false);
-const collapsedTypes = ref<Set<string>>(new Set());
 
-const groupedSkills = computed(() => {
-    const groups: Record<string, SkillItem[]> = {};
-    for (const t of SKILL_TYPES) {
-        groups[t.key] = [];
+const filteredSkills = computed(() => {
+    let list = skills.value;
+    if (selectedTags.value.length > 0) {
+        list = list.filter(s =>
+            s.tags && s.tags.some(t => selectedTags.value.includes(t))
+        );
     }
-    for (const s of skills.value) {
-        let key = s.skill_type || "workflow";
-        key = LEGACY_TYPE_MAP[key] || key;
-        if (!groups[key]) groups[key] = [];
-        groups[key].push(s);
+    if (searchKeyword.value.trim()) {
+        const kw = searchKeyword.value.trim().toLowerCase();
+        list = list.filter(s =>
+            s.name.toLowerCase().includes(kw) ||
+            (s.description || "").toLowerCase().includes(kw)
+        );
     }
-    return groups;
+    return list;
 });
 
 async function loadSkills() {
     loading.value = true;
     try {
         const res: any = await getSkills();
-        skills.value = res?.skills || [];
+        skills.value = (res?.skills || []).map((s: any) => ({
+            ...s,
+            tags: s.tags || [],
+        }));
     } catch { /* ignore */ }
     finally { loading.value = false; }
-}
-
-function toggleCollapse(type: string) {
-    if (collapsedTypes.value.has(type)) {
-        collapsedTypes.value.delete(type);
-    } else {
-        collapsedTypes.value.add(type);
-    }
 }
 
 async function handleToggle(skill: SkillItem) {
@@ -122,6 +96,7 @@ const drawerOpen = ref(false);
 const drawerSkill = ref<SkillItem | null>(null);
 const drawerLoading = ref(false);
 const saving = ref(false);
+const tagInput = ref("");
 
 async function openDrawer(skill: SkillItem) {
     drawerLoading.value = true;
@@ -131,7 +106,7 @@ async function openDrawer(skill: SkillItem) {
         drawerSkill.value = {
             id: res.id, name: res.name, description: res.description,
             content: res.content, scope: res.scope, skill_type: res.skill_type,
-            enabled: res.enabled,
+            tags: res.tags || [], enabled: res.enabled,
         };
     } catch {
         message.error("加载详情失败");
@@ -139,19 +114,34 @@ async function openDrawer(skill: SkillItem) {
     } finally { drawerLoading.value = false; }
 }
 
+function addTagToDrawer() {
+    if (!drawerSkill.value || !tagInput.value.trim()) return;
+    const tag = tagInput.value.trim();
+    if (!drawerSkill.value.tags.includes(tag)) {
+        drawerSkill.value.tags.push(tag);
+    }
+    tagInput.value = "";
+}
+
+function removeTagFromDrawer(tag: string) {
+    if (!drawerSkill.value) return;
+    drawerSkill.value.tags = drawerSkill.value.tags.filter(t => t !== tag);
+}
+
 async function handleSaveDrawer() {
-    if (!drawerSkill.value || drawerSkill.value.scope !== "public") return;
+    if (!drawerSkill.value || drawerSkill.value.scope === "builtin") return;
     saving.value = true;
     try {
         await updateSkill(drawerSkill.value.id, {
             name: drawerSkill.value.name,
             description: drawerSkill.value.description,
             content: drawerSkill.value.content,
-            skill_type: drawerSkill.value.skill_type,
+            tags: drawerSkill.value.tags,
         });
         message.success("保存成功");
         drawerOpen.value = false;
         loadSkills();
+        loadTags();
     } catch { message.error("保存失败"); }
     finally { saving.value = false; }
 }
@@ -166,6 +156,7 @@ function handleDeletePublic(skill: SkillItem) {
                 message.success("删除成功");
                 drawerOpen.value = false;
                 loadSkills();
+                loadTags();
             } catch { message.error("删除失败"); }
         },
     });
@@ -173,45 +164,61 @@ function handleDeletePublic(skill: SkillItem) {
 
 // ---- Create skill ----
 const createDialogOpen = ref(false);
-const createForm = ref({ name: "", description: "", content: "", skill_type: "workflow" });
+const createForm = ref({ name: "", description: "", content: "", tags: [] as string[] });
 const creating = ref(false);
+const createTagInput = ref("");
 
 function openCreateDialog() {
-    createForm.value = { name: "", description: "", content: "", skill_type: "workflow" };
+    createForm.value = { name: "", description: "", content: "", tags: [] };
+    createTagInput.value = "";
     createDialogOpen.value = true;
+}
+
+function addCreateTag() {
+    const tag = createTagInput.value.trim();
+    if (tag && !createForm.value.tags.includes(tag)) {
+        createForm.value.tags.push(tag);
+    }
+    createTagInput.value = "";
+}
+
+function removeCreateTag(tag: string) {
+    createForm.value.tags = createForm.value.tags.filter(t => t !== tag);
 }
 
 async function handleCreate() {
     if (!createForm.value.name.trim()) { message.error("请输入名称"); return; }
     creating.value = true;
     try {
-        await createSkill(createForm.value);
+        await createSkill({
+            name: createForm.value.name,
+            description: createForm.value.description,
+            content: createForm.value.content,
+            tags: createForm.value.tags,
+        });
         message.success("创建成功");
         createDialogOpen.value = false;
         loadSkills();
+        loadTags();
     } catch (e: any) {
         message.error(e?.response?.data?.detail || "创建失败");
     } finally { creating.value = false; }
 }
 
-// AI 生成 Skill 内容
 async function handleAiGenerateContent() {
     if (!createForm.value.name.trim()) {
         message.warning("请先输入 Skill 名称");
         return;
     }
-    // 先创建 Skill（使用临时内容），然后生成内容
     creating.value = true;
     try {
         const res: any = await createSkill({
             name: createForm.value.name,
             description: createForm.value.description || "",
-            skill_type: createForm.value.skill_type || "workflow",
             content: "（AI 生成中...）",
+            tags: createForm.value.tags,
         });
         message.success("Skill 已创建，正在生成内容...");
-
-        // 调用生成 prompt API
         const promptRes: any = await generateSkillContentPrompt(res.id || res.skill?.id);
         if (promptRes?.prompt) {
             createDialogOpen.value = false;
@@ -224,101 +231,7 @@ async function handleAiGenerateContent() {
     }
 }
 
-// ---- Role-Skill mapping ----
-const roleSkillsMap = ref<Record<string, SkillItem[]>>({});
-const roleLoading = ref(false);
-const roleCollapsed = ref(false);
-
-async function loadRoleSkills() {
-    roleLoading.value = true;
-    try {
-        const res: any = await getRoleSkills();
-        roleSkillsMap.value = res?.roles || {};
-    } catch { /* ignore */ }
-    finally { roleLoading.value = false; }
-}
-
-// Role skill mapping: add/remove
-const roleSkillDialogOpen = ref(false);
-const roleSkillDialogRole = ref("");
-const roleSkillDialogSkillIds = ref<string[]>([]);
-
-function openAddRoleSkillDialog(role: string) {
-    roleSkillDialogRole.value = role;
-    roleSkillDialogSkillIds.value = [];
-    roleSkillDialogOpen.value = true;
-}
-
-async function handleAddRoleSkill() {
-    if (!roleSkillDialogSkillIds.value.length) { message.warning("请选择技能"); return; }
-    try {
-        const res: any = await addRoleSkill(roleSkillDialogRole.value, roleSkillDialogSkillIds.value);
-        if (res?.success) {
-            message.success(`已添加 ${res.added} 个技能`);
-            roleSkillDialogOpen.value = false;
-            loadRoleSkills();
-        } else {
-            message.error(res?.error || "添加失败");
-        }
-    } catch { message.error("添加失败"); }
-}
-
-async function handleRemoveRoleSkill(role: string, skillId: string) {
-    try {
-        await removeRoleSkill(role, skillId);
-        message.success("已移除");
-        loadRoleSkills();
-    } catch { message.error("移除失败"); }
-}
-
-// Available skills for adding to role (exclude already mapped)
-const availableSkillsForRole = computed(() => {
-    const mapped = new Set((roleSkillsMap.value[roleSkillDialogRole.value] || []).map((s: any) => s.id));
-    return skills.value.filter(s => !mapped.has(s.id) && s.enabled);
-});
-
-// ---- Member skills overview ----
-const members = ref<MemberOption[]>([]);
-const selectedMemberId = ref("");
-const memberSkills = ref<MemberSkillItem[]>([]);
-const memberLoading = ref(false);
-
-async function loadMembers() {
-    try {
-        const res: any = await getMembers({ size: 500 });
-        members.value = (res?.members || []).map((m: any) => ({ id: m.id, name: m.name }));
-    } catch { /* ignore */ }
-}
-
-async function loadMemberSkills() {
-    if (!selectedMemberId.value) { memberSkills.value = []; return; }
-    memberLoading.value = true;
-    try {
-        const res: any = await getMemberSkillsWithSource(selectedMemberId.value);
-        memberSkills.value = res?.skills || [];
-    } catch { memberSkills.value = []; }
-    finally { memberLoading.value = false; }
-}
-
-watch(selectedMemberId, () => loadMemberSkills());
-
-// ---- Source label helpers ----
-function sourceLabel(source: string): string {
-    if (source.startsWith("role:")) {
-        const roleName = source.replace("role:", "");
-        const r = ROLE_OPTIONS.find(o => o.value === roleName);
-        return r ? `角色：${r.label}` : `角色：${roleName}`;
-    }
-    if (source === "personal") return "个人";
-    return "公共订阅";
-}
-
-function sourceColor(source: string): string {
-    if (source.startsWith("role:")) return "blue";
-    if (source === "personal") return "purple";
-    return "green";
-}
-
+// ---- Helpers ----
 function scopeLabel(scope: string): string {
     if (scope === "builtin") return "内置";
     if (scope === "public") return "公共";
@@ -331,11 +244,7 @@ function scopeColor(scope: string): string {
     return "purple";
 }
 
-function getRoleLabelByValue(value: string): string {
-    return ROLE_OPTIONS.find(o => o.value === value)?.label || value;
-}
-
-onMounted(() => { loadSkills(); loadRoleSkills(); loadMembers(); });
+onMounted(() => { loadSkills(); loadTags(); });
 
 // ---- GitHub 导入 ----
 const importDialogOpen = ref(false);
@@ -365,6 +274,7 @@ async function handleImportFromUrl() {
             importDialogOpen.value = false;
             importUrl.value = "";
             loadSkills();
+            loadTags();
         }
     } catch (e: any) {
         message.error(e?.response?.data?.detail || "导入失败");
@@ -380,6 +290,7 @@ async function handleImportResult(result: any) {
         if (res?.success) {
             message.success(`成功导入: ${result.name}`);
             loadSkills();
+            loadTags();
         }
     } catch (e: any) {
         message.error(e?.response?.data?.detail || "导入失败");
@@ -397,13 +308,13 @@ function openImportDialog() {
 
 <template>
     <div class="space-y-4">
-        <!-- 区域一：技能库 -->
         <div class="bg-white rounded-xl p-6">
+            <!-- Header -->
             <div class="flex items-center justify-between mb-5">
                 <div class="flex items-center gap-2">
                     <BookOpen :size="18" class="text-blue-600" />
                     <h3 class="text-base font-medium text-gray-800">技能库</h3>
-                    <span class="text-xs text-gray-400">按类型分组管理所有技能</span>
+                    <span class="text-xs text-gray-400">管理所有技能，启用的技能对全局 AI 对话生效</span>
                 </div>
                 <div class="flex items-center gap-2">
                     <VortButton variant="secondary" size="small" @click="openImportDialog">
@@ -415,118 +326,61 @@ function openImportDialog() {
                 </div>
             </div>
 
+            <!-- Tag filter bar -->
+            <div class="flex items-center gap-2 mb-4 flex-wrap">
+                <Tag :size="14" class="text-gray-400 flex-shrink-0" />
+                <button
+                    class="px-2.5 py-1 rounded-full text-xs font-medium transition-colors"
+                    :class="selectedTags.length === 0
+                        ? 'bg-blue-100 text-blue-700'
+                        : 'bg-gray-100 text-gray-500 hover:bg-gray-200'"
+                    @click="clearTags"
+                >全部</button>
+                <button
+                    v-for="tag in allTags" :key="tag"
+                    class="px-2.5 py-1 rounded-full text-xs font-medium transition-colors"
+                    :class="selectedTags.includes(tag)
+                        ? 'bg-blue-100 text-blue-700'
+                        : 'bg-gray-100 text-gray-500 hover:bg-gray-200'"
+                    @click="toggleTag(tag)"
+                >{{ tag }}</button>
+
+                <div class="ml-auto flex-shrink-0">
+                    <div class="relative">
+                        <Search :size="14" class="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                        <input
+                            v-model="searchKeyword"
+                            type="text"
+                            placeholder="搜索技能..."
+                            class="pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg bg-gray-50 focus:bg-white focus:border-blue-300 focus:outline-none transition-colors w-[180px]"
+                        />
+                    </div>
+                </div>
+            </div>
+
+            <!-- Skills grid -->
             <VortSpin :spinning="loading">
-                <div v-if="skills.length === 0 && !loading" class="text-center py-8 text-gray-400 text-sm">暂无技能</div>
-
-                <div class="space-y-4">
-                    <div v-for="typeConfig in SKILL_TYPES" :key="typeConfig.key">
-                        <div v-if="groupedSkills[typeConfig.key]?.length"
-                            class="border border-gray-100 rounded-lg overflow-hidden">
-                            <!-- Group header -->
-                            <div class="flex items-center justify-between px-4 py-2.5 bg-gray-50/80 cursor-pointer select-none hover:bg-gray-100/80 transition-colors"
-                                @click="toggleCollapse(typeConfig.key)">
-                                <div class="flex items-center gap-2">
-                                    <component :is="typeConfig.icon" :size="15" class="text-gray-500" />
-                                    <span class="text-sm font-medium text-gray-700">{{ typeConfig.label }}</span>
-                                    <span class="text-xs text-gray-400">({{ groupedSkills[typeConfig.key].length }})</span>
-                                    <span class="text-xs text-gray-400 hidden sm:inline">{{ typeConfig.desc }}</span>
-                                </div>
-                                <component :is="collapsedTypes.has(typeConfig.key) ? ChevronDown : ChevronUp" :size="14" class="text-gray-400" />
-                            </div>
-                            <!-- Group body -->
-                            <div v-if="!collapsedTypes.has(typeConfig.key)" class="p-3">
-                                <div class="grid grid-cols-1 lg:grid-cols-2 gap-2.5">
-                                    <div v-for="skill in groupedSkills[typeConfig.key]" :key="skill.id"
-                                        class="flex items-center justify-between px-4 py-3 rounded-lg border border-gray-100 hover:border-blue-200 transition-colors cursor-pointer"
-                                        @click="openDrawer(skill)">
-                                        <div class="min-w-0 flex-1">
-                                            <div class="text-sm font-medium text-gray-800 truncate">{{ skill.name }}</div>
-                                            <div class="text-xs text-gray-400 truncate mt-0.5">{{ skill.description || '暂无描述' }}</div>
-                                        </div>
-                                        <div class="flex items-center gap-2 flex-shrink-0 ml-3" @click.stop>
-                                            <VortTag :color="scopeColor(skill.scope)" size="small">{{ scopeLabel(skill.scope) }}</VortTag>
-                                            <VortSwitch :checked="skill.enabled" size="small" @change="handleToggle(skill)" />
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                <div v-if="filteredSkills.length === 0 && !loading" class="text-center py-12 text-gray-400 text-sm">
+                    {{ searchKeyword || selectedTags.length ? '没有匹配的技能' : '暂无技能' }}
                 </div>
-            </VortSpin>
-        </div>
 
-        <!-- 区域二：角色-技能映射 -->
-        <div class="bg-white rounded-xl p-6">
-            <div class="flex items-center justify-between mb-4">
-                <div class="flex items-center gap-2 cursor-pointer" @click="roleCollapsed = !roleCollapsed">
-                    <Link :size="18" class="text-indigo-600" />
-                    <h3 class="text-base font-medium text-gray-800">角色-技能映射</h3>
-                    <span class="text-xs text-gray-400">创建 AI 员工时按角色自动推荐技能</span>
-                </div>
-                <component :is="roleCollapsed ? ChevronDown : ChevronUp" :size="14" class="text-gray-400 cursor-pointer" @click="roleCollapsed = !roleCollapsed" />
-            </div>
-
-            <VortSpin :spinning="roleLoading">
-                <div v-if="!roleCollapsed" class="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                    <div v-for="role in ROLE_OPTIONS" :key="role.value"
-                        class="border border-gray-100 rounded-lg px-4 py-3">
-                        <div class="flex items-center justify-between">
-                            <div class="flex items-center gap-2">
-                                <component :is="ROLE_ICON_MAP[role.value] || Code" :size="16" class="text-gray-500" />
-                                <span class="text-sm font-medium text-gray-700">{{ role.label }}</span>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                    <div v-for="skill in filteredSkills" :key="skill.id"
+                        class="flex flex-col px-4 py-3 rounded-lg border border-gray-100 hover:border-blue-200 hover:shadow-sm transition-all cursor-pointer"
+                        @click="openDrawer(skill)">
+                        <div class="flex items-start justify-between">
+                            <div class="min-w-0 flex-1">
+                                <div class="text-sm font-medium text-gray-800 truncate">{{ skill.name }}</div>
+                                <div class="text-xs text-gray-400 truncate mt-0.5">{{ skill.description || '暂无描述' }}</div>
                             </div>
-                            <VortButton size="small" @click="openAddRoleSkillDialog(role.value)">
-                                <Plus :size="12" class="mr-0.5" /> 添加
-                            </VortButton>
-                        </div>
-                        <div class="flex flex-wrap gap-2 mt-2" v-if="roleSkillsMap[role.value]?.length">
-                            <div v-for="skill in roleSkillsMap[role.value]" :key="skill.id"
-                                class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-blue-50 text-blue-700 text-xs group"
-                                :title="skill.description ? skill.name : ''">
-                                <span>{{ skill.description || skill.name }}</span>
-                                <button class="opacity-0 group-hover:opacity-100 transition-opacity text-blue-400 hover:text-red-500"
-                                    @click="handleRemoveRoleSkill(role.value, skill.id)">
-                                    <Trash2 :size="11" />
-                                </button>
+                            <div class="flex items-center gap-2 flex-shrink-0 ml-3" @click.stop>
+                                <VortTag :color="scopeColor(skill.scope)" size="small">{{ scopeLabel(skill.scope) }}</VortTag>
+                                <VortSwitch :checked="skill.enabled" size="small" @change="handleToggle(skill)" />
                             </div>
                         </div>
-                        <div v-else class="text-xs text-gray-400 mt-2">暂无映射的技能</div>
-                    </div>
-                </div>
-            </VortSpin>
-        </div>
-
-        <!-- 区域三：成员技能总览 -->
-        <div class="bg-white rounded-xl p-6">
-            <div class="flex items-center gap-2 mb-4">
-                <User :size="18" class="text-purple-600" />
-                <h3 class="text-base font-medium text-gray-800">成员技能总览</h3>
-                <span class="text-xs text-gray-400">查看成员的生效技能（按来源分组）</span>
-            </div>
-
-            <div class="flex items-center gap-4 mb-4">
-                <span class="text-sm text-gray-500 whitespace-nowrap">选择成员</span>
-                <VortSelect v-model="selectedMemberId" placeholder="请选择成员" allow-clear class="w-[200px]">
-                    <VortSelectOption v-for="m in members" :key="m.id" :value="m.id">{{ m.name }}</VortSelectOption>
-                </VortSelect>
-            </div>
-
-            <VortSpin :spinning="memberLoading">
-                <div v-if="!selectedMemberId" class="text-center py-6 text-gray-400 text-sm">请选择成员查看其技能配置</div>
-                <div v-else-if="memberSkills.length === 0 && !memberLoading" class="text-center py-6 text-gray-400 text-sm">该成员暂无技能</div>
-                <div v-else class="grid grid-cols-1 lg:grid-cols-2 gap-2.5">
-                    <div v-for="skill in memberSkills" :key="skill.id"
-                        class="flex items-center justify-between px-4 py-3 rounded-lg border border-gray-100">
-                        <div class="min-w-0 flex-1">
-                            <div class="text-sm font-medium text-gray-800 truncate">{{ skill.name }}</div>
-                            <div class="text-xs text-gray-400 truncate mt-0.5">{{ skill.description || '暂无描述' }}</div>
-                        </div>
-                        <div class="flex items-center gap-2 flex-shrink-0 ml-3">
-                            <VortTag :color="sourceColor(skill.source)" size="small">{{ sourceLabel(skill.source) }}</VortTag>
-                            <span :class="skill.enabled ? 'text-green-500' : 'text-gray-400'" class="text-xs">
-                                {{ skill.enabled ? '已启用' : '已禁用' }}
-                            </span>
+                        <div v-if="skill.tags?.length" class="flex flex-wrap gap-1 mt-2">
+                            <span v-for="tag in skill.tags" :key="tag"
+                                class="px-1.5 py-0.5 rounded text-[10px] bg-gray-100 text-gray-500">{{ tag }}</span>
                         </div>
                     </div>
                 </div>
@@ -546,13 +400,27 @@ function openImportDialog() {
                                 {{ scopeLabel(drawerSkill.scope) }}
                             </VortTag>
                         </VortFormItem>
-                        <VortFormItem label="类型">
-                            <VortSelect v-if="drawerSkill.scope === 'public'" v-model="drawerSkill.skill_type" class="w-[200px]">
-                                <VortSelectOption v-for="t in SKILL_TYPES" :key="t.key" :value="t.key">{{ t.label }}</VortSelectOption>
-                            </VortSelect>
-                            <VortTag v-else :color="SKILL_TYPE_MAP[drawerSkill.skill_type]?.color || 'default'">
-                                {{ SKILL_TYPE_MAP[drawerSkill.skill_type]?.label || drawerSkill.skill_type }}
-                            </VortTag>
+                        <VortFormItem label="标签">
+                            <div class="space-y-2">
+                                <div class="flex flex-wrap gap-1.5">
+                                    <span v-for="tag in drawerSkill.tags" :key="tag"
+                                        class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 text-xs">
+                                        {{ tag }}
+                                        <button v-if="drawerSkill.scope !== 'builtin'"
+                                            class="text-blue-400 hover:text-red-500"
+                                            @click="removeTagFromDrawer(tag)">
+                                            <X :size="10" />
+                                        </button>
+                                    </span>
+                                    <span v-if="!drawerSkill.tags.length" class="text-xs text-gray-400">暂无标签</span>
+                                </div>
+                                <div v-if="drawerSkill.scope !== 'builtin'" class="flex gap-2">
+                                    <input v-model="tagInput" type="text" placeholder="输入标签名，回车添加"
+                                        class="flex-1 px-2.5 py-1.5 text-xs border border-gray-200 rounded-md focus:border-blue-300 focus:outline-none"
+                                        @keydown.enter.prevent="addTagToDrawer" />
+                                    <VortButton size="small" @click="addTagToDrawer">添加</VortButton>
+                                </div>
+                            </div>
                         </VortFormItem>
                         <VortFormItem label="描述">
                             <VortInput v-model="drawerSkill.description" :disabled="drawerSkill.scope === 'builtin'" placeholder="Skill 描述" />
@@ -574,7 +442,7 @@ function openImportDialog() {
                     </div>
                     <div class="flex items-center gap-2">
                         <VortButton @click="drawerOpen = false">关闭</VortButton>
-                        <VortButton v-if="drawerSkill?.scope === 'public'" variant="primary" :loading="saving" @click="handleSaveDrawer">
+                        <VortButton v-if="drawerSkill?.scope !== 'builtin'" variant="primary" :loading="saving" @click="handleSaveDrawer">
                             <Save :size="14" class="mr-1" /> 保存
                         </VortButton>
                     </div>
@@ -583,15 +451,33 @@ function openImportDialog() {
         </VortDrawer>
 
         <!-- Create skill dialog -->
-        <VortDialog :open="createDialogOpen" title="新建公共技能" @update:open="createDialogOpen = $event">
+        <VortDialog :open="createDialogOpen" title="新建技能" @update:open="createDialogOpen = $event">
             <VortForm label-width="80px">
                 <VortFormItem label="名称" required>
                     <VortInput v-model="createForm.name" placeholder="如：代码审查规范" />
                 </VortFormItem>
-                <VortFormItem label="类型" required>
-                    <VortSelect v-model="createForm.skill_type" class="w-[200px]">
-                        <VortSelectOption v-for="t in SKILL_TYPES" :key="t.key" :value="t.key">{{ t.label }}</VortSelectOption>
-                    </VortSelect>
+                <VortFormItem label="标签">
+                    <div class="space-y-2">
+                        <div class="flex flex-wrap gap-1.5" v-if="createForm.tags.length">
+                            <span v-for="tag in createForm.tags" :key="tag"
+                                class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 text-xs">
+                                {{ tag }}
+                                <button class="text-blue-400 hover:text-red-500" @click="removeCreateTag(tag)">
+                                    <X :size="10" />
+                                </button>
+                            </span>
+                        </div>
+                        <div class="flex gap-2">
+                            <input v-model="createTagInput" type="text" placeholder="输入标签名，回车添加"
+                                class="flex-1 px-2.5 py-1.5 text-xs border border-gray-200 rounded-md focus:border-blue-300 focus:outline-none"
+                                list="existing-tags"
+                                @keydown.enter.prevent="addCreateTag" />
+                            <datalist id="existing-tags">
+                                <option v-for="t in allTags" :key="t" :value="t" />
+                            </datalist>
+                            <VortButton size="small" @click="addCreateTag">添加</VortButton>
+                        </div>
+                    </div>
                 </VortFormItem>
                 <VortFormItem label="描述">
                     <VortInput v-model="createForm.description" placeholder="Skill 用途描述" />
@@ -619,7 +505,6 @@ function openImportDialog() {
         <!-- GitHub import dialog -->
         <VortDialog :open="importDialogOpen" title="从 GitHub 导入 Skill" :width="600" @update:open="importDialogOpen = $event">
             <div class="space-y-4">
-                <!-- 直接导入 -->
                 <div>
                     <label class="block text-sm text-gray-600 mb-2">直接导入</label>
                     <div class="flex gap-2">
@@ -631,7 +516,6 @@ function openImportDialog() {
 
                 <div class="border-t border-gray-200 my-4"></div>
 
-                <!-- 在线搜索 -->
                 <div>
                     <label class="block text-sm text-gray-600 mb-2">在线搜索</label>
                     <VortInputSearch
@@ -645,14 +529,13 @@ function openImportDialog() {
                     />
                 </div>
 
-                <!-- 搜索结果 -->
                 <div v-if="searchResults.length > 0" class="space-y-2 max-h-[300px] overflow-y-auto">
                     <div v-for="result in searchResults" :key="result.repo"
                         class="flex items-center justify-between p-3 rounded-lg border border-gray-100 hover:border-blue-200">
                         <div class="min-w-0 flex-1">
                             <div class="flex items-center gap-2">
                                 <span class="text-sm font-medium text-gray-800">{{ result.name }}</span>
-                                <span class="text-xs text-gray-400">⭐ {{ result.stars }}</span>
+                                <span class="text-xs text-gray-400">{{ result.stars }}</span>
                             </div>
                             <div class="text-xs text-gray-400 truncate">{{ result.repo }}</div>
                             <div class="text-xs text-gray-400 truncate">{{ result.description }}</div>
@@ -668,33 +551,6 @@ function openImportDialog() {
             <template #footer>
                 <div class="flex justify-end gap-2">
                     <VortButton @click="importDialogOpen = false">关闭</VortButton>
-                </div>
-            </template>
-        </VortDialog>
-
-        <!-- Add role skill dialog -->
-        <VortDialog :open="roleSkillDialogOpen" title="添加角色技能映射" @update:open="roleSkillDialogOpen = $event">
-            <div class="space-y-4">
-                <div>
-                    <label class="block text-sm text-gray-600 mb-1">角色</label>
-                    <div class="flex items-center gap-2">
-                        <component :is="ROLE_ICON_MAP[roleSkillDialogRole] || Code" :size="16" class="text-gray-500" />
-                        <span class="font-medium">{{ getRoleLabelByValue(roleSkillDialogRole) }}</span>
-                    </div>
-                </div>
-                <div>
-                    <label class="block text-sm text-gray-600 mb-1">选择技能</label>
-                    <VortSelect v-model="roleSkillDialogSkillIds" mode="multiple" placeholder="请选择技能（可多选）" class="w-full">
-                        <VortSelectOption v-for="s in availableSkillsForRole" :key="s.id" :value="s.id">
-                            {{ s.name }} <span class="text-gray-400">({{ SKILL_TYPE_MAP[s.skill_type]?.label || s.skill_type }})</span>
-                        </VortSelectOption>
-                    </VortSelect>
-                </div>
-            </div>
-            <template #footer>
-                <div class="flex justify-end gap-2">
-                    <VortButton @click="roleSkillDialogOpen = false">取消</VortButton>
-                    <VortButton variant="primary" @click="handleAddRoleSkill">添加</VortButton>
                 </div>
             </template>
         </VortDialog>

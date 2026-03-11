@@ -72,15 +72,30 @@ async def init_db(database_url: str) -> None:
     except Exception as e:
         log.warning(f"pgvector 扩展不可用，知识库向量检索功能将不可用: {e}")
 
-    # OpenClaw remote work nodes
+    # Remote work nodes (renamed from openclaw_nodes)
     async with _engine.begin() as conn:
+        # Migrate: rename openclaw_nodes -> remote_nodes if old table exists
         await conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS openclaw_nodes (
+            DO $$
+            BEGIN
+                IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'openclaw_nodes')
+                   AND NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'remote_nodes')
+                THEN
+                    ALTER TABLE openclaw_nodes RENAME TO remote_nodes;
+                    ALTER INDEX IF EXISTS ix_openclaw_nodes_name RENAME TO ix_remote_nodes_name;
+                END IF;
+            END $$
+        """))
+
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS remote_nodes (
                 id VARCHAR(32) PRIMARY KEY,
                 name VARCHAR(64) NOT NULL,
+                node_type VARCHAR(32) DEFAULT 'openclaw',
                 description TEXT DEFAULT '',
                 gateway_url VARCHAR(512) NOT NULL,
                 gateway_token TEXT DEFAULT '',
+                config TEXT DEFAULT '{}',
                 status VARCHAR(16) DEFAULT 'unknown',
                 machine_info TEXT DEFAULT '{}',
                 last_heartbeat_at TIMESTAMP,
@@ -89,23 +104,48 @@ async def init_db(database_url: str) -> None:
             )
         """))
         await conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS ix_openclaw_nodes_name ON openclaw_nodes(name)"
+            "CREATE INDEX IF NOT EXISTS ix_remote_nodes_name ON remote_nodes(name)"
         ))
-        # Migrate: rename hook_token -> gateway_token for existing tables
+
+        # Migrate: add node_type / config columns for existing tables
+        await conn.execute(text(
+            "ALTER TABLE IF EXISTS remote_nodes ADD COLUMN IF NOT EXISTS node_type VARCHAR(32) DEFAULT 'openclaw'"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE IF EXISTS remote_nodes ADD COLUMN IF NOT EXISTS config TEXT DEFAULT '{}'"
+        ))
+
+        # Legacy migration: rename hook_token -> gateway_token
         await conn.execute(text("""
             DO $$
             BEGIN
                 IF EXISTS (
                     SELECT 1 FROM information_schema.columns
-                    WHERE table_name = 'openclaw_nodes' AND column_name = 'hook_token'
+                    WHERE table_name = 'remote_nodes' AND column_name = 'hook_token'
                 ) THEN
-                    ALTER TABLE openclaw_nodes RENAME COLUMN hook_token TO gateway_token;
+                    ALTER TABLE remote_nodes RENAME COLUMN hook_token TO gateway_token;
                 END IF;
             END $$
         """))
+
+        # Migrate: rename members.openclaw_node_id -> remote_node_id
         await conn.execute(
-            text("ALTER TABLE IF EXISTS members ADD COLUMN IF NOT EXISTS openclaw_node_id VARCHAR(32) DEFAULT ''")
+            text("ALTER TABLE IF EXISTS members ADD COLUMN IF NOT EXISTS remote_node_id VARCHAR(32) DEFAULT ''")
         )
+        await conn.execute(text("""
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'members' AND column_name = 'openclaw_node_id'
+                ) THEN
+                    UPDATE members SET remote_node_id = openclaw_node_id
+                        WHERE openclaw_node_id IS NOT NULL AND openclaw_node_id != ''
+                              AND (remote_node_id IS NULL OR remote_node_id = '');
+                    ALTER TABLE members DROP COLUMN openclaw_node_id;
+                END IF;
+            END $$
+        """))
 
     # Backward-compatible lightweight migration for VortFlow editable fields.
     async with _engine.begin() as conn:

@@ -251,13 +251,13 @@ class PluginLoader:
                 log.error(f"加载 Tool '{ep.name}' 失败: {e}")
 
     def _load_core_tools(self) -> None:
-        """Register core infrastructure tools (OpenClaw remote work, etc.)."""
+        """Register core infrastructure tools (remote work, etc.)."""
         try:
-            from openvort.core.openclaw_tool import get_openclaw_tools
-            for tool in get_openclaw_tools():
+            from openvort.core.remote_work_tool import get_remote_work_tools
+            for tool in get_remote_work_tools():
                 self.registry.register_tool(tool)
         except Exception as e:
-            log.warning(f"加载 OpenClaw 核心工具失败: {e}")
+            log.warning(f"加载远程工作核心工具失败: {e}")
 
     def _inject_sync_providers(self) -> None:
         """收集所有 SyncProvider 并注入到 ContactsPlugin"""

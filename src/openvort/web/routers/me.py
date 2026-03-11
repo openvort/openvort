@@ -2,17 +2,17 @@
 
 import json
 import uuid
-from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File
 from pydantic import BaseModel
 
+from openvort.config.settings import get_settings
 from openvort.web.app import require_auth
 from openvort.web.deps import get_db_session_factory, get_auth_service
 
 router = APIRouter()
 
-UPLOAD_DIR = Path(__file__).parent.parent.parent.parent.parent / "web" / "dist" / "uploads" / "avatars"
+UPLOAD_DIR = get_settings().data_dir / "uploads" / "avatars"
 
 
 # ---- 辅助 ----

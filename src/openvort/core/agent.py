@@ -1154,11 +1154,11 @@ class AgentRuntime:
 
         Returns a full persona prompt (NOT a fragment to append) so the AI
         fully embodies this member instead of acting as an AI assistant.
-        Two styles: minimal (no skills/bio) vs rich (with skills/bio).
+        Two styles: minimal (no bio) vs rich (with bio).
         Falls back to the default SYSTEM_PROMPT on error.
         """
         try:
-            from openvort.web.deps import get_db_session_factory, get_skill_loader
+            from openvort.web.deps import get_db_session_factory
             from openvort.contacts.models import Member
 
             session_factory = get_db_session_factory()
@@ -1170,40 +1170,30 @@ class AgentRuntime:
                 if not m:
                     return self._system_prompt
 
-            skill_contents: list[str] = []
-            try:
-                skill_loader = get_skill_loader()
-                skill_contents = await skill_loader.get_member_skills_content(target_id)
-            except Exception:
-                pass
+            remote_node_info = await self._get_remote_node_info(m)
 
-            # Check if this AI employee has a bound OpenClaw remote node
-            openclaw_info = await self._get_openclaw_node_info(m)
-
-            has_persona = bool(m.bio or skill_contents)
-
-            if has_persona:
-                return self._build_rich_member_prompt(m, skill_contents, openclaw_info)
+            if m.bio:
+                return self._build_rich_member_prompt(m, [], remote_node_info)
             else:
-                return self._build_minimal_member_prompt(m, openclaw_info)
+                return self._build_minimal_member_prompt(m, remote_node_info)
         except Exception as e:
             log.warning(f"[web] 构建成员对话上下文失败: {e}")
             return self._system_prompt
 
-    async def _get_openclaw_node_info(self, member) -> dict | None:
-        """Look up the OpenClaw node bound to this member, if any."""
-        node_id = getattr(member, "openclaw_node_id", "") or ""
+    async def _get_remote_node_info(self, member) -> dict | None:
+        """Look up the remote work node bound to this member, if any."""
+        node_id = getattr(member, "remote_node_id", "") or ""
         if not node_id:
             return None
         try:
             from openvort.web.deps import get_db_session_factory
-            from openvort.db.models import OpenClawNode
+            from openvort.db.models import RemoteNode
 
             sf = get_db_session_factory()
             if not sf:
                 return None
             async with sf() as db:
-                node = await db.get(OpenClawNode, node_id)
+                node = await db.get(RemoteNode, node_id)
                 if not node:
                     return None
                 return {"name": node.name, "gateway_url": node.gateway_url, "status": node.status}
@@ -1211,7 +1201,7 @@ class AgentRuntime:
             return None
 
     @staticmethod
-    def _build_minimal_member_prompt(member, openclaw_info: dict | None = None) -> str:
+    def _build_minimal_member_prompt(member, remote_node_info: dict | None = None) -> str:
         """Persona prompt for a member without skills/bio — a friendly colleague."""
         if member.position:
             parts = [f"你是「{member.name}」，团队的{member.position}。你正在通过 IM 跟同事聊天。"]
@@ -1227,8 +1217,8 @@ class AgentRuntime:
             info_lines.append(f"- 手机: {member.phone}")
         parts.append("\n## 基本信息\n" + "\n".join(info_lines))
 
-        if openclaw_info:
-            parts.append(AgentRuntime._build_openclaw_prompt_section(openclaw_info))
+        if remote_node_info:
+            parts.append(AgentRuntime._build_remote_node_prompt_section(remote_node_info))
 
         parts.append(f"""
 ## 行为准则
@@ -1242,7 +1232,7 @@ class AgentRuntime:
         return "\n".join(parts)
 
     @staticmethod
-    def _build_rich_member_prompt(member, skill_contents: list[str], openclaw_info: dict | None = None) -> str:
+    def _build_rich_member_prompt(member, skill_contents: list[str], remote_node_info: dict | None = None) -> str:
         """Persona prompt for a member with skills/bio — a domain expert."""
         if member.position:
             parts = [f"你是「{member.name}」，团队的{member.position}。"]
@@ -1265,8 +1255,8 @@ class AgentRuntime:
         if skill_contents:
             parts.append("\n## 专业技能与背景知识\n" + "\n\n".join(skill_contents))
 
-        if openclaw_info:
-            parts.append(AgentRuntime._build_openclaw_prompt_section(openclaw_info))
+        if remote_node_info:
+            parts.append(AgentRuntime._build_remote_node_prompt_section(remote_node_info))
 
         parts.append(f"""
 ## 行为准则
@@ -1281,21 +1271,21 @@ class AgentRuntime:
         return "\n".join(parts)
 
     @staticmethod
-    def _build_openclaw_prompt_section(info: dict) -> str:
-        """Build system prompt section describing OpenClaw remote work capability."""
+    def _build_remote_node_prompt_section(info: dict) -> str:
+        """Build system prompt section describing remote work capability."""
         node_name = info.get("name", "远程节点")
         status = info.get("status", "unknown")
         status_label = {"online": "在线", "offline": "离线"}.get(status, "未知")
         return f"""
 ## 远程工作环境
 
-你拥有一台远程工作电脑「{node_name}」（当前状态: {status_label}），可以通过 `openclaw_work` 工具在上面执行实际操作。
+你拥有一台远程工作电脑「{node_name}」（当前状态: {status_label}），可以通过 `remote_work` 工具在上面执行实际操作。
 
-**使用场景**: 当同事要求你执行编码、运行命令、操作文件、部署、调试等需要在电脑上完成的任务时，使用 `openclaw_work` 工具将指令发送到远程电脑执行。
+**使用场景**: 当同事要求你执行编码、运行命令、操作文件、部署、调试等需要在电脑上完成的任务时，使用 `remote_work` 工具将指令发送到远程电脑执行。
 
-**触发关键词**: 当对话中出现「远程」「openclaw」「在你电脑上」「帮我跑一下」「执行」「部署」「写代码」「改代码」「运行」等意图时，主动使用此工具。
+**触发关键词**: 当对话中出现「远程」「在你电脑上」「帮我跑一下」「执行」「部署」「写代码」「改代码」「运行」等意图时，主动使用此工具。
 
-**使用方式**: 调用 `openclaw_work` 工具，在 `instruction` 参数中用自然语言描述要执行的任务。远程电脑会理解并执行指令，返回结果。
+**使用方式**: 调用 `remote_work` 工具，在 `instruction` 参数中用自然语言描述要执行的任务。远程电脑会理解并执行指令，返回结果。
 
 **登录与认证**: 如果远程执行结果显示需要登录网站、授权第三方服务、输入验证码等需要人工交互的操作，你应该：
 1. 告知同事需要先在远程电脑「{node_name}」上手动完成登录/授权

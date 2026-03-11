@@ -46,7 +46,7 @@ class Member(Base):
     skills: Mapped[str] = mapped_column(Text, default="[]")  # 技能 ID 列表 JSON
     auto_report: Mapped[bool] = mapped_column(Boolean, default=False)  # 是否自动汇报
     report_frequency: Mapped[str] = mapped_column(String(16), default="daily")  # 汇报频率 daily/weekly
-    openclaw_node_id: Mapped[str] = mapped_column(String(32), default="", nullable=True)  # 绑定的 OpenClaw 节点 ID
+    remote_node_id: Mapped[str] = mapped_column(String(32), default="", nullable=True)  # 绑定的远程工作节点 ID
 
     # 关联
     identities: Mapped[list["PlatformIdentity"]] = relationship(back_populates="member", cascade="all, delete-orphan")
