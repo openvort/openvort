@@ -9,7 +9,6 @@ from sqlalchemy import select
 
 from openvort.db.models import Skill
 from openvort.skill.directories import SkillDirectoryManager
-from openvort.skill.importer import GitHubImporter
 from openvort.web.deps import get_db_session_factory
 
 router = APIRouter()
@@ -65,40 +64,6 @@ async def list_skill_directories():
     directories = SkillDirectoryManager.get_all_directories()
     return {"directories": directories}
 
-
-@router.get("/search-online")
-async def search_online_skills(q: str, limit: int = 10):
-    """搜索 GitHub 上的 Skills"""
-    importer = GitHubImporter()
-    results = await importer.search(q, limit=limit)
-    return {"results": results}
-
-
-class ImportSkillRequest(BaseModel):
-    url: str
-    owner_id: str = ""
-
-
-@router.post("/import")
-async def import_skill_from_github(req: ImportSkillRequest):
-    """从 GitHub URL 导入 Skill"""
-    importer = GitHubImporter()
-
-    try:
-        result = await importer.import_from_url(req.url, req.owner_id)
-        return {"success": True, "skill": result}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@router.get("/import/repos/{owner}/{repo}")
-async def get_github_repo_info(owner: str, repo: str):
-    """获取 GitHub 仓库信息"""
-    importer = GitHubImporter()
-    result = await importer.get_readme_from_repo(f"https://github.com/{owner}/{repo}")
-    if not result:
-        raise HTTPException(status_code=404, detail="仓库不存在或无法访问")
-    return result
 
 
 @router.get("")

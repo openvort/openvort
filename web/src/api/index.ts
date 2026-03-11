@@ -818,20 +818,6 @@ export function getSkillDirectories() {
     return request.get("/admin/skills/directories");
 }
 
-/** 搜索 GitHub 上的 Skills */
-export function searchOnlineSkills(q: string, limit?: number) {
-    return request.get("/admin/skills/search-online", { params: { q, limit } });
-}
-
-/** 从 GitHub 导入 Skill */
-export function importSkillFromGithub(url: string, ownerId?: string) {
-    return request.post("/admin/skills/import", { url, owner_id: ownerId });
-}
-
-/** 获取 GitHub 仓库信息 */
-export function getGithubRepoInfo(owner: string, repo: string) {
-    return request.get(`/admin/skills/import/repos/${owner}/${repo}`);
-}
 
 /** 生成 Skill 内容的 AI 创建 prompt */
 export function generateSkillContentPrompt(skillId: string) {

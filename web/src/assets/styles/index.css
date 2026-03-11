@@ -160,3 +160,20 @@ html {
     scrollbar-width: thin;
     scrollbar-color: #eaeaea transparent;
 }
+
+button,
+[type="button"],
+[type="reset"],
+[type="submit"],
+[role="button"],
+label[for],
+select,
+summary,
+[tabindex]:not([tabindex="-1"]) {
+    cursor: pointer;
+}
+
+[disabled],
+[aria-disabled="true"] {
+    cursor: not-allowed;
+}

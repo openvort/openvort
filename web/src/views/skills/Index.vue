@@ -4,11 +4,10 @@ import { useRouter } from "vue-router";
 import {
     getSkills, getSkill, createSkill, updateSkill, deleteSkill, toggleSkill,
     getSkillTags,
-    searchOnlineSkills, importSkillFromGithub,
     generateSkillContentPrompt,
 } from "@/api";
 import { message, dialog } from "@/components/vort";
-import { Plus, Trash2, Save, BookOpen, Github, Bot, X, Tag, Search } from "lucide-vue-next";
+import { Plus, Trash2, Save, BookOpen, Bot, X, Tag, Search } from "lucide-vue-next";
 
 const router = useRouter();
 
@@ -246,64 +245,6 @@ function scopeColor(scope: string): string {
 
 onMounted(() => { loadSkills(); loadTags(); });
 
-// ---- GitHub 导入 ----
-const importDialogOpen = ref(false);
-const importUrl = ref("");
-const importLoading = ref(false);
-const searchResults = ref<any[]>([]);
-const searchLoading = ref(false);
-const searchQuery = ref("");
-
-async function handleSearchOnline() {
-    if (!searchQuery.value.trim()) return;
-    searchLoading.value = true;
-    try {
-        const res: any = await searchOnlineSkills(searchQuery.value);
-        searchResults.value = res?.results || [];
-    } catch { searchResults.value = []; }
-    finally { searchLoading.value = false; }
-}
-
-async function handleImportFromUrl() {
-    if (!importUrl.value.trim()) { message.error("请输入 GitHub URL"); return; }
-    importLoading.value = true;
-    try {
-        const res: any = await importSkillFromGithub(importUrl.value);
-        if (res?.success) {
-            message.success("导入成功");
-            importDialogOpen.value = false;
-            importUrl.value = "";
-            loadSkills();
-            loadTags();
-        }
-    } catch (e: any) {
-        message.error(e?.response?.data?.detail || "导入失败");
-    }
-    finally { importLoading.value = false; }
-}
-
-async function handleImportResult(result: any) {
-    importLoading.value = true;
-    try {
-        const url = result.html_url || result.url;
-        const res: any = await importSkillFromGithub(url);
-        if (res?.success) {
-            message.success(`成功导入: ${result.name}`);
-            loadSkills();
-            loadTags();
-        }
-    } catch (e: any) {
-        message.error(e?.response?.data?.detail || "导入失败");
-    }
-    finally { importLoading.value = false; }
-}
-
-function openImportDialog() {
-    importUrl.value = "";
-    searchQuery.value = "";
-    searchResults.value = [];
-    importDialogOpen.value = true;
-}
 </script>
 
 <template>
@@ -317,9 +258,6 @@ function openImportDialog() {
                     <span class="text-xs text-gray-400">管理所有技能，启用的技能对全局 AI 对话生效</span>
                 </div>
                 <div class="flex items-center gap-2">
-                    <VortButton variant="secondary" size="small" @click="openImportDialog">
-                        <Github :size="14" class="mr-1" /> 从 GitHub 导入
-                    </VortButton>
                     <VortButton variant="primary" size="small" @click="openCreateDialog">
                         <Plus :size="14" class="mr-1" /> 新建技能
                     </VortButton>
@@ -346,15 +284,17 @@ function openImportDialog() {
                 >{{ tag }}</button>
 
                 <div class="ml-auto flex-shrink-0">
-                    <div class="relative">
-                        <Search :size="14" class="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-                        <input
-                            v-model="searchKeyword"
-                            type="text"
-                            placeholder="搜索技能..."
-                            class="pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg bg-gray-50 focus:bg-white focus:border-blue-300 focus:outline-none transition-colors w-[180px]"
-                        />
-                    </div>
+                    <VortInput
+                        v-model="searchKeyword"
+                        size="small"
+                        allow-clear
+                        placeholder="搜索技能..."
+                        class="w-[180px]"
+                    >
+                        <template #prefix>
+                            <Search :size="14" class="text-gray-400" />
+                        </template>
+                    </VortInput>
                 </div>
             </div>
 
@@ -366,7 +306,7 @@ function openImportDialog() {
 
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
                     <div v-for="skill in filteredSkills" :key="skill.id"
-                        class="flex flex-col px-4 py-3 rounded-lg border border-gray-100 hover:border-blue-200 hover:shadow-sm transition-all cursor-pointer"
+                        class="flex flex-col px-4 py-3 rounded-lg border border-gray-100 hover:border-[var(--vort-primary,#1456f0)] hover:shadow-sm transition-all cursor-pointer"
                         @click="openDrawer(skill)">
                         <div class="flex items-start justify-between">
                             <div class="min-w-0 flex-1">
@@ -415,9 +355,12 @@ function openImportDialog() {
                                     <span v-if="!drawerSkill.tags.length" class="text-xs text-gray-400">暂无标签</span>
                                 </div>
                                 <div v-if="drawerSkill.scope !== 'builtin'" class="flex gap-2">
-                                    <input v-model="tagInput" type="text" placeholder="输入标签名，回车添加"
-                                        class="flex-1 px-2.5 py-1.5 text-xs border border-gray-200 rounded-md focus:border-blue-300 focus:outline-none"
-                                        @keydown.enter.prevent="addTagToDrawer" />
+                                    <VortInput
+                                        v-model="tagInput"
+                                        class="flex-1"
+                                        placeholder="输入标签名，回车添加"
+                                        @press-enter="addTagToDrawer"
+                                    />
                                     <VortButton size="small" @click="addTagToDrawer">添加</VortButton>
                                 </div>
                             </div>
@@ -468,13 +411,12 @@ function openImportDialog() {
                             </span>
                         </div>
                         <div class="flex gap-2">
-                            <input v-model="createTagInput" type="text" placeholder="输入标签名，回车添加"
-                                class="flex-1 px-2.5 py-1.5 text-xs border border-gray-200 rounded-md focus:border-blue-300 focus:outline-none"
-                                list="existing-tags"
-                                @keydown.enter.prevent="addCreateTag" />
-                            <datalist id="existing-tags">
-                                <option v-for="t in allTags" :key="t" :value="t" />
-                            </datalist>
+                            <VortInput
+                                v-model="createTagInput"
+                                class="flex-1"
+                                placeholder="输入标签名，回车添加"
+                                @press-enter="addCreateTag"
+                            />
                             <VortButton size="small" @click="addCreateTag">添加</VortButton>
                         </div>
                     </div>
@@ -502,57 +444,5 @@ function openImportDialog() {
             </template>
         </VortDialog>
 
-        <!-- GitHub import dialog -->
-        <VortDialog :open="importDialogOpen" title="从 GitHub 导入 Skill" :width="600" @update:open="importDialogOpen = $event">
-            <div class="space-y-4">
-                <div>
-                    <label class="block text-sm text-gray-600 mb-2">直接导入</label>
-                    <div class="flex gap-2">
-                        <VortInput v-model="importUrl" placeholder="输入 GitHub 仓库或 SKILL.md 文件 URL" class="flex-1" />
-                        <VortButton variant="primary" :loading="importLoading" @click="handleImportFromUrl">导入</VortButton>
-                    </div>
-                    <p class="text-xs text-gray-400 mt-1">支持仓库 URL（如 https://github.com/owner/repo）或 SKILL.md 文件 URL</p>
-                </div>
-
-                <div class="border-t border-gray-200 my-4"></div>
-
-                <div>
-                    <label class="block text-sm text-gray-600 mb-2">在线搜索</label>
-                    <VortInputSearch
-                        v-model="searchQuery"
-                        placeholder="输入关键词搜索"
-                        allow-clear
-                        enter-button="搜索"
-                        :loading="searchLoading"
-                        class="w-full"
-                        @search="handleSearchOnline"
-                    />
-                </div>
-
-                <div v-if="searchResults.length > 0" class="space-y-2 max-h-[300px] overflow-y-auto">
-                    <div v-for="result in searchResults" :key="result.repo"
-                        class="flex items-center justify-between p-3 rounded-lg border border-gray-100 hover:border-blue-200">
-                        <div class="min-w-0 flex-1">
-                            <div class="flex items-center gap-2">
-                                <span class="text-sm font-medium text-gray-800">{{ result.name }}</span>
-                                <span class="text-xs text-gray-400">{{ result.stars }}</span>
-                            </div>
-                            <div class="text-xs text-gray-400 truncate">{{ result.repo }}</div>
-                            <div class="text-xs text-gray-400 truncate">{{ result.description }}</div>
-                        </div>
-                        <VortButton size="small" variant="primary" :loading="importLoading" @click="handleImportResult(result)">
-                            导入
-                        </VortButton>
-                    </div>
-                </div>
-                <div v-else-if="searchLoading" class="text-center py-4 text-gray-400 text-sm">搜索中...</div>
-                <div v-else-if="searchQuery && !searchLoading" class="text-center py-4 text-gray-400 text-sm">未找到相关 Skills</div>
-            </div>
-            <template #footer>
-                <div class="flex justify-end gap-2">
-                    <VortButton @click="importDialogOpen = false">关闭</VortButton>
-                </div>
-            </template>
-        </VortDialog>
     </div>
 </template>
