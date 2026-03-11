@@ -5,6 +5,7 @@ import { getChatContacts, getChatMembers, startMemberChat, togglePinContact, hid
 import { message, dialog, Popover as VortPopover } from "@/components/vort";
 import { pinyin } from "pinyin-pro";
 import type { Contact, MentionMember } from "./types";
+import AiEmployeeBadge from "./AiEmployeeBadge.vue";
 
 const props = defineProps<{
     activeContactId: string;
@@ -322,21 +323,17 @@ defineExpose({ refreshContacts, loadContacts });
                                     @click="handleStartChat(m)"
                                     @mouseenter="newChatActiveIndex = getFlatIndex(gi, mi)"
                                 >
-                                    <div class="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0 text-xs font-medium text-blue-600">
-                                        {{ m.name.charAt(0) }}
+                                    <div
+                                        class="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden"
+                                        :class="m.avatar_url ? 'bg-gray-100' : 'bg-blue-100 text-blue-600'"
+                                    >
+                                        <img v-if="m.avatar_url" :src="m.avatar_url" class="w-full h-full object-cover" />
+                                        <span v-else class="text-xs font-medium">{{ m.name.charAt(0) }}</span>
                                     </div>
                                     <div class="min-w-0 flex-1">
                                         <div class="flex items-center gap-1 min-w-0">
                                             <span class="text-sm text-gray-800 truncate">{{ m.name }}</span>
-                                            <vort-tag
-                                                v-if="m.is_virtual"
-                                                size="small"
-                                                color="blue"
-                                                :bordered="false"
-                                                class="flex-shrink-0"
-                                            >
-                                                AI 员工
-                                            </vort-tag>
+                                            <AiEmployeeBadge v-if="m.is_virtual" class="flex-shrink-0" />
                                         </div>
                                         <div v-if="m.department || m.position" class="text-xs text-gray-400 truncate">{{ [m.department, m.position].filter(Boolean).join(' / ') }}</div>
                                         <div v-else-if="m.email" class="text-xs text-gray-400 truncate">{{ m.email }}</div>
@@ -381,15 +378,7 @@ defineExpose({ refreshContacts, loadContacts });
                             <div class="flex items-center justify-between gap-2">
                                 <div class="flex items-center gap-1 min-w-0">
                                     <span class="text-sm font-medium text-gray-800 truncate">{{ c.name }}</span>
-                                    <vort-tag
-                                        v-if="c.is_virtual"
-                                        size="small"
-                                        color="blue"
-                                        :bordered="false"
-                                        class="flex-shrink-0"
-                                    >
-                                        AI 员工
-                                    </vort-tag>
+                                    <AiEmployeeBadge v-if="c.is_virtual" class="flex-shrink-0" />
                                 </div>
                                 <span class="text-[11px] text-gray-400 flex-shrink-0 whitespace-nowrap">{{ formatTime(c.last_message_time) }}</span>
                             </div>

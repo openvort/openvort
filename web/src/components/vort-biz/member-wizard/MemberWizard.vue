@@ -28,6 +28,7 @@ const VIRTUAL_STEPS: StepConfig[] = [
 
 const props = defineProps<{
     open: boolean;
+    defaultMemberType?: "real" | "virtual";
 }>();
 
 const emit = defineEmits<{
@@ -39,7 +40,7 @@ const currentStep = ref(1);
 
 // 表单数据
 const formData = ref({
-    memberType: "" as "" | "real" | "virtual",
+    memberType: (props.defaultMemberType || "") as "" | "real" | "virtual",
     roles: [] as string[],
     name: "",
     email: "",
@@ -51,8 +52,9 @@ const formData = ref({
 });
 
 const steps = computed<StepConfig[]>(() => {
-    if (formData.value.memberType === "real") return REAL_STEPS;
-    return VIRTUAL_STEPS;
+    const base = formData.value.memberType === "real" ? REAL_STEPS : VIRTUAL_STEPS;
+    if (props.defaultMemberType) return base.filter(s => s.key !== "type");
+    return base;
 });
 
 const totalSteps = computed(() => steps.value.length);
@@ -92,7 +94,7 @@ watch(() => props.open, (isOpen) => {
 function resetForm() {
     currentStep.value = 1;
     formData.value = {
-        memberType: "",
+        memberType: props.defaultMemberType || "",
         roles: [],
         name: "",
         email: "",

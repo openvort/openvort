@@ -89,7 +89,7 @@ const stats = ref<Record<string, { total_sessions: number; today_sessions: numbe
 const detailOpen = ref(false);
 const detailLoading = ref(false);
 const currentEmployee = ref<EmployeeDetail | null>(null);
-const editForm = ref({ name: "", email: "", phone: "", position: "" });
+const editForm = ref({ name: "", email: "", phone: "", position: "", virtual_role: "" });
 const savingEdit = ref(false);
 const memberWebhooks = ref<any[]>([]);
 const remoteNodes = ref<RemoteNodeOption[]>([]);
@@ -236,6 +236,7 @@ async function openDetail(emp: AIEmployee) {
             email: res.email || "",
             phone: res.phone || "",
             position: res.position || "",
+            virtual_role: res.post || res.virtual_role || emp.post || emp.virtual_role || "",
         };
         try {
             const whRes: any = await getWebhooks();
@@ -610,6 +611,13 @@ async function loadRemoteNodes() {
                                 <VortFormItem label="手机">
                                     <VortInput v-model="editForm.phone" placeholder="请输入手机号" />
                                 </VortFormItem>
+                                <VortFormItem label="岗位">
+                                    <VortSelect v-model="editForm.virtual_role" placeholder="请选择岗位" allow-clear style="width: 100%">
+                                        <VortSelectOption v-for="post in posts" :key="post.key" :value="post.key">
+                                            {{ post.name }}
+                                        </VortSelectOption>
+                                    </VortSelect>
+                                </VortFormItem>
                                 <VortFormItem label="职位">
                                     <VortInput v-model="editForm.position" placeholder="AI 员工的职位描述" />
                                 </VortFormItem>
@@ -795,6 +803,7 @@ async function loadRemoteNodes() {
         <!-- Create wizard -->
         <MemberWizard
             :open="wizardOpen"
+            default-member-type="virtual"
             @update:open="wizardOpen = $event"
             @complete="handleWizardComplete"
         />

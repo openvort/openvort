@@ -22,6 +22,7 @@ import { pinyin } from "pinyin-pro";
 import ContactList from "./ContactList.vue";
 import SessionSwitcher from "./SessionSwitcher.vue";
 import MemberProfile from "./MemberProfile.vue";
+import AiEmployeeBadge from "./AiEmployeeBadge.vue";
 import type { ChatMessage, ChatSession, PendingImage, Contact, MentionMember, SlashCommand, Draft, HashTagCategory, HashTagItem, ToolCall } from "./types";
 
 const route = useRoute();
@@ -1546,15 +1547,7 @@ onUnmounted(() => {
                             </div>
                             <h2 class="text-base font-medium text-gray-800">{{ activeContact?.name }}</h2>
                             <span v-if="activeContact?.position" class="ml-2 text-xs text-gray-400">{{ activeContact.position }}</span>
-                            <vort-tag
-                                v-if="activeContact?.is_virtual"
-                                size="small"
-                                color="blue"
-                                :bordered="false"
-                                class="ml-1.5 flex-shrink-0"
-                            >
-                                AI 员工
-                            </vort-tag>
+                            <AiEmployeeBadge v-if="activeContact?.is_virtual" class="ml-1.5 flex-shrink-0" />
                         </div>
                     </template>
                     <span v-if="loading" class="ml-3 flex items-center text-xs text-gray-400">
@@ -1792,8 +1785,12 @@ onUnmounted(() => {
                                         :class="i === mentionActiveIndex ? 'bg-blue-50' : 'hover:bg-gray-50'"
                                         @click="selectMention(member)"
                                         @mouseenter="mentionActiveIndex = i">
-                                        <div class="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0 text-xs font-medium text-blue-600">
-                                            {{ member.name.charAt(0) }}
+                                        <div
+                                            class="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden"
+                                            :class="member.avatar_url ? 'bg-gray-100' : 'bg-blue-100 text-blue-600'"
+                                        >
+                                            <img v-if="member.avatar_url" :src="member.avatar_url" class="w-full h-full object-cover" />
+                                            <span v-else class="text-xs font-medium">{{ member.name.charAt(0) }}</span>
                                         </div>
                                         <div class="min-w-0 flex-1">
                                             <div class="text-sm text-gray-800 truncate">{{ member.name }}</div>

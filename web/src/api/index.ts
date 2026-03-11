@@ -201,7 +201,20 @@ export function getMember(id: string) {
 }
 
 /** 编辑成员 */
-export function updateMember(id: string, data: { name?: string; email?: string; phone?: string; status?: string; is_account?: boolean }) {
+export function updateMember(id: string, data: {
+    name?: string;
+    email?: string;
+    phone?: string;
+    position?: string;
+    status?: string;
+    is_account?: boolean;
+    is_virtual?: boolean;
+    virtual_role?: string;
+    skills?: string[];
+    auto_report?: boolean;
+    report_frequency?: string;
+    remote_node_id?: string;
+}) {
     return request.put(`/admin/members/${id}`, data);
 }
 

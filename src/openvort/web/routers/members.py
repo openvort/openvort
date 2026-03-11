@@ -133,10 +133,11 @@ async def create_member(req: CreateMemberRequest):
 
     session_factory = get_db_session_factory()
 
+    role_key = (req.virtual_role or "").strip()
     virtual_system_prompt = ""
-    if req.is_virtual and req.virtual_role:
+    if req.is_virtual and role_key:
         builtin_dir = Path(__file__).parent.parent.parent / "skills"
-        skill_file = builtin_dir / req.virtual_role / "SKILL.md"
+        skill_file = builtin_dir / role_key / "SKILL.md"
         if skill_file.exists():
             parsed = _parse_skill_file(skill_file)
             if parsed:
@@ -150,7 +151,8 @@ async def create_member(req: CreateMemberRequest):
             position=req.position,
             is_account=req.is_account,
             is_virtual=req.is_virtual,
-            virtual_role=req.virtual_role,
+            post=role_key,
+            virtual_role=role_key,
             virtual_system_prompt=virtual_system_prompt,
             skills=_json.dumps(req.skills) if req.skills else "[]",
             auto_report=req.auto_report,
@@ -242,7 +244,8 @@ async def list_members(search: str = "", role: str = "", department_id: int | No
                 "status": m.status,
                 "is_account": m.is_account,
                 "is_virtual": m.is_virtual,
-                "virtual_role": m.post or "",
+                "post": m.post or m.virtual_role or "",
+                "virtual_role": m.post or m.virtual_role or "",
                 "has_password": bool(m.password_hash),
                 "roles": roles or [],
                 "platform_accounts": platform_accounts,
@@ -359,6 +362,8 @@ async def get_member(member_id: str):
             "status": member.status,
             "is_account": member.is_account,
             "is_virtual": member.is_virtual,
+            "post": member.post or member.virtual_role or "",
+            "virtual_role": member.post or member.virtual_role or "",
             "has_password": bool(member.password_hash),
             "remote_node_id": member.remote_node_id or "",
             "roles": roles or [],
@@ -413,15 +418,19 @@ async def update_member(member_id: str, req: UpdateMemberRequest):
         if req.is_virtual is not None:
             member.is_virtual = req.is_virtual
         if req.virtual_role is not None:
-            member.virtual_role = req.virtual_role
+            role_key = req.virtual_role.strip()
+            member.post = role_key
+            member.virtual_role = role_key
             # 重新加载角色模板
-            if req.virtual_role:
+            if role_key:
                 builtin_dir = Path(__file__).parent.parent.parent / "skills"
-                skill_file = builtin_dir / req.virtual_role / "SKILL.md"
+                skill_file = builtin_dir / role_key / "SKILL.md"
                 if skill_file.exists():
                     parsed = _parse_skill_file(skill_file)
                     if parsed:
                         member.virtual_system_prompt = parsed.get("content", "")
+            else:
+                member.virtual_system_prompt = ""
         if req.skills is not None:
             member.skills = _json.dumps(req.skills)
         if req.auto_report is not None:
