@@ -72,11 +72,11 @@ SYSTEM_PROMPT = """你是 OpenVort 助手，一个智能研发工作流引擎。
 | 创建/查询/管理项目、需求、任务、Bug | VortFlow 相关工具 |
 | 创建/管理定时任务 | Schedule 相关工具 |
 | 配置通道、系统诊断 | System 相关工具 |
-| 给企业微信/飞书发消息、代发提醒、主动通知某人 | `wecom_send_message` / `wecom_send_voice` / `feishu_send_message` / `feishu_send_voice` |
+| 给企业微信/飞书/钉钉发消息、代发提醒、主动通知某人 | `wecom_send_message` / `wecom_send_voice` / `feishu_send_message` / `feishu_send_voice` / `dingtalk_send_message` / `dingtalk_send_voice` |
 | 纯知识问答，不需要执行操作 | 无需工具，直接回答 |
 
 如果用户的请求涉及某个仓库但你不确定是哪个，先用 `git_list_repos` 查一下。
-如果用户说“给我的飞书/企微发消息”，优先直接调用对应的发消息工具；未明确 user_id 时，可省略该参数，默认发送给当前对话者已绑定的账号。
+如果用户说“给我的飞书/企微/钉钉发消息”，优先直接调用对应的发消息工具；未明确 user_id 时，可省略该参数，默认发送给当前对话者已绑定的账号。
 
 ## 回复规则
 
@@ -982,8 +982,8 @@ class AgentRuntime:
     )
     _CHANNEL_SEND_ACTION_CORRECTION = (
         "[系统自动检查] 用户当前是在要求你主动通过 IM 发消息，这是执行操作，不是知识问答。"
-        "如果可用工具中有 `feishu_send_message`、`feishu_send_voice`、`wecom_send_message` 或 `wecom_send_voice`，你必须立即调用对应工具。"
-        "当用户说“给我的飞书/企微发消息”时，可省略 user_id，让工具默认发送给当前用户已绑定的账号。"
+        "如果可用工具中有 `feishu_send_message`、`feishu_send_voice`、`wecom_send_message`、`wecom_send_voice`、`dingtalk_send_message` 或 `dingtalk_send_voice`，你必须立即调用对应工具。"
+        "当用户说“给我的飞书/企微/钉钉发消息”时，可省略 user_id，让工具默认发送给当前用户已绑定的账号。"
         "如果当前用户没有绑定对应账号，也要通过工具返回真实错误，不要只做解释。"
     )
 
@@ -1002,7 +1002,7 @@ class AgentRuntime:
         normalized = "".join(text.split())
         if any(keyword in normalized for keyword in ("怎么", "如何", "为什么", "能不能", "可不可以")):
             return False
-        mentions_channel = any(keyword in normalized for keyword in ("飞书", "企微", "企业微信"))
+        mentions_channel = any(keyword in normalized for keyword in ("飞书", "企微", "企业微信", "钉钉"))
         mentions_send = any(keyword in normalized for keyword in ("发消息", "发送消息", "发一条", "发个", "通知", "提醒", "代发", "主动发", "发语音", "语音提醒", "语音通知"))
         mentions_target = any(keyword in normalized for keyword in ("给我", "给我的", "帮我", "替我", "给", "发给"))
         return mentions_channel and mentions_send and mentions_target
@@ -1033,6 +1033,10 @@ class AgentRuntime:
             if "语音" in normalized:
                 prioritized_names.append("wecom_send_voice")
             prioritized_names.extend(["wecom_send_message", "wecom_send_voice"])
+        if "钉钉" in normalized:
+            if "语音" in normalized:
+                prioritized_names.append("dingtalk_send_voice")
+            prioritized_names.extend(["dingtalk_send_message", "dingtalk_send_voice"])
 
         prioritized_names.append("contacts_search")
         prioritized = [tool_map[name] for name in prioritized_names if name in tool_map]
@@ -1080,6 +1084,8 @@ class AgentRuntime:
             tool_name = "feishu_send_voice" if "语音" in normalized else "feishu_send_message"
         elif "企微" in normalized or "企业微信" in normalized:
             tool_name = "wecom_send_voice" if "语音" in normalized else "wecom_send_message"
+        elif "钉钉" in normalized:
+            tool_name = "dingtalk_send_voice" if "语音" in normalized else "dingtalk_send_message"
         if not tool_name:
             return None
 

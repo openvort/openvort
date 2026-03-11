@@ -16,7 +16,7 @@ BUILTIN_ROLES = [
     {"name": "admin", "display_name": "管理员", "permissions": ["*"]},
     {"name": "manager", "display_name": "部门管理者", "permissions": [
         "contacts.sync", "contacts.search", "contacts.match",
-        "wecom.send", "feishu.send",
+        "wecom.send", "feishu.send", "dingtalk.send",
         "members.view", "departments.view",
         "plugins.view", "skills.view", "channels.view",
         "logs.view", "dashboard.view",
@@ -24,7 +24,7 @@ BUILTIN_ROLES = [
     ]},
     {"name": "member", "display_name": "普通成员", "permissions": [
         "contacts.search",
-        "wecom.send", "feishu.send",
+        "wecom.send", "feishu.send", "dingtalk.send",
         "dashboard.view", "schedules.use",
     ]},
     {"name": "guest", "display_name": "访客", "permissions": []},
@@ -39,6 +39,7 @@ BUILTIN_PERMISSIONS = [
     # 渠道主动消息
     {"code": "wecom.send", "display_name": "发送企业微信消息"},
     {"code": "feishu.send", "display_name": "发送飞书消息"},
+    {"code": "dingtalk.send", "display_name": "发送钉钉消息"},
     # 成员管理
     {"code": "members.view", "display_name": "查看成员"},
     {"code": "members.manage", "display_name": "管理成员"},

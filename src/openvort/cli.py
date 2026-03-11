@@ -386,6 +386,9 @@ async def _start_service(poll_db_json: str | None, web_flag: bool | None):
     feishu_voice_tool = registry.get_tool("feishu_send_voice")
     if feishu_voice_tool and hasattr(feishu_voice_tool, "set_tts_service"):
         feishu_voice_tool.set_tts_service(tts_service)
+    dingtalk_voice_tool = registry.get_tool("dingtalk_send_voice")
+    if dingtalk_voice_tool and hasattr(dingtalk_voice_tool, "set_tts_service"):
+        dingtalk_voice_tool.set_tts_service(tts_service)
 
     # 配置 Channel
     channels = registry.list_channels()
@@ -521,6 +524,24 @@ async def _start_service(poll_db_json: str | None, web_flag: bool | None):
             from openvort.channels.dingtalk.channel import DingTalkChannel as _DingTalkCh
             _dt_ch: _DingTalkCh = ch  # type: ignore[assignment]
 
+            async def dingtalk_stream_handler(msg):
+                from openvort.core.setup import is_initialized as _is_init
+                if not await _is_init(session_factory):
+                    yield {"type": "text", "text": "系统正在初始化中，请稍后再试。"}
+                    return
+
+                cmd_result = await command_handler.handle(msg.channel, msg.sender_id, msg.content)
+                if cmd_result.handled:
+                    if cmd_result.reply:
+                        yield {"type": "text", "text": cmd_result.reply}
+                    return
+
+                ctx = await build_context(msg.channel, msg.sender_id)
+                ctx.images = getattr(msg, "images", []) or []
+
+                async for event in agent.process_stream_im(ctx, msg.content):
+                    yield event
+
             async def handle_dingtalk_message(msg):
                 from openvort.core.setup import is_initialized as _is_init
                 if not await _is_init(session_factory):
@@ -539,11 +560,12 @@ async def _start_service(poll_db_json: str | None, web_flag: bool | None):
                 async def send_fn(reply_):
                     log.info(f"钉钉回复: {reply_[:50]}")
                     from openvort.plugin.base import Message as Msg
-                    await _dt_ch.send(msg.sender_id, Msg(content=reply_, channel="dingtalk"))
+                    await _dt_ch.send(msg.sender_id, Msg(content=reply_, channel="dingtalk", raw=msg.raw))
 
                 reply = await dispatcher.dispatch(ctx, msg.content, process_fn, send_fn)
                 return reply
 
+            _dt_ch.set_stream_handler(dingtalk_stream_handler)
             _dt_ch.on_message(handle_dingtalk_message)
 
             if _dt_ch.is_stream_configured():
