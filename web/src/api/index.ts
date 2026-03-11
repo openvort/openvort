@@ -1605,6 +1605,11 @@ export function getVirtualRoles(enabled?: boolean, page?: number, pageSize?: num
     return request.get("/posts", { params: { enabled, page, page_size: pageSize } });
 }
 
+/** AI 员工统计 */
+export function getVirtualMemberStats() {
+    return request.get("/admin/members/virtual-stats");
+}
+
 /** 获取岗位详情 */
 export function getVirtualRole(roleKeyOrId: string) {
     return request.get(`/posts/${roleKeyOrId}`);

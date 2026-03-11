@@ -13,14 +13,12 @@ import {
     updateDepartment, deleteDepartment, addDepartmentMember,
     removeDepartmentMember, getChannels,
     getOrgCalendar, createOrgCalendarEntry, deleteOrgCalendarEntry, syncHolidays, getWorkSettings, updateWorkSettings,
-    getWebhooks,
-    getOpenClawNodes,
 } from "@/api";
 import {
     RefreshCw, Search, Shield, UserCheck, UserX, Key,
-    AlertTriangle, Check, X, Link, Unlink, Lock, Trash2,
+    AlertTriangle, Check, X, Link, Lock, Trash2,
     ChevronDown, FolderTree, Plus, Pencil, UserPlus,
-    Download, Calendar, CloudDownload, Webhook, User, IdCard, Cpu,
+    Download, Calendar, CloudDownload, User, IdCard,
 } from "lucide-vue-next";
 import { message, dialog } from "@/components/vort";
 import { DeptTree } from "@/components/vort-biz/dept-tree";
@@ -37,9 +35,6 @@ interface MemberItem {
     position: string;
     status: string;
     is_account: boolean;
-    is_virtual?: boolean;
-    virtual_role?: string;
-    virtual_role_name?: string;
     has_password: boolean;
     roles: string[];
     platform_accounts: Record<string, string>;
@@ -97,7 +92,6 @@ const membersPage = ref(1);
 const membersSize = ref(50);
 const searchText = ref("");
 const filterRole = ref("");
-const filterMemberType = ref<"" | "real" | "virtual">("");
 const loadingMembers = ref(false);
 const loadingSync = ref(false);
 const loadingDedup = ref(false);
@@ -325,7 +319,6 @@ const drawerLoading = ref(false);
 const currentMember = ref<MemberDetail | null>(null);
 const editForm = ref({ name: "", email: "", phone: "", position: "" });
 const savingEdit = ref(false);
-const memberBoundWebhooks = ref<{ name: string; action_type: string }[]>([]);
 
 // 角色分配弹窗
 const roleDialogOpen = ref(false);
@@ -407,63 +400,8 @@ const addMemberLoading = ref(false);
 const createMemberDialogOpen = ref(false);
 const createMemberForm = ref({
     name: "", email: "", phone: "", position: "", is_account: false,
-    is_virtual: false, virtual_role: "", skills: [], auto_report: false, report_frequency: "daily"
 });
 const savingCreateMember = ref(false);
-
-const virtualRoleOptions = [
-    { value: "developer", label: "开发工程师" },
-    { value: "designer", label: "设计师" },
-    { value: "pm", label: "产品经理" },
-    { value: "qa", label: "测试工程师" },
-    { value: "assistant", label: "通用助手" },
-];
-
-const skillOptions = ref<{ value: string; label: string }[]>([]);
-
-async function loadSkillOptions() {
-    try {
-        const { getSkills } = await import("@/api");
-        const res: any = await getSkills();
-        skillOptions.value = (res?.skills || []).map((s: any) => ({ value: s.id, label: s.name }));
-    } catch { /* ignore */ }
-}
-
-const reportFrequencyOptions = [
-    { value: "daily", label: "每日" },
-    { value: "weekly", label: "每周" },
-];
-
-// OpenClaw nodes for binding
-interface OpenClawNodeOption {
-    id: string;
-    name: string;
-    gateway_url: string;
-    status: string;
-}
-const openclawNodes = ref<OpenClawNodeOption[]>([]);
-const savingNodeBinding = ref(false);
-
-async function loadOpenClawNodes() {
-    try {
-        const res: any = await getOpenClawNodes();
-        openclawNodes.value = (res?.nodes || []).map((n: any) => ({
-            id: n.id, name: n.name, gateway_url: n.gateway_url, status: n.status,
-        }));
-    } catch { /* ignore */ }
-}
-
-async function handleBindOpenClawNode(memberId: string, nodeId: string) {
-    savingNodeBinding.value = true;
-    try {
-        const res: any = await updateMember(memberId, { openclaw_node_id: nodeId });
-        if (res?.success) {
-            message.success(nodeId ? "节点已绑定" : "已解除绑定");
-            await openMemberDrawer(memberId);
-        } else { message.error("绑定失败"); }
-    } catch { message.error("绑定失败"); }
-    finally { savingNodeBinding.value = false; }
-}
 
 // 向导式创建成员
 const wizardOpen = ref(false);
@@ -501,12 +439,8 @@ async function loadMembers() {
             role: filterRole.value,
             page: membersPage.value,
             size: membersSize.value,
+            is_virtual: false,
         };
-        if (filterMemberType.value === "virtual") {
-            params.is_virtual = true;
-        } else if (filterMemberType.value === "real") {
-            params.is_virtual = false;
-        }
         if (selectedDeptId.value !== null) {
             params.department_id = selectedDeptId.value;
         }
@@ -594,7 +528,6 @@ async function handleReject(id: number) {
 async function openMemberDrawer(memberId: string) {
     drawerOpen.value = true;
     drawerLoading.value = true;
-    memberBoundWebhooks.value = [];
     try {
         const res: any = await getMember(memberId);
         currentMember.value = res;
@@ -604,13 +537,6 @@ async function openMemberDrawer(memberId: string) {
             phone: res.phone || "",
             position: res.position || "",
         };
-        if (res.is_virtual) {
-            try {
-                const whRes: any = await getWebhooks();
-                const all = Array.isArray(whRes) ? whRes : [];
-                memberBoundWebhooks.value = all.filter((w: any) => w.member_id === memberId);
-            } catch { /* ignore */ }
-        }
     } catch { message.error("加载失败"); }
     finally { drawerLoading.value = false; }
 }
@@ -1339,8 +1265,6 @@ onMounted(() => {
     loadChannels();
     loadCalendar();
     loadWorkSettings();
-    loadSkillOptions();
-    loadOpenClawNodes();
 });
 </script>
 
@@ -1509,16 +1433,6 @@ onMounted(() => {
                                 >
                                     <VortSelectOption v-for="r in roles" :key="r.name" :value="r.name">{{ r.display_name }}</VortSelectOption>
                                 </VortSelect>
-                                <VortSelect
-                                    v-model="filterMemberType"
-                                    placeholder="成员类型"
-                                    allow-clear
-                                    style="width: 140px"
-                                    @change="handleSearch"
-                                >
-                                    <VortSelectOption value="real">真实成员</VortSelectOption>
-                                    <VortSelectOption value="virtual">AI 员工</VortSelectOption>
-                                </VortSelect>
                             </div>
 
                             <!-- 批量操作栏 -->
@@ -1547,13 +1461,6 @@ onMounted(() => {
                                             >{{ getInitial(row.name) }}</span>
                                             <div class="flex items-center gap-1">
                                                 <span class="text-blue-600 cursor-pointer hover:underline" @click="openMemberDrawer(row.id)">{{ row.name }}</span>
-                                                <VortTag
-                                                    v-if="row.is_virtual"
-                                                    size="small"
-                                                    color="blue"
-                                                >
-                                                    AI 员工
-                                                </VortTag>
                                             </div>
                                         </div>
                                     </template>
@@ -2056,67 +1963,6 @@ onMounted(() => {
                         </div>
                     </div>
 
-                    <!-- 外部连接（仅虚拟员工） -->
-                    <div v-if="currentMember.is_virtual" class="rounded-lg border border-gray-100 bg-white">
-                        <div class="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50/60 rounded-t-lg">
-                            <Webhook :size="15" class="text-gray-400" />
-                            <h4 class="text-sm font-semibold text-gray-700">外部连接</h4>
-                        </div>
-                        <div class="px-4 py-3">
-                            <div v-if="memberBoundWebhooks.length" class="space-y-2">
-                                <div v-for="wh in memberBoundWebhooks" :key="wh.name"
-                                    class="flex items-center justify-between p-3 rounded-lg bg-gray-50 border border-gray-100">
-                                    <div class="flex items-center gap-2">
-                                        <Webhook :size="14" class="text-indigo-500" />
-                                        <span class="text-sm font-medium">{{ wh.name }}</span>
-                                        <VortTag size="small" :color="wh.action_type === 'openclaw_bridge' ? 'purple' : 'blue'">
-                                            {{ wh.action_type === 'openclaw_bridge' ? 'OpenClaw' : 'Webhook' }}
-                                        </VortTag>
-                                    </div>
-                                    <code class="text-xs text-gray-400">POST /api/webhooks/{{ wh.name }}</code>
-                                </div>
-                            </div>
-                            <div v-else class="text-sm text-gray-400 flex items-center gap-2 py-0.5">
-                                <Unlink :size="14" /> 暂无外部连接
-                                <router-link to="/webhooks" class="text-blue-600 hover:underline ml-1">前往配置</router-link>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 远程工作节点（仅 AI 员工） -->
-                    <div v-if="currentMember.is_virtual" class="rounded-lg border border-gray-100 bg-white">
-                        <div class="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50/60 rounded-t-lg">
-                            <Cpu :size="15" class="text-gray-400" />
-                            <h4 class="text-sm font-semibold text-gray-700">远程工作节点</h4>
-                        </div>
-                        <div class="px-4 py-3">
-                            <VortSpin :spinning="savingNodeBinding">
-                                <VortSelect
-                                    :model-value="currentMember.openclaw_node_id || ''"
-                                    placeholder="未绑定（选择节点后可远程执行任务）"
-                                    allow-clear
-                                    style="width: 100%"
-                                    @update:model-value="(val: string) => handleBindOpenClawNode(currentMember!.id, val || '')"
-                                >
-                                    <VortSelectOption v-for="node in openclawNodes" :key="node.id" :value="node.id">
-                                        <div class="flex items-center gap-2">
-                                            <span
-                                                class="w-2 h-2 rounded-full flex-shrink-0"
-                                                :class="node.status === 'online' ? 'bg-green-500' : node.status === 'offline' ? 'bg-red-400' : 'bg-gray-300'"
-                                            />
-                                            <span>{{ node.name }}</span>
-                                            <span class="text-xs text-gray-400">{{ node.gateway_url }}</span>
-                                        </div>
-                                    </VortSelectOption>
-                                </VortSelect>
-                                <div class="mt-2 text-xs text-gray-400">
-                                    绑定后，该 AI 员工可通过 OpenClaw 在远程电脑上执行工作任务。
-                                    <router-link to="/openclaw-nodes" class="text-blue-600 hover:underline">管理节点</router-link>
-                                </div>
-                            </VortSpin>
-                        </div>
-                    </div>
-
                     <!-- 平台身份 -->
                     <div class="rounded-lg border border-gray-100 bg-white">
                         <div class="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50/60 rounded-t-lg">
@@ -2431,28 +2277,6 @@ onMounted(() => {
                     <VortSwitch v-model:checked="createMemberForm.is_account" />
                     <span class="text-sm text-gray-600">允许登录系统</span>
                 </div>
-                <div class="flex items-center gap-2">
-                    <VortSwitch v-model:checked="createMemberForm.is_virtual" />
-                    <span class="text-sm text-gray-600">AI 员工</span>
-                </div>
-                <template v-if="createMemberForm.is_virtual">
-                    <div>
-                        <label class="block text-xs text-gray-500 mb-1">角色模板</label>
-                        <VortSelect v-model="createMemberForm.virtual_role" :options="virtualRoleOptions" placeholder="请选择角色模板" />
-                    </div>
-                    <div>
-                        <label class="block text-xs text-gray-500 mb-1">绑定技能</label>
-                        <VortSelect v-model="createMemberForm.skills" :options="skillOptions" mode="multiple" placeholder="请选择技能" />
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <VortSwitch v-model:checked="createMemberForm.auto_report" />
-                        <span class="text-sm text-gray-600">自动汇报</span>
-                    </div>
-                    <div v-if="createMemberForm.auto_report">
-                        <label class="block text-xs text-gray-500 mb-1">汇报频率</label>
-                        <VortSelect v-model="createMemberForm.report_frequency" :options="reportFrequencyOptions" />
-                    </div>
-                </template>
             </div>
         </VortDialog>
 

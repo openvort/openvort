@@ -280,6 +280,68 @@ async def list_members(search: str = "", role: str = "", department_id: int | No
         return {"members": items, "total": total, "page": page, "size": size}
 
 
+@router.get("/virtual-stats")
+async def get_virtual_member_stats():
+    """AI 员工统计：每个虚拟成员的对话数、今日对话数、最后活跃时间"""
+    from datetime import datetime, timezone
+    from openvort.contacts.models import Member
+    from openvort.db.models import ChatSession
+
+    session_factory = get_db_session_factory()
+    async with session_factory() as db:
+        member_result = await db.execute(
+            select(Member.id).where(Member.is_virtual == True)  # noqa: E712
+        )
+        virtual_ids = [row[0] for row in member_result.all()]
+        if not virtual_ids:
+            return {"stats": []}
+
+        stmt = (
+            select(
+                ChatSession.target_id,
+                sa_func.count(ChatSession.id).label("total_sessions"),
+                sa_func.max(ChatSession.updated_at).label("last_active_at"),
+            )
+            .where(
+                ChatSession.target_type == "member",
+                ChatSession.target_id.in_(virtual_ids),
+            )
+            .group_by(ChatSession.target_id)
+        )
+        result = await db.execute(stmt)
+        session_stats = {row.target_id: row for row in result.all()}
+
+        today_start = datetime.now(timezone.utc).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        today_stmt = (
+            select(
+                ChatSession.target_id,
+                sa_func.count(ChatSession.id).label("today_sessions"),
+            )
+            .where(
+                ChatSession.target_type == "member",
+                ChatSession.target_id.in_(virtual_ids),
+                ChatSession.updated_at >= today_start,
+            )
+            .group_by(ChatSession.target_id)
+        )
+        today_result = await db.execute(today_stmt)
+        today_stats = {row.target_id: row.today_sessions for row in today_result.all()}
+
+        stats = []
+        for mid in virtual_ids:
+            row = session_stats.get(mid)
+            stats.append({
+                "member_id": mid,
+                "total_sessions": row.total_sessions if row else 0,
+                "today_sessions": today_stats.get(mid, 0),
+                "last_active_at": row.last_active_at.isoformat() if row and row.last_active_at else "",
+            })
+
+        return {"stats": stats}
+
+
 @router.get("/{member_id}")
 async def get_member(member_id: str):
     """成员详情（含角色、权限、平台身份）"""
