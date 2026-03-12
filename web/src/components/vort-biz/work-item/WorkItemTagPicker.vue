@@ -202,7 +202,7 @@ const toggleOption = (tag: string) => {
 }
 
 .tag-picker-content {
-    padding: 4px;
+    padding: 0px 4px 8px;
 }
 
 .tag-picker-row {

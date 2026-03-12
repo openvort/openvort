@@ -1592,7 +1592,7 @@ onMounted(async () => {
                                 </div>
                             </template>
                             <template #footer>
-                                <div class="mt-1 px-2 py-2 text-left">
+                                <div class="mt-1 px-3 py-2 text-left">
                                     <button
                                         type="button"
                                         class="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700"
@@ -1623,8 +1623,6 @@ onMounted(async () => {
                             mode="owner"
                             :owner="getRowOwner(record, text)"
                             :groups="ownerGroups"
-                            :show-unassigned="true"
-                            unassigned-value=""
                             :dropdown-max-height="420"
                             :bordered="false"
                             :get-avatar-bg="getAvatarBg"

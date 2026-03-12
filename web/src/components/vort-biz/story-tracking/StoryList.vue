@@ -605,8 +605,6 @@ loadData();
                             :groups="filteredOwnerGroups"
                             :open="openOwnerFor === row.id"
                             v-model:keyword="ownerKeyword"
-                            :show-unassigned="true"
-                            unassigned-value=""
                             :dropdown-max-height="280"
                             :bordered="false"
                             @update:open="(open) => { if (!open && openOwnerFor === row.id) openOwnerFor = null; }"
