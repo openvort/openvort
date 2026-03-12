@@ -776,7 +776,7 @@ watch(() => createBugForm.repo, async (value, oldValue) => {
                     @update:open="(open) => { createBugPriorityDropdownOpen = open; }"
                     @change="selectCreateBugPriority"
                 >
-                    <template #trigger>
+                    <template #default>
                         <div
                             class="create-bug-priority-trigger"
                             :class="createBugPriorityDropdownOpen ? 'active' : ''"
