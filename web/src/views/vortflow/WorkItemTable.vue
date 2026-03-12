@@ -76,15 +76,8 @@ const {
 
 const keyword = ref("");
 const owner = ref("");
-const openOwnerFor = ref<string | null>(null);
-const ownerEditKeyword = ref("");
-const openCollaboratorFor = ref<string | null>(null);
-const collaboratorKeyword = ref("");
 const type = ref<WorkItemType | "">(props.type ?? "");
 const status = ref("");
-const openStatusFor = ref<string | null>(null);
-const rowStatusKeyword = ref("");
-const rowStatusType = ref<WorkItemType>(props.type ?? "缺陷");
 const openPlanTimeFor = ref<string | null>(null);
 const totalCount = ref(0);
 const createBugDrawerOpen = computed({
@@ -182,9 +175,6 @@ const allStatusFilterOptions: StatusOption[] = Array.from(
 );
 
 const priorityModel = reactive<Record<string, Priority>>({});
-const openPriorityFor = ref<string | null>(null);
-const tagPopoverOpen = reactive<Record<string, boolean>>({});
-const tagKeyword = ref("");
 const tagsModel = reactive<Record<string, string[]>>({});
 const baseTagOptions = ["客户需求", "演示站", "运营需求", "待开会确认", "已发布", "高优先", "稳定性", "UI优化", "S1", "S2", "S3", "S4", "develop", "test"];
 const dynamicTagOptions = ref<string[]>([]);
@@ -208,16 +198,6 @@ const rebuildMockDataset = () => {
     tableRef.value?.refresh?.();
 };
 
-const closeRowPopovers = () => {
-    openPriorityFor.value = null;
-    for (const key in tagPopoverOpen) {
-        tagPopoverOpen[key] = false;
-    }
-    openStatusFor.value = null;
-    openOwnerFor.value = null;
-    openCollaboratorFor.value = null;
-    openPlanTimeFor.value = null;
-};
 const resolveActiveType = (): WorkItemType => {
     if (props.type) return props.type;
     if (type.value === "需求" || type.value === "任务" || type.value === "缺陷") return type.value;
@@ -1213,12 +1193,6 @@ const getRowPriority = (record: RowItem, text?: Priority): Priority => {
     return priorityModel[record.workNo] || text || record.priority;
 };
 
-const togglePriorityMenu = (workNo: string) => {
-    const willOpen = openPriorityFor.value !== workNo;
-    closeRowPopovers();
-    openPriorityFor.value = willOpen ? workNo : null;
-};
-
 const selectPriority = async (record: RowItem, value: Priority) => {
     const workNo = record.workNo;
     const prev = getRowPriority(record, record.priority);
@@ -1236,31 +1210,13 @@ const selectPriority = async (record: RowItem, value: Priority) => {
         priorityModel[workNo] = prev;
         record.priority = prev;
         message.error(error?.message || "优先级同步失败");
-        openPriorityFor.value = null;
         return;
     }
-    openPriorityFor.value = null;
 };
 
 const getRowStatus = (record: RowItem, text?: Status): Status => {
     return text || record.status;
 };
-
-const toggleRowStatusMenu = (record: RowItem) => {
-    rowStatusKeyword.value = "";
-    const willOpen = openStatusFor.value !== record.workNo;
-    closeRowPopovers();
-    if (!willOpen) return;
-    rowStatusType.value = record.type || resolveActiveType();
-    openStatusFor.value = record.workNo;
-};
-
-const filteredRowStatusOptions = computed(() => {
-    const kw = rowStatusKeyword.value.trim();
-    const options = getStatusOptionsByType(rowStatusType.value);
-    if (!kw) return options;
-    return options.filter((x) => x.label.includes(kw));
-});
 
 const selectRowStatus = async (record: RowItem, value: Status) => {
     const prev = record.status;
@@ -1271,24 +1227,13 @@ const selectRowStatus = async (record: RowItem, value: Status) => {
         } catch (error: any) {
             record.status = prev;
             message.error(error?.message || "状态同步失败");
-            openStatusFor.value = null;
-            rowStatusKeyword.value = "";
             return;
         }
     }
-    openStatusFor.value = null;
-    rowStatusKeyword.value = "";
 };
 
 const getRowOwner = (record: RowItem, text?: string): string => {
     return text || record.owner || "未指派";
-};
-
-const toggleRowOwnerMenu = (workNo: string) => {
-    const willOpen = openOwnerFor.value !== workNo;
-    closeRowPopovers();
-    openOwnerFor.value = willOpen ? workNo : null;
-    ownerEditKeyword.value = "";
 };
 
 const selectRowOwner = async (record: RowItem, value: string) => {
@@ -1300,7 +1245,6 @@ const selectRowOwner = async (record: RowItem, value: string) => {
         if (value && !memberId) {
             record.owner = prev;
             message.error("未找到负责人对应的成员ID，无法同步");
-            openOwnerFor.value = null;
             return;
         }
         try {
@@ -1312,22 +1256,13 @@ const selectRowOwner = async (record: RowItem, value: string) => {
         } catch (error: any) {
             record.owner = prev;
             message.error(error?.message || "负责人同步失败");
-            openOwnerFor.value = null;
             return;
         }
     }
-    openOwnerFor.value = null;
 };
 
 const getRowCollaborators = (record: RowItem, text?: string[]): string[] => {
     return collaboratorsModel[record.workNo] || text || record.collaborators || [];
-};
-
-const toggleCollaboratorMenu = (workNo: string) => {
-    const willOpen = openCollaboratorFor.value !== workNo;
-    closeRowPopovers();
-    openCollaboratorFor.value = willOpen ? workNo : null;
-    collaboratorKeyword.value = "";
 };
 
 const setRowCollaborators = async (record: RowItem, nextCollaborators: string[]) => {
@@ -1336,23 +1271,6 @@ const setRowCollaborators = async (record: RowItem, nextCollaborators: string[])
     record.collaborators = [...nextCollaborators];
     try {
         await syncRecordUpdateToApi(record, { collaborators: nextCollaborators });
-    } catch (error: any) {
-        collaboratorsModel[record.workNo] = prev;
-        record.collaborators = prev;
-        message.error(error?.message || "协作者同步失败");
-    }
-};
-
-const toggleRowCollaborator = async (record: RowItem, member: string, text?: string[]) => {
-    const current = [...getRowCollaborators(record, text)];
-    const idx = current.indexOf(member);
-    if (idx >= 0) current.splice(idx, 1);
-    else current.push(member);
-    const prev = [...getRowCollaborators(record, text)];
-    collaboratorsModel[record.workNo] = current;
-    record.collaborators = current;
-    try {
-        await syncRecordUpdateToApi(record, { collaborators: current });
     } catch (error: any) {
         collaboratorsModel[record.workNo] = prev;
         record.collaborators = prev;
@@ -1390,9 +1308,6 @@ const setRowTags = async (record: RowItem, nextTags: string[]) => {
 };
 
 const openCreateTagDialog = (record?: RowItem | null, text?: string[]) => {
-    if (record) {
-        tagPopoverOpen[record.workNo] = false;
-    }
     newTagName.value = "";
     newTagColor.value = tagColorPalette[0] || "#3b82f6";
     newTagTargetRecord.value = record || null;
@@ -1420,7 +1335,10 @@ const handleConfirmCreateTag = async () => {
         tagColorOverrides[name] = newTagColor.value;
     }
     if (newTagTargetRecord.value) {
-        await toggleTagOption(newTagTargetRecord.value, name, newTagTargetText.value);
+        const currentTags = getRowTags(newTagTargetRecord.value, newTagTargetText.value);
+        if (!currentTags.includes(name)) {
+            await setRowTags(newTagTargetRecord.value, [...currentTags, name]);
+        }
     }
     newTagDialogOpen.value = false;
 };
@@ -1464,7 +1382,6 @@ const getRowPlanTimeText = (record: RowItem, text?: DateRange): string => {
 
 const togglePlanTimeMenu = (workNo: string, record?: RowItem, text?: DateRange) => {
     const willOpen = openPlanTimeFor.value !== workNo;
-    closeRowPopovers();
     if (willOpen) {
         const value = record ? getRowPlanTime(record, text) : undefined;
         const start = normalizeDateValue(value?.[0]);
@@ -1502,28 +1419,6 @@ const getCollapsedTags = (tags: string[], resolvedWidth?: string | number): { vi
 
 const getTagRenderInfo = (record: RowItem, text: string[] | undefined, resolvedWidth?: string | number) => {
     return getCollapsedTags(getRowTags(record, text), resolvedWidth);
-};
-
-const toggleTagMenu = (workNo: string) => {
-    tagKeyword.value = "";
-    tagPopoverOpen[workNo] = !tagPopoverOpen[workNo];
-};
-
-const toggleTagOption = async (record: RowItem, tag: string, text?: string[]) => {
-    const current = [...getRowTags(record, text)];
-    const idx = current.indexOf(tag);
-    if (idx >= 0) current.splice(idx, 1);
-    else current.push(tag);
-    const prev = [...getRowTags(record, text)];
-    tagsModel[record.workNo] = current;
-    record.tags = current;
-    try {
-        await syncRecordUpdateToApi(record, { tags: current });
-    } catch (error: any) {
-        tagsModel[record.workNo] = prev;
-        record.tags = prev;
-        message.error(error?.message || "标签同步失败");
-    }
 };
 
 const createProjectOptions = computed(() => {
@@ -1664,12 +1559,9 @@ onMounted(async () => {
                 </template>
 
                 <template #priority="{ text, record }">
-                    <TableCell @click.stop="togglePriorityMenu(record.workNo)">
+                    <TableCell>
                         <WorkItemPriority
                             :model-value="getRowPriority(record, text)"
-                            :open="openPriorityFor === record.workNo"
-                            @update:open="(open) => { if (!open && openPriorityFor === record.workNo) openPriorityFor = null; }"
-                            @click.stop="togglePriorityMenu(record.workNo)"
                             @change="(value) => selectPriority(record, value)"
                         />
                     </TableCell>
@@ -1680,15 +1572,12 @@ onMounted(async () => {
                         <WorkItemTagPicker
                             :model-value="getRowTags(record, text)"
                             :options="rowTagOptions"
-                            :open="tagPopoverOpen[record.workNo]"
-                            v-model:keyword="tagKeyword"
                             :get-tag-color="getTagColor"
                             :bordered="false"
-                            @update:open="(open) => { if (!open) tagPopoverOpen[record.workNo] = false; }"
                             @update:model-value="(value) => setRowTags(record, value)"
                         >
                             <template #trigger>
-                                <div class="flex items-center gap-1 flex-nowrap whitespace-nowrap overflow-hidden" @click.stop="toggleTagMenu(record.workNo)">
+                                <div class="flex items-center gap-1 flex-nowrap whitespace-nowrap overflow-hidden">
                                     <template v-for="tag in getTagRenderInfo(record, text, resolvedWidth).visible" :key="record.workNo + '-' + tag">
                                         <span
                                             class="px-1.5 py-0.5 rounded text-xs text-white inline-block"
@@ -1719,14 +1608,10 @@ onMounted(async () => {
                 </template>
 
                 <template #status="{ text, record }">
-                    <TableCell @click.stop="toggleRowStatusMenu(record)">
+                    <TableCell>
                         <WorkItemStatus
                             :model-value="getRowStatus(record, text)"
-                            :options="filteredRowStatusOptions"
-                            :open="openStatusFor === record.workNo"
-                            v-model:keyword="rowStatusKeyword"
-                            @update:open="(open) => { if (!open && openStatusFor === record.workNo) openStatusFor = null; }"
-                            @click.stop="toggleRowStatusMenu(record)"
+                            :options="getStatusOptionsByType(record.type || resolveActiveType())"
                             @change="(value) => selectRowStatus(record, value)"
                         />
                     </TableCell>
@@ -1738,8 +1623,6 @@ onMounted(async () => {
                             mode="owner"
                             :owner="getRowOwner(record, text)"
                             :groups="ownerGroups"
-                            :open="openOwnerFor === record.workNo"
-                            v-model:keyword="ownerEditKeyword"
                             :show-unassigned="true"
                             unassigned-value=""
                             :dropdown-max-height="420"
@@ -1747,13 +1630,11 @@ onMounted(async () => {
                             :get-avatar-bg="getAvatarBg"
                             :get-avatar-label="getAvatarLabel"
                             :get-avatar-url="getMemberAvatarUrl"
-                            @update:open="(open) => { if (!open && openOwnerFor === record.workNo) openOwnerFor = null; }"
                             @update:owner="(value) => selectRowOwner(record, value)"
                         >
                             <template #trigger>
                                 <div
                                     class="h-8 max-w-[150px] px-2 rounded-md bg-transparent flex items-center gap-2 cursor-pointer"
-                                    @click.stop="toggleRowOwnerMenu(record.workNo)"
                                 >
                                     <span
                                         class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center shrink-0 overflow-hidden"
@@ -1789,20 +1670,16 @@ onMounted(async () => {
                             mode="collaborators"
                             :collaborators="getRowCollaborators(record, text)"
                             :groups="ownerGroups"
-                            :open="openCollaboratorFor === record.workNo"
-                            v-model:keyword="collaboratorKeyword"
                             :dropdown-max-height="260"
                             :bordered="false"
                             :get-avatar-bg="getAvatarBg"
                             :get-avatar-label="getAvatarLabel"
                             :get-avatar-url="getMemberAvatarUrl"
-                            @update:open="(open) => { if (!open && openCollaboratorFor === record.workNo) openCollaboratorFor = null; }"
                             @update:collaborators="(value) => setRowCollaborators(record, value)"
                         >
                             <template #trigger>
                                 <div
                                     class="h-8 px-1 rounded-md bg-transparent flex items-center cursor-pointer"
-                                    @click.stop="toggleCollaboratorMenu(record.workNo)"
                                 >
                                     <div class="flex items-center">
                                         <div

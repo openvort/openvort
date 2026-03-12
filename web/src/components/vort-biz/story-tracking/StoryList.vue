@@ -202,7 +202,7 @@ const filteredTagOptions = computed(() => {
     return availableTags.filter(t => t.toLowerCase().includes(kw));
 });
 
-const getRowTags = (record: StoryItem, text?: string): string[] => {
+const getRowTags = (record: StoryItem, text?: string[]): string[] => {
     return tagsModel[record.id] || text || record.tags || [];
 };
 
@@ -211,7 +211,7 @@ const toggleTagMenu = (id: string) => {
     tagKeyword.value = "";
 };
 
-const toggleTagOption = async (record: StoryItem, tag: string, text?: string) => {
+const toggleTagOption = async (record: StoryItem, tag: string, text?: string[]) => {
     const current = getRowTags(record, text);
     const idx = current.indexOf(tag);
     const newTags = idx >= 0 ? current.filter(t => t !== tag) : [...current, tag];
@@ -253,14 +253,16 @@ const toggleRowStatusMenu = (record: StoryItem) => {
     }
 };
 
-const getRowDisplayStatus = (record: StoryItem): string => {
-    return stateBackendToDisplay[record.state] || record.state;
+const getRowDisplayStatus = (record: { state?: string }): string => {
+    const state = record.state || "";
+    return stateBackendToDisplay[state] || state;
 };
 
 const selectRowStatus = async (record: StoryItem, displayStatus: string) => {
     const states = displayToStateBackend[displayStatus];
     if (!states || states.length === 0) return;
     const targetState = states[0];
+    if (!targetState) return;
     try {
         await transitionVortflowStory(record.id, targetState);
         message.success("状态已更新");
