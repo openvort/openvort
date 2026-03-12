@@ -2,10 +2,13 @@
 import { ref, onMounted } from "vue";
 import { z } from "zod";
 import { Plus, Info } from "lucide-vue-next";
+import { DownOutlined } from "@/components/vort/icons";
 import { useCrudPage } from "@/hooks";
+import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMemberPicker.vue";
+import { useWorkItemCommon } from "./work-item/useWorkItemCommon";
 import {
     getVortflowIterations, createVortflowIteration, updateVortflowIteration, deleteVortflowIteration,
-    getVortflowProjects, getMembers,
+    getVortflowProjects,
 } from "@/api";
 
 interface IterationItem {
@@ -26,12 +29,24 @@ interface IterationItem {
 }
 
 interface ProjectItem { id: string; name: string }
-interface MemberOption { id: string; name: string; avatarUrl?: string }
 
 type FilterParams = { page: number; size: number; keyword: string; status: string; owner_id: string };
 
 const projects = ref<ProjectItem[]>([]);
-const memberOptions = ref<MemberOption[]>([]);
+const filterOwnerDropdownOpen = ref(false);
+const filterOwnerKeyword = ref("");
+const formOwnerDropdownOpen = ref(false);
+const formOwnerKeyword = ref("");
+
+const {
+    ownerGroups,
+    getAvatarBg,
+    getAvatarLabel,
+    getMemberAvatarUrl,
+    loadMemberOptions,
+    getMemberIdByName,
+    getMemberNameById,
+} = useWorkItemCommon();
 
 const statusOptions = [
     { label: "全部", value: "" },
@@ -56,32 +71,19 @@ const { listData, loading, total, filterParams, showPagination, loadData, onSear
         defaultParams: { page: 1, size: 20, keyword: "", status: "", owner_id: "" },
     });
 
-const loadOptions = async () => {
+const loadProjects = async () => {
     try {
-        const [projRes, memberRes] = await Promise.all([
-            getVortflowProjects(),
-            getMembers({ search: "", role: "", page: 1, size: 100 }),
-        ]);
+        const projRes = await getVortflowProjects();
         projects.value = (projRes as any)?.items || [];
-        const members = Array.isArray((memberRes as any)?.members) ? (memberRes as any).members : [];
-        const seen = new Set<string>();
-        memberOptions.value = members
-            .map((item: any) => ({
-                id: String(item?.id || ""),
-                name: String(item?.name || "").trim(),
-                avatarUrl: String(item?.avatar_url || item?.avatar || ""),
-            }))
-            .filter((m: MemberOption) => {
-                if (!m.id || !m.name || seen.has(m.id)) return false;
-                seen.add(m.id);
-                return true;
-            });
     } catch { /* silent */ }
 };
 
 const iterationOwnerId = (i: IterationItem) => i.owner_id || i.assignee_id || i.pm_id || "";
-const memberNameById = (id: string) => memberOptions.value.find(m => m.id === id)?.name || "";
-const ownerName = (i: IterationItem) => i.owner_name || memberNameById(iterationOwnerId(i)) || "未分配";
+const ownerName = (i: IterationItem) => i.owner_name || getMemberNameById(iterationOwnerId(i)) || "未指派";
+const iterationOwnerAvatarUrl = (i: IterationItem) => {
+    const name = ownerName(i);
+    return name === "未指派" ? "" : getMemberAvatarUrl(name);
+};
 const projectNameById = (id: string) => projects.value.find(p => p.id === id)?.name || id;
 
 const formatDate = (iso: string | null) => {
@@ -182,8 +184,21 @@ const handleDeleteIteration = async (i: IterationItem) => {
     loadData();
 };
 
+const handleFilterOwnerSelect = (name: string) => {
+    filterParams.owner_id = getMemberIdByName(name);
+    filterOwnerDropdownOpen.value = false;
+    filterOwnerKeyword.value = "";
+    onSearchSubmit();
+};
+
+const handleFormOwnerSelect = (name: string) => {
+    currentIteration.value.owner_id = getMemberIdByName(name);
+    formOwnerDropdownOpen.value = false;
+    formOwnerKeyword.value = "";
+};
+
 onMounted(async () => {
-    await Promise.all([loadOptions(), loadData()]);
+    await Promise.all([loadProjects(), loadMemberOptions(), loadData()]);
 });
 </script>
 
@@ -217,9 +232,38 @@ onMounted(async () => {
                 </div>
                 <div class="flex items-center gap-2 w-full sm:w-auto">
                     <span class="text-sm text-gray-500 whitespace-nowrap">负责人</span>
-                    <vort-select v-model="filterParams.owner_id" placeholder="全部" allow-clear class="flex-1 sm:w-[140px]" @change="onSearchSubmit">
-                        <vort-select-option v-for="m in memberOptions" :key="m.id" :value="m.id">{{ m.name }}</vort-select-option>
-                    </vort-select>
+                    <WorkItemMemberPicker
+                        mode="owner"
+                        :owner="getMemberNameById(filterParams.owner_id)"
+                        :groups="ownerGroups"
+                        :open="filterOwnerDropdownOpen"
+                        v-model:keyword="filterOwnerKeyword"
+                        :show-all-option="true"
+                        :dropdown-max-height="460"
+                        :get-avatar-bg="getAvatarBg"
+                        :get-avatar-label="getAvatarLabel"
+                        :get-avatar-url="getMemberAvatarUrl"
+                        @update:open="(open) => filterOwnerDropdownOpen = open"
+                        @update:owner="handleFilterOwnerSelect"
+                    >
+                        <template #trigger="{ open }">
+                            <div
+                                class="filter-select-trigger flex-1 sm:w-[140px]"
+                                :class="{ active: open }"
+                                tabindex="0"
+                                @click.stop="filterOwnerDropdownOpen = !filterOwnerDropdownOpen"
+                            >
+                                <div class="flex items-center w-full gap-2 min-w-0">
+                                    <span class="filter-select-value text-sm truncate" :class="filterParams.owner_id ? 'text-[var(--vort-text,rgba(0,0,0,0.88))]' : 'text-[var(--vort-text-quaternary,rgba(0,0,0,0.25))]'">
+                                        {{ getMemberNameById(filterParams.owner_id) || "负责人" }}
+                                    </span>
+                                    <span class="vort-select-arrow ml-auto" :class="{ 'vort-select-arrow-open': open }">
+                                        <DownOutlined />
+                                    </span>
+                                </div>
+                            </div>
+                        </template>
+                    </WorkItemMemberPicker>
                 </div>
                 <div class="flex items-center gap-2">
                     <vort-button variant="primary" @click="onSearchSubmit">查询</vort-button>
@@ -248,13 +292,26 @@ onMounted(async () => {
                     </template>
                 </vort-table-column>
 
-                <vort-table-column label="负责人" :width="120">
+                <vort-table-column label="负责人" :width="160">
                     <template #default="{ row }">
-                        <span class="text-sm text-gray-700 truncate">{{ ownerName(row) }}</span>
+                        <div class="h-8 max-w-[150px] px-2 rounded-md bg-transparent flex items-center gap-2">
+                            <span
+                                class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center shrink-0 overflow-hidden"
+                                :style="{ backgroundColor: getAvatarBg(ownerName(row)) }"
+                            >
+                                <img
+                                    v-if="iterationOwnerAvatarUrl(row)"
+                                    :src="iterationOwnerAvatarUrl(row)"
+                                    class="w-full h-full object-cover"
+                                >
+                                <template v-else>{{ getAvatarLabel(ownerName(row)) }}</template>
+                            </span>
+                            <span class="text-sm text-gray-700 truncate">{{ ownerName(row) }}</span>
+                        </div>
                     </template>
                 </vort-table-column>
 
-                <vort-table-column label="计划时间" :width="200">
+                <vort-table-column label="计划时间" :width="260">
                     <template #default="{ row }">
                         <span class="text-sm text-gray-500">{{ formatDate(row.start_date) }} - {{ formatDate(row.end_date) }}</span>
                     </template>
@@ -316,9 +373,40 @@ onMounted(async () => {
                         <vort-input v-model="currentIteration.name" placeholder="请输入标题" class="w-full" />
                     </vort-form-item>
                     <vort-form-item label="负责人" name="owner_id">
-                        <vort-select v-model="currentIteration.owner_id" placeholder="请选择负责人" allow-clear class="w-full">
-                            <vort-select-option v-for="m in memberOptions" :key="m.id" :value="m.id">{{ m.name }}</vort-select-option>
-                        </vort-select>
+                        <WorkItemMemberPicker
+                            mode="owner"
+                            :owner="getMemberNameById(currentIteration.owner_id || '')"
+                            :groups="ownerGroups"
+                            :open="formOwnerDropdownOpen"
+                            v-model:keyword="formOwnerKeyword"
+                            :show-unassigned="true"
+                            unassigned-value=""
+                            unassigned-label="未分配"
+                            :dropdown-max-height="420"
+                            :get-avatar-bg="getAvatarBg"
+                            :get-avatar-label="getAvatarLabel"
+                            :get-avatar-url="getMemberAvatarUrl"
+                            @update:open="(open) => formOwnerDropdownOpen = open"
+                            @update:owner="handleFormOwnerSelect"
+                        >
+                            <template #trigger="{ open }">
+                                <div
+                                    class="filter-select-trigger w-full"
+                                    :class="{ active: open }"
+                                    tabindex="0"
+                                    @click.stop="formOwnerDropdownOpen = !formOwnerDropdownOpen"
+                                >
+                                    <div class="flex items-center w-full gap-2 min-w-0">
+                                        <span class="filter-select-value text-sm truncate" :class="currentIteration.owner_id ? 'text-[var(--vort-text,rgba(0,0,0,0.88))]' : 'text-[var(--vort-text-quaternary,rgba(0,0,0,0.25))]'">
+                                            {{ getMemberNameById(currentIteration.owner_id || "") || "请选择负责人" }}
+                                        </span>
+                                        <span class="vort-select-arrow ml-auto" :class="{ 'vort-select-arrow-open': open }">
+                                            <DownOutlined />
+                                        </span>
+                                    </div>
+                                </div>
+                            </template>
+                        </WorkItemMemberPicker>
                     </vort-form-item>
                 </div>
 
@@ -371,3 +459,52 @@ onMounted(async () => {
         </vort-dialog>
     </div>
 </template>
+
+<style scoped>
+.filter-select-trigger {
+    display: flex;
+    align-items: center;
+    padding: 4px 11px;
+    border-radius: 6px;
+    border: 1px solid #d9d9d9;
+    background: #fff;
+    min-height: 32px;
+    transition: all 0.3s cubic-bezier(0.645, 0.045, 0.355, 1);
+    outline: none;
+    cursor: pointer;
+}
+
+.filter-select-trigger:hover,
+.filter-select-trigger.active {
+    border-color: var(--vort-primary, #1456f0);
+    background: #fff;
+}
+
+.filter-select-trigger:focus-within,
+.filter-select-trigger:focus {
+    border-color: var(--vort-primary, #1456f0);
+    box-shadow: 0 0 0 2px var(--vort-primary-shadow, rgba(20, 86, 240, 0.1));
+}
+
+.filter-select-value {
+    flex: 1;
+    min-width: 0;
+}
+
+.vort-select-arrow {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    color: var(--vort-text-quaternary, rgba(0, 0, 0, 0.25));
+    transition: transform var(--vort-transition-colors, 0.2s);
+}
+
+.vort-select-arrow-open {
+    transform: rotate(180deg);
+}
+
+.ml-auto {
+    margin-left: auto;
+}
+</style>

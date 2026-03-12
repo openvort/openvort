@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
 import { useCrudPage } from "@/hooks";
-import { Plus, UserRound } from "lucide-vue-next";
+import { Plus } from "lucide-vue-next";
+import { DownOutlined } from "@/components/vort/icons";
 import { message } from "@/components/vort";
+import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMemberPicker.vue";
+import { useWorkItemCommon } from "./work-item/useWorkItemCommon";
 import {
     getVortflowVersions, createVortflowVersion, updateVortflowVersion, deleteVortflowVersion,
-    releaseVortflowVersion, getVortflowProjects, getMembers,
+    releaseVortflowVersion, getVortflowProjects,
 } from "@/api";
 
 interface VersionItem {
@@ -23,13 +26,26 @@ interface VersionItem {
 }
 
 interface ProjectItem { id: string; name: string }
-interface MemberOption { id: string; name: string; avatarUrl: string }
 
 type FilterParams = { page: number; size: number; keyword: string; status: string; owner_id: string };
 
 const projects = ref<ProjectItem[]>([]);
-const memberOptions = ref<MemberOption[]>([]);
 const activeTab = ref("version-list");
+const filterOwnerDropdownOpen = ref(false);
+const filterOwnerKeyword = ref("");
+const formOwnerDropdownOpen = ref(false);
+const formOwnerKeyword = ref("");
+
+const {
+    memberOptions,
+    ownerGroups,
+    getAvatarBg,
+    getAvatarLabel,
+    getMemberAvatarUrl,
+    loadMemberOptions,
+    getMemberIdByName,
+    getMemberNameById,
+} = useWorkItemCommon();
 
 const statusOptions = [
     { label: "全部", value: "" },
@@ -55,35 +71,19 @@ const { listData, loading, total, filterParams, showPagination, loadData, onSear
         defaultParams: { page: 1, size: 20, keyword: "", status: "", owner_id: "" },
     });
 
-const loadOptions = async () => {
+const loadProjects = async () => {
     try {
-        const [projRes, memberRes] = await Promise.all([
-            getVortflowProjects(),
-            getMembers({ search: "", role: "", page: 1, size: 100 }),
-        ]);
+        const projRes = await getVortflowProjects();
         projects.value = (projRes as any)?.items || [];
-        const members = Array.isArray((memberRes as any)?.members) ? (memberRes as any).members : [];
-        memberOptions.value = members
-            .map((item: any) => ({
-                id: String(item?.id || ""),
-                name: String(item?.name || "").trim(),
-                avatarUrl: String(item?.avatar_url || item?.avatar || ""),
-            }))
-            .filter((m: MemberOption) => m.id && m.name);
     } catch { /* silent */ }
 };
 
-const getMemberNameById = (id: string) => {
-    if (!id) return "待指派";
-    return memberOptions.value.find(m => m.id === id)?.name || "待指派";
-};
-
-const getMemberAvatarUrlById = (id: string) => {
-    if (!id) return "";
-    return memberOptions.value.find(m => m.id === id)?.avatarUrl || "";
-};
-
 const getVersionOwnerId = (item: VersionItem) => String(item.owner_id || "").trim();
+const getVersionOwnerName = (item: VersionItem) => getMemberNameById(getVersionOwnerId(item)) || "未指派";
+const getVersionOwnerAvatarUrl = (item: VersionItem) => {
+    const name = getVersionOwnerName(item);
+    return name === "未指派" ? "" : getMemberAvatarUrl(name);
+};
 
 const formatDate = (iso: string | null) => {
     if (!iso) return "-";
@@ -131,7 +131,7 @@ const handleEditVersion = (v: VersionItem) => {
         version_no: v.name || "",
         title: v.description || "",
         owner_id: String(v.owner_id || ""),
-        release_date: (v.planned_release_at || v.release_date || "") ? String(v.planned_release_at || v.release_date).split("T")[0] : "",
+        release_date: (v.planned_release_at || v.release_date || "") ? (String(v.planned_release_at || v.release_date).split("T")[0] ?? "") : "",
         release_log: "",
     };
     createDialogOpen.value = true;
@@ -185,8 +185,21 @@ const handleReleaseVersion = async (v: VersionItem) => {
     loadData();
 };
 
+const handleFilterOwnerSelect = (name: string) => {
+    filterParams.owner_id = getMemberIdByName(name);
+    filterOwnerDropdownOpen.value = false;
+    filterOwnerKeyword.value = "";
+    onSearchSubmit();
+};
+
+const handleFormOwnerSelect = (name: string) => {
+    createVersionForm.value.owner_id = getMemberIdByName(name);
+    formOwnerDropdownOpen.value = false;
+    formOwnerKeyword.value = "";
+};
+
 onMounted(async () => {
-    await Promise.all([loadOptions(), loadData()]);
+    await Promise.all([loadProjects(), loadMemberOptions(), loadData()]);
 });
 </script>
 
@@ -226,9 +239,38 @@ onMounted(async () => {
                 </div>
                 <div class="flex items-center gap-2 w-full sm:w-auto">
                     <span class="text-sm text-gray-500 whitespace-nowrap">负责人</span>
-                    <vort-select v-model="filterParams.owner_id" placeholder="全部" allow-clear class="flex-1 sm:w-[140px]" @change="onSearchSubmit">
-                        <vort-select-option v-for="m in memberOptions" :key="m.id" :value="m.id">{{ m.name }}</vort-select-option>
-                    </vort-select>
+                    <WorkItemMemberPicker
+                        mode="owner"
+                        :owner="getMemberNameById(filterParams.owner_id)"
+                        :groups="ownerGroups"
+                        :open="filterOwnerDropdownOpen"
+                        v-model:keyword="filterOwnerKeyword"
+                        :show-all-option="true"
+                        :dropdown-max-height="460"
+                        :get-avatar-bg="getAvatarBg"
+                        :get-avatar-label="getAvatarLabel"
+                        :get-avatar-url="getMemberAvatarUrl"
+                        @update:open="(open) => filterOwnerDropdownOpen = open"
+                        @update:owner="handleFilterOwnerSelect"
+                    >
+                        <template #trigger="{ open }">
+                            <div
+                                class="filter-select-trigger flex-1 sm:w-[140px]"
+                                :class="{ active: open }"
+                                tabindex="0"
+                                @click.stop="filterOwnerDropdownOpen = !filterOwnerDropdownOpen"
+                            >
+                                <div class="flex items-center w-full gap-2 min-w-0">
+                                    <span class="filter-select-value text-sm truncate" :class="filterParams.owner_id ? 'text-[var(--vort-text,rgba(0,0,0,0.88))]' : 'text-[var(--vort-text-quaternary,rgba(0,0,0,0.25))]'">
+                                        {{ getMemberNameById(filterParams.owner_id) || "负责人" }}
+                                    </span>
+                                    <span class="vort-select-arrow ml-auto" :class="{ 'vort-select-arrow-open': open }">
+                                        <DownOutlined />
+                                    </span>
+                                </div>
+                            </div>
+                        </template>
+                    </WorkItemMemberPicker>
                 </div>
                 <div class="flex items-center gap-2">
                     <vort-button variant="primary" @click="onSearchSubmit">查询</vort-button>
@@ -262,18 +304,21 @@ onMounted(async () => {
                     </template>
                 </vort-table-column>
 
-                <vort-table-column label="负责人" :width="140">
+                <vort-table-column label="负责人" :width="160">
                     <template #default="{ row }">
-                        <div class="flex items-center gap-1.5 text-sm text-gray-700">
-                            <span class="w-5 h-5 rounded-full bg-sky-50 text-sky-600 inline-flex items-center justify-center overflow-hidden">
+                        <div class="h-8 max-w-[150px] px-2 rounded-md bg-transparent flex items-center gap-2">
+                            <span
+                                class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center shrink-0 overflow-hidden"
+                                :style="{ backgroundColor: getAvatarBg(getVersionOwnerName(row)) }"
+                            >
                                 <img
-                                    v-if="getMemberAvatarUrlById(getVersionOwnerId(row))"
-                                    :src="getMemberAvatarUrlById(getVersionOwnerId(row))"
+                                    v-if="getVersionOwnerAvatarUrl(row)"
+                                    :src="getVersionOwnerAvatarUrl(row)"
                                     class="w-full h-full object-cover"
                                 >
-                                <UserRound v-else :size="12" />
+                                <template v-else>{{ getAvatarLabel(getVersionOwnerName(row)) }}</template>
                             </span>
-                            {{ getMemberNameById(getVersionOwnerId(row)) }}
+                            <span class="text-sm text-gray-700 truncate">{{ getVersionOwnerName(row) }}</span>
                         </div>
                     </template>
                 </vort-table-column>
@@ -348,9 +393,37 @@ onMounted(async () => {
                 </div>
                 <div class="grid grid-cols-2 gap-x-4">
                     <vort-form-item label="负责人" required>
-                        <vort-select v-model="createVersionForm.owner_id" placeholder="请选择负责人" class="w-full">
-                            <vort-select-option v-for="m in memberOptions" :key="m.id" :value="m.id">{{ m.name }}</vort-select-option>
-                        </vort-select>
+                        <WorkItemMemberPicker
+                            mode="owner"
+                            :owner="getMemberNameById(createVersionForm.owner_id)"
+                            :groups="ownerGroups"
+                            :open="formOwnerDropdownOpen"
+                            v-model:keyword="formOwnerKeyword"
+                            :dropdown-max-height="420"
+                            :get-avatar-bg="getAvatarBg"
+                            :get-avatar-label="getAvatarLabel"
+                            :get-avatar-url="getMemberAvatarUrl"
+                            @update:open="(open) => formOwnerDropdownOpen = open"
+                            @update:owner="handleFormOwnerSelect"
+                        >
+                            <template #trigger="{ open }">
+                                <div
+                                    class="filter-select-trigger w-full"
+                                    :class="{ active: open }"
+                                    tabindex="0"
+                                    @click.stop="formOwnerDropdownOpen = !formOwnerDropdownOpen"
+                                >
+                                    <div class="flex items-center w-full gap-2 min-w-0">
+                                        <span class="filter-select-value text-sm truncate" :class="createVersionForm.owner_id ? 'text-[var(--vort-text,rgba(0,0,0,0.88))]' : 'text-[var(--vort-text-quaternary,rgba(0,0,0,0.25))]'">
+                                            {{ getMemberNameById(createVersionForm.owner_id) || "请选择负责人" }}
+                                        </span>
+                                        <span class="vort-select-arrow ml-auto" :class="{ 'vort-select-arrow-open': open }">
+                                            <DownOutlined />
+                                        </span>
+                                    </div>
+                                </div>
+                            </template>
+                        </WorkItemMemberPicker>
                     </vort-form-item>
                     <vort-form-item label="发布时间">
                         <vort-date-picker
@@ -376,3 +449,52 @@ onMounted(async () => {
         </vort-dialog>
     </div>
 </template>
+
+<style scoped>
+.filter-select-trigger {
+    display: flex;
+    align-items: center;
+    padding: 4px 11px;
+    border-radius: 6px;
+    border: 1px solid #d9d9d9;
+    background: #fff;
+    min-height: 32px;
+    transition: all 0.3s cubic-bezier(0.645, 0.045, 0.355, 1);
+    outline: none;
+    cursor: pointer;
+}
+
+.filter-select-trigger:hover,
+.filter-select-trigger.active {
+    border-color: var(--vort-primary, #1456f0);
+    background: #fff;
+}
+
+.filter-select-trigger:focus-within,
+.filter-select-trigger:focus {
+    border-color: var(--vort-primary, #1456f0);
+    box-shadow: 0 0 0 2px var(--vort-primary-shadow, rgba(20, 86, 240, 0.1));
+}
+
+.filter-select-value {
+    flex: 1;
+    min-width: 0;
+}
+
+.vort-select-arrow {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    color: var(--vort-text-quaternary, rgba(0, 0, 0, 0.25));
+    transition: transform var(--vort-transition-colors, 0.2s);
+}
+
+.vort-select-arrow-open {
+    transform: rotate(180deg);
+}
+
+.ml-auto {
+    margin-left: auto;
+}
+</style>
