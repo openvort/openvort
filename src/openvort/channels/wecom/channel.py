@@ -26,8 +26,6 @@ BOT_WS_HEARTBEAT_INTERVAL = 30
 BOT_STREAM_MAX_BYTES = 20000
 BOT_STREAM_THROTTLE_INTERVAL = 0.3
 BOT_DEBOUNCE_SECONDS = 2.0
-BOT_DEDUP_MAX_SIZE = 500
-BOT_DEDUP_TTL = 300
 BOT_REQID_FILE = Path.home() / ".openvort" / "wecom_bot_reqids.json"
 BOT_REQID_TTL = 3600
 
@@ -59,15 +57,18 @@ class WeComChannel(BaseChannel):
         self._asr_service = None
         self._bot_mode = False
         self._stream_handler = None
-        self._seen_msgids: dict[str, float] = {}
         self._bot_debounce_timers: dict[str, asyncio.Task] = {}
         self._bot_pending_msgs: dict[str, list[Message]] = {}
         self._bot_stream_ids: dict[str, str] = {}
         self._bot_processing: set[str] = set()
         self._reqid_save_task: asyncio.Task | None = None
+        self._inbox = None  # InboxService, injected via set_inbox_service()
 
     def set_asr_service(self, asr_service) -> None:
         self._asr_service = asr_service
+
+    def set_inbox_service(self, inbox) -> None:
+        self._inbox = inbox
 
     def set_stream_handler(self, handler) -> None:
         """Set async generator handler for bot streaming mode.
@@ -312,6 +313,132 @@ class WeComChannel(BaseChannel):
         """检查智能机器人模式是否已配置"""
         return bool(self._settings.bot_id and self._settings.bot_secret)
 
+    # ---- 轮询模式（兼容无公网 IP 场景）----
+
+    async def start_polling(self, db_config: dict, poll_interval: float = 3, aggregate_wait: float = 3) -> None:
+        if not self._handler:
+            log.error("未注册消息 handler，无法启动轮询")
+            return
+        self._running = True
+        self._poll_task = asyncio.create_task(self._poll_loop(db_config, poll_interval, aggregate_wait))
+        log.info(f"企微轮询模式已启动（间隔 {poll_interval}s）")
+
+    async def _poll_loop(self, db_config: dict, interval: float, agg_wait: float) -> None:
+        # Shared DB cursor (cross-instance); fall back to local file
+        if self._inbox:
+            last_id = await self._inbox.get_cursor("wecom_poll_db")
+        else:
+            last_id = self._load_cursor("poll_db")
+        if last_id > 0:
+            log.info(f"从持久化位点恢复 poll-db: last_id={last_id}")
+        while self._running:
+            try:
+                messages = await asyncio.to_thread(self._fetch_messages, db_config, last_id)
+                if messages:
+                    # Filter via DB-level dedup
+                    new_msgs = []
+                    for m in messages:
+                        mid = m["msg_id"]
+                        if self._inbox:
+                            if mid and not await self._inbox.try_claim("wecom", mid):
+                                continue
+                        new_msgs.append(m)
+                    if new_msgs:
+                        await asyncio.sleep(agg_wait)
+                        extra = await asyncio.to_thread(self._fetch_messages, db_config, new_msgs[-1]["db_id"])
+                        if extra:
+                            for m in extra:
+                                mid = m["msg_id"]
+                                if self._inbox:
+                                    if mid and not await self._inbox.try_claim("wecom", mid):
+                                        continue
+                                new_msgs.append(m)
+                        aggregated = self._aggregate(new_msgs)
+                        for msg in aggregated:
+                            if self._allowed_users and msg.sender_id not in self._allowed_users:
+                                log.debug(f"跳过非白名单用户: {msg.sender_id}")
+                                continue
+                            if self._handler:
+                                reply = await self._handler(msg)
+                                if reply:
+                                    await self.send(msg.sender_id, Message(content=reply, channel="wecom"))
+                    last_id = messages[-1]["db_id"]
+                    if self._inbox:
+                        await self._inbox.set_cursor("wecom_poll_db", last_id)
+                    else:
+                        self._save_cursor("poll_db", last_id)
+                await asyncio.sleep(interval)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.error(f"轮询异常: {e}")
+                await asyncio.sleep(interval * 2)
+
+    @staticmethod
+    def _fetch_messages(db_config: dict, last_id: int) -> list[dict]:
+        import pymysql
+        try:
+            conn = pymysql.connect(**db_config)
+            cursor = conn.cursor()
+            cursor.execute("SELECT id, add_time, data FROM wecom_api_data WHERE id > %s ORDER BY id ASC", (last_id,))
+            rows = cursor.fetchall()
+            cursor.close()
+            conn.close()
+            messages = []
+            for db_id, add_time, data_str in rows:
+                try:
+                    data = json.loads(data_str)
+                    messages.append({
+                        "db_id": db_id, "msg_id": data.get("MsgId", ""),
+                        "from_user": data.get("FromUserName", ""), "msg_type": data.get("MsgType", ""),
+                        "content": data.get("Content", ""), "create_time": int(data.get("CreateTime", add_time)),
+                        "raw": data,
+                    })
+                except Exception as e:
+                    log.error(f"解析消息失败 db_id={db_id}: {e}")
+            return messages
+        except Exception as e:
+            log.error(f"查询远程数据库失败: {e}")
+            return []
+
+    @staticmethod
+    def _aggregate(messages: list[dict]) -> list[Message]:
+        """聚合同一用户的连续消息"""
+        user_msgs: dict[str, list[dict]] = {}
+        for m in messages:
+            user_msgs.setdefault(m["from_user"], []).append(m)
+        result = []
+        for uid, msgs in user_msgs.items():
+            all_images = []
+            all_voice_media_ids = []
+            for m in msgs:
+                all_images.extend(m.get("images", []))
+                voice_id = m.get("voice_media_id")
+                if voice_id:
+                    all_voice_media_ids.append(voice_id)
+
+            if len(msgs) == 1:
+                m = msgs[0]
+                result.append(Message(
+                    content=m["content"], sender_id=m["from_user"],
+                    channel="wecom", msg_type=m["msg_type"],
+                    images=all_images, voice_media_ids=all_voice_media_ids, raw=m,
+                ))
+            else:
+                combined = "\n".join(m["content"] for m in msgs if m["content"])
+                last = msgs[-1]
+                raw = dict(last)
+                raw["_all_msg_ids"] = [m["msg_id"] for m in msgs]
+                has_media = all_images or all_voice_media_ids
+                msg_type = "mixed" if has_media and combined else last["msg_type"]
+                result.append(Message(
+                    content=combined, sender_id=uid,
+                    channel="wecom", msg_type=msg_type,
+                    images=all_images, voice_media_ids=all_voice_media_ids, raw=raw,
+                ))
+        return result
+
+
     # ---- 智能机器人模式 (Bot) ----
 
     async def start_bot(self) -> None:
@@ -459,11 +586,12 @@ class WeComChannel(BaseChannel):
         chat_type = body.get("chattype", "single")
         chat_id = body.get("chatid", "")
 
-        # ── Deduplication ──
+        # ── Deduplication (DB-level cross-instance) ──
         msgid = body.get("msgid", "")
-        if msgid and self._is_duplicate(msgid):
-            log.debug(f"Bot WS 重复消息，跳过: msgid={msgid}")
-            return
+        if msgid and self._inbox:
+            if not await self._inbox.try_claim("wecom", msgid):
+                log.debug(f"Bot 消息已被其他实例消费: msgid={msgid}")
+                return
 
         content = ""
         images: list[dict] = []
@@ -808,23 +936,6 @@ class WeComChannel(BaseChannel):
 
         await send_stream_frame(finish=True)
         log.info(f"Bot 流式回复完成: stream_id={stream_id}, len={len(visible_text)}")
-
-    # ---- 消息去重 ----
-
-    def _is_duplicate(self, msgid: str) -> bool:
-        """Check if msgid was recently seen; also prune expired entries."""
-        now = time.time()
-
-        if len(self._seen_msgids) > BOT_DEDUP_MAX_SIZE:
-            expired = [k for k, ts in self._seen_msgids.items() if now - ts > BOT_DEDUP_TTL]
-            for k in expired:
-                del self._seen_msgids[k]
-
-        if msgid in self._seen_msgids:
-            return True
-
-        self._seen_msgids[msgid] = now
-        return False
 
     # ---- reqId 持久化 ----
 

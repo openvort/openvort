@@ -7,7 +7,7 @@ v0.1 基础模型：消息记录、调度任务。
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from openvort.db.engine import Base
@@ -297,4 +297,30 @@ class VoiceProvider(Base):
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     owner_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("members.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class ImInbox(Base):
+    """IM inbound message idempotency table — cross-instance dedup"""
+
+    __tablename__ = "im_inbox"
+    __table_args__ = (
+        UniqueConstraint("channel", "msg_id", name="uq_im_inbox_channel_msg_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    channel: Mapped[str] = mapped_column(String(32), nullable=False)
+    msg_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="claimed")
+    error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class ImCursor(Base):
+    """IM consume cursor — shared poll offset across instances"""
+
+    __tablename__ = "im_cursors"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[int] = mapped_column(BigInteger, default=0)
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())

@@ -35,8 +35,6 @@ log = get_logger("channels.dingtalk")
 DT_GATEWAY_URL = "https://api.dingtalk.com/v1.0/gateway/connections/open"
 DT_STREAM_CALLBACK_TOPIC = "/v1.0/im/bot/messages/get"
 DT_CARD_CALLBACK_TOPIC = "/v1.0/card/instances/callback"
-DT_DEDUP_MAX_SIZE = 500
-DT_DEDUP_TTL = 300
 DT_API_BASE = "https://api.dingtalk.com"
 DT_OAPI_BASE = "https://oapi.dingtalk.com"
 DT_STREAM_UPDATE_THROTTLE = 0.35
@@ -190,8 +188,11 @@ class DingTalkChannel(BaseChannel):
         self._access_token = ""
         self._token_expires = 0.0
         self._http: httpx.AsyncClient | None = None
-        self._seen_message_ids: dict[str, float] = {}
         self._sync_provider = None
+        self._inbox = None  # InboxService, injected via set_inbox_service()
+
+    def set_inbox_service(self, inbox) -> None:
+        self._inbox = inbox
 
     async def start(self) -> None:
         if not self.is_configured():
@@ -394,6 +395,12 @@ class DingTalkChannel(BaseChannel):
         return self.is_configured()
 
     async def handle_callback(self, body: dict, headers: dict | None = None) -> str | None:
+        # DB-level dedup before building message
+        msg_id = self._extract_message_id(body)
+        if msg_id and self._inbox:
+            if not await self._inbox.try_claim("dingtalk", msg_id):
+                log.debug("钉钉消息已被其他实例消费: %s", msg_id)
+                return None
         msg = self._build_message(body)
         if msg is None or self._handler is None:
             return None
@@ -529,6 +536,12 @@ class DingTalkChannel(BaseChannel):
             await ws.send(self._build_stream_ack(message_id))
 
     async def _handle_stream_bot_message(self, data: dict) -> None:
+        # DB-level dedup before building message
+        msg_id = self._extract_message_id(data)
+        if msg_id and self._inbox:
+            if not await self._inbox.try_claim("dingtalk", msg_id):
+                log.debug("钉钉消息已被其他实例消费: %s", msg_id)
+                return
         msg = self._build_message(data)
         if msg is None:
             return
@@ -848,9 +861,6 @@ class DingTalkChannel(BaseChannel):
 
     def _build_message(self, data: dict) -> Message | None:
         message_id = self._extract_message_id(data)
-        if message_id and self._is_duplicate(message_id):
-            log.debug("忽略钉钉重复消息: %s", message_id)
-            return None
 
         msg_type = (data.get("msgtype") or "").strip()
         sender_id = (data.get("senderStaffId") or data.get("senderId") or "").strip()
@@ -964,18 +974,6 @@ class DingTalkChannel(BaseChannel):
             return at_me
         if isinstance(at_me, str):
             return at_me.lower() == "true"
-        return False
-
-    def _is_duplicate(self, message_id: str) -> bool:
-        now = time.time()
-        if len(self._seen_message_ids) >= DT_DEDUP_MAX_SIZE:
-            self._seen_message_ids = {
-                key: ts for key, ts in self._seen_message_ids.items() if now - ts < DT_DEDUP_TTL
-            }
-        seen_at = self._seen_message_ids.get(message_id)
-        if seen_at and now - seen_at < DT_DEDUP_TTL:
-            return True
-        self._seen_message_ids[message_id] = now
         return False
 
     def _use_card_streaming(self) -> bool:

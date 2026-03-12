@@ -401,8 +401,15 @@ async def _start_service(web_flag: bool | None):
     if dingtalk_voice_tool and hasattr(dingtalk_voice_tool, "set_tts_service"):
         dingtalk_voice_tool.set_tts_service(tts_service)
 
+    # 初始化 InboxService（IM 跨实例消息去重）
+    from openvort.core.inbox import InboxService
+    inbox_service = InboxService(session_factory)
+
     # 配置 Channel
     channels = registry.list_channels()
+    for ch in channels:
+        if hasattr(ch, "set_inbox_service"):
+            ch.set_inbox_service(inbox_service)
     for ch in channels:
         if ch.name == "wecom" and ch.is_configured():
             _ch = ch  # 闭包捕获
@@ -764,6 +771,12 @@ async def _start_service(web_flag: bool | None):
 
     _scheduler = _Scheduler()
     _scheduler.start()
+
+    # im_inbox periodic cleanup (every hour, delete entries older than 24h)
+    async def _im_inbox_cleanup():
+        await inbox_service.cleanup(max_age_hours=24)
+    _scheduler.add_interval("im_inbox_cleanup", _im_inbox_cleanup, seconds=3600)
+
     schedule_service = _ScheduleService(session_factory, _scheduler, agent, notify_fn=_schedule_notify)
     try:
         count = await schedule_service.sync_to_scheduler()
