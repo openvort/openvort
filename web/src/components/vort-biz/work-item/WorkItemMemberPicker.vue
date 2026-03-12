@@ -386,7 +386,7 @@ const visibleMembers = (group: MemberGroup) => {
 }
 
 .member-picker-content {
-  padding: 4px 8px;
+  padding: 0px 8px;
 }
 
 .member-picker-group + .member-picker-group {
