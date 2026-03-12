@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import { DownOutlined } from "@/components/vort/icons";
 import PopoverSelect from "@/components/vort-biz/popover-select/PopoverSelect.vue";
 import WorkItemMemberPicker from "./WorkItemMemberPicker.vue";
 import type { WorkItemType, Status, MemberOption } from "../work-item";
@@ -135,16 +136,21 @@ const onCreate = () => emit("create");
                 @update:owner="selectOwner"
             >
                 <template #trigger="{ open }">
-                    <VortButton
-                        class="h-8 min-w-[130px] px-3 border border-slate-300 rounded-md bg-white hover:border-slate-400 font-normal"
-                        :class="open ? 'border-blue-500 ring-1 ring-blue-200' : ''"
+                    <div
+                        class="filter-select-trigger min-w-[130px]"
+                        :class="{ active: open }"
+                        tabindex="0"
                         @click.stop="ownerDropdownOpen = !ownerDropdownOpen"
                     >
-                        <div class="flex items-center justify-between w-full gap-2">
-                            <span class="text-sm" :class="owner ? 'text-gray-700' : 'text-gray-400'">{{ owner || "负责人" }}</span>
-                            <span class="status-arrow-simple" :class="{ open }" />
+                        <div class="flex items-center w-full gap-2 min-w-0">
+                            <span class="filter-select-value text-sm truncate" :class="owner ? 'text-[var(--vort-text,rgba(0,0,0,0.88))]' : 'text-[var(--vort-text-quaternary,rgba(0,0,0,0.25))]'">
+                                {{ owner || "负责人" }}
+                            </span>
+                            <span class="vort-select-arrow ml-auto" :class="{ 'vort-select-arrow-open': open }">
+                                <DownOutlined />
+                            </span>
                         </div>
-                    </VortButton>
+                    </div>
                 </template>
             </WorkItemMemberPicker>
 
@@ -160,16 +166,21 @@ const onCreate = () => emit("create");
                 :bordered="false"
             >
                 <template #trigger="{ open }">
-                    <VortButton
-                        class="h-8 min-w-[110px] px-3 border border-slate-300 rounded-md bg-white hover:border-slate-400 font-normal"
-                        :class="open ? 'border-blue-500 ring-1 ring-blue-200' : ''"
+                    <div
+                        class="filter-select-trigger min-w-[110px]"
+                        :class="{ active: open }"
+                        tabindex="0"
                         @click.stop="typeDropdownOpen = !typeDropdownOpen"
                     >
-                        <div class="flex items-center justify-between w-full gap-2">
-                            <span class="text-sm" :class="type ? 'text-gray-700' : 'text-gray-400'">{{ type || "类型" }}</span>
-                            <span class="status-arrow-simple" :class="{ open }" />
+                        <div class="flex items-center w-full gap-2 min-w-0">
+                            <span class="filter-select-value text-sm truncate" :class="type ? 'text-[var(--vort-text,rgba(0,0,0,0.88))]' : 'text-[var(--vort-text-quaternary,rgba(0,0,0,0.25))]'">
+                                {{ type || "类型" }}
+                            </span>
+                            <span class="vort-select-arrow ml-auto" :class="{ 'vort-select-arrow-open': open }">
+                                <DownOutlined />
+                            </span>
                         </div>
-                    </VortButton>
+                    </div>
                 </template>
 
                 <div class="p-1">
@@ -198,16 +209,21 @@ const onCreate = () => emit("create");
                 :bordered="false"
             >
                 <template #trigger="{ open }">
-                    <VortButton
-                        class="h-8 min-w-[130px] px-3 border border-slate-300 rounded-md bg-white hover:border-slate-400 font-normal"
-                        :class="open ? 'border-blue-500 ring-1 ring-blue-200' : ''"
+                    <div
+                        class="filter-select-trigger min-w-[130px]"
+                        :class="{ active: open }"
+                        tabindex="0"
                         @click.stop="statusDropdownOpen = !statusDropdownOpen"
                     >
-                        <div class="flex items-center justify-between w-full gap-2">
-                            <span class="text-sm" :class="status ? 'text-gray-700' : 'text-gray-400'">{{ statusDisplayText }}</span>
-                            <span class="status-arrow-simple" :class="{ open }" />
+                        <div class="flex items-center w-full gap-2 min-w-0">
+                            <span class="filter-select-value text-sm truncate" :class="status ? 'text-[var(--vort-text,rgba(0,0,0,0.88))]' : 'text-[var(--vort-text-quaternary,rgba(0,0,0,0.25))]'">
+                                {{ statusDisplayText }}
+                            </span>
+                            <span class="vort-select-arrow ml-auto" :class="{ 'vort-select-arrow-open': open }">
+                                <DownOutlined />
+                            </span>
                         </div>
-                    </VortButton>
+                    </div>
                 </template>
 
                 <div class="p-1">
@@ -252,6 +268,53 @@ const onCreate = () => emit("create");
 </template>
 
 <style scoped>
+.filter-select-trigger {
+    display: flex;
+    align-items: center;
+    padding: 4px 11px;
+    border-radius: 6px;
+    border: 1px solid #d9d9d9;
+    background: #fff;
+    min-height: 32px;
+    transition: all 0.3s cubic-bezier(0.645, 0.045, 0.355, 1);
+    outline: none;
+    cursor: pointer;
+}
+
+.filter-select-trigger:hover,
+.filter-select-trigger.active {
+    border-color: var(--vort-primary, #1456f0);
+    background: #fff;
+}
+
+.filter-select-trigger:focus-within,
+.filter-select-trigger:focus {
+    border-color: var(--vort-primary, #1456f0);
+    box-shadow: 0 0 0 2px var(--vort-primary-shadow, rgba(20, 86, 240, 0.1));
+}
+
+.filter-select-value {
+    flex: 1;
+    min-width: 0;
+}
+
+.vort-select-arrow {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    color: var(--vort-text-quaternary, rgba(0, 0, 0, 0.25));
+    transition: transform var(--vort-transition-colors, 0.2s);
+}
+
+.vort-select-arrow-open {
+    transform: rotate(180deg);
+}
+
+.ml-auto {
+    margin-left: auto;
+}
+
 .status-filter-row {
     min-height: 36px;
     padding: 6px 8px;
