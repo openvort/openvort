@@ -79,6 +79,11 @@ const owner = ref("");
 const type = ref<WorkItemType | "">(props.type ?? "");
 const status = ref("");
 const openPlanTimeFor = ref<string | null>(null);
+const priorityPickerOpenMap = reactive<Record<string, boolean>>({});
+const tagPickerOpenMap = reactive<Record<string, boolean>>({});
+const statusPickerOpenMap = reactive<Record<string, boolean>>({});
+const ownerPickerOpenMap = reactive<Record<string, boolean>>({});
+const collaboratorsPickerOpenMap = reactive<Record<string, boolean>>({});
 const totalCount = ref(0);
 const createBugDrawerOpen = computed({
     get: () => {
@@ -107,6 +112,24 @@ const createWorkItemRef = ref<{
 } | null>(null);
 const createBugAttachments = ref<CreateBugAttachment[]>([]);
 const createAttachmentInputRef = ref<HTMLInputElement | null>(null);
+
+const getInteractiveCellKey = (record: RowItem) =>
+    String(record.workNo || record.backendId || "");
+
+const isCellBackgroundClick = (event: Event) => {
+    const target = event.target as HTMLElement | null;
+    const currentTarget = event.currentTarget as HTMLElement | null;
+    return !!target && !!currentTarget && target === currentTarget;
+};
+
+const openCellPickerOnBackgroundClick = (
+    record: RowItem,
+    event: Event,
+    openMap: Record<string, boolean>
+) => {
+    if (!isCellBackgroundClick(event)) return;
+    openMap[getInteractiveCellKey(record)] = true;
+};
 
 const defaultDescriptionTemplate = [
     "环境：请填写",
@@ -1533,7 +1556,7 @@ onMounted(async () => {
                 </template>
 
                 <template #title="{ text, record }">
-                    <TableCell>
+                    <TableCell @click="handleOpenBugDetail(record)">
                         <VortButton class="title-link-cell" :title="text" variant="link" @click.stop="handleOpenBugDetail(record)">
                             <span
                                 v-if="record.type === '需求' && record.childrenCount"
@@ -1559,8 +1582,9 @@ onMounted(async () => {
                 </template>
 
                 <template #priority="{ text, record }">
-                    <TableCell>
+                    <TableCell @click="openCellPickerOnBackgroundClick(record, $event, priorityPickerOpenMap)">
                         <WorkItemPriority
+                            v-model:open="priorityPickerOpenMap[getInteractiveCellKey(record)]"
                             :model-value="getRowPriority(record, text)"
                             @change="(value) => selectPriority(record, value)"
                         />
@@ -1568,8 +1592,9 @@ onMounted(async () => {
                 </template>
 
                 <template #tags="{ text, record, resolvedWidth }">
-                    <TableCell>
+                    <TableCell @click="openCellPickerOnBackgroundClick(record, $event, tagPickerOpenMap)">
                         <WorkItemTagPicker
+                            v-model:open="tagPickerOpenMap[getInteractiveCellKey(record)]"
                             :model-value="getRowTags(record, text)"
                             :options="rowTagOptions"
                             :get-tag-color="getTagColor"
@@ -1608,8 +1633,9 @@ onMounted(async () => {
                 </template>
 
                 <template #status="{ text, record }">
-                    <TableCell>
+                    <TableCell @click="openCellPickerOnBackgroundClick(record, $event, statusPickerOpenMap)">
                         <WorkItemStatus
+                            v-model:open="statusPickerOpenMap[getInteractiveCellKey(record)]"
                             :model-value="getRowStatus(record, text)"
                             :options="getStatusOptionsByType(record.type || resolveActiveType())"
                             @change="(value) => selectRowStatus(record, value)"
@@ -1618,8 +1644,9 @@ onMounted(async () => {
                 </template>
 
                 <template #owner="{ text, record }">
-                    <TableCell>
+                    <TableCell @click="openCellPickerOnBackgroundClick(record, $event, ownerPickerOpenMap)">
                         <WorkItemMemberPicker
+                            v-model:open="ownerPickerOpenMap[getInteractiveCellKey(record)]"
                             mode="owner"
                             :owner="getRowOwner(record, text)"
                             :groups="ownerGroups"
@@ -1663,8 +1690,9 @@ onMounted(async () => {
                 </template>
 
                 <template #collaborators="{ text, record }">
-                    <TableCell>
+                    <TableCell @click="openCellPickerOnBackgroundClick(record, $event, collaboratorsPickerOpenMap)">
                         <WorkItemMemberPicker
+                            v-model:open="collaboratorsPickerOpenMap[getInteractiveCellKey(record)]"
                             mode="collaborators"
                             :collaborators="getRowCollaborators(record, text)"
                             :groups="ownerGroups"

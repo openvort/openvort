@@ -94,23 +94,16 @@ const handleTriggerClick = (event: MouseEvent) => {
             <div
                 v-for="opt in filteredOptions"
                 :key="opt.value"
-                class="status-picker-row"
+                class="status-filter-row"
                 :class="{ 'is-active': modelValue === opt.value, 'is-disabled': disabled }"
                 @click.stop="!disabled && handleSelect(opt.value)"
             >
-                <div class="status-picker-row-left">
+                <div class="status-filter-row-left">
                     <vort-checkbox
                         :checked="modelValue === opt.value"
                         @click.stop
                         @update:checked="!disabled && handleSelect(opt.value)"
                     />
-                    <span
-                        v-if="opt.icon"
-                        class="text-[14px] leading-none w-4 text-center"
-                        :class="opt.iconClass"
-                    >
-                        {{ opt.icon }}
-                    </span>
                     <span class="text-sm text-gray-700 leading-5">{{ opt.label }}</span>
                 </div>
             </div>
@@ -139,10 +132,10 @@ const handleTriggerClick = (event: MouseEvent) => {
 }
 
 .status-picker-content {
-    padding: 4px;
+    padding: 8px 8px 4px;
 }
 
-.status-picker-row {
+.status-filter-row {
     min-height: 32px;
     padding: 2px 8px;
     border-radius: 6px;
@@ -150,20 +143,20 @@ const handleTriggerClick = (event: MouseEvent) => {
     transition: background-color 0.15s ease;
 }
 
-.status-picker-row:hover {
+.status-filter-row:hover {
     background: rgba(0, 0, 0, 0.04);
 }
 
-.status-picker-row.is-active {
+.status-filter-row.is-active {
     background: #f1f5f9;
 }
 
-.status-picker-row.is-disabled {
+.status-filter-row.is-disabled {
     cursor: not-allowed;
     opacity: 0.5;
 }
 
-.status-picker-row-left {
+.status-filter-row-left {
     display: flex;
     align-items: center;
     gap: 12px;
