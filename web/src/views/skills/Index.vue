@@ -234,12 +234,14 @@ async function handleAiGenerateContent() {
 function scopeLabel(scope: string): string {
     if (scope === "builtin") return "内置";
     if (scope === "public") return "公共";
+    if (scope === "marketplace") return "市场";
     return "个人";
 }
 
 function scopeColor(scope: string): string {
     if (scope === "builtin") return "blue";
     if (scope === "public") return "green";
+    if (scope === "marketplace") return "cyan";
     return "purple";
 }
 

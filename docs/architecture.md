@@ -6,7 +6,7 @@
 
 OpenVort 是一个开源 AI 研发工作流引擎，通过 IM（企业微信/钉钉/飞书）与 AI Agent 交互，自动化项目管理、代码仓库、团队协作等研发流程。
 
-核心理念：**Plugin 是一等公民**，所有业务能力通过插件提供，引擎本身只负责消息路由、Agent 调度和插件编排。
+核心理念：**一切皆插件**，所有业务能力通过插件提供，引擎本身只负责消息路由、Agent 调度和插件编排。
 
 ## 技术栈
 
@@ -79,7 +79,7 @@ src/openvort/
 │   ├── schedule/           # 定时任务（2 Tool + 1 Prompt）
 │   └── system/             # 系统管理（2 Tool + 1 Prompt，核心插件）
 ├── channels/               # IM 通道适配器
-│   ├── wecom/              # 企业微信（智能机器人长连接 / Webhook / DB轮询）
+│   ├── wecom/              # 企业微信（智能机器人长连接 / Webhook）
 │   ├── dingtalk/           # 钉钉（Stream 长连接 / Webhook + OpenAPI）
 │   ├── feishu/             # 飞书（WebSocket 长连接 / Event Subscription + OpenAPI）
 │   └── openclaw/           # OpenClaw 多平台网关
@@ -115,7 +115,7 @@ web/                        # 前端（独立目录）
 
 ### Plugin（插件）
 
-Plugin 是 OpenVort 的一等公民，是 Tool + Prompt + Config 的容器。
+Plugin 是 OpenVort 的核心扩展单元，是 Tool + Prompt + Config 的容器。
 
 ```python
 class BasePlugin(ABC):
@@ -234,7 +234,7 @@ class OpenAICompatibleProvider(LLMProvider): ...
 | Web | 管理面板（Vue 3 + FastAPI + JWT + SSE + WebSocket + Webhook） | ✅ |
 | 安全 | RBAC + DM 配对 + Docker 沙箱 + Token 加密 | ✅ |
 | 基础设施 | CLI + Pydantic Settings + 异步全栈 | ✅ |
-| AI 员工 | Member 扩展 + 角色模板 Skills + Agent 人设注入 + 定时汇报 | ✅ |
+| AI 员工 | Member 扩展 + 角色模板 Skills + Agent 人设注入 + 定时汇报 + 远程工作节点 + Webhook 外部连接 | ✅ |
 
 ## 设计决策记录
 
@@ -258,6 +258,31 @@ Python entry_points 是标准的插件发现机制：
 - 不需要约定目录结构或配置文件
 
 补充：`PluginLoader` 对内置通道增加了兜底加载逻辑，确保开发环境下即使 entry_points 未正确安装也能注册。
+
+### AI 员工能力扩展
+
+AI 员工通过两个互补的能力维度扩展工作范围：
+
+#### 远程工作节点（Outbound）
+
+让 AI 员工拥有一台"工作电脑"，可在远程机器上执行编码、命令行、文件操作等实际任务。
+
+- **关联方式**：`Member.remote_node_id` 一对一绑定
+- **通信协议**：WebSocket（OpenClaw Gateway v3）
+- **调用链**：用户指令 -> Agent 调用 `remote_work` Tool -> `RemoteNodeService` -> `OpenClawExecutor` -> WebSocket -> 远程机器执行 -> 返回结果
+- **可插拔**：通过 `RemoteNodeExecutor` Protocol 支持不同类型的远程节点后端
+- **创建时可选**：创建 AI 员工向导中可直接绑定，也可稍后在详情页配置
+
+#### Webhook 外部连接（Inbound）
+
+让 AI 员工"听到"外部系统的事件，自动响应并处理。
+
+- **关联方式**：`WebhookConfig.member_id` 可选绑定特定 AI 员工
+- **支持三种模式**：`agent_chat`（事件转 prompt 交 Agent 处理）、`openclaw_bridge`（跨平台 IM 桥接）、`notify`（通知回调）
+- **内置模板**：OpenClaw（全球 IM 桥接）、GitHub（Push/PR/Issue 事件）、GitLab（Push/MR/Pipeline 事件）
+- **典型场景**：GitHub 推送代码 -> AI 自动 Code Review；OpenClaw 桥接 WhatsApp 消息 -> AI 员工自动回复
+
+两者独立且互补：远程节点让 AI 员工"有手能干活"，Webhook 让 AI 员工"有耳能听事"。一个完整的全能型 AI 员工两者都需要。
 
 ### AI 员工任务归属与通知机制
 

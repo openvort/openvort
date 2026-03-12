@@ -29,6 +29,7 @@ from openvort.web.routers.voice_providers import router as voice_providers_route
 virtual_roles_router = posts_router
 from openvort.web.routers.work_assignments import work_assignments_router
 from openvort.web.routers.remote_nodes import router as remote_nodes_router
+from openvort.web.routers.marketplace import router as marketplace_router
 
 # Backward compatibility alias
 openclaw_nodes_router = remote_nodes_router
@@ -61,4 +62,5 @@ __all__ = [
     "voice_providers_router",
     "remote_nodes_router",
     "openclaw_nodes_router",  # 兼容旧名称
+    "marketplace_router",
 ]

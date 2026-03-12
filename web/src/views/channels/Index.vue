@@ -136,7 +136,6 @@ const modeLabels: Record<string, string> = {
     websocket: "WebSocket 长连接",
     webhook: "Webhook 回调",
     event_subscription: "事件订阅",
-    "poll-db": "数据库轮询",
     "未启动": "未启动",
     unknown: "未知",
 };

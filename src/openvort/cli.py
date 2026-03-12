@@ -149,11 +149,10 @@ def init():
 
 
 @main.command()
-@click.option("--poll-db", default=None, help="远程数据库轮询配置（JSON 字符串）")
 @click.option("--web/--no-web", default=None, help="启用/禁用 Web 管理面板")
-def start(poll_db, web):
+def start(web):
     """启动 OpenVort 服务"""
-    _run_async(_start_service(poll_db, web))
+    _run_async(_start_service(web))
 
 
 async def _cleanup_duplicate_admins(session_factory):
@@ -175,7 +174,7 @@ async def _cleanup_duplicate_admins(session_factory):
         get_logger("cli").info(f"已清理 {len(delete_ids)} 条重复 admin 记录")
 
 
-async def _start_service(poll_db_json: str | None, web_flag: bool | None):
+async def _start_service(web_flag: bool | None):
     """启动服务的异步实现"""
     from openvort.auth.service import AuthService
     from openvort.config.settings import get_settings
@@ -490,12 +489,7 @@ async def _start_service(poll_db_json: str | None, web_flag: bool | None):
                 _ch.set_stream_handler(bot_stream_handler)
                 await ch.start_bot()
 
-            # App mode: poll-db → webhook
-            if poll_db_json:
-                db_config = json.loads(poll_db_json)
-                await ch.start_polling(db_config)
-            else:
-                await ch.start()
+            await ch.start()
 
         # ---- OpenClaw Channel ----
         if ch.name == "openclaw" and ch.is_configured():
@@ -646,10 +640,7 @@ async def _start_service(poll_db_json: str | None, web_flag: bool | None):
     _wecom_ch = registry.get_channel("wecom")
     if _wecom_ch and hasattr(_wecom_ch, "_bot_mode") and _wecom_ch._bot_mode:
         _modes.append("bot")
-    if poll_db_json:
-        _modes.append("poll-db")
-    else:
-        _modes.append("webhook")
+    _modes.append("webhook")
     mode = "+".join(_modes)
     log.info(f"已加载 {len(channels)} 个 Channel, {len(registry.list_tools())} 个 Tool (模式: {mode})")
 
@@ -791,12 +782,20 @@ async def _start_service(poll_db_json: str | None, web_flag: bool | None):
             from openvort.web.deps import set_runtime
             from openvort.web.routers.logs import install_log_handler
 
+            # 初始化 MarketplaceInstaller（如果启用）
+            marketplace_installer = None
+            if settings.marketplace.enabled:
+                from openvort.marketplace import MarketplaceClient, MarketplaceInstaller
+                mkt_client = MarketplaceClient(base_url=settings.marketplace.url)
+                marketplace_installer = MarketplaceInstaller(mkt_client, session_factory, registry)
+
             # 注入运行时依赖
             set_runtime(agent, registry, session_store, session_factory,
                         auth_service=auth_service, build_context_fn=build_context,
                         skill_loader=skill_loader, config_service=config_service,
                         schedule_service=schedule_service,
-                        embedding_service=embedding_service)
+                        embedding_service=embedding_service,
+                        marketplace_installer=marketplace_installer)
             install_log_handler()
 
             web_app = create_app()
@@ -882,9 +881,8 @@ def stop():
 
 
 @main.command()
-@click.option("--poll-db", default=None, help="远程数据库轮询配置（JSON 字符串）")
 @click.option("--web/--no-web", default=None, help="启用/禁用 Web 管理面板")
-def restart(poll_db, web):
+def restart(web):
     """重启 OpenVort 服务（stop + start）"""
     if PID_FILE.exists():
         try:
@@ -901,7 +899,7 @@ def restart(poll_db, web):
             pass
 
     click.echo("正在启动...")
-    _run_async(_start_service(poll_db, web))
+    _run_async(_start_service(web))
 
 
 # ============ channels ============
@@ -1271,6 +1269,208 @@ async def _contacts_reject(suggestion_id: int):
 
     from openvort.db import close_db
     await close_db()
+
+
+# ============ marketplace ============
+
+
+@main.group()
+def marketplace():
+    """扩展市场（从 openvort.com 安装 Skill/Plugin）"""
+    pass
+
+
+@marketplace.command("search")
+@click.argument("query", default="")
+@click.option("--type", "-t", "ext_type", default="all", help="Filter: all/skill/plugin")
+@click.option("--limit", "-n", default=10, help="Max results")
+def marketplace_search(query, ext_type, limit):
+    """搜索扩展市场"""
+    _run_async(_marketplace_search(query, ext_type, limit))
+
+
+async def _marketplace_search(query: str, ext_type: str, limit: int):
+    from openvort.marketplace.client import MarketplaceClient
+    from openvort.config.settings import get_settings
+
+    settings = get_settings()
+    client = MarketplaceClient(base_url=settings.marketplace.url)
+
+    try:
+        result = await client.search(query=query, type=ext_type, limit=limit)
+        items = result.get("items", [])
+        total = result.get("total", 0)
+        if not items:
+            click.echo("未找到相关扩展")
+            return
+
+        click.echo(f"找到 {total} 个扩展:\n")
+        for item in items:
+            t = "Plugin" if item.get("type") == "plugin" else "Skill"
+            name = item.get("displayName", item.get("name", "?"))
+            author = item.get("author", "?")
+            ver = item.get("version", "?")
+            dl = item.get("downloads", 0)
+            click.echo(f"  [{t:6s}] {name:30s} by {author:16s} v{ver}  ({dl} downloads)")
+    finally:
+        await client.close()
+
+
+@marketplace.command("install")
+@click.argument("ext_type", type=click.Choice(["skill", "plugin"]))
+@click.argument("ref")
+def marketplace_install(ext_type, ref):
+    """安装扩展 (openvort marketplace install skill author/slug)"""
+    _run_async(_marketplace_install(ext_type, ref))
+
+
+async def _marketplace_install(ext_type: str, ref: str):
+    from openvort.config.settings import get_settings
+    from openvort.marketplace.client import MarketplaceClient
+    from openvort.marketplace.installer import MarketplaceInstaller
+    from openvort.plugin.registry import PluginRegistry
+    from openvort.db import init_db
+
+    settings = get_settings()
+    session_factory = await init_db(settings.database_url)
+
+    client = MarketplaceClient(base_url=settings.marketplace.url)
+    registry = PluginRegistry()
+    installer = MarketplaceInstaller(client, session_factory, registry)
+
+    parts = ref.split("/", 1)
+    author = parts[0] if len(parts) > 1 else ""
+    slug = parts[-1]
+
+    try:
+        if ext_type == "skill":
+            result = await installer.install_skill(slug, author=author)
+            click.echo(f"Skill 安装成功: {result['name']} v{result['version']}")
+        else:
+            result = await installer.install_plugin(slug, author=author)
+            click.echo(f"Plugin 安装成功: {result['packageName']} v{result['version']}")
+            if result.get("restart_required"):
+                click.echo("  ⚠  需要重启 OpenVort 服务以加载新插件")
+    except Exception as e:
+        click.echo(f"安装失败: {e}", err=True)
+    finally:
+        await client.close()
+        from openvort.db import close_db
+        await close_db()
+
+
+@marketplace.command("list")
+def marketplace_list():
+    """列出已安装的市场扩展"""
+    _run_async(_marketplace_list())
+
+
+async def _marketplace_list():
+    from openvort.config.settings import get_settings
+    from openvort.marketplace.client import MarketplaceClient
+    from openvort.marketplace.installer import MarketplaceInstaller
+    from openvort.plugin.registry import PluginRegistry
+    from openvort.db import init_db
+
+    settings = get_settings()
+    session_factory = await init_db(settings.database_url)
+
+    client = MarketplaceClient(base_url=settings.marketplace.url)
+    registry = PluginRegistry()
+    installer = MarketplaceInstaller(client, session_factory, registry)
+
+    try:
+        items = await installer.list_installed()
+        if not items:
+            click.echo("未安装任何市场扩展")
+            return
+
+        click.echo(f"已安装 {len(items)} 个市场扩展:\n")
+        for item in items:
+            status = "启用" if item.get("enabled") else "禁用"
+            click.echo(
+                f"  {item['name']:24s} {item.get('author', ''):16s}/"
+                f"{item.get('slug', ''):20s} v{item.get('version', '?')}  [{status}]"
+            )
+    finally:
+        await client.close()
+        from openvort.db import close_db
+        await close_db()
+
+
+@marketplace.command("uninstall")
+@click.argument("slug")
+def marketplace_uninstall(slug):
+    """卸载市场扩展"""
+    _run_async(_marketplace_uninstall(slug))
+
+
+async def _marketplace_uninstall(slug: str):
+    from openvort.config.settings import get_settings
+    from openvort.marketplace.client import MarketplaceClient
+    from openvort.marketplace.installer import MarketplaceInstaller
+    from openvort.plugin.registry import PluginRegistry
+    from openvort.db import init_db
+
+    settings = get_settings()
+    session_factory = await init_db(settings.database_url)
+
+    client = MarketplaceClient(base_url=settings.marketplace.url)
+    registry = PluginRegistry()
+    installer = MarketplaceInstaller(client, session_factory, registry)
+
+    try:
+        result = await installer.uninstall_skill(slug)
+        click.echo(f"已卸载: {result['name']} ({slug})")
+    except ValueError as e:
+        click.echo(f"卸载失败: {e}", err=True)
+    finally:
+        await client.close()
+        from openvort.db import close_db
+        await close_db()
+
+
+@marketplace.command("update")
+def marketplace_update():
+    """检查并更新市场扩展"""
+    _run_async(_marketplace_update())
+
+
+async def _marketplace_update():
+    from openvort.config.settings import get_settings
+    from openvort.marketplace.client import MarketplaceClient
+    from openvort.marketplace.installer import MarketplaceInstaller
+    from openvort.plugin.registry import PluginRegistry
+    from openvort.db import init_db
+
+    settings = get_settings()
+    session_factory = await init_db(settings.database_url)
+
+    client = MarketplaceClient(base_url=settings.marketplace.url)
+    registry = PluginRegistry()
+    installer = MarketplaceInstaller(client, session_factory, registry)
+
+    try:
+        updates = await installer.check_updates()
+        if not updates:
+            click.echo("所有市场扩展均为最新版本")
+            return
+
+        click.echo(f"发现 {len(updates)} 个可更新:\n")
+        for u in updates:
+            click.echo(f"  {u['name']:24s} {u['local_version']} -> {u['remote_version']}")
+
+        if click.confirm("\n是否全部更新?"):
+            for u in updates:
+                try:
+                    result = await installer.install_skill(u["slug"])
+                    click.echo(f"  已更新: {result['name']} v{result['version']}")
+                except Exception as e:
+                    click.echo(f"  更新 {u['slug']} 失败: {e}")
+    finally:
+        await client.close()
+        from openvort.db import close_db
+        await close_db()
 
 
 # ============ skills ============

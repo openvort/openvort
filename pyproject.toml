@@ -80,9 +80,9 @@ browser = "openvort.plugins.browser:BrowserPlugin"
 knowledge = "openvort.plugins.knowledge:KnowledgePlugin"
 
 [project.urls]
-Homepage = "https://github.com/nicekate/openvort"
-Repository = "https://github.com/nicekate/openvort"
-Issues = "https://github.com/nicekate/openvort/issues"
+Homepage = "https://github.com/openvort/openvort"
+Repository = "https://github.com/openvort/openvort"
+Issues = "https://github.com/openvort/openvort/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/openvort"]

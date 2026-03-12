@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from "vue";
-import { getPlugins, getPluginDetail, updatePlugin, installPlugin, uninstallPlugin, pipInstallPlugin, uploadPlugin, deletePlugin } from "@/api";
-import { Puzzle, Wrench, Plus, Upload, Trash2, ChevronDown, ChevronRight, Download } from "lucide-vue-next";
+import { getPlugins, getPluginDetail, updatePlugin, installPlugin, uninstallPlugin, pipInstallPlugin, uploadPlugin, deletePlugin, marketplaceSearch, marketplaceInstallSkill, marketplaceInstallPlugin, marketplaceListInstalled } from "@/api";
+import { Puzzle, Wrench, Plus, Upload, Trash2, ChevronDown, ChevronRight, Download, Globe, BookOpen } from "lucide-vue-next";
 import { message } from "@/components/vort/message";
 import { dialog } from "@/components/vort/dialog";
 import { usePluginStore } from "@/stores/modules/plugin";
@@ -38,7 +38,7 @@ interface PluginInfo {
 const plugins = ref<PluginInfo[]>([]);
 const loading = ref(false);
 
-const activeTab = ref<"installed" | "available">("installed");
+const activeTab = ref<"installed" | "available" | "marketplace">("installed");
 const searchQuery = ref("");
 const filterSource = ref<"all" | "builtin" | "pip" | "local">("all");
 
@@ -228,6 +228,83 @@ const handleDelete = (plugin: PluginInfo) => {
     });
 };
 
+// ---- Marketplace Tab ----
+interface MarketplaceItem {
+    id: string;
+    type: string;
+    slug: string;
+    name: string;
+    displayName: string;
+    description: string;
+    version: string;
+    author: string;
+    icon: string;
+    downloads: number;
+    stars: number;
+    toolsCount?: number;
+    promptsCount?: number;
+    tags?: string[];
+}
+
+const marketplaceItems = ref<MarketplaceItem[]>([]);
+const marketplaceLoading = ref(false);
+const marketplaceSearch_ = ref("");
+const marketplaceType = ref<"all" | "skill" | "plugin">("all");
+const marketplacePage = ref(1);
+const marketplaceTotal = ref(0);
+const installedSlugs = ref<Set<string>>(new Set());
+const marketplaceInstalling = ref<string>("");
+
+const loadMarketplace = async () => {
+    marketplaceLoading.value = true;
+    try {
+        const res: any = await marketplaceSearch({
+            query: marketplaceSearch_.value,
+            type: marketplaceType.value === "all" ? undefined : marketplaceType.value,
+            page: marketplacePage.value,
+            limit: 12,
+        });
+        marketplaceItems.value = res?.items || [];
+        marketplaceTotal.value = res?.total || 0;
+
+        const installed: any = await marketplaceListInstalled();
+        installedSlugs.value = new Set((installed || []).map((i: any) => i.slug));
+    } catch { /* ignore */ }
+    finally { marketplaceLoading.value = false; }
+};
+
+const handleMarketplaceInstall = async (item: MarketplaceItem) => {
+    marketplaceInstalling.value = item.slug;
+    try {
+        if (item.type === "plugin") {
+            await marketplaceInstallPlugin(item.slug, item.author);
+            message.success(`插件「${item.displayName}」安装成功，需重启服务生效`);
+            needRestart.value = true;
+        } else {
+            await marketplaceInstallSkill(item.slug, item.author);
+            message.success(`Skill「${item.displayName}」安装成功，已即时生效`);
+        }
+        installedSlugs.value.add(item.slug);
+    } catch (e: any) {
+        message.error(e?.response?.data?.detail || "安装失败");
+    } finally {
+        marketplaceInstalling.value = "";
+    }
+};
+
+import { watch } from "vue";
+
+watch(activeTab, (tab) => {
+    if (tab === "marketplace" && marketplaceItems.value.length === 0) {
+        loadMarketplace();
+    }
+});
+
+watch([marketplaceSearch_, marketplaceType], () => {
+    marketplacePage.value = 1;
+    loadMarketplace();
+});
+
 onMounted(loadPlugins);
 </script>
 
@@ -389,6 +466,77 @@ onMounted(loadPlugins);
                                 <span class="text-sm">添加第三方插件</span>
                             </div>
                         </div>
+                    </div>
+                </VortTabPane>
+                <VortTabPane tab-key="marketplace" tab="扩展市场">
+                    <div class="mb-4 flex flex-wrap items-center gap-3">
+                        <VortInputSearch
+                            v-model="marketplaceSearch_"
+                            placeholder="搜索市场扩展..."
+                            allow-clear
+                            class="flex-1 min-w-[200px] max-w-md"
+                        />
+                        <VortSelect v-model="marketplaceType" class="w-28">
+                            <VortSelectOption value="all">全部</VortSelectOption>
+                            <VortSelectOption value="skill">Skill</VortSelectOption>
+                            <VortSelectOption value="plugin">Plugin</VortSelectOption>
+                        </VortSelect>
+                    </div>
+
+                    <VortSpin :spinning="marketplaceLoading">
+                        <div v-if="marketplaceItems.length === 0 && !marketplaceLoading" class="text-center py-12 text-gray-400 text-sm">
+                            暂无远程扩展，或市场不可达
+                        </div>
+                        <div v-else class="masonry-grid">
+                            <vort-card v-for="item in marketplaceItems" :key="item.id" class="masonry-item" :shadow="false" padding="small">
+                                <div class="flex items-center justify-between mb-3">
+                                    <div class="flex items-center">
+                                        <div class="w-10 h-10 rounded-lg flex items-center justify-center mr-3"
+                                            :class="item.type === 'plugin' ? 'bg-purple-50' : 'bg-blue-50'">
+                                            <component :is="item.type === 'plugin' ? Puzzle : BookOpen" :size="20"
+                                                :class="item.type === 'plugin' ? 'text-purple-500' : 'text-blue-500'" />
+                                        </div>
+                                        <div>
+                                            <h3 class="text-sm font-medium text-gray-800 flex items-center gap-1">
+                                                {{ item.displayName }}
+                                                <VortTag :color="item.type === 'plugin' ? 'purple' : 'blue'" size="small" :bordered="false">
+                                                    {{ item.type === 'plugin' ? 'Plugin' : 'Skill' }}
+                                                </VortTag>
+                                            </h3>
+                                            <p class="text-xs text-gray-400">by {{ item.author || '?' }} &middot; v{{ item.version || '1.0.0' }}</p>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <VortTag v-if="installedSlugs.has(item.slug)" color="green" size="small">已安装</VortTag>
+                                        <VortButton
+                                            v-else
+                                            size="small"
+                                            variant="primary"
+                                            :loading="marketplaceInstalling === item.slug"
+                                            @click="handleMarketplaceInstall(item)"
+                                        >
+                                            <Download :size="14" class="mr-1" /> 安装
+                                        </VortButton>
+                                    </div>
+                                </div>
+                                <p v-if="item.description" class="text-xs text-gray-500 mb-2 line-clamp-2">{{ item.description }}</p>
+                                <div class="flex items-center gap-3 text-xs text-gray-400">
+                                    <span v-if="item.toolsCount" class="flex items-center gap-0.5">
+                                        <Wrench :size="12" /> {{ item.toolsCount }} Tools
+                                    </span>
+                                    <span class="flex items-center gap-0.5">
+                                        <Download :size="12" /> {{ item.downloads || 0 }}
+                                    </span>
+                                    <span>{{ item.stars || 0 }} stars</span>
+                                </div>
+                            </vort-card>
+                        </div>
+                    </VortSpin>
+
+                    <div v-if="marketplaceTotal > 12" class="flex justify-center mt-4">
+                        <VortButton size="small" :disabled="marketplacePage <= 1" @click="marketplacePage--; loadMarketplace()">上一页</VortButton>
+                        <span class="mx-3 text-sm text-gray-500">{{ marketplacePage }} / {{ Math.ceil(marketplaceTotal / 12) }}</span>
+                        <VortButton size="small" :disabled="marketplacePage >= Math.ceil(marketplaceTotal / 12)" @click="marketplacePage++; loadMarketplace()">下一页</VortButton>
                     </div>
                 </VortTabPane>
             </VortTabs>

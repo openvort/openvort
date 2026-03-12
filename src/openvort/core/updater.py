@@ -25,7 +25,7 @@ log = get_logger("updater")
 
 
 class UpdateService:
-    GITHUB_REPO = "nicekate/openvort"
+    GITHUB_REPO = "openvort/openvort"
     GITHUB_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
     CACHE_TTL = 4 * 3600
 

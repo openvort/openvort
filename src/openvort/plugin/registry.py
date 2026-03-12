@@ -151,6 +151,10 @@ class PluginRegistry:
         """注册一条领域知识 prompt（带来源标记）"""
         self._prompts.append((source, prompt))
 
+    def unregister_prompt(self, source: str) -> None:
+        """移除指定来源的所有 prompt"""
+        self._prompts = [(s, p) for s, p in self._prompts if s != source]
+
     def get_system_prompt_extension(self) -> str:
         """拼接所有领域知识，按来源分节输出"""
         if not self._prompts:

@@ -148,6 +148,9 @@ class Skill(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     created_by: Mapped[str] = mapped_column(String(32), default="")
+    marketplace_slug: Mapped[str] = mapped_column(String(128), default="", index=True)
+    marketplace_author: Mapped[str] = mapped_column(String(128), default="")
+    marketplace_version: Mapped[str] = mapped_column(String(32), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 

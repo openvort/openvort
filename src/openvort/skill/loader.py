@@ -363,6 +363,34 @@ class SkillLoader:
                 await db.rollback()
                 log.warning(f"Migration skill_type->tags: {e}")
 
+            # 11. skills 表添加 marketplace 相关字段
+            for col, col_type in [
+                ("marketplace_slug", "VARCHAR(128) DEFAULT ''"),
+                ("marketplace_author", "VARCHAR(128) DEFAULT ''"),
+                ("marketplace_version", "VARCHAR(32) DEFAULT ''"),
+            ]:
+                try:
+                    await db.execute(text(
+                        f"ALTER TABLE skills ADD COLUMN IF NOT EXISTS {col} {col_type}"
+                    ))
+                    await db.commit()
+                    log.info(f"Migration: added skills.{col}")
+                except Exception as e:
+                    await db.rollback()
+                    if "already exists" not in str(e).lower():
+                        log.warning(f"Migration skills.{col}: {e}")
+
+            try:
+                await db.execute(text(
+                    "CREATE INDEX IF NOT EXISTS ix_skills_marketplace_slug ON skills(marketplace_slug)"
+                ))
+                await db.commit()
+                log.info("Migration: created skills marketplace_slug index")
+            except Exception as e:
+                await db.rollback()
+                if "already exists" not in str(e).lower():
+                    log.warning(f"Migration marketplace_slug index: {e}")
+
     def load_all_sync(self) -> None:
         """Legacy sync loader for CLI commands without DB.
         Scans files only, registers to PluginRegistry.

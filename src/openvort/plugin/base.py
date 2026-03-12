@@ -40,7 +40,7 @@ class BaseChannel(ABC):
     """IM 通道适配器基类
 
     每个 Channel 负责：
-    - 接收消息（轮询 / Webhook）
+    - 接收消息（长连接 / Webhook）
     - 发送消息（调用 IM 平台 API）
     - 消息格式转换（平台格式 ↔ 统一 Message）
     """

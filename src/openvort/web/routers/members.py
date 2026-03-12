@@ -55,6 +55,7 @@ class CreateMemberRequest(BaseModel):
     email: str = ""
     phone: str = ""
     position: str = ""
+    bio: str = ""
     is_account: bool = False
     is_virtual: bool = False
     virtual_role: str = ""
@@ -62,6 +63,7 @@ class CreateMemberRequest(BaseModel):
     skills: list[str] = []
     auto_report: bool = False
     report_frequency: str = "daily"
+    remote_node_id: str = ""
 
 
 class UpdateMemberRequest(BaseModel):
@@ -191,6 +193,7 @@ async def create_member(req: CreateMemberRequest):
             email=req.email,
             phone=req.phone,
             position=req.position,
+            bio=req.bio,
             is_account=req.is_account,
             is_virtual=req.is_virtual,
             post=role_key,
@@ -199,6 +202,7 @@ async def create_member(req: CreateMemberRequest):
             skills=_json.dumps(member_posts) if member_posts else "[]",
             auto_report=req.auto_report,
             report_frequency=req.report_frequency,
+            remote_node_id=req.remote_node_id or "",
         )
         session.add(member)
         await session.commit()

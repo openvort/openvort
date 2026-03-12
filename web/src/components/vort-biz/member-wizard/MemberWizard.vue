@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
-import { ChevronLeft, ChevronRight, Check, User, Bot } from "lucide-vue-next";
+import { ChevronLeft, ChevronRight, Check, User, Bot, Cpu, Webhook, ExternalLink } from "lucide-vue-next";
 import { message } from "@/components/vort";
 import type { Component } from "vue";
 
@@ -10,8 +10,16 @@ interface RoleOption {
     description: string;
 }
 
+interface RemoteNodeOption {
+    id: string;
+    name: string;
+    node_type: string;
+    gateway_url: string;
+    status: string;
+}
+
 interface StepConfig {
-    key: "type" | "role" | "info";
+    key: "type" | "role" | "info" | "capabilities";
     title: string;
 }
 
@@ -24,6 +32,7 @@ const VIRTUAL_STEPS: StepConfig[] = [
     { key: "type", title: "选择类型" },
     { key: "role", title: "选择岗位" },
     { key: "info", title: "填写信息" },
+    { key: "capabilities", title: "能力配置" },
 ];
 
 const props = defineProps<{
@@ -49,6 +58,7 @@ const formData = ref({
     persona: "",
     autoReport: false,
     reportFrequency: "daily",
+    remoteNodeId: "",
 });
 
 const steps = computed<StepConfig[]>(() => {
@@ -84,10 +94,25 @@ async function loadRoleOptions() {
     }
 }
 
-// 打开弹窗时加载角色列表
+// 远程节点列表
+const remoteNodes = ref<RemoteNodeOption[]>([]);
+
+async function loadRemoteNodes() {
+    try {
+        const { getRemoteNodes } = await import("@/api");
+        const res: any = await getRemoteNodes();
+        remoteNodes.value = (res?.nodes || []).map((n: any) => ({
+            id: n.id, name: n.name, node_type: n.node_type || "openclaw",
+            gateway_url: n.gateway_url, status: n.status,
+        }));
+    } catch { /* ignore */ }
+}
+
+// 打开弹窗时加载数据
 watch(() => props.open, (isOpen) => {
     if (isOpen) {
         loadRoleOptions();
+        loadRemoteNodes();
     }
 });
 
@@ -103,6 +128,7 @@ function resetForm() {
         persona: "",
         autoReport: false,
         reportFrequency: "daily",
+        remoteNodeId: "",
     };
 }
 
@@ -131,6 +157,12 @@ function nextStep() {
             message.warning("请输入姓名");
             return;
         }
+        if (formData.value.memberType === "real") {
+            complete();
+            return;
+        }
+    }
+    if (key === "capabilities") {
         complete();
         return;
     }
@@ -159,8 +191,12 @@ async function complete() {
         data.is_virtual = true;
         data.virtual_role = selectedPosts[0] || "";
         data.posts = selectedPosts;
+        data.bio = formData.value.persona;
         data.auto_report = formData.value.autoReport;
         data.report_frequency = formData.value.reportFrequency;
+        if (formData.value.remoteNodeId) {
+            data.remote_node_id = formData.value.remoteNodeId;
+        }
     }
 
     try {
@@ -348,6 +384,81 @@ async function complete() {
                         </div>
                     </div>
                 </template>
+            </div>
+        </div>
+
+        <!-- 能力配置（AI 员工可选步骤） -->
+        <div v-if="currentStepKey === 'capabilities'" class="space-y-4">
+            <div class="text-center mb-6">
+                <div class="text-lg font-medium text-gray-800">能力配置</div>
+                <div class="text-sm text-gray-400 mt-1">为 AI 员工扩展工作能力，可跳过此步稍后配置</div>
+            </div>
+
+            <!-- Remote work node -->
+            <div class="rounded-xl border-2 border-gray-200 p-5 space-y-3">
+                <div class="flex items-center gap-2">
+                    <div class="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center">
+                        <Cpu :size="16" class="text-emerald-600" />
+                    </div>
+                    <div>
+                        <div class="text-sm font-medium text-gray-800">远程工作节点</div>
+                        <div class="text-xs text-gray-400">让 AI 员工拥有一台"工作电脑"</div>
+                    </div>
+                </div>
+                <div class="text-sm text-gray-500 leading-relaxed">
+                    绑定远程节点后，AI 员工可以在远程电脑上执行编码、运行命令、操作文件等实际工作任务。
+                    适用于需要 AI 员工动手操作的场景，如代码开发、服务器运维、自动化部署等。
+                </div>
+                <div v-if="remoteNodes.length">
+                    <VortSelect
+                        v-model="formData.remoteNodeId"
+                        placeholder="选择要绑定的远程节点（可选）"
+                        allow-clear
+                        style="width: 100%"
+                    >
+                        <VortSelectOption v-for="node in remoteNodes" :key="node.id" :value="node.id">
+                            <div class="flex items-center gap-2">
+                                <span
+                                    class="w-2 h-2 rounded-full flex-shrink-0"
+                                    :class="node.status === 'online' ? 'bg-green-500' : node.status === 'offline' ? 'bg-red-400' : 'bg-gray-300'"
+                                />
+                                <span>{{ node.name }}</span>
+                                <span class="text-xs text-gray-400">{{ node.gateway_url }}</span>
+                            </div>
+                        </VortSelectOption>
+                    </VortSelect>
+                </div>
+                <div v-else class="text-sm text-gray-400 flex items-center gap-1.5 py-1 px-3 bg-gray-50 rounded-lg">
+                    暂无可用节点，可稍后在
+                    <router-link to="/remote-nodes" class="text-blue-600 hover:underline inline-flex items-center gap-0.5" @click.stop>
+                        远程节点管理 <ExternalLink :size="12" />
+                    </router-link>
+                    中配置
+                </div>
+            </div>
+
+            <!-- Webhook / external connections -->
+            <div class="rounded-xl border-2 border-gray-200 p-5 space-y-3">
+                <div class="flex items-center gap-2">
+                    <div class="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center">
+                        <Webhook :size="16" class="text-indigo-600" />
+                    </div>
+                    <div>
+                        <div class="text-sm font-medium text-gray-800">外部连接</div>
+                        <div class="text-xs text-gray-400">让 AI 员工"听到"外部系统的事件</div>
+                    </div>
+                </div>
+                <div class="text-sm text-gray-500 leading-relaxed">
+                    通过 Webhook 接收外部系统（如 GitHub、GitLab、OpenClaw 等）推送的事件，AI 员工可以自动响应代码提交、
+                    Issue 创建、IM 消息等事件并执行对应处理。适用于 CI/CD 集成、跨平台消息桥接等场景。
+                </div>
+                <div class="text-sm text-gray-400 flex items-center gap-1.5 py-1 px-3 bg-gray-50 rounded-lg">
+                    创建完成后，可在
+                    <router-link to="/webhooks" target="_blank" class="text-blue-600 hover:underline inline-flex items-center gap-0.5" @click.stop>
+                        外部连接管理 <ExternalLink :size="12" />
+                    </router-link>
+                    中为该 AI 员工配置 Webhook
+                </div>
             </div>
         </div>
 

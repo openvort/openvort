@@ -1,10 +1,9 @@
 """
 企业微信 Channel
 
-实现 BaseChannel 接口，支持三种消息接收模式：
+实现 BaseChannel 接口，支持两种消息接收模式：
 - 智能机器人长连接（推荐，企微 5.0 API 模式，无需公网地址）
 - Webhook 回调（标准模式，需要公网地址）
-- 远程数据库轮询（兼容模式，适用于无公网 IP 的场景）
 """
 
 import asyncio
@@ -40,7 +39,7 @@ class WeComChannel(BaseChannel):
 
     name = "wecom"
     display_name = "企业微信"
-    description = "企业微信 IM 通道，支持 智能机器人/Webhook/DB轮询 三种模式接收消息"
+    description = "企业微信 IM 通道，支持智能机器人长连接/Webhook 两种模式接收消息"
 
     _CURSOR_FILE = Path.home() / ".openvort" / "wecom_cursor.json"
 
@@ -52,7 +51,6 @@ class WeComChannel(BaseChannel):
         self._api: WeComAPI | None = None
         self._handler: MessageHandler | None = None
         self._running = False
-        self._poll_task: asyncio.Task | None = None
         self._bot_ws_task: asyncio.Task | None = None
         self._bot_heartbeat_task: asyncio.Task | None = None
         self._bot_ws: object | None = None
@@ -253,8 +251,6 @@ class WeComChannel(BaseChannel):
 
         if self._bot_mode:
             mode = "bot"
-        elif self._poll_task and not self._poll_task.done():
-            mode = "poll-db"
         elif self._running:
             mode = "webhook"
         else:
@@ -283,8 +279,6 @@ class WeComChannel(BaseChannel):
             except Exception:
                 pass
             self._bot_ws = None
-        if self._poll_task and not self._poll_task.done():
-            self._poll_task.cancel()
         if self._api:
             await self._api.close()
         log.info("企微 Channel 已停止")
@@ -317,122 +311,6 @@ class WeComChannel(BaseChannel):
     def is_bot_configured(self) -> bool:
         """检查智能机器人模式是否已配置"""
         return bool(self._settings.bot_id and self._settings.bot_secret)
-
-    # ---- 轮询模式（兼容无公网 IP 场景）----
-
-    async def start_polling(self, db_config: dict, poll_interval: float = 3, aggregate_wait: float = 3) -> None:
-        if not self._handler:
-            log.error("未注册消息 handler，无法启动轮询")
-            return
-        self._running = True
-        self._poll_task = asyncio.create_task(self._poll_loop(db_config, poll_interval, aggregate_wait))
-        log.info(f"企微轮询模式已启动（间隔 {poll_interval}s）")
-
-    async def _poll_loop(self, db_config: dict, interval: float, agg_wait: float) -> None:
-        last_id = self._load_cursor("poll_db")
-        processed_ids: set = set()
-        if last_id > 0:
-            log.info(f"从持久化位点恢复 poll-db: last_id={last_id}")
-        while self._running:
-            try:
-                messages = await asyncio.to_thread(self._fetch_messages, db_config, last_id)
-                if messages:
-                    new_msgs = [m for m in messages if m["msg_id"] not in processed_ids]
-                    if new_msgs:
-                        await asyncio.sleep(agg_wait)
-                        extra = await asyncio.to_thread(self._fetch_messages, db_config, new_msgs[-1]["db_id"])
-                        if extra:
-                            new_msgs.extend(extra)
-                        aggregated = self._aggregate(new_msgs)
-                        for msg in aggregated:
-                            # 白名单过滤
-                            if self._allowed_users and msg.sender_id not in self._allowed_users:
-                                log.debug(f"跳过非白名单用户: {msg.sender_id}")
-                                continue
-                            if self._handler:
-                                reply = await self._handler(msg)
-                                if reply:
-                                    await self.send(msg.sender_id, Message(content=reply, channel="wecom"))
-                            if hasattr(msg, "raw") and "_all_msg_ids" in msg.raw:
-                                processed_ids.update(msg.raw["_all_msg_ids"])
-                            else:
-                                processed_ids.add(msg.raw.get("msg_id", ""))
-                    last_id = messages[-1]["db_id"]
-                    self._save_cursor("poll_db", last_id)
-                    if len(processed_ids) > 500:
-                        processed_ids = set(list(processed_ids)[-250:])
-                await asyncio.sleep(interval)
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                log.error(f"轮询异常: {e}")
-                await asyncio.sleep(interval * 2)
-
-    @staticmethod
-    def _fetch_messages(db_config: dict, last_id: int) -> list[dict]:
-        import pymysql
-        try:
-            conn = pymysql.connect(**db_config)
-            cursor = conn.cursor()
-            cursor.execute("SELECT id, add_time, data FROM wecom_api_data WHERE id > %s ORDER BY id ASC", (last_id,))
-            rows = cursor.fetchall()
-            cursor.close()
-            conn.close()
-            messages = []
-            for db_id, add_time, data_str in rows:
-                try:
-                    data = json.loads(data_str)
-                    messages.append({
-                        "db_id": db_id, "msg_id": data.get("MsgId", ""),
-                        "from_user": data.get("FromUserName", ""), "msg_type": data.get("MsgType", ""),
-                        "content": data.get("Content", ""), "create_time": int(data.get("CreateTime", add_time)),
-                        "raw": data,
-                    })
-                except Exception as e:
-                    log.error(f"解析消息失败 db_id={db_id}: {e}")
-            return messages
-        except Exception as e:
-            log.error(f"查询远程数据库失败: {e}")
-            return []
-
-    @staticmethod
-    def _aggregate(messages: list[dict]) -> list[Message]:
-        """聚合同一用户的连续消息"""
-        user_msgs: dict[str, list[dict]] = {}
-        for m in messages:
-            user_msgs.setdefault(m["from_user"], []).append(m)
-        result = []
-        for uid, msgs in user_msgs.items():
-            # 合并图片和语音
-            all_images = []
-            all_voice_media_ids = []
-            for m in msgs:
-                all_images.extend(m.get("images", []))
-                voice_id = m.get("voice_media_id")
-                if voice_id:
-                    all_voice_media_ids.append(voice_id)
-
-            if len(msgs) == 1:
-                m = msgs[0]
-                result.append(Message(
-                    content=m["content"], sender_id=m["from_user"],
-                    channel="wecom", msg_type=m["msg_type"],
-                    images=all_images, voice_media_ids=all_voice_media_ids, raw=m,
-                ))
-            else:
-                combined = "\n".join(m["content"] for m in msgs if m["content"])
-                last = msgs[-1]
-                raw = dict(last)
-                raw["_all_msg_ids"] = [m["msg_id"] for m in msgs]
-                # 有图片或语音时 msg_type 标记为 mixed
-                has_media = all_images or all_voice_media_ids
-                msg_type = "mixed" if has_media and combined else last["msg_type"]
-                result.append(Message(
-                    content=combined, sender_id=uid,
-                    channel="wecom", msg_type=msg_type,
-                    images=all_images, voice_media_ids=all_voice_media_ids, raw=raw,
-                ))
-        return result
 
     # ---- 智能机器人模式 (Bot) ----
 

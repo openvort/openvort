@@ -21,6 +21,7 @@ _skill_loader = None  # SkillLoader
 _config_service = None  # ConfigService
 _schedule_service = None  # ScheduleService
 _embedding_service = None  # EmbeddingService
+_marketplace_installer = None  # MarketplaceInstaller
 
 
 def set_runtime(
@@ -34,8 +35,9 @@ def set_runtime(
     config_service=None,
     schedule_service=None,
     embedding_service=None,
+    marketplace_installer=None,
 ):
-    global _agent, _registry, _session_store, _session_factory, _auth_service, _build_context_fn, _skill_loader, _config_service, _schedule_service, _embedding_service
+    global _agent, _registry, _session_store, _session_factory, _auth_service, _build_context_fn, _skill_loader, _config_service, _schedule_service, _embedding_service, _marketplace_installer
     _agent = agent
     _registry = registry
     _session_store = session_store
@@ -46,6 +48,7 @@ def set_runtime(
     _config_service = config_service
     _schedule_service = schedule_service
     _embedding_service = embedding_service
+    _marketplace_installer = marketplace_installer
 
 
 def get_agent() -> AgentRuntime:
@@ -98,3 +101,8 @@ def get_schedule_service():
 def get_embedding_service():
     """获取 EmbeddingService 实例（可能为 None）"""
     return _embedding_service
+
+
+def get_marketplace_installer():
+    """获取 MarketplaceInstaller 实例（可能为 None）"""
+    return _marketplace_installer

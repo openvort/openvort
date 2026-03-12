@@ -66,7 +66,7 @@ src/openvort/
 │   ├── schedule/            # 定时任务插件（AI 驱动定时任务管理，2 个 Tool）
 │   └── system/              # 系统管理插件（通道配置 + 诊断 + 模型管理，3 个 Tool）
 ├── channels/
-│   ├── wecom/               # 企业微信通道（智能机器人长连接 / Webhook / DB轮询 + 语音）
+│   ├── wecom/               # 企业微信通道（智能机器人长连接 / Webhook + 语音）
 │   ├── dingtalk/            # 钉钉通道（Stream 长连接 / Webhook + OpenAPI + 语音）
 │   ├── feishu/              # 飞书通道（WebSocket 长连接 / Event Subscription + OpenAPI + 语音）
 │   └── openclaw/            # OpenClaw 多平台网关（WhatsApp/Telegram/Slack/Discord 桥接）
@@ -248,7 +248,7 @@ class Settings(BaseSettings):  # env_prefix="OPENVORT_"
 
 ```
 openvort init                      # 交互式初始化 .env
-openvort start                     # 启动服务 (--poll-db/--web/--no-web)
+openvort start                     # 启动服务 (--web/--no-web)
 openvort stop                      # 停止服务
 openvort restart                   # 重启服务（stop + start）
 openvort doctor                    # 诊断系统配置和连接状态
@@ -309,7 +309,7 @@ OpenVort 系统配置与诊断。3 个 AI Tool：system_channel_config（列出/
 每个通道均有独立的 `tools.py` 提供 AI 主动发消息和语音消息工具。
 
 ### 企业微信 (channels/wecom/)
-三种消息接收模式：智能机器人长连接（推荐）/ Webhook 回调 / 远程 DB 轮询。支持消息聚合、消费位点持久化、图片多模态、流式回复、思考过程显示。通道工具：SendWeComMessageTool、SendWeComVoiceTool。
+两种消息接收模式：智能机器人长连接（推荐）/ Webhook 回调。支持消息聚合、消费位点持久化、图片多模态、流式回复、思考过程显示。通道工具：SendWeComMessageTool、SendWeComVoiceTool。
 
 ### 钉钉 (channels/dingtalk/)
 Stream 长连接（推荐）/ Webhook 回调。通过 OpenAPI 发送消息（oToMessages/batchSend），自动管理 access_token。支持文本和富文本消息。通道工具：SendDingTalkMessageTool、SendDingTalkVoiceTool。
@@ -415,21 +415,23 @@ DB 驱动的三级 Skill 体系：
 - Token 用量追踪：per-request 和 per-session 累计，支持 IM 内 /usage 查看
 - 会话压缩：LLM 摘要替换旧消息，避免 token 溢出丢失关键上下文
 - IM 命令系统：/ 前缀命令在进入 Agent 前拦截处理
-- Plugin 是一等公民：统一凭证管理、领域知识注入、独立发布（10 个插件）
+- 一切皆插件：统一凭证管理、领域知识注入、独立发布（10 个插件）
 - 内置 PM（VortFlow）：需求→任务→Bug 状态机，PMAdapter 支持本地/禅道双模式
 - 内置 Git（VortGit）：多平台 Provider 抽象，Fernet 加密 Token，Git+任务联合工作汇报
 - Jenkins CI/CD 集成：多实例管理、构建触发、日志查看
 - 知识库：文档上传→分块→向量化→语义检索（pgvector + DashScope Embedding）
 - 汇报管理：日报/周报/月报自动生成与分发
-- AI 员工：虚拟成员（is_virtual），可绑定岗位和 Skill，通过定时任务自动执行工作
-- 远程工作节点：RemoteWorkTool 通过可插拔执行器（OpenClaw 等）委派工作到远程节点
+- AI 员工：虚拟成员（is_virtual），可绑定岗位和 Skill，通过定时任务自动执行工作。创建向导支持四步：类型→岗位→信息→能力配置（可选）
+- AI 员工能力扩展（互补双维度）：
+  - 远程工作节点（Outbound）：绑定远程电脑（Member.remote_node_id），AI 员工可通过 remote_work Tool 在远程机器上执行编码/命令/文件操作
+  - Webhook 外部连接（Inbound）：通过 WebhookConfig.member_id 绑定，接收外部事件（GitHub/GitLab/OpenClaw）自动触发 Agent 处理
 - 语音能力：ASR（阿里云语音识别）+ TTS（阿里云语音合成），支持语音消息收发
 - 多通道：企微 + 钉钉 + 飞书 + OpenClaw，统一 BaseChannel 抽象
 - 多 Agent 路由：按通道/用户/群组分发到不同 Agent 实例
 - 群聊上下文：GroupContextManager 支持群聊-项目关联、群 prompt 构建
 - DM 安全：配对码验证 + allowlist + 群聊 mention gating
 - WebSocket 实时通信：presence + typing indicator + 通知推送
-- Webhook 触发器：外部事件（CI/CD、GitHub）→ Agent 动作
+- Webhook 触发器：外部事件（CI/CD、GitHub/GitLab、OpenClaw IM 桥接）→ 绑定 AI 员工 → Agent 自动处理。支持 agent_chat/openclaw_bridge/notify 三种模式
 - Docker 沙箱：非 main session 隔离执行
 - DB 配置服务：ConfigService 优先级 DB > .env > 默认值，支持运行时配置热更新
 - 系统升级：core/updater.py 版本检查 + pip 升级 + 前端静态包下载

@@ -53,6 +53,7 @@ interface AIEmployee {
     bio?: string;
     auto_report?: boolean;
     report_frequency?: string;
+    remote_node_id?: string;
     created_at: string;
 }
 
@@ -86,6 +87,24 @@ const filteredEmployees = computed(() => {
 // ---- State: stats ----
 
 const stats = ref<Record<string, { total_sessions: number; today_sessions: number; last_active_at: string }>>({});
+
+// ---- State: list-level webhooks (for card indicators) ----
+
+const allWebhooks = ref<any[]>([]);
+
+const webhooksByMember = computed(() => {
+    const map: Record<string, any[]> = {};
+    for (const wh of allWebhooks.value) {
+        if (!wh.member_id) continue;
+        (map[wh.member_id] ??= []).push(wh);
+    }
+    return map;
+});
+
+function getNodeInfo(nodeId: string | undefined): RemoteNodeOption | undefined {
+    if (!nodeId) return undefined;
+    return remoteNodes.value.find(n => n.id === nodeId);
+}
 
 // ---- State: detail drawer ----
 
@@ -431,7 +450,15 @@ onMounted(async () => {
     await loadEmployees();
     loadStats();
     loadRemoteNodes();
+    loadAllWebhooks();
 });
+
+async function loadAllWebhooks() {
+    try {
+        const res: any = await getWebhooks();
+        allWebhooks.value = Array.isArray(res) ? res : [];
+    } catch { /* ignore */ }
+}
 
 async function loadRemoteNodes() {
     try {
@@ -590,21 +617,40 @@ async function loadRemoteNodes() {
                         {{ emp.bio || '暂无描述' }}
                     </div>
 
-                    <!-- Bottom: stats + action -->
+                    <!-- Bottom: stats + indicators + action -->
                     <div class="flex items-center justify-between mt-3 pt-3 border-t border-gray-50">
-                        <div class="text-xs text-gray-400">
-                            <template v-if="getEmployeeStat(emp.id)?.today_sessions">
-                                <MessageCircle :size="12" class="inline mr-0.5 -mt-px" />
-                                今日 {{ getEmployeeStat(emp.id).today_sessions }} 次对话
-                            </template>
-                            <template v-else-if="getEmployeeStat(emp.id)?.last_active_at">
-                                <Clock :size="12" class="inline mr-0.5 -mt-px" />
-                                {{ formatLastActive(getEmployeeStat(emp.id).last_active_at) }}
-                            </template>
-                            <template v-else>
-                                <Clock :size="12" class="inline mr-0.5 -mt-px" />
-                                暂无活动
-                            </template>
+                        <div class="flex items-center gap-2">
+                            <div class="text-xs text-gray-400">
+                                <template v-if="getEmployeeStat(emp.id)?.today_sessions">
+                                    <MessageCircle :size="12" class="inline mr-0.5 -mt-px" />
+                                    今日 {{ getEmployeeStat(emp.id).today_sessions }} 次对话
+                                </template>
+                                <template v-else-if="getEmployeeStat(emp.id)?.last_active_at">
+                                    <Clock :size="12" class="inline mr-0.5 -mt-px" />
+                                    {{ formatLastActive(getEmployeeStat(emp.id).last_active_at) }}
+                                </template>
+                                <template v-else>
+                                    <Clock :size="12" class="inline mr-0.5 -mt-px" />
+                                    暂无活动
+                                </template>
+                            </div>
+                            <div class="flex items-center gap-1.5">
+                                <span
+                                    v-if="webhooksByMember[emp.id]?.length"
+                                    class="flex items-center text-indigo-400"
+                                    :title="`${webhooksByMember[emp.id].length} 个外部连接`"
+                                >
+                                    <Webhook :size="12" />
+                                </span>
+                                <span
+                                    v-if="emp.remote_node_id && getNodeInfo(emp.remote_node_id)"
+                                    class="flex items-center"
+                                    :class="getNodeInfo(emp.remote_node_id)?.status === 'online' ? 'text-emerald-500' : 'text-red-400'"
+                                    :title="`远程节点: ${getNodeInfo(emp.remote_node_id)?.name || ''}`"
+                                >
+                                    <Cpu :size="12" />
+                                </span>
+                            </div>
                         </div>
                         <VortButton
                             size="small"
@@ -698,9 +744,12 @@ async function loadRemoteNodes() {
                     <div class="rounded-lg border border-gray-100 bg-white">
                         <div class="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50/60 rounded-t-lg">
                             <Webhook :size="15" class="text-gray-400" />
-                            <h4 class="text-sm font-semibold text-gray-700">外部连接</h4>
+                            <h4 class="text-sm font-semibold text-gray-700">外部连接（Inbound）</h4>
                         </div>
                         <div class="px-4 py-3">
+                            <div class="text-xs text-gray-400 mb-3">
+                                接收外部系统（GitHub、GitLab、OpenClaw 等）推送的事件，AI 员工可自动响应代码提交、Issue、IM 消息等并执行处理。
+                            </div>
                             <div v-if="memberWebhooks.length" class="space-y-2">
                                 <div
                                     v-for="wh in memberWebhooks" :key="wh.name"
@@ -727,9 +776,12 @@ async function loadRemoteNodes() {
                     <div class="rounded-lg border border-gray-100 bg-white">
                         <div class="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50/60 rounded-t-lg">
                             <Cpu :size="15" class="text-gray-400" />
-                            <h4 class="text-sm font-semibold text-gray-700">远程工作节点</h4>
+                            <h4 class="text-sm font-semibold text-gray-700">远程工作节点（Outbound）</h4>
                         </div>
                         <div class="px-4 py-3">
+                            <div class="text-xs text-gray-400 mb-3">
+                                绑定远程节点后，AI 员工可在远程电脑上执行编码、运行命令、操作文件等实际工作任务，相当于为 AI 员工配备了一台"工作电脑"。
+                            </div>
                             <VortSpin :spinning="savingNodeBinding">
                                 <VortSelect
                                     :model-value="currentEmployee.remote_node_id || ''"
@@ -750,7 +802,6 @@ async function loadRemoteNodes() {
                                     </VortSelectOption>
                                 </VortSelect>
                                 <div class="mt-2 text-xs text-gray-400">
-                                    绑定后，该 AI 员工可通过远程工作节点在远程电脑上执行工作任务。
                                     <router-link to="/remote-nodes" class="text-blue-600 hover:underline">管理节点</router-link>
                                 </div>
                             </VortSpin>

@@ -8,7 +8,7 @@
 - **AI 员工** — 虚拟成员绑定岗位与 Skill，通过定时任务自动执行日报/代码审查/测试等工作
 - **多 IM 支持** — 企业微信、钉钉、飞书、OpenClaw 多平台网关，支持语音消息收发（ASR/TTS）
 - **Web 管理面板** — Vue 3 + FastAPI，支持 AI 聊天（SSE 流式）、概览仪表盘、AI 配置中心、项目管理、代码仓库、知识库、汇报、定时任务等
-- **插件化架构** — Plugin 是一等公民，Channel（IM 通道）和 Plugin（Tool + Prompt）均可插拔，`pip install` 即可扩展
+- **插件化架构** — Plugin 是 OpenVort 的核心扩展单元，Channel（IM 通道）和 Plugin（Tool + Prompt）均可插拔，`pip install` 即可扩展
 - **内置 10 个插件** — 禅道、VortFlow 敏捷流程、VortGit 代码仓库、Jenkins CI/CD、知识库（RAG）、汇报管理、定时任务、浏览器自动化、系统管理
 - **Skill 知识注入** — 三级 Skill 体系（内置/公共/个人），7 个内置 Skill 按岗位自动映射
 - **安全** — RBAC 四级权限、DM 配对、Docker 沙箱、Token 加密
@@ -29,7 +29,7 @@
 
 ```bash
 # 克隆仓库
-git clone https://github.com/nicekate/openvort.git
+git clone https://github.com/openvort/openvort.git
 cd openvort
 
 # 安装后端（editable 模式）
@@ -79,7 +79,7 @@ npm run dev   # Vite dev server，默认 http://localhost:9090，/api 代理到 
 
 ### IM 通道配置
 
-**企业微信**：支持智能机器人长连接（推荐）/ Webhook / DB 轮询。配置 `OPENVORT_WECOM_*` 系列变量。
+**企业微信**：支持智能机器人长连接（推荐）/ Webhook。配置 `OPENVORT_WECOM_*` 系列变量。
 
 **钉钉**：推荐 Stream 长连接模式，配置 `OPENVORT_DINGTALK_APP_KEY`、`OPENVORT_DINGTALK_APP_SECRET`、`OPENVORT_DINGTALK_ROBOT_CODE`。流式输出额外配置 `OPENVORT_DINGTALK_MESSAGE_TYPE=card` + 卡片模板。
 

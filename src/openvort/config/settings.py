@@ -188,6 +188,17 @@ class OpenClawSettings(BaseSettings):
     deliver_to: str = ""  # 推送目标（手机号/chat ID 等），空则用 OpenClaw 默认
 
 
+class MarketplaceSettings(BaseSettings):
+    """Marketplace configuration"""
+
+    model_config = SettingsConfigDict(
+        env_prefix="OPENVORT_MARKETPLACE_", env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore",
+    )
+
+    url: str = "https://openvort.com/api"
+    enabled: bool = True
+
+
 class WebSettings(BaseSettings):
     """Web 管理面板配置"""
 
@@ -243,6 +254,9 @@ class Settings(BaseSettings):
 
     # Web 面板
     web: WebSettings = Field(default_factory=WebSettings)
+
+    # 扩展市场
+    marketplace: MarketplaceSettings = Field(default_factory=MarketplaceSettings)
 
 
 # 全局单例（延迟初始化）

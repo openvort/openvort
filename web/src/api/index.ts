@@ -190,6 +190,7 @@ export function createMember(data: {
     email?: string;
     phone?: string;
     position?: string;
+    bio?: string;
     is_account?: boolean;
     is_virtual?: boolean;
     virtual_role?: string;
@@ -197,6 +198,7 @@ export function createMember(data: {
     skills?: string[];
     auto_report?: boolean;
     report_frequency?: string;
+    remote_node_id?: string;
 }) {
     return request.post("/admin/members", data);
 }
@@ -541,6 +543,38 @@ export function uploadPlugin(file: File) {
 /** 删除本地插件 */
 export function deletePlugin(name: string) {
     return request.delete(`/admin/plugins/${name}`);
+}
+
+// ============ Marketplace ============
+
+/** 搜索扩展市场 */
+export function marketplaceSearch(params: { query?: string; type?: string; category?: string; sort?: string; page?: number; limit?: number }) {
+    return request.get("/admin/marketplace/search", { params });
+}
+
+/** 从市场安装 Skill */
+export function marketplaceInstallSkill(slug: string, author: string = "") {
+    return request.post("/admin/marketplace/install/skill", { slug, author });
+}
+
+/** 从市场安装 Plugin */
+export function marketplaceInstallPlugin(slug: string, author: string = "") {
+    return request.post("/admin/marketplace/install/plugin", { slug, author });
+}
+
+/** 列出已安装的市场扩展 */
+export function marketplaceListInstalled() {
+    return request.get("/admin/marketplace/installed");
+}
+
+/** 卸载市场扩展 */
+export function marketplaceUninstall(slug: string) {
+    return request.post("/admin/marketplace/uninstall", { slug });
+}
+
+/** 检查市场扩展更新 */
+export function marketplaceCheckUpdates() {
+    return request.get("/admin/marketplace/updates");
 }
 
 /** 通道列表 */
