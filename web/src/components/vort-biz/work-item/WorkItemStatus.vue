@@ -143,8 +143,8 @@ const handleTriggerClick = (event: MouseEvent) => {
 }
 
 .status-picker-row {
-    min-height: 36px;
-    padding: 6px 8px;
+    min-height: 32px;
+    padding: 2px 8px;
     border-radius: 6px;
     cursor: pointer;
     transition: background-color 0.15s ease;
