@@ -183,7 +183,7 @@ const onCreate = () => emit("create");
                     </div>
                 </template>
 
-                <div class="p-1">
+                <div class="p-2 pt-1">
                     <VortButton
                         v-for="group in filteredTypeOptions"
                         :key="group"
@@ -226,7 +226,7 @@ const onCreate = () => emit("create");
                     </div>
                 </template>
 
-                <div class="p-1">
+                <div class="p-2 pt-1">
                     <div
                         class="status-filter-row"
                         :class="{ 'is-active': status === '' }"

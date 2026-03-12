@@ -61,10 +61,6 @@ const overlayStyle = computed<Record<string, string>>(() => ({
     minHeight: "0"
 }));
 
-const bodyStyle = computed<Record<string, string>>(() => ({
-    maxHeight: `${props.dropdownMaxHeight}px`
-}));
-
 const triggerClasses = computed(() => {
     const classes = ["vort-popover-select-trigger", `vort-popover-select-${props.size}`];
     if (props.bordered) {
@@ -151,13 +147,12 @@ watch(keyword, (value) => {
                             v-model="keyword"
                             :placeholder="searchPlaceholder"
                             class="w-full"
-                            size="small"
                         />
                     </slot>
                 </div>
-                <div class="vort-popover-select-body" :style="bodyStyle">
+                <VortScrollbar class="vort-popover-select-body" :max-height="dropdownMaxHeight">
                     <slot :open="open" :keyword="keyword" />
-                </div>
+                </VortScrollbar>
                 <div v-if="$slots.footer" class="vort-popover-select-footer">
                     <slot name="footer" :open="open" :keyword="keyword" />
                 </div>
@@ -245,15 +240,15 @@ watch(keyword, (value) => {
     display: flex;
     flex-direction: column;
     background: #fff;
+    border-radius: var(--vort-radius, 6px);
 }
 
 .vort-popover-select-search {
-    padding: 8px;
-    border-bottom: 1px solid var(--vort-border, #f0f0f0);
+    padding: 12px 8px 4px 8px;
 }
 
 .vort-popover-select-body {
-    overflow-y: auto;
+    width: 100%;
 }
 
 .vort-popover-select-footer {
