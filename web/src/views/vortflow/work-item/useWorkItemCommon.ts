@@ -21,6 +21,66 @@ const cloneDefaultOwnerGroups = (): Array<{ label: string; members: string[] }> 
     }))
 );
 
+interface ApiMemberRecord {
+    id?: string;
+    name?: string;
+    avatar_url?: string;
+    avatar?: string;
+    status?: string;
+}
+
+const normalizeMemberName = (value: unknown): string => String(value || "").trim();
+
+const dedupeNames = (members: string[]): string[] => {
+    const result: string[] = [];
+    const seen = new Set<string>();
+    for (const member of members) {
+        const normalized = normalizeMemberName(member);
+        if (!normalized || seen.has(normalized)) continue;
+        seen.add(normalized);
+        result.push(normalized);
+    }
+    return result;
+};
+
+const buildOwnerGroupsFromMembers = (members: ApiMemberRecord[]) => {
+    const defaultGroups = cloneDefaultOwnerGroups();
+    const defaultGroupMap = new Map(defaultGroups.map((group) => [group.label, new Set(group.members)]));
+    const activeNames: string[] = [];
+    const inactiveNames: string[] = [];
+
+    for (const item of members) {
+        const name = normalizeMemberName(item?.name);
+        if (!name) continue;
+
+        if (String(item?.status || "").toLowerCase() === "inactive") {
+            inactiveNames.push(name);
+        } else {
+            activeNames.push(name);
+        }
+    }
+
+    const projectSeedSet = defaultGroupMap.get("项目成员") || new Set<string>();
+    const enterpriseSeedSet = defaultGroupMap.get("企业成员") || new Set<string>();
+    const leaverSeedSet = defaultGroupMap.get("离职人员") || new Set<string>();
+
+    const projectMembers = dedupeNames(activeNames.filter((name) => projectSeedSet.has(name)));
+    const enterpriseMembers = dedupeNames([
+        ...activeNames.filter((name) => enterpriseSeedSet.has(name) && !projectSeedSet.has(name)),
+        ...activeNames.filter((name) => !projectSeedSet.has(name) && !enterpriseSeedSet.has(name))
+    ]);
+    const leaverMembers = dedupeNames([
+        ...inactiveNames,
+        ...activeNames.filter((name) => leaverSeedSet.has(name))
+    ]);
+
+    return [
+        { label: "项目成员", members: projectMembers },
+        { label: "企业成员", members: enterpriseMembers },
+        { label: "离职人员", members: leaverMembers }
+    ];
+};
+
 const sharedMemberOptions = ref<MemberOption[]>([]);
 const sharedOwnerGroups = ref<Array<{ label: string; members: string[] }>>(cloneDefaultOwnerGroups());
 let memberOptionsLoadTask: Promise<void> | null = null;
@@ -138,7 +198,7 @@ export function useWorkItemCommon() {
 
                 if (next.length > 0) {
                     memberOptions.value = next;
-                    ownerGroups.value = [{ label: "全部成员", members: next.map((item) => item.name) }];
+                    ownerGroups.value = buildOwnerGroupsFromMembers(members);
                     return;
                 }
             } catch {

@@ -141,7 +141,7 @@ watch(keyword, (value) => {
 
         <template #content>
             <div class="vort-popover-select-panel" @click.stop>
-                <div v-if="showSearch" class="vort-popover-select-search">
+                <div v-if="showSearch" class="vort-popover-select-search mb-2">
                     <slot name="search" :keyword="keyword">
                         <VortInput
                             v-model="keyword"
@@ -244,7 +244,7 @@ watch(keyword, (value) => {
 }
 
 .vort-popover-select-search {
-    padding: 12px 8px 4px 8px;
+    padding: 12px 8px 0px 8px;
 }
 
 .vort-popover-select-body {
