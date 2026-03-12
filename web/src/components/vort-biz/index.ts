@@ -7,3 +7,4 @@ export * from "./table-actions";
 export * from "./delete-record";
 export * from "./dept-tree";
 export * from "./pro-table";
+export * from "./popover-select";

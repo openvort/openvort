@@ -2,7 +2,11 @@
 import { ref, reactive, computed } from "vue";
 import { useRouter } from "vue-router";
 import { z } from "zod";
-import { Popover } from "@/components/vort";
+import { message } from "@/components/vort";
+import PopoverSelect from "@/components/vort-biz/popover-select/PopoverSelect.vue";
+import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMemberPicker.vue";
+import WorkItemStatus from "@/components/vort-biz/work-item/WorkItemStatus.vue";
+import WorkItemTagPicker from "@/components/vort-biz/work-item/WorkItemTagPicker.vue";
 import { useCrudPage, useDirtyCheck } from "@/hooks";
 import {
     getVortflowStories, getVortflowProjects, createVortflowStory,
@@ -10,7 +14,6 @@ import {
     getVortflowStoryTransitions, generateVortflowDescriptionPrompt,
     getMembers,
 } from "@/api";
-import { message } from "@/components/vort";
 import { Plus, ArrowRight, Bot, Pencil } from "lucide-vue-next";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
 import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
@@ -574,12 +577,13 @@ loadData();
                 </vort-table-column>
                 <vort-table-column label="状态" :width="120">
                     <template #default="{ row }">
-                        <Popover
+                        <WorkItemStatus
+                            :model-value="getRowDisplayStatus(row) as any"
+                            :options="filteredRowStatusOptions as any"
                             :open="openStatusFor === row.id"
-                            trigger="click"
-                            placement="bottomLeft"
-                            :arrow="false"
+                            v-model:keyword="rowStatusKeyword"
                             @update:open="(open) => { if (!open && openStatusFor === row.id) openStatusFor = null; }"
+                            @change="(value) => selectRowStatus(row, value)"
                         >
                             <template #trigger>
                                 <vort-button variant="text" class="status-edit-trigger" @click.stop="toggleRowStatusMenu(row.id)">
@@ -588,76 +592,40 @@ loadData();
                                     </span>
                                 </vort-button>
                             </template>
-                            <template #content>
-                                <div class="w-[240px] p-3" @click.stop>
-                                    <div class="mb-2">
-                                        <vort-input v-model="rowStatusKeyword" placeholder="搜索..." size="small" class="w-full" />
-                                    </div>
-                                    <div class="max-h-[220px] overflow-y-auto pr-1">
-                                        <vort-button
-                                            v-for="opt in filteredRowStatusOptions"
-                                            :key="opt.value"
-                                            class="w-full h-10 px-2 rounded-md flex items-center gap-2 text-left hover:bg-gray-50"
-                                            variant="text"
-                                            :class="getRowDisplayStatus(row) === opt.value ? 'bg-slate-100' : ''"
-                                            @click="selectRowStatus(row, opt.value)"
-                                        >
-                                            <span class="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center text-[12px] text-gray-500">
-                                                <span v-if="getRowDisplayStatus(row) === opt.value">✓</span>
-                                            </span>
-                                            <span class="text-[14px] leading-none w-4 text-center" :class="opt.iconClass">{{ opt.icon }}</span>
-                                            <span class="text-sm text-gray-700">{{ opt.label }}</span>
-                                        </vort-button>
-                                    </div>
-                                </div>
-                            </template>
-                        </Popover>
+                        </WorkItemStatus>
                     </template>
                 </vort-table-column>
                 <vort-table-column label="负责人" :width="160">
                     <template #default="{ row }">
-                        <Popover
+                        <WorkItemMemberPicker
+                            mode="owner"
+                            :owner="row.owner || ''"
+                            :groups="filteredOwnerGroups"
                             :open="openOwnerFor === row.id"
-                            trigger="click"
-                            placement="bottomLeft"
-                            :arrow="false"
+                            v-model:keyword="ownerKeyword"
+                            :show-unassigned="true"
+                            unassigned-value=""
+                            :dropdown-max-height="280"
+                            :bordered="false"
                             @update:open="(open) => { if (!open && openOwnerFor === row.id) openOwnerFor = null; }"
+                            @update:owner="(value) => setRowOwner(row, value)"
                         >
                             <template #trigger>
                                 <vort-button variant="text" class="w-full text-left" @click.stop="toggleRowOwnerMenu(row.id)">
                                     <span class="text-sm text-gray-700">{{ row.owner || '未指派' }}</span>
                                 </vort-button>
                             </template>
-                            <template #content>
-                                <div class="w-[260px] p-3" @click.stop>
-                                    <div class="mb-2">
-                                        <vort-input v-model="ownerKeyword" placeholder="搜索成员..." size="small" class="w-full" />
-                                    </div>
-                                    <div class="max-h-[280px] overflow-y-auto -mx-3">
-                                        <div v-for="group in filteredOwnerGroups" :key="group.label" class="mb-1">
-                                            <vort-button class="w-full h-8 px-3 bg-slate-50 flex items-center justify-between text-left" variant="text">
-                                                <span class="text-xs text-gray-500">{{ group.label }}（{{ group.members.length }}）</span>
-                                            </vort-button>
-                                            <div v-for="name in group.members" :key="name" class="owner-row">
-                                                <span class="text-sm text-gray-700">{{ name }}</span>
-                                                <vort-button size="small" variant="text" :class="row.owner === name ? 'text-blue-600' : 'text-gray-400'" @click="setRowOwner(row, name)">
-                                                    {{ row.owner === name ? '当前负责人' : '设为负责人' }}
-                                                </vort-button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </template>
-                        </Popover>
+                        </WorkItemMemberPicker>
                     </template>
                 </vort-table-column>
                 <vort-table-column label="优先级" :width="100">
                     <template #default="{ row }">
-                        <Popover
+                        <PopoverSelect
                             :open="openPriorityFor === row.id"
-                            trigger="click"
-                            placement="bottomLeft"
-                            :arrow="false"
+                            :show-search="false"
+                            :dropdown-width="140"
+                            :dropdown-max-height="220"
+                            :bordered="false"
                             @update:open="(open) => { if (!open && openPriorityFor === row.id) openPriorityFor = null; }"
                         >
                             <template #trigger>
@@ -667,31 +635,32 @@ loadData();
                                     </span>
                                 </vort-button>
                             </template>
-                            <template #content>
-                                <div class="p-2" @click.stop>
-                                    <vort-button
-                                        v-for="opt in priorityOptions.filter(o => o.value)"
-                                        :key="opt.value"
-                                        variant="text"
-                                        class="w-full justify-start h-9"
-                                        :class="getRowPriority(row) === opt.value ? 'bg-slate-100' : ''"
-                                        @click="selectPriority(row, opt.value)"
-                                    >
-                                        <span class="priority-pill" :class="`priority-${opt.value}`">{{ opt.label }}</span>
-                                    </vort-button>
-                                </div>
-                            </template>
-                        </Popover>
+
+                            <div class="p-1">
+                                <vort-button
+                                    v-for="opt in priorityOptions.filter(o => o.value)"
+                                    :key="opt.value"
+                                    variant="text"
+                                    class="w-full justify-start h-9"
+                                    :class="getRowPriority(row) === opt.value ? 'bg-slate-100' : ''"
+                                    @click="selectPriority(row, opt.value)"
+                                >
+                                    <span class="priority-pill" :class="`priority-${opt.value}`">{{ opt.label }}</span>
+                                </vort-button>
+                            </div>
+                        </PopoverSelect>
                     </template>
                 </vort-table-column>
                 <vort-table-column label="标签" :width="180">
                     <template #default="{ row }">
-                        <Popover
+                        <WorkItemTagPicker
+                            :model-value="getRowTags(row)"
+                            :options="availableTags"
                             :open="openTagFor === row.id"
-                            trigger="click"
-                            placement="bottomLeft"
-                            :arrow="false"
+                            v-model:keyword="tagKeyword"
+                            :bordered="false"
                             @update:open="(open) => { if (!open && openTagFor === row.id) openTagFor = null; }"
+                            @update:model-value="(value) => { tagsModel[row.id] = value; }"
                         >
                             <template #trigger>
                                 <vort-button variant="text" class="w-full text-left" @click.stop="toggleTagMenu(row.id)">
@@ -704,32 +673,13 @@ loadData();
                                     </div>
                                 </vort-button>
                             </template>
-                            <template #content>
-                                <div class="w-[240px] p-3" @click.stop>
-                                    <div class="mb-2">
-                                        <vort-input v-model="tagKeyword" placeholder="搜索..." size="small" class="w-full" />
-                                    </div>
-                                    <div class="max-h-[200px] overflow-y-auto pr-1">
-                                        <vort-button
-                                            v-for="tag in filteredTagOptions"
-                                            :key="tag"
-                                            class="w-full h-10 px-2 rounded-md flex items-center gap-2 text-left hover:bg-gray-50"
-                                            variant="text"
-                                            @click="toggleTagOption(row, tag)"
-                                        >
-                                            <span class="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center text-[12px] text-gray-500">
-                                                <span v-if="getRowTags(row).includes(tag)">✓</span>
-                                            </span>
-                                            <span class="w-5 h-5 rounded-full bg-blue-500" />
-                                            <span class="text-sm text-gray-700">{{ tag }}</span>
-                                        </vort-button>
-                                    </div>
-                                    <div class="mt-2 flex justify-end">
-                                        <vort-button size="small" variant="primary" @click="finishTagEdit(row)">完成</vort-button>
-                                    </div>
+
+                            <template #footer>
+                                <div class="flex justify-end px-2 py-2">
+                                    <vort-button size="small" variant="primary" @click="finishTagEdit(row)">完成</vort-button>
                                 </div>
                             </template>
-                        </Popover>
+                        </WorkItemTagPicker>
                     </template>
                 </vort-table-column>
                 <vort-table-column label="截止日期" :width="120">

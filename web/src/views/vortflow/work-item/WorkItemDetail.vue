@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, reactive, onMounted, watch } from "vue";
-import { Popover, message } from "@/components/vort";
+import { message } from "@/components/vort";
+import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMemberPicker.vue";
+import WorkItemStatus from "@/components/vort-biz/work-item/WorkItemStatus.vue";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
 import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
 import { Pencil } from "lucide-vue-next";
@@ -169,6 +171,17 @@ const toggleDetailCollaborator = async (member: string) => {
     emit("update", { collaborators });
 };
 
+const setDetailCollaborators = async (nextCollaborators: string[]) => {
+    if (!record.value) return;
+    const prev = [...record.value.collaborators];
+    record.value.collaborators = [...nextCollaborators];
+    try {
+        emit("update", { collaborators: [...nextCollaborators] });
+    } catch {
+        record.value.collaborators = prev;
+    }
+};
+
 const openDetailDescEditor = () => {
     detailDescDraft.value = record.value?.description || "";
     detailDescEditing.value = true;
@@ -233,45 +246,26 @@ watch(() => props.initialData, (value) => {
                     <template v-else>{{ getWorkItemTypeIconSymbol(record.type) }}</template>
                 </span>
                 <span class="bug-detail-no">{{ record.workNo }}</span>
-                <Popover v-model:open="detailStatusDropdownOpen" trigger="click" placement="bottomLeft" :arrow="false">
-                    <VortButton class="detail-status-trigger" variant="text" @click.stop="toggleDetailStatusMenu">
-                        <span class="detail-status-content">
-                            <span class="detail-status-icon" :class="getStatusOption(record.status, record.type).iconClass">
-                                {{ getStatusOption(record.status, record.type).icon }}
+                <WorkItemStatus
+                    :model-value="record.status"
+                    :options="filteredDetailStatusOptions"
+                    :open="detailStatusDropdownOpen"
+                    v-model:keyword="detailStatusKeyword"
+                    @update:open="(open) => { detailStatusDropdownOpen = open; if (!open) detailStatusKeyword = ''; }"
+                    @change="selectDetailStatus"
+                >
+                    <template #trigger>
+                        <VortButton class="detail-status-trigger" variant="text" @click.stop="toggleDetailStatusMenu">
+                            <span class="detail-status-content">
+                                <span class="detail-status-icon" :class="getStatusOption(record.status, record.type).iconClass">
+                                    {{ getStatusOption(record.status, record.type).icon }}
+                                </span>
+                                <span class="detail-status-text">{{ record.status }}</span>
                             </span>
-                            <span class="detail-status-text">{{ record.status }}</span>
-                        </span>
-                        <span class="status-arrow-simple" :class="{ open: detailStatusDropdownOpen }" />
-                    </VortButton>
-                    <template #content>
-                        <div class="w-[240px] p-3">
-                            <div class="mb-2">
-                                <VortInput
-                                    v-model="detailStatusKeyword"
-                                    placeholder="搜索..."
-                                    class="w-full"
-                                    size="small"
-                                />
-                            </div>
-                            <div class="max-h-[220px] overflow-y-auto pr-1">
-                                <VortButton
-                                    v-for="opt in filteredDetailStatusOptions"
-                                    :key="'detail-status-' + opt.value"
-                                    class="w-full h-10 px-2 rounded-md flex items-center gap-2 text-left hover:bg-gray-50"
-                                    variant="text"
-                                    :class="record.status === opt.value ? 'bg-slate-100' : ''"
-                                    @click.stop="selectDetailStatus(opt.value as Status)"
-                                >
-                                    <span class="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center text-[12px] text-gray-500">
-                                        <span v-if="record.status === opt.value">✓</span>
-                                    </span>
-                                    <span class="text-[14px] leading-none w-4 text-center" :class="opt.iconClass">{{ opt.icon }}</span>
-                                    <span class="text-sm text-gray-700">{{ opt.label }}</span>
-                                </VortButton>
-                            </div>
-                        </div>
+                            <span class="status-arrow-simple" :class="{ open: detailStatusDropdownOpen }" />
+                        </VortButton>
                     </template>
-                </Popover>
+                </WorkItemStatus>
             </div>
 
             <div v-if="record.type === '需求' && parentRecord" class="story-tree-header">
@@ -308,108 +302,65 @@ watch(() => props.initialData, (value) => {
                     <div class="bug-detail-left-col">
                         <div class="bug-detail-info-item bug-detail-info-item-row bug-detail-info-assignee" @click.stop>
                             <label>负责人 / 协作</label>
-                            <Popover v-model:open="detailAssigneeDropdownOpen" trigger="click" placement="bottomLeft" :arrow="false">
-                                <VortButton
-                                    class="detail-assignee-trigger"
-                                    variant="text"
-                                    :class="detailAssigneeDropdownOpen ? 'active' : ''"
-                                    @click.stop="toggleDetailAssigneeMenu"
-                                >
-                                    <div class="detail-assignee-split">
-                                        <div class="detail-assignee-owner">
-                                            <span
-                                                v-if="record.owner && record.owner !== '未指派'"
-                                                class="detail-assignee-avatar overflow-hidden"
-                                                :style="{ backgroundColor: getAvatarBg(record.owner) }"
-                                            >
-                                                <img v-if="getMemberAvatarUrl(record.owner)" :src="getMemberAvatarUrl(record.owner)" class="w-full h-full object-cover" />
-                                                <template v-else>{{ getAvatarLabel(record.owner) }}</template>
-                                            </span>
-                                            <span class="detail-assignee-owner-name">
-                                                {{ record.owner || "未指派" }}
-                                            </span>
-                                        </div>
-                                        <span class="detail-assignee-separator">/</span>
-                                        <div class="detail-assignee-collaborators detail-collab-stack">
-                                            <template v-if="record.collaborators.length > 0">
+                            <WorkItemMemberPicker
+                                mode="assignee"
+                                :owner="record.owner === '未指派' ? '' : record.owner"
+                                :collaborators="record.collaborators"
+                                :groups="filteredDetailAssigneeGroups"
+                                :open="detailAssigneeDropdownOpen"
+                                v-model:keyword="detailAssigneeKeyword"
+                                :dropdown-width="280"
+                                :dropdown-max-height="320"
+                                :bordered="false"
+                                :collapsible="false"
+                                :get-avatar-bg="getAvatarBg"
+                                :get-avatar-label="getAvatarLabel"
+                                :get-avatar-url="getMemberAvatarUrl"
+                                @update:open="(open) => { detailAssigneeDropdownOpen = open; if (!open) detailAssigneeKeyword = ''; }"
+                                @update:owner="setDetailOwner"
+                                @update:collaborators="setDetailCollaborators"
+                            >
+                                <template #trigger>
+                                    <VortButton
+                                        class="detail-assignee-trigger"
+                                        variant="text"
+                                        :class="detailAssigneeDropdownOpen ? 'active' : ''"
+                                        @click.stop="toggleDetailAssigneeMenu"
+                                    >
+                                        <div class="detail-assignee-split">
+                                            <div class="detail-assignee-owner">
                                                 <span
-                                                    v-for="name in record.collaborators"
-                                                    :key="'detail-collab-' + name"
+                                                    v-if="record.owner && record.owner !== '未指派'"
                                                     class="detail-assignee-avatar overflow-hidden"
-                                                    :style="{ backgroundColor: getAvatarBg(name) }"
-                                                    :title="name"
+                                                    :style="{ backgroundColor: getAvatarBg(record.owner) }"
                                                 >
-                                                    <img v-if="getMemberAvatarUrl(name)" :src="getMemberAvatarUrl(name)" class="w-full h-full object-cover" />
-                                                    <template v-else>{{ getAvatarLabel(name) }}</template>
+                                                    <img v-if="getMemberAvatarUrl(record.owner)" :src="getMemberAvatarUrl(record.owner)" class="w-full h-full object-cover" />
+                                                    <template v-else>{{ getAvatarLabel(record.owner) }}</template>
                                                 </span>
-                                            </template>
-                                            <span v-else class="detail-assignee-avatar detail-assignee-add">+</span>
-                                        </div>
-                                    </div>
-                                </VortButton>
-                                <template #content>
-                                    <div class="detail-assignee-dropdown">
-                                        <div class="mb-2">
-                                            <div class="relative">
-                                                <VortInput
-                                                    v-model="detailAssigneeKeyword"
-                                                    placeholder="输入搜索用户名"
-                                                    class="w-full"
-                                                    size="small"
-                                                />
+                                                <span class="detail-assignee-owner-name">
+                                                    {{ record.owner || "未指派" }}
+                                                </span>
                                             </div>
-                                        </div>
-                                        <div class="max-h-[320px] overflow-y-auto -mx-3">
-                                            <div v-for="group in filteredDetailAssigneeGroups" :key="'detail-assignee-' + group.label">
-                                                <VortButton
-                                                    class="w-full h-10 px-3 bg-slate-100 flex items-center justify-between text-left"
-                                                    variant="text"
-                                                    @click.stop="toggleDetailAssigneeGroup(group.label)"
-                                                >
-                                                    <span class="text-gray-700 text-sm">{{ group.label }}（{{ group.members.length }}）</span>
-                                                    <span class="status-arrow-simple" :class="{ open: detailAssigneeGroupOpen[group.label] }" />
-                                                </VortButton>
-                                                <div v-if="detailAssigneeGroupOpen[group.label]">
-                                                    <div
-                                                        v-for="member in group.members"
-                                                        :key="'detail-assignee-member-' + group.label + member"
-                                                        class="detail-assignee-row"
+                                            <span class="detail-assignee-separator">/</span>
+                                            <div class="detail-assignee-collaborators detail-collab-stack">
+                                                <template v-if="record.collaborators.length > 0">
+                                                    <span
+                                                        v-for="name in record.collaborators"
+                                                        :key="'detail-collab-' + name"
+                                                        class="detail-assignee-avatar overflow-hidden"
+                                                        :style="{ backgroundColor: getAvatarBg(name) }"
+                                                        :title="name"
                                                     >
-                                                        <div class="detail-assignee-row-left">
-                                                            <span
-                                                                class="detail-assignee-avatar overflow-hidden"
-                                                                :style="{ backgroundColor: getAvatarBg(member) }"
-                                                            >
-                                                                <img v-if="getMemberAvatarUrl(member)" :src="getMemberAvatarUrl(member)" class="w-full h-full object-cover" />
-                                                                <template v-else>{{ getAvatarLabel(member) }}</template>
-                                                            </span>
-                                                            <span class="text-sm text-gray-700">{{ member }}</span>
-                                                        </div>
-                                                        <div class="detail-assignee-row-actions">
-                                                            <VortButton
-                                                                class="detail-role-btn"
-                                                                variant="text"
-                                                                :class="isDetailOwner(member) ? 'active' : ''"
-                                                                @click.stop="setDetailOwner(member)"
-                                                            >
-                                                                负责人
-                                                            </VortButton>
-                                                            <VortButton
-                                                                class="detail-role-btn collab"
-                                                                variant="text"
-                                                                :class="isDetailCollaborator(member) ? 'active' : ''"
-                                                                @click.stop="toggleDetailCollaborator(member)"
-                                                            >
-                                                                协作者
-                                                            </VortButton>
-                                                        </div>
-                                                    </div>
-                                                </div>
+                                                        <img v-if="getMemberAvatarUrl(name)" :src="getMemberAvatarUrl(name)" class="w-full h-full object-cover" />
+                                                        <template v-else>{{ getAvatarLabel(name) }}</template>
+                                                    </span>
+                                                </template>
+                                                <span v-else class="detail-assignee-avatar detail-assignee-add">+</span>
                                             </div>
                                         </div>
-                                    </div>
+                                    </VortButton>
                                 </template>
-                            </Popover>
+                            </WorkItemMemberPicker>
                         </div>
                         <div class="bug-detail-info-item bug-detail-info-item-row"><label>计划时间</label><div>{{ record.planTime[0] }} ~ {{ record.planTime[1] }}</div></div>
                         <div class="bug-detail-info-item bug-detail-info-item-row"><label>迭代</label><div>未设置</div></div>

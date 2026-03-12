@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import PopoverSelect from "@/components/vort-biz/popover-select/PopoverSelect.vue";
 import type { Status, StatusOption } from "./WorkItemTable.types";
 
 interface Props {
@@ -21,6 +22,9 @@ const emit = defineEmits<{
     (e: "change", value: Status): void;
     (e: "click", event: MouseEvent): void;
 }>();
+
+const open = defineModel<boolean>("open", { default: false });
+const keyword = defineModel<string>("keyword", { default: "" });
 
 const statusClassMap: Record<string, string> = {
     待确认: "bg-gray-100 text-gray-400 border-gray-200",
@@ -46,13 +50,10 @@ const statusClassMap: Record<string, string> = {
     进行中: "bg-blue-100 text-blue-600 border-blue-200",
 };
 
-const open = defineModel<boolean>("open", { default: false });
-const keyword = defineModel<string>("keyword", { default: "" });
-
 const filteredOptions = computed(() => {
-    const kw = keyword.value.trim();
+    const kw = keyword.value.trim().toLowerCase();
     if (!kw) return props.options;
-    return props.options.filter((x) => x.label.includes(kw));
+    return props.options.filter((option) => option.label.toLowerCase().includes(kw));
 });
 
 const handleSelect = (value: Status) => {
@@ -68,46 +69,53 @@ const handleTriggerClick = (event: MouseEvent) => {
 </script>
 
 <template>
-    <vort-popover
+    <PopoverSelect
         v-model:open="open"
-        trigger="click"
-        placement="bottomLeft"
-        :arrow="false"
+        v-model:keyword="keyword"
         :disabled="disabled"
+        :placeholder="placeholder"
+        :show-search="true"
+        search-placeholder="搜索..."
+        :dropdown-width="240"
+        :dropdown-max-height="220"
+        :bordered="false"
     >
-        <slot>
-            <div class="status-cell-trigger" :class="{ 'is-disabled': disabled }" @click="handleTriggerClick">
-                <span class="status-badge" :class="statusClassMap[modelValue] || ''">
-                    {{ modelValue || placeholder }}
-                </span>
-            </div>
-        </slot>
-        <template #content>
-            <div class="w-[240px]" @click.stop>
-                <div class="mb-2">
-                    <vort-input v-model="keyword" placeholder="搜索..." class="w-full" size="small" />
+        <template #trigger="{ open: triggerOpen }">
+            <slot>
+                <div class="status-cell-trigger" :class="{ 'is-disabled': disabled }" @click="handleTriggerClick">
+                    <span class="status-badge" :class="[statusClassMap[modelValue] || '', { 'is-open': triggerOpen }]">
+                        {{ modelValue || placeholder }}
+                    </span>
                 </div>
-                <div class="max-h-[220px] overflow-y-auto pr-1">
-                    <div
-                        v-for="opt in filteredOptions"
-                        :key="opt.value"
-                        class="w-full px-2 py-1 rounded-md hover:bg-gray-50 cursor-pointer"
-                        :class="{ 'bg-slate-100': modelValue === opt.value, 'is-disabled': disabled }"
-                        @click.stop="!disabled && handleSelect(opt.value)"
-                    >
-                        <div class="flex items-center gap-3">
-                            <vort-checkbox
-                                :checked="modelValue === opt.value"
-                                @click.stop
-                                style="min-height: 24px;"
-                            />
-                            <span class="text-sm text-gray-700 leading-5">{{ opt.label }}</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            </slot>
         </template>
-    </vort-popover>
+
+        <div class="status-picker-content">
+            <div
+                v-for="opt in filteredOptions"
+                :key="opt.value"
+                class="status-picker-row"
+                :class="{ 'is-active': modelValue === opt.value, 'is-disabled': disabled }"
+                @click.stop="!disabled && handleSelect(opt.value)"
+            >
+                <div class="status-picker-row-left">
+                    <vort-checkbox
+                        :checked="modelValue === opt.value"
+                        @click.stop
+                        @update:checked="!disabled && handleSelect(opt.value)"
+                    />
+                    <span
+                        v-if="opt.icon"
+                        class="text-[14px] leading-none w-4 text-center"
+                        :class="opt.iconClass"
+                    >
+                        {{ opt.icon }}
+                    </span>
+                    <span class="text-sm text-gray-700 leading-5">{{ opt.label }}</span>
+                </div>
+            </div>
+        </div>
+    </PopoverSelect>
 </template>
 
 <style scoped>
@@ -130,8 +138,34 @@ const handleTriggerClick = (event: MouseEvent) => {
     border: 1px solid;
 }
 
-.is-disabled {
+.status-picker-content {
+    padding: 4px;
+}
+
+.status-picker-row {
+    min-height: 36px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.status-picker-row:hover {
+    background: rgba(0, 0, 0, 0.04);
+}
+
+.status-picker-row.is-active {
+    background: #f1f5f9;
+}
+
+.status-picker-row.is-disabled {
     cursor: not-allowed;
     opacity: 0.5;
+}
+
+.status-picker-row-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
 }
 </style>

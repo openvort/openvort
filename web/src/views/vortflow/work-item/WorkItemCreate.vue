@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, reactive, onMounted, watch } from "vue";
 import { pinyin } from "pinyin-pro";
-import { Popover, message } from "@/components/vort";
+import { message } from "@/components/vort";
 import { DownOutlined } from "@/components/vort/icons";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
+import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMemberPicker.vue";
+import WorkItemPriority from "@/components/vort-biz/work-item/WorkItemPriority.vue";
+import WorkItemTagPicker from "@/components/vort-biz/work-item/WorkItemTagPicker.vue";
 import {
     getVortflowProjects,
     getVortflowStories,
@@ -623,113 +626,67 @@ watch(() => createBugForm.repo, async (value, oldValue) => {
                 <div class="create-bug-field">
                     <label class="create-bug-label">负责人/协作者</label>
                     <div class="bug-detail-info-assignee create-assignee-wrapper w-full" @click.stop>
-                        <Popover v-model:open="createAssigneeDropdownOpen" trigger="click" placement="bottomLeft" :arrow="false">
-                            <div
-                                class="detail-assignee-trigger create-assignee-trigger"
-                                :class="createAssigneeDropdownOpen ? 'active' : ''"
-                                tabindex="0"
-                                @click.stop="toggleCreateAssigneeMenu"
-                            >
-                                <div class="detail-assignee-split">
-                                    <div class="detail-assignee-owner">
-                                        <span
-                                            v-if="createBugForm.owner"
-                                            class="detail-assignee-avatar overflow-hidden"
-                                            :style="{ backgroundColor: getAvatarBg(createBugForm.owner) }"
-                                        >
-                                            <img v-if="getMemberAvatarUrl(createBugForm.owner)" :src="getMemberAvatarUrl(createBugForm.owner)" class="w-full h-full object-cover" />
-                                            <template v-else>{{ getAvatarLabel(createBugForm.owner) }}</template>
-                                        </span>
-                                        <span class="detail-assignee-owner-name" :class="!createBugForm.owner ? 'text-[var(--vort-text-quaternary,rgba(0,0,0,0.25))]' : 'text-[var(--vort-text,rgba(0,0,0,0.88))]'">
-                                            {{ createOwnerDisplayText }}
-                                        </span>
-                                    </div>
-                                    <span v-if="createBugForm.collaborators.length > 0" class="detail-assignee-separator">/</span>
-                                    <div v-if="createBugForm.collaborators.length > 0" class="detail-assignee-collaborators detail-collab-stack">
-                                        <template v-if="createBugForm.collaborators.length > 0">
+                        <WorkItemMemberPicker
+                            mode="assignee"
+                            :owner="createBugForm.owner"
+                            :collaborators="createBugForm.collaborators"
+                            :groups="ownerGroups"
+                            :open="createAssigneeDropdownOpen"
+                            v-model:keyword="createAssigneeKeyword"
+                            :dropdown-width="280"
+                            :dropdown-max-height="320"
+                            :bordered="false"
+                            :get-avatar-bg="getAvatarBg"
+                            :get-avatar-label="getAvatarLabel"
+                            :get-avatar-url="getMemberAvatarUrl"
+                            :filter-score="getMemberKeywordScore"
+                            @update:open="(open) => { createAssigneeDropdownOpen = open; if (!open) createAssigneeKeyword = ''; }"
+                            @update:owner="(value) => { createBugForm.owner = value; }"
+                            @update:collaborators="(value) => { createBugForm.collaborators = value; }"
+                        >
+                            <template #trigger="{ open }">
+                                <div
+                                    class="detail-assignee-trigger create-assignee-trigger"
+                                    :class="open ? 'active' : ''"
+                                    tabindex="0"
+                                    @click.stop="toggleCreateAssigneeMenu"
+                                >
+                                    <div class="detail-assignee-split">
+                                        <div class="detail-assignee-owner">
                                             <span
-                                                v-for="name in createBugForm.collaborators"
-                                                :key="'create-collab-' + name"
+                                                v-if="createBugForm.owner"
                                                 class="detail-assignee-avatar overflow-hidden"
-                                                :style="{ backgroundColor: getAvatarBg(name) }"
-                                                :title="name"
+                                                :style="{ backgroundColor: getAvatarBg(createBugForm.owner) }"
                                             >
-                                                <img v-if="getMemberAvatarUrl(name)" :src="getMemberAvatarUrl(name)" class="w-full h-full object-cover" />
-                                                <template v-else>{{ getAvatarLabel(name) }}</template>
+                                                <img v-if="getMemberAvatarUrl(createBugForm.owner)" :src="getMemberAvatarUrl(createBugForm.owner)" class="w-full h-full object-cover" />
+                                                <template v-else>{{ getAvatarLabel(createBugForm.owner) }}</template>
                                             </span>
-                                        </template>
-                                    </div>
-                                </div>
-                                <span class="vort-select-arrow ml-auto" :class="{ 'vort-select-arrow-open': createAssigneeDropdownOpen }">
-                                    <DownOutlined />
-                                </span>
-                            </div>
-
-                            <template #content>
-                                <div class="detail-assignee-dropdown create-assignee-dropdown">
-                                    <div class="mb-3">
-                                        <div class="relative">
-                                            <VortInput
-                                                v-model="createAssigneeKeyword"
-                                                placeholder="输入搜索用户名"
-                                                class="w-full"
-                                            />
+                                            <span class="detail-assignee-owner-name" :class="!createBugForm.owner ? 'text-[var(--vort-text-quaternary,rgba(0,0,0,0.25))]' : 'text-[var(--vort-text,rgba(0,0,0,0.88))]'">
+                                                {{ createOwnerDisplayText }}
+                                            </span>
                                         </div>
-                                    </div>
-                                    <div class="max-h-[320px] overflow-y-auto">
-                                        <div v-for="group in filteredCreateAssigneeGroups" :key="'create-assignee-' + group.label">
-                                            <div class="py-2 border-b border-gray-100 mb-1 text-[#334155] text-[13px]">
-                                                {{ group.label }} ({{ group.members.length }})
-                                            </div>
-                                            <div class="py-1">
-                                                <div
-                                                    v-for="member in group.members"
-                                                    :key="'create-assignee-member-' + group.label + member"
-                                                    class="detail-assignee-row"
-                                                    :class="{
-                                                        'is-owner-row': isCreateOwner(member),
-                                                        'is-collaborator-row': !isCreateOwner(member) && isCreateCollaborator(member)
-                                                    }"
+                                        <span v-if="createBugForm.collaborators.length > 0" class="detail-assignee-separator">/</span>
+                                        <div v-if="createBugForm.collaborators.length > 0" class="detail-assignee-collaborators detail-collab-stack">
+                                            <template v-if="createBugForm.collaborators.length > 0">
+                                                <span
+                                                    v-for="name in createBugForm.collaborators"
+                                                    :key="'create-collab-' + name"
+                                                    class="detail-assignee-avatar overflow-hidden"
+                                                    :style="{ backgroundColor: getAvatarBg(name) }"
+                                                    :title="name"
                                                 >
-                                                    <div class="detail-assignee-row-left">
-                                                        <span
-                                                            class="detail-assignee-avatar overflow-hidden"
-                                                            :style="{ backgroundColor: getAvatarBg(member) }"
-                                                        >
-                                                            <img v-if="getMemberAvatarUrl(member)" :src="getMemberAvatarUrl(member)" class="w-full h-full object-cover" />
-                                                            <template v-else>{{ getAvatarLabel(member) }}</template>
-                                                        </span>
-                                                        <span
-                                                            class="text-[13px] truncate"
-                                                            :class="isCreateOwner(member) ? 'text-[var(--vort-primary,#1456f0)]' : isCreateCollaborator(member) ? 'text-[#10b981]' : 'text-gray-700'"
-                                                            :title="member"
-                                                        >
-                                                            {{ member }}
-                                                        </span>
-                                                    </div>
-                                                    <div class="detail-assignee-row-actions">
-                                                        <div
-                                                            class="role-btn btn-owner"
-                                                            :class="{ 'is-active': isCreateOwner(member) }"
-                                                            @click.stop="!isCreateOwner(member) && setCreateOwner(member)"
-                                                        >
-                                                            负责人
-                                                        </div>
-                                                        <div
-                                                            class="role-btn btn-collab"
-                                                            :class="{ 'is-active': isCreateCollaborator(member) }"
-                                                            @click.stop="toggleCreateCollaborator(member)"
-                                                        >
-                                                            协作者
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
+                                                    <img v-if="getMemberAvatarUrl(name)" :src="getMemberAvatarUrl(name)" class="w-full h-full object-cover" />
+                                                    <template v-else>{{ getAvatarLabel(name) }}</template>
+                                                </span>
+                                            </template>
                                         </div>
                                     </div>
+                                    <span class="vort-select-arrow ml-auto" :class="{ 'vort-select-arrow-open': open }">
+                                        <DownOutlined />
+                                    </span>
                                 </div>
                             </template>
-                        </Popover>
+                        </WorkItemMemberPicker>
                     </div>
                 </div>
                 <div v-if="!props.type || props.type === '缺陷'" class="create-bug-field">
@@ -813,101 +770,72 @@ watch(() => createBugForm.repo, async (value, oldValue) => {
         <div class="create-bug-side">
             <div class="create-bug-field">
                 <label class="create-bug-label">优先级</label>
-                <Popover v-model:open="createBugPriorityDropdownOpen" trigger="click" placement="bottomLeft" :arrow="false">
-                    <div
-                        class="create-bug-priority-trigger"
-                        :class="createBugPriorityDropdownOpen ? 'active' : ''"
-                        tabindex="0"
-                        @click.stop="toggleCreateBugPriorityMenu"
-                    >
-                        <span
-                            v-if="createBugForm.priority"
-                            class="priority-pill"
-                            :class="priorityClassMap[createBugForm.priority]"
+                <WorkItemPriority
+                    :model-value="(createBugForm.priority || 'none') as Priority"
+                    :open="createBugPriorityDropdownOpen"
+                    @update:open="(open) => { createBugPriorityDropdownOpen = open; }"
+                    @change="selectCreateBugPriority"
+                >
+                    <template #trigger>
+                        <div
+                            class="create-bug-priority-trigger"
+                            :class="createBugPriorityDropdownOpen ? 'active' : ''"
+                            tabindex="0"
+                            @click.stop="toggleCreateBugPriorityMenu"
                         >
-                            {{ priorityLabelMap[createBugForm.priority] }}
-                        </span>
-                        <span v-else class="text-[var(--vort-text-quaternary,rgba(0,0,0,0.25))]">请选择</span>
-                        <span class="vort-select-arrow ml-auto" :class="{ 'vort-select-arrow-open': createBugPriorityDropdownOpen }">
-                            <DownOutlined />
-                        </span>
-                    </div>
-                    <template #content>
-                        <div class="create-bug-priority-menu w-full">
-                            <VortButton
-                                v-for="opt in priorityOptions"
-                                :key="opt.value"
-                                class="create-bug-priority-option"
-                                variant="text"
-                                :class="createBugForm.priority === opt.value ? 'is-selected' : ''"
-                                @click.stop="selectCreateBugPriority(opt.value)"
+                            <span
+                                v-if="createBugForm.priority"
+                                class="priority-pill"
+                                :class="priorityClassMap[createBugForm.priority]"
                             >
-                                <span class="priority-pill" :class="priorityClassMap[opt.value]">
-                                    {{ opt.label }}
-                                </span>
-                            </VortButton>
+                                {{ priorityLabelMap[createBugForm.priority] }}
+                            </span>
+                            <span v-else class="text-[var(--vort-text-quaternary,rgba(0,0,0,0.25))]">请选择</span>
+                            <span class="vort-select-arrow ml-auto" :class="{ 'vort-select-arrow-open': createBugPriorityDropdownOpen }">
+                                <DownOutlined />
+                            </span>
                         </div>
                     </template>
-                </Popover>
+                </WorkItemPriority>
             </div>
             <div class="create-bug-field">
                 <label class="create-bug-label">标签</label>
-                <Popover v-model:open="createTagDropdownOpen" trigger="click" placement="bottomLeft" :arrow="false">
-                    <div
-                        class="create-tag-trigger"
-                        :class="createTagDropdownOpen ? 'active' : ''"
-                        tabindex="0"
-                        @click.stop="toggleCreateTagMenu"
-                    >
-                        <div class="create-tag-preview">
-                            <template v-if="createBugForm.tags.length > 0">
-                                <span
-                                    v-for="tag in createBugForm.tags.slice(0, 3)"
-                                    :key="'create-tag-chip-' + tag"
-                                    class="px-1.5 py-0.5 rounded text-xs text-white inline-block"
-                                    :style="{ backgroundColor: getTagColor(tag) }"
-                                >
-                                    {{ tag }}
-                                </span>
-                                <span v-if="createBugForm.tags.length > 3" class="text-gray-400 text-xs">+{{ createBugForm.tags.length - 3 }}</span>
-                            </template>
-                            <span v-else class="text-[var(--vort-text-quaternary,rgba(0,0,0,0.25))]">选择标签</span>
-                        </div>
-                        <span class="vort-select-arrow" :class="{ 'vort-select-arrow-open': createTagDropdownOpen }">
-                            <DownOutlined />
-                        </span>
-                    </div>
-
-                    <template #content>
-                        <div class="w-full p-3">
-                            <div class="mb-2">
-                                <div class="relative">
-                                    <VortInput
-                                        v-model="createTagKeyword"
-                                        placeholder="搜索..."
-                                        class="w-full"
-                                        size="small"
-                                    />
-                                </div>
-                            </div>
-                            <div class="max-h-[220px] overflow-y-auto pr-1">
-                                <VortButton
-                                    v-for="tag in filteredTagOptions"
-                                    :key="'create-tag-opt-' + tag"
-                                    class="w-full h-10 px-2 rounded-md flex items-center gap-2 text-left hover:bg-gray-50"
-                                    variant="text"
-                                    @click.stop="toggleCreateTagOption(tag)"
-                                >
-                                    <span class="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center text-[12px] text-gray-500">
-                                        <span v-if="createBugForm.tags.includes(tag)">✓</span>
+                <WorkItemTagPicker
+                    :model-value="createBugForm.tags"
+                    :options="tagOptions"
+                    :open="createTagDropdownOpen"
+                    v-model:keyword="createTagKeyword"
+                    :get-tag-color="getTagColor"
+                    @update:open="(open) => { createTagDropdownOpen = open; if (!open) createTagKeyword = ''; }"
+                    @update:model-value="(value) => { createBugForm.tags = value; }"
+                >
+                    <template #trigger="{ open }">
+                        <div
+                            class="create-tag-trigger"
+                            :class="open ? 'active' : ''"
+                            tabindex="0"
+                            @click.stop="toggleCreateTagMenu"
+                        >
+                            <div class="create-tag-preview">
+                                <template v-if="createBugForm.tags.length > 0">
+                                    <span
+                                        v-for="tag in createBugForm.tags.slice(0, 3)"
+                                        :key="'create-tag-chip-' + tag"
+                                        class="px-1.5 py-0.5 rounded text-xs text-white inline-block"
+                                        :style="{ backgroundColor: getTagColor(tag) }"
+                                    >
+                                        {{ tag }}
                                     </span>
-                                    <span class="w-5 h-5 rounded-full" :style="{ backgroundColor: getTagColor(tag) }" />
-                                    <span class="text-sm text-gray-700">{{ tag }}</span>
-                                </VortButton>
+                                    <span v-if="createBugForm.tags.length > 3" class="text-gray-400 text-xs">+{{ createBugForm.tags.length - 3 }}</span>
+                                </template>
+                                <span v-else class="text-[var(--vort-text-quaternary,rgba(0,0,0,0.25))]">选择标签</span>
                             </div>
+                            <span class="vort-select-arrow" :class="{ 'vort-select-arrow-open': open }">
+                                <DownOutlined />
+                            </span>
                         </div>
                     </template>
-                </Popover>
+                </WorkItemTagPicker>
             </div>
             <div class="create-bug-field">
                 <label class="create-bug-label">关联仓库</label>

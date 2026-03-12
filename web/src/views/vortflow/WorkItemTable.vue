@@ -2,12 +2,14 @@
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ProTable, TableCell, type ProTableColumn, type ProTableRequestParams, type ProTableResponse } from "@/components/vort-biz";
-import { Popover, message } from "@/components/vort";
+import { message } from "@/components/vort";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
 import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
 import { Pencil } from "lucide-vue-next";
+import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMemberPicker.vue";
 import WorkItemPriority from "@/components/vort-biz/work-item/WorkItemPriority.vue";
 import WorkItemStatus from "@/components/vort-biz/work-item/WorkItemStatus.vue";
+import WorkItemTagPicker from "@/components/vort-biz/work-item/WorkItemTagPicker.vue";
 import WorkItemFilters from "@/components/vort-biz/work-item/WorkItemFilters.vue";
 import WorkItemDetail from "./work-item/WorkItemDetail.vue";
 import WorkItemCreate from "./work-item/WorkItemCreate.vue";
@@ -74,18 +76,12 @@ const {
 
 const keyword = ref("");
 const owner = ref("");
-const ownerDropdownOpen = ref(false);
-const ownerKeyword = ref("");
 const openOwnerFor = ref<string | null>(null);
 const ownerEditKeyword = ref("");
 const openCollaboratorFor = ref<string | null>(null);
 const collaboratorKeyword = ref("");
 const type = ref<WorkItemType | "">(props.type ?? "");
-const typeDropdownOpen = ref(false);
-const typeKeyword = ref("");
 const status = ref("");
-const statusDropdownOpen = ref(false);
-const statusKeyword = ref("");
 const openStatusFor = ref<string | null>(null);
 const rowStatusKeyword = ref("");
 const rowStatusType = ref<WorkItemType>(props.type ?? "缺陷");
@@ -102,14 +98,9 @@ const createBugDrawerOpen = computed({
         }
     }
 });
-const createBugPriorityDropdownOpen = ref(false);
 const createBugDrawerMode = ref<"create" | "detail">("create");
 const detailActiveTab = ref("detail");
 const detailSelectedWorkNo = ref("");
-const detailStatusDropdownOpen = ref(false);
-const detailStatusKeyword = ref("");
-const detailAssigneeDropdownOpen = ref(false);
-const detailAssigneeKeyword = ref("");
 const detailDescEditing = ref(false);
 const detailDescDraft = ref("");
 const detailBottomTab = ref<"comments" | "logs">("comments");
@@ -123,8 +114,6 @@ const createWorkItemRef = ref<{
 } | null>(null);
 const createBugAttachments = ref<CreateBugAttachment[]>([]);
 const createAttachmentInputRef = ref<HTMLInputElement | null>(null);
-const createAssigneeDropdownOpen = ref(false);
-const createAssigneeKeyword = ref("");
 
 const defaultDescriptionTemplate = [
     "环境：请填写",
@@ -196,8 +185,6 @@ const priorityModel = reactive<Record<string, Priority>>({});
 const openPriorityFor = ref<string | null>(null);
 const tagPopoverOpen = reactive<Record<string, boolean>>({});
 const tagKeyword = ref("");
-const createTagDropdownOpen = ref(false);
-const createTagKeyword = ref("");
 const tagsModel = reactive<Record<string, string[]>>({});
 const baseTagOptions = ["客户需求", "演示站", "运营需求", "待开会确认", "已发布", "高优先", "稳定性", "UI优化", "S1", "S2", "S3", "S4", "develop", "test"];
 const dynamicTagOptions = ref<string[]>([]);
@@ -207,47 +194,7 @@ const newTagColor = ref<string>("");
 const newTagTargetRecord = ref<RowItem | null>(null);
 const newTagTargetText = ref<string[] | undefined>(undefined);
 const planTimeModel = reactive<Record<string, any>>({});
-const typeGroupOpen = reactive<Record<WorkItemType, boolean>>({
-    需求: true,
-    任务: true,
-    缺陷: true
-});
-const ownerGroupOpen = reactive<Record<string, boolean>>({
-    项目成员: true,
-    企业成员: true,
-    离职人员: true
-});
-const ownerEditGroupOpen = reactive<Record<string, boolean>>({
-    项目成员: true,
-    企业成员: true,
-    离职人员: true
-});
-const collaboratorGroupOpen = reactive<Record<string, boolean>>({
-    项目成员: true,
-    企业成员: true,
-    离职人员: true
-});
-const detailAssigneeGroupOpen = reactive<Record<string, boolean>>({
-    项目成员: true,
-    企业成员: true,
-    离职人员: true
-});
-const createAssigneeGroupOpen = reactive<Record<string, boolean>>({
-    项目成员: true,
-    企业成员: true,
-    离职人员: true
-});
 const collaboratorsModel = reactive<Record<string, string[]>>({});
-
-const ensureOwnerGroupMapEntries = () => {
-    ownerGroups.value.forEach((group) => {
-        if (ownerGroupOpen[group.label] === undefined) ownerGroupOpen[group.label] = true;
-        if (ownerEditGroupOpen[group.label] === undefined) ownerEditGroupOpen[group.label] = true;
-        if (collaboratorGroupOpen[group.label] === undefined) collaboratorGroupOpen[group.label] = true;
-        if (detailAssigneeGroupOpen[group.label] === undefined) detailAssigneeGroupOpen[group.label] = true;
-        if (createAssigneeGroupOpen[group.label] === undefined) createAssigneeGroupOpen[group.label] = true;
-    });
-};
 
 const rebuildMockDataset = () => {
     if (props.useApi) return;
@@ -896,11 +843,6 @@ const handleBatchDelete = async () => {
 
 const resetCreateBugForm = () => {
     Object.assign(createBugForm, createInitialBugForm());
-    createBugPriorityDropdownOpen.value = false;
-    createAssigneeDropdownOpen.value = false;
-    createTagDropdownOpen.value = false;
-    createAssigneeKeyword.value = "";
-    createTagKeyword.value = "";
     createBugAttachments.value = [];
 };
 
@@ -928,9 +870,6 @@ const handleCancelCreateBug = () => {
     createBugDrawerOpen.value = false;
     createParentStoryId.value = "";
     createProjectId.value = "";
-    createBugPriorityDropdownOpen.value = false;
-    createAssigneeDropdownOpen.value = false;
-    createTagDropdownOpen.value = false;
 };
 
 const handleCancelCreateWorkItem = () => {
@@ -987,7 +926,6 @@ const syncDetailRelations = async (record: RowItem) => {
 const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) => {
     if (createBugDrawerMode.value !== "create") {
         createBugDrawerOpen.value = false;
-        createBugPriorityDropdownOpen.value = false;
         return;
     }
 
@@ -1157,10 +1095,6 @@ const handleOpenBugDetail = async (record: RowItem) => {
     detailActiveTab.value = "detail";
     detailBottomTab.value = "comments";
     detailCommentDraft.value = "";
-    detailStatusDropdownOpen.value = false;
-    detailStatusKeyword.value = "";
-    detailAssigneeDropdownOpen.value = false;
-    detailAssigneeKeyword.value = "";
     detailDescEditing.value = false;
     detailDescDraft.value = "";
     ensureDetailPanelsData(record);
@@ -1183,7 +1117,6 @@ const handleOpenBugDetail = async (record: RowItem) => {
         description: record.description || base.description
     });
 
-    createBugPriorityDropdownOpen.value = false;
     router.replace({ query: { ...route.query, action: "detail", id: record.workNo } });
 };
 
@@ -1245,126 +1178,6 @@ const submitDetailComment = () => {
     detailCommentDraft.value = "";
     appendDetailLog("发布评论");
     message.success("评论已发布");
-};
-
-const filteredDetailAssigneeGroups = computed(() => {
-    const kw = detailAssigneeKeyword.value.trim();
-    if (!kw) return ownerGroups.value;
-    return ownerGroups.value
-        .map((g) => ({
-            ...g,
-            members: g.members.filter((m) => m.includes(kw))
-        }))
-        .filter((g) => g.members.length > 0);
-});
-
-const filteredCreateAssigneeGroups = computed(() => {
-    const kw = createAssigneeKeyword.value.trim();
-    if (!kw) return ownerGroups.value;
-    return ownerGroups.value
-        .map((g) => ({
-            ...g,
-            members: g.members.filter((m) => m.includes(kw))
-        }))
-        .filter((g) => g.members.length > 0);
-});
-
-const toggleDetailAssigneeMenu = () => {
-    detailAssigneeDropdownOpen.value = !detailAssigneeDropdownOpen.value;
-    if (!detailAssigneeDropdownOpen.value) detailAssigneeKeyword.value = "";
-};
-
-const toggleCreateAssigneeMenu = () => {
-    createAssigneeDropdownOpen.value = !createAssigneeDropdownOpen.value;
-    if (!createAssigneeDropdownOpen.value) createAssigneeKeyword.value = "";
-};
-
-const toggleDetailAssigneeGroup = (group: string) => {
-    detailAssigneeGroupOpen[group] = !detailAssigneeGroupOpen[group];
-};
-
-const toggleCreateAssigneeGroup = (group: string) => {
-    createAssigneeGroupOpen[group] = !createAssigneeGroupOpen[group];
-};
-
-const isDetailOwner = (member: string): boolean => {
-    return detailCurrentRecord.value?.owner === member;
-};
-
-const isDetailCollaborator = (member: string): boolean => {
-    return (detailCurrentRecord.value?.collaborators || []).includes(member);
-};
-
-const isCreateOwner = (member: string): boolean => {
-    return createBugForm.owner === member;
-};
-
-const isCreateCollaborator = (member: string): boolean => {
-    return createBugForm.collaborators.includes(member);
-};
-
-const setDetailOwner = async (member: string) => {
-    if (!detailCurrentRecord.value) return;
-    const record = detailCurrentRecord.value;
-    const prev = detailCurrentRecord.value.owner;
-    const nextOwner = member || "未指派";
-    detailCurrentRecord.value.owner = nextOwner;
-    if (prev !== nextOwner) {
-        const memberId = member ? getMemberIdByName(member) : "";
-        if (member && !memberId) {
-            detailCurrentRecord.value.owner = prev;
-            message.error("未找到负责人对应的成员ID，无法同步");
-            return;
-        }
-        try {
-            if (record.type === "需求") {
-                await syncRecordUpdateToApi(record, { pm_id: memberId || null });
-            } else {
-                await syncRecordUpdateToApi(record, { assignee_id: memberId || null });
-            }
-        } catch (error: any) {
-            detailCurrentRecord.value.owner = prev;
-            message.error(error?.message || "负责人同步失败");
-            return;
-        }
-        appendDetailLog(`将负责人从 ${prev || "未指派"} 修改为 ${detailCurrentRecord.value.owner}`);
-    }
-};
-
-const setCreateOwner = (member: string) => {
-    createBugForm.owner = member || "";
-    createBugForm.collaborators = createBugForm.collaborators.filter((x) => x !== member);
-};
-
-const toggleDetailCollaborator = async (member: string) => {
-    if (!detailCurrentRecord.value) return;
-    const record = detailCurrentRecord.value;
-    const list = [...(detailCurrentRecord.value.collaborators || [])];
-    const idx = list.indexOf(member);
-    if (idx >= 0) {
-        list.splice(idx, 1);
-    } else {
-        list.push(member);
-    }
-    const prev = [...(detailCurrentRecord.value.collaborators || [])];
-    detailCurrentRecord.value.collaborators = list;
-    try {
-        await syncRecordUpdateToApi(record, { collaborators: list });
-    } catch (error: any) {
-        detailCurrentRecord.value.collaborators = prev;
-        message.error(error?.message || "协作者同步失败");
-        return;
-    }
-    appendDetailLog(`${idx >= 0 ? "取消" : "添加"}协作者 ${member}`);
-};
-
-const toggleCreateCollaborator = (member: string) => {
-    if (createBugForm.owner === member) return;
-    const list = [...createBugForm.collaborators];
-    const idx = list.indexOf(member);
-    if (idx >= 0) list.splice(idx, 1);
-    else list.push(member);
-    createBugForm.collaborators = list;
 };
 
 const openDetailDescEditor = () => {
@@ -1429,26 +1242,6 @@ const selectPriority = async (record: RowItem, value: Priority) => {
     openPriorityFor.value = null;
 };
 
-const toggleCreateBugPriorityMenu = () => {
-    createBugPriorityDropdownOpen.value = !createBugPriorityDropdownOpen.value;
-};
-
-const selectCreateBugPriority = (value: Priority) => {
-    createBugForm.priority = value;
-    createBugPriorityDropdownOpen.value = false;
-};
-
-const filteredStatusOptions = computed(() => {
-    const kw = statusKeyword.value.trim();
-    if (!kw) return currentStatusFilterOptions.value;
-    return currentStatusFilterOptions.value.filter((x) => x.label.includes(kw));
-});
-
-const selectStatus = (value: string) => {
-    status.value = value;
-    statusDropdownOpen.value = false;
-};
-
 const getRowStatus = (record: RowItem, text?: Status): Status => {
     return text || record.status;
 };
@@ -1469,40 +1262,6 @@ const filteredRowStatusOptions = computed(() => {
     return options.filter((x) => x.label.includes(kw));
 });
 
-const toggleDetailStatusMenu = () => {
-    detailStatusDropdownOpen.value = !detailStatusDropdownOpen.value;
-    if (!detailStatusDropdownOpen.value) detailStatusKeyword.value = "";
-};
-
-const filteredDetailStatusOptions = computed(() => {
-    const kw = detailStatusKeyword.value.trim();
-    const detailType = detailCurrentRecord.value?.type || resolveActiveType();
-    const options = getStatusOptionsByType(detailType);
-    if (!kw) return options;
-    return options.filter((x) => x.label.includes(kw));
-});
-
-const selectDetailStatus = async (value: Status) => {
-    if (detailCurrentRecord.value) {
-        const prev = detailCurrentRecord.value.status;
-        detailCurrentRecord.value.status = value;
-        if (prev !== value) {
-            try {
-                await syncRecordStatusToApi(detailCurrentRecord.value, value);
-            } catch (error: any) {
-                detailCurrentRecord.value.status = prev;
-                message.error(error?.message || "状态同步失败");
-                detailStatusDropdownOpen.value = false;
-                detailStatusKeyword.value = "";
-                return;
-            }
-            appendDetailLog(`将状态从 ${prev} 修改为 ${value}`);
-        }
-    }
-    detailStatusDropdownOpen.value = false;
-    detailStatusKeyword.value = "";
-};
-
 const selectRowStatus = async (record: RowItem, value: Status) => {
     const prev = record.status;
     record.status = value;
@@ -1519,56 +1278,6 @@ const selectRowStatus = async (record: RowItem, value: Status) => {
     }
     openStatusFor.value = null;
     rowStatusKeyword.value = "";
-};
-
-const filteredOwnerGroups = computed(() => {
-    const kw = ownerKeyword.value.trim();
-    if (!kw) return ownerGroups.value;
-    return ownerGroups.value
-        .map((g) => ({
-            ...g,
-            members: g.members.filter((m) => m.includes(kw))
-        }))
-        .filter((g) => g.members.length > 0);
-});
-
-const filteredOwnerEditGroups = computed(() => {
-    const kw = ownerEditKeyword.value.trim();
-    if (!kw) return ownerGroups.value;
-    return ownerGroups.value
-        .map((g) => ({
-            ...g,
-            members: g.members.filter((m) => m.includes(kw))
-        }))
-        .filter((g) => g.members.length > 0);
-});
-
-const filteredCollaboratorGroups = computed(() => {
-    const kw = collaboratorKeyword.value.trim();
-    if (!kw) return ownerGroups.value;
-    return ownerGroups.value
-        .map((g) => ({
-            ...g,
-            members: g.members.filter((m) => m.includes(kw))
-        }))
-        .filter((g) => g.members.length > 0);
-});
-
-const toggleOwnerGroup = (group: string) => {
-    ownerGroupOpen[group] = !ownerGroupOpen[group];
-};
-
-const toggleOwnerEditGroup = (group: string) => {
-    ownerEditGroupOpen[group] = !ownerEditGroupOpen[group];
-};
-
-const toggleCollaboratorGroup = (group: string) => {
-    collaboratorGroupOpen[group] = !collaboratorGroupOpen[group];
-};
-
-const selectOwner = (value: string) => {
-    owner.value = value;
-    ownerDropdownOpen.value = false;
 };
 
 const getRowOwner = (record: RowItem, text?: string): string => {
@@ -1621,6 +1330,19 @@ const toggleCollaboratorMenu = (workNo: string) => {
     collaboratorKeyword.value = "";
 };
 
+const setRowCollaborators = async (record: RowItem, nextCollaborators: string[]) => {
+    const prev = [...getRowCollaborators(record, record.collaborators)];
+    collaboratorsModel[record.workNo] = [...nextCollaborators];
+    record.collaborators = [...nextCollaborators];
+    try {
+        await syncRecordUpdateToApi(record, { collaborators: nextCollaborators });
+    } catch (error: any) {
+        collaboratorsModel[record.workNo] = prev;
+        record.collaborators = prev;
+        message.error(error?.message || "协作者同步失败");
+    }
+};
+
 const toggleRowCollaborator = async (record: RowItem, member: string, text?: string[]) => {
     const current = [...getRowCollaborators(record, text)];
     const idx = current.indexOf(member);
@@ -1650,6 +1372,21 @@ const getTagColor = (name: string): string => {
 
 const getRowTags = (record: RowItem, text?: string[]): string[] => {
     return tagsModel[record.workNo] || text || [];
+};
+
+const rowTagOptions = computed(() => dynamicTagOptions.value.length ? dynamicTagOptions.value : baseTagOptions);
+
+const setRowTags = async (record: RowItem, nextTags: string[]) => {
+    const prev = [...getRowTags(record, record.tags)];
+    tagsModel[record.workNo] = [...nextTags];
+    record.tags = [...nextTags];
+    try {
+        await syncRecordUpdateToApi(record, { tags: nextTags });
+    } catch (error: any) {
+        tagsModel[record.workNo] = prev;
+        record.tags = prev;
+        message.error(error?.message || "标签同步失败");
+    }
 };
 
 const openCreateTagDialog = (record?: RowItem | null, text?: string[]) => {
@@ -1769,6 +1506,7 @@ const getTagRenderInfo = (record: RowItem, text: string[] | undefined, resolvedW
 
 const toggleTagMenu = (workNo: string) => {
     tagKeyword.value = "";
+    tagPopoverOpen[workNo] = !tagPopoverOpen[workNo];
 };
 
 const toggleTagOption = async (record: RowItem, tag: string, text?: string[]) => {
@@ -1788,18 +1526,6 @@ const toggleTagOption = async (record: RowItem, tag: string, text?: string[]) =>
     }
 };
 
-const filteredTagOptions = computed(() => {
-    const kw = tagKeyword.value.trim();
-    const options = dynamicTagOptions.value.length ? dynamicTagOptions.value : baseTagOptions;
-    if (!kw) return options;
-    return options.filter((x) => x.includes(kw));
-});
-
-const createTagOptions = computed(() => {
-    const merged = new Set<string>([...createBugTagOptions, ...baseTagOptions, ...dynamicTagOptions.value]);
-    return [...merged];
-});
-
 const createProjectOptions = computed(() => {
     if (props.useApi && apiProjects.value.length > 0) {
         return apiProjects.value.map((x) => x.name);
@@ -1813,50 +1539,6 @@ const resolveCreateProjectId = (): string => {
     if (!selected) return apiProjects.value[0]?.id || "";
     const match = apiProjects.value.find((x) => x.name === selected || x.id === selected);
     return match?.id || apiProjects.value[0]?.id || "";
-};
-
-const filteredCreateTagOptions = computed(() => {
-    const kw = createTagKeyword.value.trim();
-    if (!kw) return createTagOptions.value;
-    return createTagOptions.value.filter((x) => x.includes(kw));
-});
-
-const toggleCreateTagMenu = () => {
-    createTagDropdownOpen.value = !createTagDropdownOpen.value;
-    if (!createTagDropdownOpen.value) createTagKeyword.value = "";
-};
-
-const toggleCreateTagOption = (tag: string) => {
-    const list = [...createBugForm.tags];
-    const idx = list.indexOf(tag);
-    if (idx >= 0) list.splice(idx, 1);
-    else list.push(tag);
-    createBugForm.tags = list;
-};
-
-const finishCreateTagEdit = () => {
-    createTagDropdownOpen.value = false;
-    createTagKeyword.value = "";
-};
-
-const typeGroups = computed<WorkItemType[]>(() => {
-    const all: WorkItemType[] = ["需求", "任务", "缺陷"];
-    const kw = typeKeyword.value.trim();
-    if (!kw) return all;
-    return all.filter((x) => x.includes(kw));
-});
-
-const toggleTypeGroup = (group: WorkItemType) => {
-    typeGroupOpen[group] = !typeGroupOpen[group];
-};
-
-const selectType = (value: WorkItemType) => {
-    if (props.type) return;
-    type.value = value;
-    if (status.value && !getStatusOptionsByType(value).some((x) => x.value === status.value)) {
-        status.value = "";
-    }
-    typeDropdownOpen.value = false;
 };
 
 const loadApiMetadata = async (withStories = false) => {
@@ -1884,7 +1566,6 @@ const loadApiMetadata = async (withStories = false) => {
 
 onMounted(async () => {
     await loadMemberOptions();
-    ensureOwnerGroupMapEntries();
     rebuildMockDataset();
     await loadApiMetadata(false);
     if (props.useApi) {
@@ -1995,76 +1676,46 @@ onMounted(async () => {
                 </template>
 
                 <template #tags="{ text, record, resolvedWidth }">
-                        <TableCell @click.stop="tagPopoverOpen[record.workNo] = !tagPopoverOpen[record.workNo]">
-                    <Popover
-                        :open="tagPopoverOpen[record.workNo]"
-                        trigger="click"
-                        placement="bottomLeft"
-                        :arrow="false"
-                        @update:open="(open) => { if (!open) tagPopoverOpen[record.workNo] = false; }"
-                    >
-                            <div class="flex items-center gap-1 flex-nowrap whitespace-nowrap overflow-hidden">
-                                <template v-for="tag in getTagRenderInfo(record, text, resolvedWidth).visible" :key="record.workNo + '-' + tag">
-                                    <span
-                                        class="px-1.5 py-0.5 rounded text-xs text-white inline-block"
-                                        :style="{ backgroundColor: getTagColor(tag) }"
-                                    >
-                                        {{ tag }}
+                    <TableCell>
+                        <WorkItemTagPicker
+                            :model-value="getRowTags(record, text)"
+                            :options="rowTagOptions"
+                            :open="tagPopoverOpen[record.workNo]"
+                            v-model:keyword="tagKeyword"
+                            :get-tag-color="getTagColor"
+                            :bordered="false"
+                            @update:open="(open) => { if (!open) tagPopoverOpen[record.workNo] = false; }"
+                            @update:model-value="(value) => setRowTags(record, value)"
+                        >
+                            <template #trigger>
+                                <div class="flex items-center gap-1 flex-nowrap whitespace-nowrap overflow-hidden" @click.stop="toggleTagMenu(record.workNo)">
+                                    <template v-for="tag in getTagRenderInfo(record, text, resolvedWidth).visible" :key="record.workNo + '-' + tag">
+                                        <span
+                                            class="px-1.5 py-0.5 rounded text-xs text-white inline-block"
+                                            :style="{ backgroundColor: getTagColor(tag) }"
+                                        >
+                                            {{ tag }}
+                                        </span>
+                                    </template>
+                                    <span v-if="getTagRenderInfo(record, text, resolvedWidth).hidden > 0" class="text-gray-400 font-medium text-sm">
+                                        +{{ getTagRenderInfo(record, text, resolvedWidth).hidden }}
                                     </span>
-                                </template>
-                                <span v-if="getTagRenderInfo(record, text, resolvedWidth).hidden > 0" class="text-gray-400 font-medium text-sm">
-                                    +{{ getTagRenderInfo(record, text, resolvedWidth).hidden }}
-                                </span>
-                            </div>
-
-                        <template #content>
-                            <div class="w-[240px]" @click.stop>
-                                <div class="mb-2">
-                                    <div class="relative">
-                                        <VortInput
-                                            v-model="tagKeyword"
-                                            placeholder="搜索..."
-                                            class="w-full"
-                                            size="small"
-                                        />
-                                    </div>
                                 </div>
-                                <div class="max-h-[200px] overflow-y-auto pr-1">
-                                    <div
-                                        v-for="tag in filteredTagOptions"
-                                        :key="record.workNo + '-opt-' + tag"
-                                        class="w-full px-2 py-1 rounded-md hover:bg-gray-50 cursor-pointer"
-                                        @click.stop="toggleTagOption(record, tag, text)"
-                                    >
-                                        <div class="flex items-center gap-3">
-                                            <vort-checkbox
-                                                :checked="getRowTags(record, text).includes(tag)"
-                                                @update:checked="() => toggleTagOption(record, tag, text)"
-                                                @click.stop
-                                                style="min-height: 24px;"
-                                            />
-                                            <span
-                                                class="inline-block w-3 h-3 rounded-full flex-shrink-0"
-                                                :style="{ backgroundColor: getTagColor(tag) }"
-                                            />
-                                            <span class="text-sm text-gray-700 leading-5">{{ tag }}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="mt-1 pt-2 border-t border-gray-100 text-left">
+                            </template>
+                            <template #footer>
+                                <div class="mt-1 px-2 py-2 text-left">
                                     <button
                                         type="button"
-                                        class="inline-flex items-center gap-1 px-2 py-1 text-sm text-blue-600 hover:text-blue-700"
-                                        @click.stop="openCreateTagDialog()"
+                                        class="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700"
+                                        @click.stop="openCreateTagDialog(record, text)"
                                     >
                                         <span class="text-base leading-none">+</span>
                                         <span>新建标签</span>
                                     </button>
                                 </div>
-                            </div>
-                        </template>
-                    </Popover>
-                        </TableCell>
+                            </template>
+                        </WorkItemTagPicker>
+                    </TableCell>
                 </template>
 
                 <template #status="{ text, record }">
@@ -2082,74 +1733,39 @@ onMounted(async () => {
                 </template>
 
                 <template #owner="{ text, record }">
-                    <TableCell @click.stop="toggleRowOwnerMenu(record.workNo)">
-                    <Popover
-                        :open="openOwnerFor === record.workNo"
-                        trigger="click"
-                        placement="bottomLeft"
-                        :arrow="false"
-                        @update:open="(open) => { if (!open && openOwnerFor === record.workNo) openOwnerFor = null; }"
-                    >
-                        <div
-                            class="h-8 max-w-[150px] px-2 rounded-md bg-transparent flex items-center gap-2 cursor-pointer"
-                            @click.stop="toggleRowOwnerMenu(record.workNo)"
+                    <TableCell>
+                        <WorkItemMemberPicker
+                            mode="owner"
+                            :owner="getRowOwner(record, text)"
+                            :groups="ownerGroups"
+                            :open="openOwnerFor === record.workNo"
+                            v-model:keyword="ownerEditKeyword"
+                            :show-unassigned="true"
+                            unassigned-value=""
+                            :dropdown-max-height="420"
+                            :bordered="false"
+                            :get-avatar-bg="getAvatarBg"
+                            :get-avatar-label="getAvatarLabel"
+                            :get-avatar-url="getMemberAvatarUrl"
+                            @update:open="(open) => { if (!open && openOwnerFor === record.workNo) openOwnerFor = null; }"
+                            @update:owner="(value) => selectRowOwner(record, value)"
                         >
-                            <span
-                                class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center shrink-0 overflow-hidden"
-                                :style="{ backgroundColor: getAvatarBg(getRowOwner(record, text)) }"
-                            >
-                                <img v-if="getMemberAvatarUrl(getRowOwner(record, text))" :src="getMemberAvatarUrl(getRowOwner(record, text))" class="w-full h-full object-cover" />
-                                <template v-else>{{ getAvatarLabel(getRowOwner(record, text)) }}</template>
-                            </span>
-                            <span class="text-sm text-gray-700 truncate">{{ getRowOwner(record, text) }}</span>
-                        </div>
-
-                        <template #content>
-                            <div class="w-[260px] p-3" @click.stop>
-                                <div class="mb-2">
-                                    <div class="relative">
-                                        <VortInput
-                                            v-model="ownerEditKeyword"
-                                            placeholder="搜索..."
-                                            class="w-full"
-                                            size="small"
-                                        />
-                                    </div>
+                            <template #trigger>
+                                <div
+                                    class="h-8 max-w-[150px] px-2 rounded-md bg-transparent flex items-center gap-2 cursor-pointer"
+                                    @click.stop="toggleRowOwnerMenu(record.workNo)"
+                                >
+                                    <span
+                                        class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center shrink-0 overflow-hidden"
+                                        :style="{ backgroundColor: getAvatarBg(getRowOwner(record, text)) }"
+                                    >
+                                        <img v-if="getMemberAvatarUrl(getRowOwner(record, text))" :src="getMemberAvatarUrl(getRowOwner(record, text))" class="w-full h-full object-cover" />
+                                        <template v-else>{{ getAvatarLabel(getRowOwner(record, text)) }}</template>
+                                    </span>
+                                    <span class="text-sm text-gray-700 truncate">{{ getRowOwner(record, text) }}</span>
                                 </div>
-                                <div class="max-h-[420px] overflow-y-auto -mx-3 text-left">
-                                    <VortButton class="w-full h-10 px-3 flex justify-start text-left text-gray-700 hover:bg-gray-50" variant="text" @click.stop="selectRowOwner(record, '')">
-                                        未指派
-                                    </VortButton>
-                                    <div v-for="group in filteredOwnerEditGroups" :key="'row-owner-' + group.label">
-                                        <VortButton
-                                            class="w-full h-10 px-3 bg-slate-100 flex items-center justify-between text-left"
-                                            variant="text"
-                                            @click.stop="toggleOwnerEditGroup(group.label)"
-                                        >
-                                            <span class="text-gray-700 text-sm">{{ group.label }}（{{ group.members.length }}）</span>
-                                            <span class="status-arrow-simple" :class="{ open: ownerEditGroupOpen[group.label] }" />
-                                        </VortButton>
-                                        <VortButton
-                                            v-for="member in (ownerEditGroupOpen[group.label] ? group.members : [])"
-                                            :key="'row-owner-member-' + group.label + member"
-                                            class="w-full h-10 px-3 flex items-center justify-start gap-2 text-left hover:bg-gray-50"
-                                            variant="text"
-                                            @click.stop="selectRowOwner(record, member)"
-                                        >
-                                            <span
-                                                class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center overflow-hidden"
-                                                :style="{ backgroundColor: getAvatarBg(member) }"
-                                            >
-                                                <img v-if="getMemberAvatarUrl(member)" :src="getMemberAvatarUrl(member)" class="w-full h-full object-cover" />
-                                                <template v-else>{{ getAvatarLabel(member) }}</template>
-                                            </span>
-                                            <span class="text-sm text-gray-700">{{ member }}</span>
-                                        </VortButton>
-                                    </div>
-                                </div>
-                            </div>
-                        </template>
-                    </Popover>
+                            </template>
+                        </WorkItemMemberPicker>
                     </TableCell>
                 </template>
 
@@ -2168,76 +1784,41 @@ onMounted(async () => {
                 </template>
 
                 <template #collaborators="{ text, record }">
-                    <TableCell @click.stop="toggleCollaboratorMenu(record.workNo)">
-                    <Popover
-                        :open="openCollaboratorFor === record.workNo"
-                        trigger="click"
-                        placement="bottomLeft"
-                        :arrow="false"
-                        @update:open="(open) => { if (!open && openCollaboratorFor === record.workNo) openCollaboratorFor = null; }"
-                    >
-                        <div
-                            class="h-8 px-1 rounded-md bg-transparent flex items-center cursor-pointer"
-                            @click.stop="toggleCollaboratorMenu(record.workNo)"
+                    <TableCell>
+                        <WorkItemMemberPicker
+                            mode="collaborators"
+                            :collaborators="getRowCollaborators(record, text)"
+                            :groups="ownerGroups"
+                            :open="openCollaboratorFor === record.workNo"
+                            v-model:keyword="collaboratorKeyword"
+                            :dropdown-max-height="260"
+                            :bordered="false"
+                            :get-avatar-bg="getAvatarBg"
+                            :get-avatar-label="getAvatarLabel"
+                            :get-avatar-url="getMemberAvatarUrl"
+                            @update:open="(open) => { if (!open && openCollaboratorFor === record.workNo) openCollaboratorFor = null; }"
+                            @update:collaborators="(value) => setRowCollaborators(record, value)"
                         >
-                            <div class="flex items-center">
+                            <template #trigger>
                                 <div
-                                    v-for="(name, idx) in getRowCollaborators(record, text)"
-                                    :key="record.workNo + '-c-' + name + idx"
-                                    class="-ml-1 first:ml-0 w-6 h-6 rounded-full border border-white text-white text-[11px] flex items-center justify-center"
-                                    :style="{ backgroundColor: getAvatarBg(name) }"
-                                    :title="name"
+                                    class="h-8 px-1 rounded-md bg-transparent flex items-center cursor-pointer"
+                                    @click.stop="toggleCollaboratorMenu(record.workNo)"
                                 >
-                                    {{ getAvatarLabel(name) }}
-                                </div>
-                            </div>
-                        </div>
-
-                        <template #content>
-                            <div class="w-[260px] p-3" @click.stop>
-                                <div class="mb-2">
-                                    <div class="relative">
-                                        <VortInput
-                                            v-model="collaboratorKeyword"
-                                            placeholder="搜索..."
-                                            class="w-full"
-                                            size="small"
-                                        />
+                                    <div class="flex items-center">
+                                        <div
+                                            v-for="(name, idx) in getRowCollaborators(record, text)"
+                                            :key="record.workNo + '-c-' + name + idx"
+                                            class="-ml-1 first:ml-0 w-6 h-6 rounded-full border border-white text-white text-[11px] flex items-center justify-center overflow-hidden"
+                                            :style="{ backgroundColor: getAvatarBg(name) }"
+                                            :title="name"
+                                        >
+                                            <img v-if="getMemberAvatarUrl(name)" :src="getMemberAvatarUrl(name)" class="w-full h-full object-cover" />
+                                            <template v-else>{{ getAvatarLabel(name) }}</template>
+                                        </div>
                                     </div>
                                 </div>
-                                <div class="max-h-[260px] overflow-y-auto -mx-3 text-left">
-                                    <div v-for="group in filteredCollaboratorGroups" :key="'collab-' + group.label">
-                                        <VortButton
-                                            class="w-full h-10 px-3 bg-slate-100 flex items-center justify-between text-left"
-                                            variant="text"
-                                            @click.stop="toggleCollaboratorGroup(group.label)"
-                                        >
-                                            <span class="text-gray-700 text-sm">{{ group.label }}（{{ group.members.length }}）</span>
-                                            <span class="status-arrow-simple" :class="{ open: collaboratorGroupOpen[group.label] }" />
-                                        </VortButton>
-                                        <VortButton
-                                            v-for="member in (collaboratorGroupOpen[group.label] ? group.members : [])"
-                                            :key="'collab-member-' + group.label + member"
-                                            class="w-full h-10 px-3 flex items-center justify-start gap-2 text-left hover:bg-gray-50"
-                                            variant="text"
-                                            @click.stop="toggleRowCollaborator(record, member, text)"
-                                        >
-                                            <span class="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center text-[12px] text-gray-500">
-                                                <span v-if="getRowCollaborators(record, text).includes(member)">✓</span>
-                                            </span>
-                                            <span
-                                                class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center"
-                                                :style="{ backgroundColor: getAvatarBg(member) }"
-                                            >
-                                                {{ getAvatarLabel(member) }}
-                                            </span>
-                                            <span class="text-sm text-gray-700">{{ member }}</span>
-                                        </VortButton>
-                                    </div>
-                                </div>
-                            </div>
-                        </template>
-                    </Popover>
+                            </template>
+                        </WorkItemMemberPicker>
                     </TableCell>
                 </template>
 

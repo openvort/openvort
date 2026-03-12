@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PopoverSelect from "@/components/vort-biz/popover-select/PopoverSelect.vue";
 import type { Priority } from "./WorkItemTable.types";
 
 interface Props {
@@ -55,36 +56,39 @@ const handleTriggerClick = (event: MouseEvent) => {
 </script>
 
 <template>
-    <vort-popover
+    <PopoverSelect
         v-model:open="open"
-        trigger="click"
-        placement="bottomLeft"
-        :arrow="false"
         :disabled="disabled"
+        placeholder="优先级"
+        :show-search="false"
+        :dropdown-width="140"
+        :dropdown-max-height="220"
+        :bordered="false"
     >
-        <slot>
-            <div class="priority-cell-trigger" :class="{ 'is-disabled': disabled }" @click="handleTriggerClick">
-                <span class="priority-pill" :class="priorityClassMap[modelValue]">
-                    {{ priorityLabelMap[modelValue] }}
-                </span>
-            </div>
-        </slot>
-        <template #content>
-            <div class="priority-cell-menu" @click.stop>
-                <div
-                    v-for="opt in priorityOptions"
-                    :key="opt.value"
-                    class="priority-cell-menu-item"
-                    :class="{ 'is-selected': modelValue === opt.value, 'is-disabled': disabled }"
-                    @click.stop="!disabled && handleSelect(opt.value)"
-                >
-                    <span class="priority-pill" :class="priorityClassMap[opt.value]">
-                        {{ opt.label }}
+        <template #trigger>
+            <slot>
+                <div class="priority-cell-trigger" :class="{ 'is-disabled': disabled }" @click="handleTriggerClick">
+                    <span class="priority-pill" :class="priorityClassMap[modelValue]">
+                        {{ priorityLabelMap[modelValue] }}
                     </span>
                 </div>
-            </div>
+            </slot>
         </template>
-    </vort-popover>
+
+        <div class="priority-picker-content">
+            <div
+                v-for="opt in priorityOptions"
+                :key="opt.value"
+                class="priority-picker-row"
+                :class="{ 'is-active': modelValue === opt.value, 'is-disabled': disabled }"
+                @click.stop="!disabled && handleSelect(opt.value)"
+            >
+                <span class="priority-pill" :class="priorityClassMap[opt.value]">
+                    {{ opt.label }}
+                </span>
+            </div>
+        </div>
+    </PopoverSelect>
 </template>
 
 <style scoped>
@@ -107,28 +111,26 @@ const handleTriggerClick = (event: MouseEvent) => {
     border: 1px solid;
 }
 
-.priority-cell-menu {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 100px;
+.priority-picker-content {
+    padding: 4px;
 }
 
-.priority-cell-menu-item {
-    padding: 4px 8px;
-    border-radius: 4px;
+.priority-picker-row {
+    padding: 6px 8px;
+    border-radius: 6px;
     cursor: pointer;
+    transition: background-color 0.15s ease;
 }
 
-.priority-cell-menu-item:hover {
-    background-color: #f5f5f5;
+.priority-picker-row:hover {
+    background: rgba(0, 0, 0, 0.04);
 }
 
-.priority-cell-menu-item.is-selected {
-    background-color: #e6f4ff;
+.priority-picker-row.is-active {
+    background: #eff6ff;
 }
 
-.priority-cell-menu-item.is-disabled {
+.priority-picker-row.is-disabled {
     cursor: not-allowed;
     opacity: 0.5;
 }
