@@ -34,7 +34,11 @@ class OpenClawChannel(BaseChannel):
         self._hook_token = ""
         self._deliver_channel = "last"
         self._deliver_to = ""
+        self._inbox = None  # InboxService, injected via set_inbox_service()
         self._load_settings()
+
+    def set_inbox_service(self, inbox) -> None:
+        self._inbox = inbox
 
     def _load_settings(self) -> None:
         try:
@@ -138,6 +142,13 @@ class OpenClawChannel(BaseChannel):
 
         if not msg_text:
             return None
+
+        # Best-effort DB-level dedup (OpenClaw payload may include id/message_id)
+        msg_id = str(body.get("id", "") or body.get("message_id", "")).strip()
+        if msg_id and self._inbox:
+            if not await self._inbox.try_claim("openclaw", msg_id):
+                log.debug(f"OpenClaw 消息已被其他实例消费: {msg_id}")
+                return None
 
         raw = dict(body)
         if member_id:

@@ -15,12 +15,13 @@ from openvort.utils.logging import get_logger
 log = get_logger("channels.wecom.callback")
 
 
-def create_callback_router(crypto: WeComCrypto, handler: MessageHandler) -> APIRouter:
+def create_callback_router(crypto: WeComCrypto, handler: MessageHandler, inbox=None) -> APIRouter:
     """创建企微回调路由
 
     Args:
         crypto: 加解密实例
         handler: 消息处理回调
+        inbox: InboxService for cross-instance dedup (optional)
 
     Returns:
         FastAPI APIRouter
@@ -55,7 +56,12 @@ def create_callback_router(crypto: WeComCrypto, handler: MessageHandler) -> APIR
             body = await request.body()
             msg_dict = crypto.decrypt_callback(body.decode(), msg_signature, timestamp, nonce)
 
-            # 转换为统一 Message
+            # DB-level dedup
+            msg_id = msg_dict.get("MsgId", "")
+            if msg_id and inbox:
+                if not await inbox.try_claim("wecom", msg_id):
+                    return Response(content="success", media_type="text/plain")
+
             msg = Message(
                 content=msg_dict.get("Content", ""),
                 sender_id=msg_dict.get("FromUserName", ""),
@@ -64,19 +70,16 @@ def create_callback_router(crypto: WeComCrypto, handler: MessageHandler) -> APIR
                 raw=msg_dict,
             )
 
-            # 图片消息
             if msg.msg_type == "image":
                 msg.content = "[用户发送了一张图片]"
                 msg.images = [{"pic_url": msg_dict.get("PicUrl", ""), "media_id": msg_dict.get("MediaId", "")}]
 
-            # 语音消息
             if msg.msg_type == "voice":
                 msg.content = "[用户发送了一段语音]"
                 media_id = msg_dict.get("MediaId", "")
                 if media_id:
                     msg.voice_media_ids = [media_id]
 
-            # 异步处理，不阻塞回调响应
             import asyncio
             asyncio.create_task(_handle_message(msg, handler))
 
@@ -96,7 +99,7 @@ def create_callback_router(crypto: WeComCrypto, handler: MessageHandler) -> APIR
     return router
 
 
-def create_bot_callback_router(crypto: WeComCrypto, handler: MessageHandler) -> APIRouter:
+def create_bot_callback_router(crypto: WeComCrypto, handler: MessageHandler, inbox=None) -> APIRouter:
     """创建智能机器人回调路由（公网部署可选）
 
     Protocol is identical to the app callback (XML + AES),
@@ -129,6 +132,12 @@ def create_bot_callback_router(crypto: WeComCrypto, handler: MessageHandler) -> 
         try:
             body = await request.body()
             msg_dict = crypto.decrypt_callback(body.decode(), msg_signature, timestamp, nonce)
+
+            # DB-level dedup
+            msg_id = msg_dict.get("MsgId", "")
+            if msg_id and inbox:
+                if not await inbox.try_claim("wecom", msg_id):
+                    return Response(content="success", media_type="text/plain")
 
             msg = Message(
                 content=msg_dict.get("Content", ""),

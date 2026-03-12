@@ -27,8 +27,6 @@ if TYPE_CHECKING:
 
 log = get_logger("channels.feishu")
 
-FEISHU_DEDUP_MAX_SIZE = 500
-FEISHU_DEDUP_TTL = 300
 FEISHU_STREAM_UPDATE_THROTTLE = 0.35
 
 
@@ -196,9 +194,12 @@ class FeishuChannel(BaseChannel):
         self._ws_task: asyncio.Task | None = None
         self._ws_client: lark.ws.Client | None = None
         self._api: FeishuAPI | None = None
-        self._seen_msgids: dict[str, float] = {}
         self._stream_handler = None
         self._asr_service = None
+        self._inbox = None  # InboxService, injected via set_inbox_service()
+
+    def set_inbox_service(self, inbox) -> None:
+        self._inbox = inbox
 
     @property
     def api(self) -> FeishuAPI:
@@ -555,9 +556,10 @@ class FeishuChannel(BaseChannel):
         if not msg_id:
             log.debug("忽略飞书消息: 缺少 message_id")
             return None
-        if self._is_duplicate(msg_id):
-            log.debug(f"忽略飞书重复消息: {msg_id}")
-            return None
+        if self._inbox:
+            if not await self._inbox.try_claim("feishu", msg_id):
+                log.debug(f"飞书消息已被其他实例消费: {msg_id}")
+                return None
 
         sender_id = self._extract_sender_id(event)
         if not sender_id:
@@ -717,18 +719,6 @@ class FeishuChannel(BaseChannel):
             except Exception as e:
                 log.error(f"飞书 ASR 转写异常: file_key={voice.get('file_key')}, error={e}")
         return "\n".join(texts)
-
-    def _is_duplicate(self, msg_id: str) -> bool:
-        now = time.time()
-        if len(self._seen_msgids) >= FEISHU_DEDUP_MAX_SIZE:
-            self._seen_msgids = {
-                key: ts for key, ts in self._seen_msgids.items()
-                if now - ts < FEISHU_DEDUP_TTL
-            }
-        if msg_id in self._seen_msgids and now - self._seen_msgids[msg_id] < FEISHU_DEDUP_TTL:
-            return True
-        self._seen_msgids[msg_id] = now
-        return False
 
     @staticmethod
     def _extract_sender_id(event: dict) -> str:

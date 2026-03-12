@@ -355,6 +355,30 @@ async def init_db(database_url: str) -> None:
     except Exception as e:
         log.warning(f"知识库表创建失败: {e}")
 
+    # IM inbox dedup + consume cursors
+    async with _engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS im_inbox (
+                id SERIAL PRIMARY KEY,
+                channel VARCHAR(32) NOT NULL,
+                msg_id VARCHAR(256) NOT NULL,
+                status VARCHAR(16) NOT NULL DEFAULT 'claimed',
+                error TEXT NOT NULL DEFAULT '',
+                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                CONSTRAINT uq_im_inbox_channel_msg_id UNIQUE (channel, msg_id)
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_im_inbox_created_at ON im_inbox(created_at)"
+        ))
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS im_cursors (
+                key VARCHAR(64) PRIMARY KEY,
+                value BIGINT NOT NULL DEFAULT 0,
+                updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+        """))
+
     log.info(f"数据库已初始化: {database_url.split('://')[0]}")
 
 
