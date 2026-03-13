@@ -25,6 +25,21 @@ class UninstallRequest(BaseModel):
     type: str = "skill"
 
 
+@router.get("/detail/{slug}")
+async def get_extension_detail(slug: str, author: str = ""):
+    """Get full extension detail from the remote marketplace."""
+    installer = get_marketplace_installer()
+    if not installer:
+        raise HTTPException(status_code=503, detail="Marketplace not configured")
+
+    try:
+        result = await installer.client.get_extension_detail(slug, author=author)
+        return result
+    except Exception as e:
+        logger.exception("Marketplace detail fetch failed: slug=%s", slug)
+        raise HTTPException(status_code=502, detail=f"Marketplace request failed: {e}")
+
+
 @router.get("/search")
 async def search_marketplace(
     query: str = "",

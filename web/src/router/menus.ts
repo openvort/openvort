@@ -19,6 +19,7 @@ export const menuConfig: MenuConfig[] = [
     { title: "知识库", icon: "library", path: "/knowledge" },
     { title: "Plugins 插件", icon: "puzzle", path: "/plugins", requiredRole: "admin" },
     { title: "Skills 技能", icon: "book-open", path: "/skills", requiredRole: "admin" },
+    { title: "扩展市场", icon: "store", path: "/marketplace", requiredRole: "admin" },
     {
         title: "VortFlow", icon: "kanban", label: "研发协作",
         children: [

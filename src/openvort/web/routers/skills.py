@@ -45,7 +45,7 @@ async def list_tags():
     factory = get_db_session_factory()
     async with factory() as db:
         result = await db.execute(
-            select(Skill.tags).where(Skill.scope.in_(["builtin", "public"]))
+            select(Skill.tags).where(Skill.scope.in_(["builtin", "public", "marketplace"]))
         )
         rows = result.scalars().all()
 
@@ -71,7 +71,7 @@ async def list_skills(skill_type: str = "", tag: str = ""):
     """列出所有 Skill（builtin + public），可按 tag 筛选"""
     factory = get_db_session_factory()
     async with factory() as db:
-        stmt = select(Skill).where(Skill.scope.in_(["builtin", "public"]))
+        stmt = select(Skill).where(Skill.scope.in_(["builtin", "public", "marketplace"]))
         if skill_type:
             stmt = stmt.where(Skill.skill_type == skill_type)
         stmt = stmt.order_by(Skill.sort_order, Skill.name)

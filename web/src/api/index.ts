@@ -552,6 +552,11 @@ export function marketplaceSearch(params: { query?: string; type?: string; categ
     return request.get("/admin/marketplace/search", { params });
 }
 
+/** 获取扩展市场详情 */
+export function marketplaceGetDetail(slug: string, author: string = "") {
+    return request.get(`/admin/marketplace/detail/${slug}`, { params: author ? { author } : {} });
+}
+
 /** 从市场安装 Skill */
 export function marketplaceInstallSkill(slug: string, author: string = "") {
     return request.post("/admin/marketplace/install/skill", { slug, author });
