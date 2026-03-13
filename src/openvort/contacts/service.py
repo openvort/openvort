@@ -697,12 +697,23 @@ class ContactService:
 
     # ---- 角色映射 ----
 
+    # Role priority for position mapping: higher value = higher privilege
+    _ROLE_PRIORITY: dict[str, int] = {
+        "guest": 0,
+        "member": 10,
+        "manager": 20,
+        "admin": 30,
+    }
+
     async def _map_roles_from_position(self, contacts: list[PlatformContact]) -> int:
-        """根据职位自动映射组织角色，返回映射成功的人数"""
+        """根据职位自动映射组织角色，返回映射成功的人数
+
+        Only assigns a role when position explicitly matches a mapping rule.
+        Never downgrades an existing higher-privilege role.
+        """
         from openvort.config.settings import get_settings
         settings = get_settings()
 
-        # 解析映射规则: "总经理:admin,经理:manager" -> {"总经理": "admin", "经理": "manager"}
         mapping = {}
         for pair in settings.contacts.role_mapping.split(","):
             pair = pair.strip()
@@ -718,7 +729,6 @@ class ContactService:
             if not contact.position:
                 continue
 
-            # 匹配职位（支持包含匹配，如"技术总监"匹配"总监"）
             target_role = None
             for position_key, role_name in mapping.items():
                 if position_key in contact.position:
@@ -726,10 +736,8 @@ class ContactService:
                     break
 
             if not target_role:
-                # 未匹配到，分配默认 member 角色
-                target_role = "member"
+                continue
 
-            # 查找该联系人对应的 member_id
             async with self._session_factory() as session:
                 stmt = select(PlatformIdentity.member_id).where(
                     PlatformIdentity.platform == contact.platform,
@@ -739,6 +747,15 @@ class ContactService:
                 member_id = result.scalar_one_or_none()
 
             if member_id and self._auth:
+                current_roles = await self._auth.get_member_roles(member_id)
+                current_max = max(
+                    (self._ROLE_PRIORITY.get(r, 10) for r in current_roles),
+                    default=-1,
+                )
+                target_priority = self._ROLE_PRIORITY.get(target_role, 10)
+                if current_max >= target_priority:
+                    continue
+
                 ok = await self._auth.assign_role(member_id, target_role)
                 if ok:
                     mapped_count += 1

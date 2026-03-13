@@ -401,7 +401,7 @@ async function complete() {
                         <Cpu :size="16" class="text-emerald-600" />
                     </div>
                     <div>
-                        <div class="text-sm font-medium text-gray-800">远程工作节点</div>
+                        <div class="text-sm font-medium text-gray-800">远程工作节点（推荐）</div>
                         <div class="text-xs text-gray-400">让 AI 员工拥有一台"工作电脑"</div>
                     </div>
                 </div>

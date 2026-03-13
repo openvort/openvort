@@ -44,6 +44,8 @@ const dialogOpen = ref(false);
 const editing = ref(false);
 const editingId = ref("");
 const saving = ref(false);
+const gatewayTokenEditing = ref(false);
+const maskedGatewayToken = ref("");
 
 const form = ref({
     name: "",
@@ -77,6 +79,8 @@ function handleAdd() {
     form.value = { name: "", gateway_url: "", gateway_token: "", description: "", node_type: "openclaw" };
     editing.value = false;
     editingId.value = "";
+    gatewayTokenEditing.value = true;
+    maskedGatewayToken.value = "";
     dialogOpen.value = true;
 }
 
@@ -90,6 +94,8 @@ function handleEdit(row: RemoteNodeItem) {
     };
     editing.value = true;
     editingId.value = row.id;
+    gatewayTokenEditing.value = false;
+    maskedGatewayToken.value = row.gateway_token || "";
     dialogOpen.value = true;
 }
 
@@ -283,8 +289,33 @@ onMounted(loadData);
                     <span v-if="editing" class="text-xs text-gray-400 mt-1">留空则不修改</span>
                 </VortFormItem>
                 <VortFormItem label="Gateway Token" :required="!editing">
-                    <VortInput v-model="form.gateway_token" type="password" placeholder="Gateway 认证 Token" />
-                    <span v-if="editing" class="text-xs text-gray-400 mt-1">留空则不修改</span>
+                    <template v-if="editing && !gatewayTokenEditing">
+                        <div class="flex items-center gap-3 min-h-[32px]">
+                            <span class="text-base text-gray-700">{{ maskedGatewayToken || "未配置" }}</span>
+                            <a class="text-sm text-blue-600 cursor-pointer" @click="gatewayTokenEditing = true">编辑</a>
+                        </div>
+                        <span class="text-xs text-gray-400 mt-1">点击编辑后输入新 Token 覆盖旧值</span>
+                    </template>
+                    <template v-else>
+                        <div class="flex items-center gap-3">
+                            <VortInput
+                                v-model="form.gateway_token"
+                                type="password"
+                                :placeholder="editing ? '输入新的 Gateway 认证 Token' : 'Gateway 认证 Token'"
+                            />
+                            <a
+                                v-if="editing"
+                                class="text-sm text-gray-500 cursor-pointer whitespace-nowrap"
+                                @click="
+                                    gatewayTokenEditing = false;
+                                    form.gateway_token = '';
+                                "
+                            >
+                                取消
+                            </a>
+                        </div>
+                        <span v-if="editing" class="text-xs text-gray-400 mt-1">仅在需要更换 Token 时输入</span>
+                    </template>
                 </VortFormItem>
                 <VortFormItem label="描述">
                     <VortTextarea v-model="form.description" placeholder="节点描述（可选）" :auto-size="{ minRows: 2, maxRows: 4 }" />
