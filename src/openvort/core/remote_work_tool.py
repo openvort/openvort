@@ -70,6 +70,7 @@ class RemoteWorkTool(BaseTool):
         timeout = min(params.get("timeout", 300), 600)
 
         target_member_id = params.get("_target_member_id", "")
+        log.info(f"remote_work called: target_member_id={target_member_id!r}")
         if not target_member_id:
             return (
                 "当前不在 AI 员工聊天上下文中，无法使用远程工作节点。\n"
@@ -90,6 +91,7 @@ class RemoteWorkTool(BaseTool):
                 member_name = member.name
                 member_post = member.post or ""
 
+        log.info(f"remote_work lookup: member={member_name!r}, node_id={node_id!r}")
         if not node_id:
             return (
                 "该 AI 员工未配置远程工作节点，无法执行远程任务。\n"
@@ -106,8 +108,26 @@ class RemoteWorkTool(BaseTool):
             "employee_post": member_post,
         }
 
+        import asyncio
+
+        output_queue: asyncio.Queue | None = params.get("_output_queue")
+        _prev_text = ""
+
+        def _on_text(text: str) -> None:
+            nonlocal _prev_text
+            if output_queue is None:
+                return
+            delta = text[len(_prev_text):]
+            _prev_text = text
+            if delta:
+                try:
+                    output_queue.put_nowait(delta)
+                except Exception:
+                    pass
+
         result = await _service.send_instruction(
             node_id, instruction, context=context, timeout=timeout,
+            on_text=_on_text,
         )
 
         if result["ok"]:

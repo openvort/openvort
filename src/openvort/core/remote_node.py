@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select, update as sa_update
 from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
@@ -16,6 +17,9 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
 from openvort.core.remote_executor import get_executor
 from openvort.db.models import RemoteNode
 from openvort.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 log = get_logger("core.remote_node")
 
@@ -38,7 +42,8 @@ def _decrypt(ciphertext: str) -> str:
     try:
         from openvort.plugins.vortgit.crypto import decrypt_token
         return decrypt_token(ciphertext)
-    except Exception:
+    except Exception as e:
+        log.warning(f"Token decryption failed (returning raw value): {type(e).__name__}: {e}")
         return ciphertext
 
 
@@ -163,6 +168,8 @@ class RemoteNodeService:
             return {"ok": False, "message": f"不支持的节点类型: {node.node_type}"}
 
         token = _decrypt(node.gateway_token)
+        masked = ("****" + token[-4:]) if len(token) > 4 else "****"
+        log.info(f"Testing connection to node {node.name}: url={node.gateway_url}, token={masked}, len={len(token)}")
         result = await executor.test_connection(node.gateway_url, token)
 
         if result.get("ok"):
@@ -174,6 +181,7 @@ class RemoteNodeService:
 
     async def send_instruction(
         self, node_id: str, instruction: str, *, context: dict | None = None, timeout: int = 300,
+        on_text: "Callable[[str], None] | None" = None,
     ) -> dict:
         """Send a work instruction to a remote node via its executor."""
         async with self._sf() as db:
@@ -189,8 +197,11 @@ class RemoteNodeService:
         if not node.gateway_url or not token:
             return {"ok": False, "error": "node_not_configured", "message": "节点未配置"}
 
+        masked = ("****" + token[-4:]) if len(token) > 4 else "****"
+        log.info(f"Sending instruction to node {node.name}: url={node.gateway_url}, token={masked}, len={len(token)}")
         result = await executor.send_instruction(
             node.gateway_url, token, instruction, context=context, timeout=timeout,
+            on_text=on_text,
         )
 
         if result.get("ok"):

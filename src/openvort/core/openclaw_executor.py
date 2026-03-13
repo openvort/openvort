@@ -7,8 +7,13 @@ OpenClaw Gateway WebSocket protocol.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from openvort.core.openclaw_ws import OpenClawWsClient, OpenClawWsError
 from openvort.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 log = get_logger("core.openclaw_executor")
 
@@ -47,6 +52,7 @@ class OpenClawExecutor:
         *,
         context: dict | None = None,
         timeout: int = 300,
+        on_text: "Callable[[str], None] | None" = None,
     ) -> dict:
         if not gateway_url or not token:
             return {"ok": False, "error": "node_not_configured", "message": "节点未配置"}
@@ -66,6 +72,7 @@ class OpenClawExecutor:
                 instruction,
                 timeout_ms=timeout * 1000,
                 context=context,
+                on_text=on_text,
             )
 
             if result.ok:

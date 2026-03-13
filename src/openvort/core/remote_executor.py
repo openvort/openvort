@@ -7,9 +7,12 @@ and provides a registry for dispatching operations by node_type.
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from openvort.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 log = get_logger("core.remote_executor")
 
@@ -30,6 +33,7 @@ class RemoteNodeExecutor(Protocol):
         *,
         context: dict | None = None,
         timeout: int = 300,
+        on_text: "Callable[[str], None] | None" = None,
     ) -> dict:
         """Execute a work instruction on the remote node."""
         ...

@@ -10,7 +10,11 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 from uuid import uuid4
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 import websockets
 from websockets.asyncio.client import ClientConnection
@@ -99,10 +103,13 @@ class OpenClawWsClient:
         session_key: str | None = None,
         extra_system_prompt: str | None = None,
         context: dict | None = None,
+        on_text: "Callable[[str], None] | None" = None,
     ) -> AgentResult:
         """Send an agent instruction and wait for completion.
 
         Collects streaming text deltas and returns the full result.
+        *on_text* is called with the latest accumulated text each time a
+        streaming delta arrives, enabling real-time output forwarding.
         """
         if not self._connected or not self._ws:
             return AgentResult(ok=False, error="WebSocket 未连接")
@@ -177,6 +184,11 @@ class OpenClawWsClient:
                             text = data.get("text", "")
                             if text:
                                 latest_text = text
+                                if on_text is not None:
+                                    try:
+                                        on_text(text)
+                                    except Exception:
+                                        pass
 
                     # tick keepalive — just ignore
 
