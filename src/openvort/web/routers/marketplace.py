@@ -4,12 +4,15 @@ Marketplace API router for the OpenVort admin panel.
 Endpoints for searching, installing, and managing marketplace extensions.
 """
 
+import logging
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from openvort.web.deps import get_marketplace_installer
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class InstallRequest(BaseModel):
@@ -34,7 +37,19 @@ async def search_marketplace(
     """Search the remote marketplace."""
     installer = get_marketplace_installer()
     if not installer:
+        logger.warning("Marketplace search requested but installer is not configured")
         raise HTTPException(status_code=503, detail="Marketplace not configured")
+
+    logger.info(
+        "Marketplace search request: upstream=%s query=%r type=%s category=%s sort=%s page=%s limit=%s",
+        installer.client.base_url,
+        query,
+        type,
+        category,
+        sort,
+        page,
+        limit,
+    )
 
     try:
         result = await installer.client.search(
@@ -43,6 +58,16 @@ async def search_marketplace(
         )
         return result
     except Exception as e:
+        logger.exception(
+            "Marketplace search failed: upstream=%s query=%r type=%s category=%s sort=%s page=%s limit=%s",
+            installer.client.base_url,
+            query,
+            type,
+            category,
+            sort,
+            page,
+            limit,
+        )
         raise HTTPException(status_code=502, detail=f"Marketplace request failed: {e}")
 
 

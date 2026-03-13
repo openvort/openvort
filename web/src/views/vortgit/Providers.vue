@@ -318,7 +318,7 @@ watch(() => currentRow.value.platform, (newPlatform) => {
                                         </vort-tag>
                                     </div>
                                 </div>
-                                <p class="text-xs text-gray-400 mt-2">API Key 可在「插件管理 → VortGit」中配置，或由管理员通过 <code class="bg-gray-100 px-1 rounded">openvort coding setup</code> 命令设置。</p>
+                                <p class="text-xs text-gray-400 mt-2">API Key 可在「AI 配置 → Coding CLI」中查看编码工具设置，或由管理员通过 <code class="bg-gray-100 px-1 rounded">openvort coding setup</code> 命令配置环境变量。</p>
                             </div>
 
                             <!-- Unavailable guide -->
