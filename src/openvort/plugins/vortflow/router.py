@@ -64,7 +64,8 @@ class StoryUpdate(BaseModel):
     pm_id: str | None = None
 
 class TaskCreate(BaseModel):
-    story_id: str
+    story_id: str | None = None
+    parent_id: str | None = None
     title: str
     description: str = ""
     task_type: str = "fullstack"
@@ -240,7 +241,7 @@ def _task_dict(r: FlowTask) -> dict:
     return {
         "id": r.id, "title": r.title, "description": r.description,
         "state": r.state, "task_type": r.task_type,
-        "story_id": r.story_id, "assignee_id": r.assignee_id,
+        "story_id": r.story_id, "parent_id": r.parent_id, "assignee_id": r.assignee_id,
         "tags": _parse_json_list(r.tags_json),
         "collaborators": _parse_json_list(r.collaborators_json),
         "estimate_hours": r.estimate_hours, "actual_hours": r.actual_hours,
@@ -348,6 +349,37 @@ async def _collect_story_descendant_ids(session, story_ids: list[str]) -> list[s
         seen.update(next_ids)
         pending_ids = next_ids
     return descendant_ids
+
+
+async def _resolve_task_story_and_parent(
+    session,
+    *,
+    story_id: str | None,
+    parent_id: str | None,
+) -> tuple[str | None, str | None, str | None]:
+    normalized_story_id = (story_id or "").strip() or None
+    normalized_parent_id = (parent_id or "").strip() or None
+
+    parent_task: FlowTask | None = None
+    if normalized_parent_id:
+        parent_task = await session.get(FlowTask, normalized_parent_id)
+        if not parent_task:
+            return None, None, "父任务不存在"
+        if parent_task.parent_id:
+            return None, None, "父任务不能是子任务"
+
+        if normalized_story_id and normalized_story_id != parent_task.story_id:
+            return None, None, "子任务必须和父任务属于同一个需求"
+        normalized_story_id = parent_task.story_id
+
+    if not normalized_story_id:
+        return None, None, "关联需求不能为空"
+
+    story = await session.get(FlowStory, normalized_story_id)
+    if not story:
+        return None, None, "关联需求不存在"
+
+    return normalized_story_id, normalized_parent_id, None
 
 # ============ Project CRUD ============
 
@@ -692,6 +724,7 @@ async def get_story_transitions(story_id: str):
 @router.get("/tasks")
 async def list_tasks(
     story_id: str = Query("", description="按需求过滤"),
+    parent_id: str | None = Query(None, description="按父任务过滤，root 表示仅顶层任务"),
     state: str = Query("", description="按状态过滤"),
     task_type: str = Query("", description="按类型过滤"),
     assignee_id: str = Query("", description="按负责人过滤"),
@@ -706,6 +739,12 @@ async def list_tasks(
         if story_id:
             stmt = stmt.where(FlowTask.story_id == story_id)
             count_stmt = count_stmt.where(FlowTask.story_id == story_id)
+        if parent_id == "root":
+            stmt = stmt.where(FlowTask.parent_id.is_(None))
+            count_stmt = count_stmt.where(FlowTask.parent_id.is_(None))
+        elif parent_id:
+            stmt = stmt.where(FlowTask.parent_id == parent_id)
+            count_stmt = count_stmt.where(FlowTask.parent_id == parent_id)
         if state:
             stmt = stmt.where(FlowTask.state == state)
             count_stmt = count_stmt.where(FlowTask.state == state)
@@ -722,7 +761,23 @@ async def list_tasks(
         total = (await session.execute(count_stmt)).scalar_one()
         stmt = stmt.offset((page - 1) * page_size).limit(page_size)
         rows = (await session.execute(stmt)).scalars().all()
-    return {"total": total, "items": [_task_dict(r) for r in rows]}
+        task_ids = [row.id for row in rows]
+        child_count_map: dict[str, int] = {}
+        if task_ids:
+            child_count_rows = await session.execute(
+                select(FlowTask.parent_id, func.count())
+                .where(FlowTask.parent_id.in_(task_ids))
+                .group_by(FlowTask.parent_id)
+            )
+            child_count_map = {
+                parent_task_id: child_count
+                for parent_task_id, child_count in child_count_rows.all()
+                if parent_task_id
+            }
+    return {
+        "total": total,
+        "items": [{**_task_dict(r), "children_count": child_count_map.get(r.id, 0)} for r in rows],
+    }
 
 @router.get("/tasks/{task_id}")
 async def get_task(task_id: str):
@@ -731,14 +786,24 @@ async def get_task(task_id: str):
         r = await session.get(FlowTask, task_id)
         if not r:
             return {"error": "任务不存在"}
-    return _task_dict(r)
+        children_count = (await session.execute(
+            select(func.count()).select_from(FlowTask).where(FlowTask.parent_id == task_id)
+        )).scalar_one()
+    return {**_task_dict(r), "children_count": children_count}
 
 @router.post("/tasks")
 async def create_task(body: TaskCreate):
     sf = get_session_factory()
     async with sf() as session:
+        resolved_story_id, normalized_parent_id, parent_error = await _resolve_task_story_and_parent(
+            session,
+            story_id=body.story_id,
+            parent_id=body.parent_id,
+        )
+        if parent_error:
+            return {"error": parent_error}
         t = FlowTask(
-            story_id=body.story_id, title=body.title,
+            story_id=resolved_story_id, parent_id=normalized_parent_id, title=body.title,
             description=body.description, task_type=body.task_type,
             assignee_id=body.assignee_id, estimate_hours=body.estimate_hours,
             tags_json=json.dumps(body.tags or [], ensure_ascii=False),
@@ -747,7 +812,13 @@ async def create_task(body: TaskCreate):
         )
         session.add(t)
         await session.flush()
-        await _log_event(session, "task", t.id, "created", {"title": body.title})
+        await _log_event(
+            session,
+            "task",
+            t.id,
+            "created",
+            {"title": body.title, "story_id": resolved_story_id, "parent_id": normalized_parent_id},
+        )
         await session.commit()
         await session.refresh(t)
     return _task_dict(t)
@@ -787,8 +858,19 @@ async def delete_task(task_id: str):
         t = await session.get(FlowTask, task_id)
         if not t:
             return {"error": "任务不存在"}
+        child_task_ids = (
+            await session.execute(select(FlowTask.id).where(FlowTask.parent_id == task_id))
+        ).scalars().all()
+        if child_task_ids:
+            await session.execute(sa_delete(FlowTask).where(FlowTask.parent_id == task_id))
         await session.delete(t)
-        await _log_event(session, "task", task_id, "deleted", {"title": t.title})
+        await _log_event(
+            session,
+            "task",
+            task_id,
+            "deleted",
+            {"title": t.title, "deleted_children": len(child_task_ids)},
+        )
         await session.commit()
     return {"ok": True}
 

@@ -63,6 +63,9 @@ class FlowTask(Base):
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
     story_id: Mapped[str] = mapped_column(String(32), ForeignKey("flow_stories.id"), index=True)
+    parent_id: Mapped[str | None] = mapped_column(
+        String(32), ForeignKey("flow_tasks.id"), nullable=True, index=True
+    )
     title: Mapped[str] = mapped_column(String(500))
     description: Mapped[str] = mapped_column(Text, default="")
     task_type: Mapped[str] = mapped_column(String(32), default="fullstack")  # frontend/backend/fullstack/test

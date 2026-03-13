@@ -1090,7 +1090,7 @@ export function getVortflowStoryTransitions(id: string) {
 // -- 任务 --
 
 /** VortFlow 任务列表 */
-export function getVortflowTasks(params: { story_id?: string; state?: string; task_type?: string; assignee_id?: string; keyword?: string; page?: number; page_size?: number }) {
+export function getVortflowTasks(params: { story_id?: string; parent_id?: string; state?: string; task_type?: string; assignee_id?: string; keyword?: string; page?: number; page_size?: number }) {
     return request.get("/vortflow/tasks", { params });
 }
 
@@ -1100,7 +1100,7 @@ export function getVortflowTask(id: string) {
 }
 
 /** VortFlow 创建任务 */
-export function createVortflowTask(data: { story_id: string; title: string; description?: string; task_type?: string; assignee_id?: string; tags?: string[]; collaborators?: string[]; estimate_hours?: number; deadline?: string }) {
+export function createVortflowTask(data: { story_id?: string; parent_id?: string; title: string; description?: string; task_type?: string; assignee_id?: string; tags?: string[]; collaborators?: string[]; estimate_hours?: number; deadline?: string }) {
     return request.post("/vortflow/tasks", data);
 }
 

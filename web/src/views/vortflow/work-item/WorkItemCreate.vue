@@ -16,7 +16,7 @@ import {
     getVortflowVersions,
 } from "@/api";
 import { useWorkItemCommon } from "./useWorkItemCommon";
-import type { WorkItemType, Priority, DateRange, NewBugForm } from "@/components/vort-biz/work-item/WorkItemTable.types";
+import type { WorkItemType, Priority, DateRange, NewBugForm, RowItem } from "@/components/vort-biz/work-item/WorkItemTable.types";
 
 interface Props {
     type?: WorkItemType;
@@ -24,6 +24,7 @@ interface Props {
     useApi?: boolean;
     projectId?: string;
     parentId?: string;
+    parentRecord?: RowItem | null;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -48,6 +49,8 @@ const {
     getMemberAvatarUrl,
     loadMemberOptions,
     ownerGroups,
+    getWorkItemTypeIconClass,
+    getWorkItemTypeIconSymbol,
 } = useWorkItemCommon();
 
 const defaultDescriptionTemplate = [
@@ -289,16 +292,18 @@ const filteredTagOptions = computed(() => {
 });
 
 const currentCreateType = computed(() => props.type || createBugForm.type);
+const isTaskChildCreate = computed(() => currentCreateType.value === "任务" && Boolean(createBugForm.parentId));
 
 const shouldShowParentSelector = computed(() => {
     return currentCreateType.value === "需求";
 });
 
 const shouldShowStorySelector = computed(() => {
-    return currentCreateType.value === "任务" || currentCreateType.value === "缺陷";
+    return currentCreateType.value === "缺陷" || (currentCreateType.value === "任务" && !createBugForm.parentId);
 });
 
 const storySelectorPlaceholder = computed(() => "选择关联需求（可选）");
+const taskParentRecord = computed(() => props.parentRecord || null);
 
 const isStoryOptionValid = (storyId?: string): boolean => {
     if (!storyId) return false;
@@ -523,6 +528,9 @@ const resetForm = () => {
     }
     if (props.parentId) {
         createBugForm.parentId = props.parentId;
+        if (currentCreateType.value === "任务") {
+            createBugForm.storyId = "";
+        }
     }
 };
 
@@ -564,6 +572,9 @@ onMounted(async () => {
 
 watch(() => props.parentId, (value) => {
     createBugForm.parentId = value || "";
+    if (currentCreateType.value === "任务" && value) {
+        createBugForm.storyId = "";
+    }
 });
 
 watch(() => props.projectId, async (value) => {
@@ -709,6 +720,19 @@ watch(() => createBugForm.repo, async (value, oldValue) => {
                             {{ item.title }}
                         </vort-select-option>
                     </vort-select>
+                </div>
+                <div v-else-if="isTaskChildCreate" class="create-bug-field">
+                    <label class="create-bug-label">父任务</label>
+                    <div class="create-readonly-field">
+                        <div class="create-readonly-title">
+                            <span class="work-type-icon-small create-parent-icon" :class="getWorkItemTypeIconClass('任务')">
+                                {{ getWorkItemTypeIconSymbol("任务") }}
+                            </span>
+                            <span class="create-readonly-no">{{ taskParentRecord?.workNo || createBugForm.parentId }}</span>
+                            <span class="create-readonly-main">{{ taskParentRecord?.title || "已选择父任务" }}</span>
+                        </div>
+                        <div class="create-readonly-hint">将自动继承父任务关联的需求</div>
+                    </div>
                 </div>
                 <div v-if="shouldShowStorySelector" class="create-bug-field">
                     <label class="create-bug-label">关联需求</label>
@@ -923,6 +947,50 @@ watch(() => createBugForm.repo, async (value, oldValue) => {
 
 .create-bug-field :deep(.vort-popover-trigger) {
     width: 100%;
+}
+
+.create-readonly-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 32px;
+    padding: 8px 11px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    background: #f8fafc;
+}
+
+.create-readonly-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    color: #1e293b;
+    font-size: 14px;
+}
+
+.create-parent-icon {
+    flex-shrink: 0;
+}
+
+.create-readonly-no {
+    flex-shrink: 0;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.create-readonly-main {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.create-readonly-hint {
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.4;
 }
 
 .create-assignee-wrapper :deep(.vort-popover-trigger) {

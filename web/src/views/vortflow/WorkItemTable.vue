@@ -15,7 +15,7 @@ import WorkItemDetail from "./work-item/WorkItemDetail.vue";
 import WorkItemCreate from "./work-item/WorkItemCreate.vue";
 import { useWorkItemCommon } from "./work-item/useWorkItemCommon";
 import {
-    getVortflowStory, getVortflowStories, getVortflowTasks, getVortflowBugs,
+    getVortflowStory, getVortflowStories, getVortflowTask, getVortflowTasks, getVortflowBugs,
     getVortflowProjects, createVortflowStory, createVortflowTask, createVortflowBug,
     deleteVortflowStory, deleteVortflowTask, deleteVortflowBug,
     updateVortflowStory, updateVortflowTask, updateVortflowBug
@@ -172,11 +172,11 @@ const createInitialBugForm = (): NewBugForm => ({
 const createBugForm = reactive<NewBugForm>(createInitialBugForm());
 const apiProjects = ref<Array<{ id: string; name: string }>>([]);
 const apiStories = ref<Array<{ id: string; title: string }>>([]);
-const storyRowsById = reactive<Record<string, RowItem>>({});
-const storyChildrenMap = reactive<Record<string, RowItem[]>>({});
-const expandedStoryIds = reactive<Record<string, boolean>>({});
-const expandingStoryIds = reactive<Record<string, boolean>>({});
-const createParentStoryId = ref("");
+const itemRowsById = reactive<Record<string, RowItem>>({});
+const itemChildrenMap = reactive<Record<string, RowItem[]>>({});
+const expandedItemIds = reactive<Record<string, boolean>>({});
+const expandingItemIds = reactive<Record<string, boolean>>({});
+const createParentItemId = ref("");
 const createProjectId = ref("");
 const selectedRowKeys = ref<Array<string | number>>([]);
 const selectedRows = ref<RowItem[]>([]);
@@ -509,48 +509,56 @@ const prependPinnedRow = (typeValue: WorkItemType, row: RowItem) => {
     pinnedRowsByType[typeValue] = [row, ...list.filter((x) => (x.backendId || x.workNo) !== rowId)];
 };
 
-const cacheStoryRows = (rows: RowItem[]) => {
+const cacheItemRows = (rows: RowItem[]) => {
     for (const row of rows) {
-        if (row.type !== "需求" || !row.backendId) continue;
-        storyRowsById[row.backendId] = row;
+        if (!row.backendId) continue;
+        itemRowsById[row.backendId] = row;
     }
 };
 
-const findStoryRowById = (storyId?: string): RowItem | null => {
-    if (!storyId) return null;
-    return storyRowsById[storyId] || null;
+const findItemRowById = (itemId?: string): RowItem | null => {
+    if (!itemId) return null;
+    return itemRowsById[itemId] || null;
 };
 
-const loadStoryById = async (storyId?: string): Promise<RowItem | null> => {
-    if (!storyId) return null;
-    const cached = findStoryRowById(storyId);
+const loadItemById = async (itemId: string | undefined, itemType: WorkItemType): Promise<RowItem | null> => {
+    if (!itemId) return null;
+    const cached = findItemRowById(itemId);
     if (cached) return cached;
     try {
-        const res: any = await getVortflowStory(storyId);
+        const res: any = itemType === "任务"
+            ? await getVortflowTask(itemId)
+            : await getVortflowStory(itemId);
         if (!res?.id) return null;
-        const row = mapBackendItemToRow(res, "需求", 0);
-        storyRowsById[storyId] = row;
+        const row = mapBackendItemToRow(res, itemType, 0);
+        itemRowsById[itemId] = row;
         return row;
     } catch {
         return null;
     }
 };
 
-const loadChildStories = async (parentStoryId: string, projectId?: string): Promise<RowItem[]> => {
-    if (!parentStoryId) return [];
-    const res: any = await getVortflowStories({
-        parent_id: parentStoryId,
-        project_id: projectId,
-        page: 1,
-        page_size: 100,
-    });
+const loadChildItems = async (parentId: string, itemType: WorkItemType, projectId?: string): Promise<RowItem[]> => {
+    if (!parentId || itemType === "缺陷") return [];
+    const res: any = itemType === "任务"
+        ? await getVortflowTasks({
+            parent_id: parentId,
+            page: 1,
+            page_size: 100,
+        })
+        : await getVortflowStories({
+            parent_id: parentId,
+            project_id: projectId,
+            page: 1,
+            page_size: 100,
+        });
     const rows = ((res?.items || []) as any[]).map((item, index) => {
-        const row = mapBackendItemToRow(item, "需求", index);
+        const row = mapBackendItemToRow(item, itemType, index);
         row.isChild = true;
         return row;
     });
-    cacheStoryRows(rows);
-    storyChildrenMap[parentStoryId] = rows;
+    cacheItemRows(rows);
+    itemChildrenMap[parentId] = rows;
     return rows;
 };
 
@@ -618,16 +626,16 @@ const createOwnerMatcher = (ownerValue: string) => {
     return { ownerMemberId, matchOwner };
 };
 
-const getVisibleStoryRows = (rows: RowItem[], ownerValue = owner.value, statusValue = status.value) => {
+const getVisibleChildRows = (rows: RowItem[], ownerValue = owner.value, statusValue = status.value) => {
     const currentType = String(props.type ?? type.value ?? "").trim();
-    if (!props.useApi || currentType !== "需求") return rows;
+    if (!props.useApi || (currentType !== "需求" && currentType !== "任务")) return rows;
     const { matchOwner } = createOwnerMatcher(ownerValue);
     const flattenedRows: RowItem[] = [];
     for (const row of rows) {
         flattenedRows.push(row);
-        const storyId = String(row.backendId || "").trim();
-        if (!storyId || !expandedStoryIds[storyId]) continue;
-        const children = (storyChildrenMap[storyId] || [])
+        const itemId = String(row.backendId || "").trim();
+        if (!itemId || !expandedItemIds[itemId]) continue;
+        const children = (itemChildrenMap[itemId] || [])
             .filter((child) => !statusValue || child.status === statusValue)
             .filter(matchOwner)
             .map((child) => ({ ...child, isChild: true }));
@@ -636,7 +644,7 @@ const getVisibleStoryRows = (rows: RowItem[], ownerValue = owner.value, statusVa
     return flattenedRows;
 };
 
-const postProcessTableRows = (rows: RowItem[]) => getVisibleStoryRows(rows);
+const postProcessTableRows = (rows: RowItem[]) => getVisibleChildRows(rows);
 
 const request = async (params: ProTableRequestParams): Promise<ProTableResponse<RowItem>> => {
     const kw = String(params.keyword ?? "").trim().toLowerCase();
@@ -661,6 +669,7 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
             if (workType === "任务") {
                 return getVortflowTasks({
                     keyword: kw,
+                    parent_id: "root",
                     state,
                     assignee_id: ownerMemberId || undefined,
                     page,
@@ -691,8 +700,8 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
         };
         const buildRowsFromItems = (items: any[]): RowItem[] => {
             const rows = items.map((item: any, idx: number) => mapBackendItemToRow(item, workType, idx));
-            if (workType === "需求") {
-                cacheStoryRows(rows);
+            if (workType === "需求" || workType === "任务") {
+                cacheItemRows(rows);
             }
             return rows;
         };
@@ -745,7 +754,7 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
             rows = [...pinnedRows, ...rows.filter((x) => !pinnedIds.has(x.backendId || x.workNo))];
             rows = rows.slice(0, pageSize);
         }
-        collectTagOptions(workType === "需求" ? getVisibleStoryRows(rows, ownerValue, statusValue) : rows);
+        collectTagOptions(workType === "需求" || workType === "任务" ? getVisibleChildRows(rows, ownerValue, statusValue) : rows);
         totalCount.value = totalFromApi;
         return { data: rows, total: totalFromApi, current, pageSize };
     }
@@ -852,18 +861,18 @@ const resetCreateBugForm = () => {
 const handleCreateBug = async () => {
     await loadApiMetadata(props.type === "任务");
     createBugDrawerMode.value = "create";
-    createParentStoryId.value = "";
+    createParentItemId.value = "";
     createProjectId.value = "";
     resetCreateBugForm();
     createBugForm.type = props.type ?? createBugForm.type;
     router.replace({ query: { ...route.query, action: "create", parentId: undefined } });
 };
 
-const handleCreateChildStory = async (record: RowItem) => {
-    if (record.type !== "需求" || !record.backendId) return;
-    await loadApiMetadata(false);
+const handleCreateChild = async (record: RowItem) => {
+    if ((record.type !== "需求" && record.type !== "任务") || !record.backendId) return;
+    await loadApiMetadata(record.type === "任务");
     createBugDrawerMode.value = "create";
-    createParentStoryId.value = String(record.backendId);
+    createParentItemId.value = String(record.backendId);
     createProjectId.value = record.projectId || "";
     resetCreateBugForm();
     router.replace({ query: { ...route.query, action: "create", parentId: String(record.backendId), id: undefined } });
@@ -871,7 +880,7 @@ const handleCreateChildStory = async (record: RowItem) => {
 
 const handleCancelCreateBug = () => {
     createBugDrawerOpen.value = false;
-    createParentStoryId.value = "";
+    createParentItemId.value = "";
     createProjectId.value = "";
 };
 
@@ -890,37 +899,38 @@ const handleDetailUpdate = (data: Partial<RowItem>) => {
     }
 };
 
-const toggleStoryExpand = async (record: RowItem) => {
-    if (record.type !== "需求" || !record.childrenCount || !record.backendId) return;
-    const storyId = String(record.backendId);
-    if (expandingStoryIds[storyId]) return;
-    if (expandedStoryIds[storyId]) {
-        expandedStoryIds[storyId] = false;
+const toggleItemExpand = async (record: RowItem) => {
+    if ((record.type !== "需求" && record.type !== "任务") || !record.childrenCount || !record.backendId) return;
+    const itemId = String(record.backendId);
+    if (expandingItemIds[itemId]) return;
+    if (expandedItemIds[itemId]) {
+        expandedItemIds[itemId] = false;
         return;
     }
-    if (!storyChildrenMap[storyId]) {
-        expandingStoryIds[storyId] = true;
+    if (!itemChildrenMap[itemId]) {
+        expandingItemIds[itemId] = true;
         try {
-            await loadChildStories(storyId, record.projectId);
+            await loadChildItems(itemId, record.type, record.projectId);
         } finally {
-            expandingStoryIds[storyId] = false;
+            expandingItemIds[itemId] = false;
         }
     }
-    expandedStoryIds[storyId] = true;
+    expandedItemIds[itemId] = true;
 };
 
 const detailParentRecord = ref<RowItem | null>(null);
 const detailChildRecords = ref<RowItem[]>([]);
+const createParentRecord = computed<RowItem | null>(() => findItemRowById(createParentItemId.value));
 
 const syncDetailRelations = async (record: RowItem) => {
-    if (record.type !== "需求") {
+    if (record.type !== "需求" && record.type !== "任务") {
         detailParentRecord.value = null;
         detailChildRecords.value = [];
         return;
     }
-    detailParentRecord.value = await loadStoryById(record.parentId);
+    detailParentRecord.value = await loadItemById(record.parentId, record.type);
     if (record.backendId && record.childrenCount) {
-        detailChildRecords.value = await loadChildStories(record.backendId, record.projectId);
+        detailChildRecords.value = await loadChildItems(record.backendId, record.type, record.projectId);
     } else {
         detailChildRecords.value = [];
     }
@@ -964,7 +974,8 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
                 }
             } else if (type === "任务") {
                 createdItem = await createVortflowTask({
-                    story_id: String(formData.storyId || ""),
+                    story_id: formData.storyId || undefined,
+                    parent_id: formData.parentId || undefined,
                     title,
                     description: formData.description || "",
                     task_type: "develop",
@@ -986,15 +997,15 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
             }
             if (createdItem) {
                 const pinnedRow = mapBackendItemToRow(createdItem, type, 0);
-                if (type === "需求" && formData.parentId) {
+                if ((type === "需求" || type === "任务") && formData.parentId) {
                     const parentId = formData.parentId;
-                    const existingChildren = storyChildrenMap[parentId] || [];
-                    storyChildrenMap[parentId] = [{ ...pinnedRow, isChild: true }, ...existingChildren];
-                    const parentRow = storyRowsById[parentId];
+                    const existingChildren = itemChildrenMap[parentId] || [];
+                    itemChildrenMap[parentId] = [{ ...pinnedRow, isChild: true }, ...existingChildren];
+                    const parentRow = itemRowsById[parentId];
                     if (parentRow) {
                         parentRow.childrenCount = (parentRow.childrenCount || 0) + 1;
                     }
-                    expandedStoryIds[parentId] = true;
+                    expandedItemIds[parentId] = true;
                 } else {
                     prependPinnedRow(type, pinnedRow);
                 }
@@ -1497,8 +1508,8 @@ onMounted(async () => {
     if (action === "create") {
         await handleCreateBug();
         if (parentId) {
-            createParentStoryId.value = parentId;
-            createProjectId.value = findStoryRowById(parentId)?.projectId || "";
+            createParentItemId.value = parentId;
+            createProjectId.value = findItemRowById(parentId)?.projectId || "";
         }
     } else if (action === "detail" && id) {
         // Find the record by workNo and open detail
@@ -1559,13 +1570,13 @@ onMounted(async () => {
                     <TableCell @click="handleOpenBugDetail(record)">
                         <VortButton class="title-link-cell" :title="text" variant="link" @click.stop="handleOpenBugDetail(record)">
                             <span
-                                v-if="record.type === '需求' && record.childrenCount"
+                                v-if="record.childrenCount"
                                 class="story-expand-toggle"
                                 :class="{
-                                    expanded: expandedStoryIds[String(record.backendId || '')],
-                                    loading: expandingStoryIds[String(record.backendId || '')]
+                                    expanded: expandedItemIds[String(record.backendId || '')],
+                                    loading: expandingItemIds[String(record.backendId || '')]
                                 }"
-                                @click.stop="toggleStoryExpand(record)"
+                                @click.stop="toggleItemExpand(record)"
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" aria-hidden="true" role="img" class="flex-shrink-0 iconify iconify--gitee icon-caret-down" width="1em" height="1em" preserveAspectRatio="xMidYMid meet" viewBox="0 0 16 16"><g fill="none" fill-rule="evenodd"><path d="M0 0h16v16H0z"></path><path fill="currentColor" fill-rule="nonzero" d="m10.835 7.638-2.388 2.666a.628.628 0 01-.441.196.57.57 0 01-.426-.195L5.192 7.638c-.188-.19-.24-.478-.147-.725s.313-.413.556-.413h4.793c.243 0 .462.162.556.411.093.25.058.537-.115.727z"></path></g></svg>
                             </span>
@@ -1780,7 +1791,7 @@ onMounted(async () => {
                     @close="handleCancelCreateBug"
                     @update="handleDetailUpdate"
                     @open-related="handleOpenBugDetail"
-                    @create-child="handleCreateChildStory"
+                    @create-child="handleCreateChild"
                 />
             </template>
             <template v-else>
@@ -1790,7 +1801,8 @@ onMounted(async () => {
                     :title="props.createDrawerTitle"
                     :use-api="props.useApi"
                     :project-id="createProjectId"
-                    :parent-id="createParentStoryId"
+                    :parent-id="createParentItemId"
+                    :parent-record="createParentRecord"
                     @close="handleCancelCreateBug"
                     @success="handleCreateSuccess"
                 />

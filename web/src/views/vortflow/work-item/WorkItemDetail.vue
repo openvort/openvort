@@ -57,7 +57,11 @@ const detailLogsMap = reactive<Record<string, DetailLog[]>>({});
 const detailCurrentRecord = computed(() => record.value);
 const parentRecord = computed(() => props.parentRecord || null);
 const childRecords = computed(() => props.childRecords || []);
-const canCreateChild = computed(() => Boolean(record.value?.backendId) && record.value?.type === "需求");
+const isHierarchyRecord = computed(() => record.value?.type === "需求" || record.value?.type === "任务");
+const canCreateChild = computed(() => Boolean(record.value?.backendId) && isHierarchyRecord.value);
+const childItemLabel = computed(() => record.value?.type === "任务" ? "子任务" : "子需求");
+const addChildLabel = computed(() => record.value?.type === "任务" ? "添加子任务" : "添加子需求");
+const emptyChildText = computed(() => `暂无关联的${childItemLabel.value}`);
 
 const detailComments = computed(() => {
     if (!props.workNo) return [];
@@ -268,15 +272,10 @@ watch(() => props.initialData, (value) => {
                 </WorkItemStatus>
             </div>
 
-            <div v-if="record.type === '需求' && parentRecord" class="story-tree-header">
+            <div v-if="isHierarchyRecord && parentRecord" class="story-tree-header">
                 <div class="story-parent-node" @click="emit('openRelated', parentRecord)">
-                    <span class="work-type-icon-small" :style="{ color: '#64748b' }">
-                        <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" aria-hidden="true" role="img" class="work-type-icon-svg-small" width="1em" height="1em" preserveAspectRatio="xMidYMid meet" viewBox="0 0 16 16">
-                            <g fill="none" fill-rule="evenodd">
-                                <path d="M0 0h16v16H0z"></path>
-                                <path fill="currentColor" fill-rule="nonzero" d="M13.5 1.5a1 1 0 011 1v11a1 1 0 01-1 1h-11a1 1 0 01-1-1v-11a1 1 0 011-1zm-.25 1H2.75a.25.25 0 00-.243.193L2.5 2.75v10.5a.25.25 0 00.193.243l.057.007h10.5a.25.25 0 00.243-.193l.007-.057V2.75a.25.25 0 00-.25-.25zm-7.8 6.05a1.7 1.7 0 110 3.4 1.7 1.7 0 010-3.4zm0 .9a.8.8 0 100 1.6.8.8 0 000-1.6zm6.55.3a.5.5 0 110 1H9a.5.5 0 110-1zM7.736 4.146a.5.5 0 010 .708l-2.122 2.12a.5.5 0 01-.707 0l-1.06-1.06a.5.5 0 11.707-.707l.706.708 1.768-1.769a.5.5 0 01.708 0zM12 5.25a.5.5 0 110 1H9a.5.5 0 110-1z"></path>
-                            </g>
-                        </svg>
+                    <span class="work-type-icon-small" :class="getWorkItemTypeIconClass(parentRecord.type)">
+                        {{ getWorkItemTypeIconSymbol(parentRecord.type) }}
                     </span>
                     <span class="parent-title">{{ parentRecord.title }}</span>
                 </div>
@@ -286,7 +285,7 @@ watch(() => props.initialData, (value) => {
                 </div>
             </div>
             <h2 v-else class="bug-detail-title">{{ record.title }}</h2>
-            <p class="bug-detail-sub" :style="record.type === '需求' && parentRecord ? 'margin-top: 8px;' : ''">
+            <p class="bug-detail-sub" :style="isHierarchyRecord && parentRecord ? 'margin-top: 8px;' : ''">
                 {{ record.owner || "未指派" }}，创建于 {{ record.createdAt }}，最近更新于 {{ record.createdAt }}
             </p>
             <div class="bug-detail-tabs">
@@ -372,11 +371,10 @@ watch(() => props.initialData, (value) => {
                     </div>
                 </div>
 
-                <!-- 子需求栏目 -->
-                <div class="bug-detail-sub-items" v-if="record.type === '需求'">
+                <div class="bug-detail-sub-items" v-if="isHierarchyRecord">
                     <div class="bug-detail-sub-items-head">
                         <div class="flex items-center gap-2">
-                            <h4>子需求</h4>
+                            <h4>{{ childItemLabel }}</h4>
                             <span class="count">{{ childRecords.length }}</span>
                         </div>
                         <VortButton
@@ -386,13 +384,13 @@ watch(() => props.initialData, (value) => {
                             :disabled="!canCreateChild"
                             @click="record && emit('createChild', record)"
                         >
-                            <span class="icon">+</span> 添加子需求
+                            <span class="icon">+</span> {{ addChildLabel }}
                         </VortButton>
                     </div>
                     
                     <div class="bug-detail-sub-items-content">
                         <div v-if="childRecords.length === 0" class="bug-detail-sub-items-empty">
-                            <span class="empty-text">暂无关联的子需求</span>
+                            <span class="empty-text">{{ emptyChildText }}</span>
                         </div>
                         <div v-else class="bug-detail-sub-items-list">
                             <div 
@@ -402,13 +400,8 @@ watch(() => props.initialData, (value) => {
                                 @click="emit('openRelated', child)"
                             >
                                 <div class="sub-item-left">
-                                    <span class="work-type-icon-small text-indigo-500">
-                                        <svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" role="img" width="1em" height="1em" viewBox="0 0 16 16">
-                                            <g fill="none" fill-rule="evenodd">
-                                                <path d="M0 0h16v16H0z"></path>
-                                                <path fill="currentColor" fill-rule="nonzero" d="M13.5 1.5a1 1 0 011 1v11a1 1 0 01-1 1h-11a1 1 0 01-1-1v-11a1 1 0 011-1zm-.25 1H2.75a.25.25 0 00-.243.193L2.5 2.75v10.5a.25.25 0 00.193.243l.057.007h10.5a.25.25 0 00.243-.193l.007-.057V2.75a.25.25 0 00-.25-.25zm-7.8 6.05a1.7 1.7 0 110 3.4 1.7 1.7 0 010-3.4zm0 .9a.8.8 0 100 1.6.8.8 0 000-1.6zm6.55.3a.5.5 0 110 1H9a.5.5 0 110-1zM7.736 4.146a.5.5 0 010 .708l-2.122 2.12a.5.5 0 01-.707 0l-1.06-1.06a.5.5 0 11.707-.707l.706.708 1.768-1.769a.5.5 0 01.708 0zM12 5.25a.5.5 0 110 1H9a.5.5 0 110-1z"></path>
-                                            </g>
-                                        </svg>
+                                    <span class="work-type-icon-small" :class="getWorkItemTypeIconClass(child.type)">
+                                        {{ getWorkItemTypeIconSymbol(child.type) }}
                                     </span>
                                     <span class="sub-item-no">{{ child.workNo }}</span>
                                     <span class="sub-item-title group-hover:text-blue-600">{{ child.title }}</span>
@@ -513,7 +506,7 @@ watch(() => props.initialData, (value) => {
                 <p class="bug-detail-empty">暂无工作日志</p>
             </div>
             <div class="bug-detail-panel" v-else-if="detailActiveTab === 'related'">
-                <template v-if="record.type === '需求' && childRecords.length > 0">
+                <template v-if="isHierarchyRecord && childRecords.length > 0">
                     <div class="story-children-list">
                         <button
                             v-for="child in childRecords"
