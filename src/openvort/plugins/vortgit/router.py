@@ -703,13 +703,16 @@ async def batch_delete_code_tasks(body: CodeTaskBatchDelete, request: Request):
 async def coding_env_status():
     try:
         from openvort.core.coding_env import CodingEnvironment
+        from openvort.config.config_service import ConfigService
         from openvort.plugins.vortgit.config import VortGitSettings
 
         settings = VortGitSettings()
+        config_service = ConfigService(get_session_factory())
         env = CodingEnvironment(
             image=settings.cli_docker_image,
             timeout=settings.cli_timeout,
         )
+        cli_config = await config_service.get_cli_config()
         status = await env.get_status()
         raw = status.to_dict()
         # Reshape cli_tools dict into array for frontend
@@ -719,7 +722,7 @@ async def coding_env_status():
         ]
         raw["cli_tools"] = cli_tools_list
         raw["docker_image_ready"] = raw.pop("coding_image_pulled", False)
-        raw["cli_default_tool"] = settings.cli_default_tool
+        raw["cli_default_tool"] = cli_config["cli_default_tool"]
         raw["has_claude_key"] = bool(settings.claude_code_api_key)
         raw["has_aider_key"] = bool(settings.aider_api_key)
         return raw

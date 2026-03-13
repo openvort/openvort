@@ -1,0 +1,53 @@
+# Dependencies
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Build outputs
+dist/
+build/
+web/dist/
+
+# Lock files
+web/package-lock.json
+web/pnpm-lock.yaml
+
+# Generated type declarations
+web/src/components.d.ts
+
+# Logs & temp
+*.log
+logs/
+.openvort/
+
+# Test & lint caches
+.pytest_cache/
+.coverage
+htmlcov/
+.ruff_cache/
+.mypy_cache/
+
+# IDE & OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Binary & static assets
+*.woff
+*.woff2
+*.ttf
+*.eot
+*.ico
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.mp3
+*.mp4

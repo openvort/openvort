@@ -9,7 +9,7 @@ import {
     CheckCircle, User, Settings, ChevronDown, PanelLeftClose, PanelLeftOpen,
     MessageSquare, Puzzle, Radio, Users, Clock, BookOpen, Webhook, GitBranch, Cpu,
     Kanban, LayoutDashboard, ListChecks, CheckSquare, Bug, Milestone,
-    Wrench, FolderGit2, Server, Shield, Sparkles, Library, Bot
+    Wrench, FolderGit2, Server, Shield, Sparkles, Library, Bot, Store
 } from "lucide-vue-next";
 
 const props = defineProps<{ isMobile?: boolean }>();
@@ -82,7 +82,7 @@ const iconMap: Record<string, any> = {
     kanban: Kanban, "layout-dashboard": LayoutDashboard, "list-checks": ListChecks,
     "check-square": CheckSquare, bug: Bug, milestone: Milestone,
     wrench: Wrench, "folder-git-2": FolderGit2, server: Server, shield: Shield,
-    sparkles: Sparkles, library: Library, bot: Bot,
+    sparkles: Sparkles, library: Library, bot: Bot, store: Store,
 };
 
 const filterByRole = (items: MenuConfig[]) => {

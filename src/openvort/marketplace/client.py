@@ -60,9 +60,16 @@ class MarketplaceClient:
         if category:
             params["category"] = category
 
-        resp = await client.get(f"{self.base_url}/extensions", params=params)
-        resp.raise_for_status()
-        return resp.json()
+        url = f"{self.base_url}/extensions"
+        logger.info("Marketplace upstream request: url=%s params=%s", url, params)
+        try:
+            resp = await client.get(url, params=params)
+            logger.info("Marketplace upstream response: url=%s status=%s", url, resp.status_code)
+            resp.raise_for_status()
+            return resp.json()
+        except Exception:
+            logger.exception("Marketplace upstream request failed: url=%s params=%s", url, params)
+            raise
 
     async def get_skill(self, slug: str, author: str = "") -> dict[str, Any]:
         """Get skill install data (includes content + bundle info)."""
