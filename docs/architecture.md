@@ -84,16 +84,19 @@ src/openvort/
 │   ├── feishu/             # 飞书（WebSocket 长连接 / Event Subscription + OpenAPI）
 │   └── openclaw/           # OpenClaw 多平台网关
 ├── contacts/               # 通讯录（5 Tool，多平台身份映射）
-├── skill/                  # Skill 知识注入系统
+├── skill/                  # Skill 知识注入系统（DB 驱动四级体系）
+├── marketplace/            # 扩展市场集成
+│   ├── client.py           # MarketplaceClient — HTTP client（搜索/安装/发布/Bundle 上下载）
+│   └── installer.py        # MarketplaceInstaller — 安装/卸载/更新（Bundle + pip 双模式）
 ├── auth/                   # RBAC 权限（admin/manager/member/guest）
 ├── web/                    # Web 管理面板后端
 │   ├── app.py              # FastAPI 应用工厂
 │   ├── ws.py               # WebSocket（presence/typing/通知）
 │   ├── webhooks.py         # Webhook 触发器
-│   └── routers/            # API 路由
+│   └── routers/            # API 路由（含 marketplace.py）
 ├── db/                     # SQLAlchemy 2.0 async（PostgreSQL + create_all）
 │   ├── engine.py           # async engine + session factory + auto-migrate
-│   └── models.py           # 基础 ORM 模型
+│   └── models.py           # 基础 ORM 模型（Skill 含 marketplace_slug/version/hash）
 ├── skills/                 # 内置 Skill 示例
 │   ├── code-review/        # 代码评审知识
 │   └── daily-report/       # 日报知识

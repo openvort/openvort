@@ -568,8 +568,8 @@ export function marketplaceListInstalled() {
 }
 
 /** 卸载市场扩展 */
-export function marketplaceUninstall(slug: string) {
-    return request.post("/admin/marketplace/uninstall", { slug });
+export function marketplaceUninstall(slug: string, type: string = "skill") {
+    return request.post("/admin/marketplace/uninstall", { slug, type });
 }
 
 /** 检查市场扩展更新 */

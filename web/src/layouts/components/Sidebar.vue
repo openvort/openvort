@@ -243,7 +243,7 @@ watch([collapsed, () => props.isMobile, () => route.path], () => {
         ]"
     >
         <!-- Logo -->
-        <div class="flex items-center h-[56px] px-4web flex-shrink-0 overflow-hidden">
+        <div class="flex items-center h-[56px] px-4web flex-shrink-0 overflow-hidden ml-3">
             <img :src="openvortLogo" alt="OpenVort" class="h-8 w-auto max-w-none" />
         </div>
 

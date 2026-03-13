@@ -10,7 +10,8 @@
 - **Web 管理面板** — Vue 3 + FastAPI，支持 AI 聊天（SSE 流式）、概览仪表盘、AI 配置中心、项目管理、代码仓库、知识库、汇报、定时任务等
 - **插件化架构** — Plugin 是 OpenVort 的核心扩展单元，Channel（IM 通道）和 Plugin（Tool + Prompt）均可插拔，`pip install` 即可扩展
 - **内置 10 个插件** — 禅道、VortFlow 敏捷流程、VortGit 代码仓库、Jenkins CI/CD、知识库（RAG）、汇报管理、定时任务、浏览器自动化、系统管理
-- **Skill 知识注入** — 三级 Skill 体系（内置/公共/个人），7 个内置 Skill 按岗位自动映射
+- **Skill 知识注入** — 四级 Skill 体系（内置/公共/个人/市场），7 个内置 Skill 按岗位自动映射
+- **扩展市场** — 统一的 Skill + Plugin 市场，支持 Bundle（zip）上传、PyPI 包、CLI 一键发布，SHA-256 内容 Hash 自动检测更新
 - **安全** — RBAC 四级权限、DM 配对、Docker 沙箱、Token 加密
 
 ## 架构
@@ -74,6 +75,8 @@ npm run dev   # Vite dev server，默认 http://localhost:9090，/api 代理到 
 | `OPENVORT_LOG_LEVEL` | 日志级别 | `INFO` |
 | `OPENVORT_WEB_PORT` | Web 面板端口 | `8090` |
 | `OPENVORT_WEB_DEFAULT_PASSWORD` | 成员默认登录密码 | `openvort` |
+| `OPENVORT_MARKETPLACE_URL` | 扩展市场 API 地址 | `https://openvort.com/api` |
+| `OPENVORT_MARKETPLACE_ENABLED` | 是否启用扩展市场 | `true` |
 
 完整配置参考 [`.env.example`](.env.example)。
 
@@ -98,17 +101,53 @@ src/openvort/
 ├── channels/       # IM 通道（企微 / 钉钉 / 飞书 / OpenClaw，含语音工具）
 ├── contacts/       # 通讯录（多平台身份映射 + Service + Resolver）
 ├── services/       # 外部服务集成（ASR 语音识别 / TTS 语音合成 / Embedding 向量嵌入）
-├── skill/          # Skill 加载器（DB 驱动三级体系）
+├── skill/          # Skill 加载器（DB 驱动四级体系）
 ├── skills/         # 内置 Skill 文件（7 个 SKILL.md）
+├── marketplace/    # 扩展市场（Client + Installer，Bundle 下载/解压/安装）
 ├── auth/           # RBAC 权限
-├── web/            # Web 面板后端（FastAPI + JWT + WebSocket + SSE，27 个路由模块）
+├── web/            # Web 面板后端（FastAPI + JWT + WebSocket + SSE，28 个路由模块）
 ├── db/             # 数据库（SQLAlchemy 2.0 async + Alembic 迁移）
-└── cli.py          # CLI 入口
+└── cli.py          # CLI 入口（含 marketplace publish/sync 命令）
 
 web/                # 前端（Vue 3.5 + TypeScript 5.9 + Vite 7 + Tailwind CSS 4）
 ```
 
 详细架构设计参见 [`docs/architecture.md`](docs/architecture.md)。
+
+## 扩展市场
+
+从 [openvort.com](https://openvort.com/extensions) 安装和发布 Skill/Plugin。
+
+### 安装扩展
+
+```bash
+# 安装 Skill
+openvort marketplace install skill author/my-skill
+
+# 安装 Plugin（支持 Bundle 和 PyPI 两种方式）
+openvort marketplace install plugin author/my-plugin
+```
+
+### 发布扩展
+
+```bash
+# 发布本地文件夹（自动检测类型、打包上传）
+openvort marketplace publish ./my-extension
+
+# 指定类型
+openvort marketplace publish ./my-plugin --type plugin
+```
+
+Skill Bundle 应包含 `SKILL.md`（核心内容），Plugin Bundle 应包含完整的插件代码。可选的 `manifest.json` 用于定义元数据。
+
+### 管理扩展
+
+```bash
+openvort marketplace search "keyword"    # 搜索
+openvort marketplace list                # 列出已安装
+openvort marketplace sync --all          # 同步更新（对比版本+Hash）
+openvort marketplace uninstall slug      # 卸载
+```
 
 ## 开发命令
 

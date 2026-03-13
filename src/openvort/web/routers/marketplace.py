@@ -4,7 +4,7 @@ Marketplace API router for the OpenVort admin panel.
 Endpoints for searching, installing, and managing marketplace extensions.
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from openvort.web.deps import get_marketplace_installer
@@ -19,6 +19,7 @@ class InstallRequest(BaseModel):
 
 class UninstallRequest(BaseModel):
     slug: str
+    type: str = "skill"
 
 
 @router.get("/search")
@@ -47,7 +48,7 @@ async def search_marketplace(
 
 @router.post("/install/skill")
 async def install_skill(req: InstallRequest):
-    """Install a skill from the marketplace."""
+    """Install a skill from the marketplace (supports content and bundle)."""
     installer = get_marketplace_installer()
     if not installer:
         raise HTTPException(status_code=503, detail="Marketplace not configured")
@@ -63,7 +64,7 @@ async def install_skill(req: InstallRequest):
 
 @router.post("/install/plugin")
 async def install_plugin(req: InstallRequest):
-    """Install a plugin from the marketplace (requires restart)."""
+    """Install a plugin from the marketplace (supports pip and bundle)."""
     installer = get_marketplace_installer()
     if not installer:
         raise HTTPException(status_code=503, detail="Marketplace not configured")
@@ -81,7 +82,7 @@ async def install_plugin(req: InstallRequest):
 
 @router.get("/installed")
 async def list_installed():
-    """List marketplace-installed extensions."""
+    """List marketplace-installed extensions (skills + plugin bundles)."""
     installer = get_marketplace_installer()
     if not installer:
         raise HTTPException(status_code=503, detail="Marketplace not configured")
@@ -91,13 +92,16 @@ async def list_installed():
 
 @router.post("/uninstall")
 async def uninstall_extension(req: UninstallRequest):
-    """Uninstall a marketplace extension."""
+    """Uninstall a marketplace extension (skill or plugin)."""
     installer = get_marketplace_installer()
     if not installer:
         raise HTTPException(status_code=503, detail="Marketplace not configured")
 
     try:
-        result = await installer.uninstall_skill(req.slug)
+        if req.type == "plugin":
+            result = await installer.uninstall_plugin(req.slug)
+        else:
+            result = await installer.uninstall_skill(req.slug)
         return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -107,7 +111,7 @@ async def uninstall_extension(req: UninstallRequest):
 
 @router.get("/updates")
 async def check_updates():
-    """Check for available updates for installed marketplace extensions."""
+    """Check for available updates (compares version + content hash)."""
     installer = get_marketplace_installer()
     if not installer:
         raise HTTPException(status_code=503, detail="Marketplace not configured")
