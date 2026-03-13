@@ -419,7 +419,8 @@ class OpenAICompatibleProvider(LLMProvider):
                                         "arguments": json.dumps(block.get("input", {})),
                                     },
                                 })
-                    msg_dict: dict[str, Any] = {"role": "assistant", "content": "\n".join(text_parts) or None}
+                    assistant_content = "\n".join(text_parts)
+                    msg_dict: dict[str, Any] = {"role": "assistant", "content": assistant_content}
                     if tool_calls:
                         msg_dict["tool_calls"] = tool_calls
                     oai.append(msg_dict)

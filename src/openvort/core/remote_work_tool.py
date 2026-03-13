@@ -101,12 +101,6 @@ class RemoteWorkTool(BaseTool):
         if not node:
             return f"绑定的远程工作节点（{node_id[:8]}...）不存在，请管理员重新配置。"
 
-        if node.get("status") == "offline":
-            return (
-                f"远程节点「{node['name']}」当前离线（{node['gateway_url']}），"
-                "请检查远程电脑是否开机且节点服务正在运行。"
-            )
-
         context = {
             "employee_name": member_name,
             "employee_post": member_post,
