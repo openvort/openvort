@@ -394,7 +394,22 @@ async def chat_history(request: Request, limit: int = 50, session_id: str = "def
                 entry["images"] = images
             result.append(entry)
 
-    return {"messages": result}
+    # Merge consecutive assistant messages into one (same agentic-loop round)
+    merged_result: list[dict] = []
+    for entry in result:
+        prev = merged_result[-1] if merged_result else None
+        if entry["role"] == "assistant" and prev and prev["role"] == "assistant":
+            if entry["content"]:
+                prev["content"] = (prev["content"] + "\n\n" + entry["content"]).strip()
+            if entry.get("tool_calls"):
+                prev.setdefault("tool_calls", [])
+                prev["tool_calls"].extend(entry["tool_calls"])
+            if not prev.get("avatar_url") and entry.get("avatar_url"):
+                prev["avatar_url"] = entry["avatar_url"]
+        else:
+            merged_result.append(entry)
+
+    return {"messages": merged_result}
 
 
 @router.get("/session-info")
@@ -637,7 +652,18 @@ async def list_contacts(request: Request):
                     "email": m.email or "",
                     "position": m.position or "",
                     "is_virtual": m.is_virtual,
+                    "remote_node_id": m.remote_node_id or "",
                 }
+
+        # Batch fetch remote node statuses for virtual members
+        from openvort.db.models import RemoteNode
+
+        node_ids = {v["remote_node_id"] for v in members_map.values() if v.get("remote_node_id")}
+        node_status_map: dict[str, str] = {}
+        if node_ids:
+            n_stmt = select(RemoteNode.id, RemoteNode.status).where(RemoteNode.id.in_(node_ids))
+            for row in (await db.execute(n_stmt)):
+                node_status_map[row.id] = row.status
 
         seen_targets: set[str] = set()
         for row in member_rows:
@@ -646,6 +672,7 @@ async def list_contacts(request: Request):
                 continue
             seen_targets.add(tid)
             m_info = members_map.get(tid, {})
+            rn_id = m_info.get("remote_node_id", "")
             contacts.append({
                 "type": "member",
                 "id": tid,
@@ -658,6 +685,8 @@ async def list_contacts(request: Request):
                 "session_id": row.session_id,
                 "pinned": row.pinned,
                 "is_virtual": m_info.get("is_virtual", False),
+                "remote_node_id": rn_id,
+                "remote_node_status": node_status_map.get(rn_id, "") if rn_id else "",
             })
 
     # Sort: AI first (always), then pinned members, then by time

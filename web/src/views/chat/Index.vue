@@ -396,22 +396,22 @@ async function loadHistory() {
                 }
                 return msg;
             });
-            // Merge tool-only assistant messages into the next assistant message
+            // Merge consecutive assistant messages (defensive fallback)
             const merged: ChatMessage[] = [];
-            let pendingTools: ToolCall[] = [];
             for (const msg of raw) {
-                if (msg.role === "assistant" && !msg.content && msg.toolCalls?.length) {
-                    pendingTools.push(...msg.toolCalls);
-                } else {
-                    if (msg.role === "assistant" && pendingTools.length) {
-                        msg.toolCalls = [...pendingTools, ...(msg.toolCalls || [])];
-                        pendingTools = [];
+                const last = merged[merged.length - 1];
+                if (msg.role === "assistant" && last?.role === "assistant") {
+                    if (msg.content) {
+                        last.content = last.content
+                            ? last.content + "\n\n" + msg.content
+                            : msg.content;
                     }
+                    if (msg.toolCalls?.length) {
+                        last.toolCalls = [...(last.toolCalls || []), ...msg.toolCalls];
+                    }
+                } else {
                     merged.push(msg);
                 }
-            }
-            if (pendingTools.length) {
-                merged.push({ id: String(++messageCounter), role: "assistant", content: "", toolCalls: pendingTools, timestamp: Date.now() });
             }
             messages.value = merged;
             scrollToBottom();
@@ -1467,6 +1467,8 @@ onMounted(async () => {
             session_id: latestContact?.session_id || restoredContact.session_id || "",
             pinned: latestContact?.pinned,
             is_virtual: latestContact?.is_virtual,
+            remote_node_id: latestContact?.remote_node_id || "",
+            remote_node_status: latestContact?.remote_node_status || "",
         };
         if (restoredContact.session_id) {
             await switchSession(latestContact?.session_id || restoredContact.session_id);
@@ -1548,6 +1550,10 @@ onUnmounted(() => {
                             <h2 class="text-base font-medium text-gray-800">{{ activeContact?.name }}</h2>
                             <span v-if="activeContact?.position" class="ml-2 text-xs text-gray-400">{{ activeContact.position }}</span>
                             <AiEmployeeBadge v-if="activeContact?.is_virtual" class="ml-1.5 flex-shrink-0" />
+                            <VortTooltip v-if="activeContact?.remote_node_id" :title="activeContact.remote_node_status === 'online' ? '远程节点在线' : activeContact.remote_node_status === 'offline' ? '远程节点离线' : '远程节点状态未知'">
+                                <span class="inline-block w-2 h-2 rounded-full ml-1.5 flex-shrink-0"
+                                    :class="activeContact.remote_node_status === 'online' ? 'bg-green-500' : activeContact.remote_node_status === 'offline' ? 'bg-red-400' : 'bg-gray-300'" />
+                            </VortTooltip>
                         </div>
                     </template>
                     <span v-if="loading" class="ml-3 flex items-center text-xs text-gray-400">

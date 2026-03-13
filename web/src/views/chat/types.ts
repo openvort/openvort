@@ -55,6 +55,10 @@ export interface Contact {
     /** Optional virtual role key/name for AI employees */
     virtual_role_key?: string;
     virtual_role_name?: string;
+    /** Bound remote node ID (AI employees only) */
+    remote_node_id?: string;
+    /** Remote node status: online / offline / unknown */
+    remote_node_status?: string;
 }
 
 export interface MentionMember {
