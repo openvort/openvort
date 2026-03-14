@@ -16,6 +16,9 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{
     "update:selectedId": [value: string];
+    createView: [];
+    manageViews: [];
+    pinSidebar: [];
 }>();
 
 const dropdownOpen = ref(false);
@@ -97,16 +100,16 @@ const scopeLabel = (scope: string) => {
 
         <template #footer>
             <div class="py-1">
-                <button type="button" class="footer-action" disabled>
+                <button type="button" class="footer-action" @click="dropdownOpen = false; emit('createView')">
                     <Plus :size="14" class="text-gray-400" />
                     <span>新建视图</span>
                 </button>
-                <button type="button" class="footer-action" disabled>
+                <button type="button" class="footer-action" @click="dropdownOpen = false; emit('manageViews')">
                     <Settings :size="14" class="text-gray-400" />
                     <span>视图管理</span>
                 </button>
                 <div class="border-t border-gray-100 my-1" />
-                <button type="button" class="footer-action" disabled>
+                <button type="button" class="footer-action" @click="dropdownOpen = false; emit('pinSidebar')">
                     <PinOff :size="14" class="text-gray-400" />
                     <span>将视图固定在左侧</span>
                 </button>
@@ -164,7 +167,6 @@ const scopeLabel = (scope: string) => {
     display: flex;
     align-items: center;
     gap: 8px;
-    width: 100%;
     padding: 6px 12px;
     margin: 0 4px;
     border: none;
@@ -172,11 +174,13 @@ const scopeLabel = (scope: string) => {
     border-radius: 6px;
     font-size: 13px;
     color: var(--vort-text-secondary, rgba(0, 0, 0, 0.65));
-    cursor: not-allowed;
-    opacity: 0.5;
+    cursor: pointer;
     transition: background 0.15s;
     text-align: left;
     box-sizing: border-box;
     width: calc(100% - 8px);
+}
+.footer-action:hover {
+    background: rgba(0, 0, 0, 0.04);
 }
 </style>

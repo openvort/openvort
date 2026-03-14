@@ -13,6 +13,17 @@ import WorkItemTagPicker from "@/components/vort-biz/work-item/WorkItemTagPicker
 import WorkItemFilters from "@/components/vort-biz/work-item/WorkItemFilters.vue";
 import WorkItemDetail from "./work-item/WorkItemDetail.vue";
 import WorkItemCreate from "./work-item/WorkItemCreate.vue";
+import MoreActionsDropdown from "./components/MoreActionsDropdown.vue";
+import BatchPropertyEditor from "./components/BatchPropertyEditor.vue";
+import ImportDialog from "./components/ImportDialog.vue";
+import ImportRecordDialog from "./components/ImportRecordDialog.vue";
+import ColumnFilterPopover from "@/components/vort-biz/pro-table/ColumnFilterPopover.vue";
+import type { ColumnFilterConfig, ColumnFilterValue } from "@/components/vort-biz/pro-table/ColumnFilterPopover.vue";
+import ViewSelector from "./components/ViewSelector.vue";
+import ViewManageDialog from "./components/ViewManageDialog.vue";
+import ViewCreateDialog from "./components/ViewCreateDialog.vue";
+import { useVortFlowStore } from "@/stores";
+import { SYSTEM_VIEWS } from "./composables/useVortFlowViews";
 import { useWorkItemCommon } from "./work-item/useWorkItemCommon";
 import {
     getVortflowStory, getVortflowStories, getVortflowTask, getVortflowTasks, getVortflowBugs,
@@ -48,6 +59,23 @@ const props = withDefaults(defineProps<WorkItemTableProps>(), {
 
 const route = useRoute();
 const router = useRouter();
+const vortFlowStore = useVortFlowStore();
+
+const currentWorkItemType = computed(() => (props.type as "需求" | "任务" | "缺陷") || null);
+
+const currentViewId = computed(() => {
+    if (!currentWorkItemType.value) return "all";
+    return vortFlowStore.getViewId(currentWorkItemType.value);
+});
+
+const onViewChange = (viewId: string) => {
+    if (currentWorkItemType.value) {
+        vortFlowStore.setViewId(currentWorkItemType.value, viewId);
+    }
+};
+
+const viewManageOpen = ref(false);
+const viewCreateOpen = ref(false);
 
 const {
     memberOptions,
@@ -196,6 +224,72 @@ const allStatusFilterOptions: StatusOption[] = Array.from(
         [...demandStatusFilterOptions, ...taskStatusFilterOptions, ...bugStatusFilterOptions].map((item) => [item.value, item])
     ).values()
 );
+
+const importDialogOpen = ref(false);
+const importRecordDialogOpen = ref(false);
+const batchPropertyEditorOpen = ref(false);
+const columnFilters = reactive<Record<string, ColumnFilterValue | null>>({});
+const columnSortField = ref<string>("");
+const columnSortOrder = ref<"ascend" | "descend" | null>(null);
+
+const STATUS_DOT_COLOR_MAP: Record<string, string> = {
+    "待确认": "#9ca3af",
+    "修复中": "#3b82f6",
+    "已修复": "#3b82f6",
+    "已关闭": "#374151",
+    "已取消": "#ef4444",
+    "意向": "#64748b",
+    "设计中": "#6366f1",
+    "开发中": "#3b82f6",
+    "测试完成": "#7c3aed",
+    "已完成": "#059669",
+    "待办的": "#64748b",
+    "进行中": "#3b82f6",
+    "延期处理": "#0284c7",
+    "设计如此": "#d97706",
+    "再次打开": "#ef4444",
+    "无法复现": "#d97706",
+    "暂时搁置": "#6b7280",
+    "开发完成": "#0891b2",
+    "待发布": "#d97706",
+    "发布完成": "#059669",
+};
+
+const statusFilterConfig = computed<ColumnFilterConfig>(() => ({
+    type: "enum",
+    options: currentStatusFilterOptions.value.map(o => ({
+        label: o.label,
+        value: o.value,
+        dotColor: STATUS_DOT_COLOR_MAP[o.label] || "#9ca3af",
+    })),
+}));
+
+const dateFilterConfig: ColumnFilterConfig = { type: "date" };
+
+const tagsFilterConfig = computed<ColumnFilterConfig>(() => ({
+    type: "enum",
+    options: (dynamicTagOptions.value.length ? dynamicTagOptions.value : baseTagOptions).map(t => ({
+        label: t,
+        value: t,
+    })),
+    sortLabels: ["A → Z", "Z → A"] as [string, string],
+}));
+
+const handleColumnSort = (field: string, order: "ascend" | "descend" | null) => {
+    columnSortField.value = order ? field : "";
+    columnSortOrder.value = order;
+    tableRef.value?.refresh?.();
+};
+
+const handleColumnFilter = (field: string, value: ColumnFilterValue | null) => {
+    if (value) columnFilters[field] = value;
+    else delete columnFilters[field];
+    tableRef.value?.refresh?.();
+};
+
+const handleExportCsv = () => { message.info("CSV 导出功能开发中"); };
+const handleExportExcel = () => { message.info("Excel 导出功能开发中"); };
+const handleExportJson = () => { message.info("JSON 导出功能开发中"); };
 
 const priorityModel = reactive<Record<string, Priority>>({});
 const tagsModel = reactive<Record<string, string[]>>({});
@@ -407,9 +501,6 @@ const mapBackendItemToRow = (item: any, typeValue: WorkItemType, index: number):
     const tags: string[] = Array.isArray(item?.tags)
         ? (item.tags as any[]).map((x) => String(x || "").trim()).filter(Boolean)
         : [];
-    if (typeValue === "任务" && item?.task_type) tags.push(String(item.task_type));
-    if (typeValue === "需求" && item?.project_id) tags.push("需求");
-    if (typeValue === "缺陷" && item?.severity) tags.push(`S${item.severity}`);
 
     const planDate = deadline || formatDate(created);
     return {
@@ -468,6 +559,95 @@ const getVisibleChildRows = (rows: RowItem[], ownerValue = owner.value, statusVa
 
 const postProcessTableRows = (rows: RowItem[]) => getVisibleChildRows(rows);
 
+const SORT_FIELD_MAP: Record<string, string> = {
+    createdAt: "created_at",
+    priority: "priority",
+    title: "title",
+    status: "state",
+    planTime: "deadline",
+    owner: "assignee_id",
+    creator: "creator_id",
+};
+
+const SORT_FIELD_OVERRIDES: Record<string, Record<string, string>> = {
+    "需求": { owner: "pm_id", creator: "submitter_id" },
+    "缺陷": { creator: "reporter_id" },
+};
+
+const applyColumnFilters = (rows: RowItem[]): RowItem[] => {
+    const filters = columnFilters;
+    if (!Object.keys(filters).length) return rows;
+
+    return rows.filter(row => {
+        for (const [field, fv] of Object.entries(filters)) {
+            if (!fv) continue;
+            if (field === "status") {
+                const vals = fv.value as string[];
+                if (vals?.length && !vals.includes(row.status)) return false;
+            } else if (field === "tags") {
+                const vals = fv.value as string[];
+                if (vals?.length) {
+                    const rowTags: string[] = row.tags || [];
+                    if (!vals.some(v => rowTags.includes(v))) return false;
+                }
+            } else if (field === "createdAt" || field === "planTime") {
+                const rowVal = field === "createdAt" ? row.createdAt : (row.planStartDate || row.planEndDate || "");
+                if (!rowVal) return false;
+                const rowDate = new Date(rowVal).getTime();
+                if (isNaN(rowDate)) return false;
+                const { operator, value } = fv;
+                if (operator === "between") {
+                    const [start, end] = value as [string, string];
+                    if (start && rowDate < new Date(start).getTime()) return false;
+                    if (end && rowDate > new Date(end + "T23:59:59").getTime()) return false;
+                } else {
+                    const target = new Date(value).getTime();
+                    if (isNaN(target)) continue;
+                    if (operator === "gt" && rowDate <= target) return false;
+                    if (operator === "lt" && rowDate >= target) return false;
+                    if (operator === "gte" && rowDate < target) return false;
+                    if (operator === "lte" && rowDate > target) return false;
+                    if (operator === "eq" && new Date(rowVal).toDateString() !== new Date(value).toDateString()) return false;
+                }
+            }
+        }
+        return true;
+    });
+};
+
+const applyColumnSort = (rows: RowItem[]): RowItem[] => {
+    const field = columnSortField.value;
+    const order = columnSortOrder.value;
+    if (!field || !order) return rows;
+
+    const sorted = [...rows];
+    const dir = order === "ascend" ? 1 : -1;
+
+    sorted.sort((a, b) => {
+        let va: any;
+        let vb: any;
+        if (field === "status") {
+            va = a.status || "";
+            vb = b.status || "";
+        } else if (field === "tags") {
+            va = (a.tags || []).join(",");
+            vb = (b.tags || []).join(",");
+        } else if (field === "createdAt") {
+            va = a.createdAt || "";
+            vb = b.createdAt || "";
+        } else if (field === "planTime") {
+            va = a.planStartDate || a.planEndDate || "";
+            vb = b.planStartDate || b.planEndDate || "";
+        } else {
+            return 0;
+        }
+        if (va < vb) return -1 * dir;
+        if (va > vb) return 1 * dir;
+        return 0;
+    });
+    return sorted;
+};
+
 const request = async (params: ProTableRequestParams): Promise<ProTableResponse<RowItem>> => {
     const kw = String(params.keyword ?? "").trim().toLowerCase();
     const ownerValue = String(params.owner ?? "").trim();
@@ -476,6 +656,13 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
     const statusValue = String(params.status ?? "").trim();
     const current = Number(params.current || 1);
     const pageSize = Number(params.pageSize || 20);
+
+    const effectiveSortField = columnSortField.value || params.sortField || "";
+    const effectiveSortOrder = columnSortOrder.value || params.sortOrder || null;
+    const typeOverrides = SORT_FIELD_OVERRIDES[typeValue];
+    let backendSortBy = (typeOverrides && typeOverrides[effectiveSortField]) || SORT_FIELD_MAP[effectiveSortField] || "";
+    if (backendSortBy === "priority" && typeValue === "缺陷") backendSortBy = "severity";
+    const backendSortOrder = effectiveSortOrder === "ascend" ? "asc" : effectiveSortOrder === "descend" ? "desc" : "";
 
     if (props.useApi && (typeValue === "需求" || typeValue === "任务" || typeValue === "缺陷")) {
         const workType = typeValue as WorkItemType;
@@ -490,6 +677,7 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
         const viewCreator = vf.creator || undefined;
         const viewParticipant = vf.participant || undefined;
         const effectiveAssignee = ownerMemberId || viewOwner || undefined;
+        const sortParams = backendSortBy ? { sort_by: backendSortBy, sort_order: backendSortOrder } : {};
         const requestByState = async (state?: string, page = current, size = pageSize) => {
             if (workType === "需求") {
                 return getVortflowStories({
@@ -498,6 +686,7 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
                     pm_id: ownerMemberId || viewOwner || undefined,
                     submitter_id: viewCreator,
                     participant_id: viewParticipant,
+                    ...sortParams,
                     page, page_size: size
                 });
             }
@@ -510,6 +699,7 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
                     project_id: projectIdParam,
                     creator_id: viewCreator,
                     participant_id: viewParticipant,
+                    ...sortParams,
                     page,
                     page_size: size
                 });
@@ -521,6 +711,7 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
                 project_id: projectIdParam,
                 reporter_id: viewCreator,
                 participant_id: viewParticipant,
+                ...sortParams,
                 page,
                 page_size: size
             });
@@ -601,6 +792,9 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
             rows = rows.filter((x) => !completedStatuses.has(x.status));
             totalFromApi = rows.length;
         }
+        rows = applyColumnFilters(rows);
+        rows = applyColumnSort(rows);
+        totalFromApi = rows.length;
         collectTagOptions(workType === "需求" || workType === "任务" ? getVisibleChildRows(rows, ownerValue, statusValue) : rows);
         totalCount.value = totalFromApi;
         return { data: rows, total: totalFromApi, current, pageSize };
@@ -1308,15 +1502,36 @@ onMounted(async () => {
             @search="tableRef?.refresh?.()"
             @reset="onReset"
             @create="handleCreateBug"
-        />
+        >
+            <template v-if="currentWorkItemType" #before-count>
+                <ViewSelector
+                    :views="SYSTEM_VIEWS"
+                    :selected-id="currentViewId"
+                    @update:selected-id="onViewChange"
+                    @create-view="viewCreateOpen = true"
+                    @manage-views="viewManageOpen = true"
+                />
+            </template>
+            <template #extra-actions>
+                <MoreActionsDropdown
+                    @import="importDialogOpen = true"
+                    @import-records="importRecordDialogOpen = true"
+                    @export-csv="handleExportCsv"
+                    @export-excel="handleExportExcel"
+                    @export-json="handleExportJson"
+                    @batch-ops="batchPropertyEditorOpen = true"
+                />
+            </template>
+        </WorkItemFilters>
 
         <div class="bg-white rounded-xl p-4">
             <div v-if="selectedRows.length > 0" class="mb-3 flex items-center gap-3 text-sm">
-                <span class="text-gray-500">已选 {{ selectedRows.length }} 项</span>
+                <span class="text-blue-500 font-medium">已选择 {{ selectedRows.length }} 个工作项</span>
+                <VortButton variant="text" @click="batchPropertyEditorOpen = true">修改属性</VortButton>
                 <vort-popconfirm title="确认批量删除选中记录？" @confirm="handleBatchDelete">
-                    <VortButton  variant="text" danger>批量删除</VortButton>
+                    <VortButton variant="text" danger>删除</VortButton>
                 </vort-popconfirm>
-                <VortButton  variant="link" @click="clearSelection">取消选择</VortButton>
+                <VortButton variant="link" @click="clearSelection">取消选择</VortButton>
             </div>
             <ProTable
                 ref="tableRef"
@@ -1330,6 +1545,58 @@ onMounted(async () => {
                 :toolbar="false"
                 bordered
             >
+                <template #header-status="{ column }">
+                    <span>{{ column.title }}</span>
+                    <ColumnFilterPopover
+                        field="status"
+                        :title="column.title || ''"
+                        :config="statusFilterConfig"
+                        :sort-order="columnSortField === 'status' ? columnSortOrder : null"
+                        :filter-value="columnFilters['status']"
+                        @sort="(o) => handleColumnSort('status', o)"
+                        @filter="(v) => handleColumnFilter('status', v)"
+                    />
+                </template>
+
+                <template #header-createdAt="{ column }">
+                    <span>{{ column.title }}</span>
+                    <ColumnFilterPopover
+                        field="createdAt"
+                        :title="column.title || ''"
+                        :config="dateFilterConfig"
+                        :sort-order="columnSortField === 'createdAt' ? columnSortOrder : null"
+                        :filter-value="columnFilters['createdAt']"
+                        @sort="(o) => handleColumnSort('createdAt', o)"
+                        @filter="(v) => handleColumnFilter('createdAt', v)"
+                    />
+                </template>
+
+                <template #header-tags="{ column }">
+                    <span>{{ column.title }}</span>
+                    <ColumnFilterPopover
+                        field="tags"
+                        :title="column.title || ''"
+                        :config="tagsFilterConfig"
+                        :sort-order="columnSortField === 'tags' ? columnSortOrder : null"
+                        :filter-value="columnFilters['tags']"
+                        @sort="(o) => handleColumnSort('tags', o)"
+                        @filter="(v) => handleColumnFilter('tags', v)"
+                    />
+                </template>
+
+                <template #header-planTime="{ column }">
+                    <span>{{ column.title }}</span>
+                    <ColumnFilterPopover
+                        field="planTime"
+                        :title="column.title || ''"
+                        :config="dateFilterConfig"
+                        :sort-order="columnSortField === 'planTime' ? columnSortOrder : null"
+                        :filter-value="columnFilters['planTime']"
+                        @sort="(o) => handleColumnSort('planTime', o)"
+                        @filter="(v) => handleColumnFilter('planTime', v)"
+                    />
+                </template>
+
                 <template #workNo="{ text }">
                     <TableCell>
                         <span class="text-sm text-gray-700">{{ text }}</span>
@@ -1619,6 +1886,17 @@ onMounted(async () => {
                 <VortButton variant="primary" class="ml-2" @click="handleConfirmCreateTag">确定</VortButton>
             </template>
         </VortDialog>
+
+        <ImportDialog v-model:open="importDialogOpen" />
+        <ImportRecordDialog v-model:open="importRecordDialogOpen" />
+        <BatchPropertyEditor
+            v-model:open="batchPropertyEditorOpen"
+            :selected-rows="selectedRows"
+            :work-item-type="(props.type || '缺陷') as WorkItemType"
+            :status-options="currentStatusFilterOptions"
+        />
+        <ViewManageDialog v-model:open="viewManageOpen" :views="SYSTEM_VIEWS" />
+        <ViewCreateDialog v-model:open="viewCreateOpen" />
     </div>
 </template>
 

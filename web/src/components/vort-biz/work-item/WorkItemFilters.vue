@@ -115,9 +115,10 @@ const onCreate = () => emit("create");
 
 <template>
     <div class="bg-white rounded-xl p-4">
-        <h3 class="text-base font-medium text-gray-800 mb-3">{{ props.pageTitle }}</h3>
+        <h3 v-if="!$slots['before-count']" class="text-base font-medium text-gray-800 mb-3">{{ props.pageTitle }}</h3>
         <div class="flex flex-wrap items-center gap-3 text-sm">
-            <div class="text-gray-600"><span class="text-gray-900 font-medium">共{{ totalCount }}项</span></div>
+            <slot name="before-count" />
+            <div class="text-gray-600"><span class="text-gray-900 font-medium">共 {{ totalCount }} 项</span></div>
             <div class="w-[180px] shrink-0">
                 <VortInput v-model="keyword" placeholder="输入关键词" @keyup.enter="onSearch" />
             </div>
@@ -262,7 +263,10 @@ const onCreate = () => emit("create");
 
             <VortButton variant="primary" @click="onSearch">查询</VortButton>
             <VortButton @click="onReset">重置</VortButton>
-            <VortButton variant="primary" class="ml-auto" @click="onCreate">{{ props.createButtonText }}</VortButton>
+            <div class="ml-auto flex items-center gap-2">
+                <VortButton variant="primary" @click="onCreate">{{ props.createButtonText }}</VortButton>
+                <slot name="extra-actions" />
+            </div>
         </div>
     </div>
 </template>

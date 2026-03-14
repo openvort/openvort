@@ -3,11 +3,12 @@
 import json
 from datetime import datetime
 
-from fastapi import APIRouter, Body, Query
+from fastapi import APIRouter, Body, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import func, select, delete as sa_delete
 
 from openvort.db.engine import get_session_factory
+from openvort.web.app import require_auth
 from openvort.plugins.vortflow.engine import (
     STORY_TRANSITIONS, TASK_TRANSITIONS, BUG_TRANSITIONS,
     StoryState, TaskState, BugState,
@@ -509,6 +510,17 @@ async def remove_project_member(project_id: str, member_id: str):
 
 # ============ Story CRUD + Transition ============
 
+def _apply_sort(stmt, model, sort_by: str, sort_order: str, default_col=None):
+    """Apply dynamic sorting to a SQLAlchemy select statement."""
+    col = getattr(model, sort_by, None) if sort_by else None
+    if col is not None:
+        order_fn = col.asc() if sort_order == "asc" else col.desc()
+        return stmt.order_by(order_fn, model.id.desc())
+    if default_col is not None:
+        return stmt.order_by(default_col.desc(), model.id.desc())
+    return stmt.order_by(model.created_at.desc(), model.id.desc())
+
+
 @router.get("/stories")
 async def list_stories(
     project_id: str = Query("", description="按项目过滤"),
@@ -519,12 +531,14 @@ async def list_stories(
     submitter_id: str = Query("", description="按创建者过滤"),
     pm_id: str = Query("", description="按负责人过滤"),
     participant_id: str = Query("", description="按参与者过滤（检查 collaborators）"),
+    sort_by: str = Query("", description="排序字段"),
+    sort_order: str = Query("desc", description="排序方向 asc/desc"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):
     sf = get_session_factory()
     async with sf() as session:
-        stmt = select(FlowStory).order_by(FlowStory.created_at.desc(), FlowStory.id.desc())
+        stmt = _apply_sort(select(FlowStory), FlowStory, sort_by, sort_order, FlowStory.created_at)
         count_stmt = select(func.count()).select_from(FlowStory)
         if project_id:
             stmt = stmt.where(FlowStory.project_id == project_id)
@@ -601,7 +615,9 @@ async def get_story(story_id: str):
     }
 
 @router.post("/stories")
-async def create_story(body: StoryCreate):
+async def create_story(body: StoryCreate, request: Request):
+    payload = require_auth(request)
+    member_id = payload.get("sub", "")
     sf = get_session_factory()
     async with sf() as session:
         normalized_parent_id, parent_error = await _validate_story_parent(
@@ -615,6 +631,7 @@ async def create_story(body: StoryCreate):
             project_id=body.project_id, title=body.title,
             description=body.description, priority=body.priority,
             parent_id=normalized_parent_id,
+            submitter_id=member_id or None,
             tags_json=json.dumps(body.tags or [], ensure_ascii=False),
             collaborators_json=json.dumps(body.collaborators or [], ensure_ascii=False),
             deadline=_parse_dt(body.deadline),
@@ -747,12 +764,14 @@ async def list_tasks(
     project_id: str = Query("", description="按项目过滤（通过关联需求）"),
     creator_id: str = Query("", description="按创建者过滤"),
     participant_id: str = Query("", description="按参与者过滤（检查 collaborators）"),
+    sort_by: str = Query("", description="排序字段"),
+    sort_order: str = Query("desc", description="排序方向 asc/desc"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):
     sf = get_session_factory()
     async with sf() as session:
-        stmt = select(FlowTask).order_by(FlowTask.created_at.desc(), FlowTask.id.desc())
+        stmt = _apply_sort(select(FlowTask), FlowTask, sort_by, sort_order, FlowTask.created_at)
         count_stmt = select(func.count()).select_from(FlowTask)
         if project_id:
             project_story_ids = select(FlowStory.id).where(FlowStory.project_id == project_id)
@@ -821,7 +840,9 @@ async def get_task(task_id: str):
     return {**_task_dict(r), "children_count": children_count}
 
 @router.post("/tasks")
-async def create_task(body: TaskCreate):
+async def create_task(body: TaskCreate, request: Request):
+    payload = require_auth(request)
+    member_id = payload.get("sub", "")
     sf = get_session_factory()
     async with sf() as session:
         resolved_story_id, normalized_parent_id, parent_error = await _resolve_task_story_and_parent(
@@ -834,7 +855,7 @@ async def create_task(body: TaskCreate):
         t = FlowTask(
             story_id=resolved_story_id, parent_id=normalized_parent_id, title=body.title,
             description=body.description, task_type=body.task_type,
-            assignee_id=body.assignee_id, creator_id=body.creator_id,
+            assignee_id=body.assignee_id, creator_id=member_id or body.creator_id,
             estimate_hours=body.estimate_hours,
             tags_json=json.dumps(body.tags or [], ensure_ascii=False),
             collaborators_json=json.dumps(body.collaborators or [], ensure_ascii=False),
@@ -953,12 +974,14 @@ async def list_bugs(
     project_id: str = Query("", description="按项目过滤（通过关联需求）"),
     reporter_id: str = Query("", description="按报告者过滤"),
     participant_id: str = Query("", description="按参与者过滤（检查 collaborators）"),
+    sort_by: str = Query("", description="排序字段"),
+    sort_order: str = Query("desc", description="排序方向 asc/desc"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):
     sf = get_session_factory()
     async with sf() as session:
-        stmt = select(FlowBug).order_by(FlowBug.created_at.desc(), FlowBug.id.desc())
+        stmt = _apply_sort(select(FlowBug), FlowBug, sort_by, sort_order, FlowBug.created_at)
         count_stmt = select(func.count()).select_from(FlowBug)
         if project_id:
             project_story_ids = select(FlowStory.id).where(FlowStory.project_id == project_id)
@@ -1002,13 +1025,16 @@ async def get_bug(bug_id: str):
     return _bug_dict(r)
 
 @router.post("/bugs")
-async def create_bug(body: BugCreate):
+async def create_bug(body: BugCreate, request: Request):
+    payload = require_auth(request)
+    member_id = payload.get("sub", "")
     sf = get_session_factory()
     async with sf() as session:
         b = FlowBug(
             story_id=body.story_id, task_id=body.task_id,
             title=body.title, description=body.description,
             severity=body.severity, assignee_id=body.assignee_id,
+            reporter_id=member_id or None,
             tags_json=json.dumps(body.tags or [], ensure_ascii=False),
             collaborators_json=json.dumps(body.collaborators or [], ensure_ascii=False),
         )

@@ -52,7 +52,7 @@ const triggerClasses = computed(() => {
         </DropdownMenuSubTrigger>
 
         <DropdownMenuPortal v-if="shouldRenderPortal">
-            <DropdownMenuSubContent class="vort-dropdown-menu-sub-content vort-dropdown" :side-offset="4" :align-offset="-4" @animationend="handleAnimationEnd">
+            <DropdownMenuSubContent class="vort-dropdown-menu-sub-content vort-dropdown" data-slot="dropdown-content" :side-offset="4" :align-offset="-4" @animationend="handleAnimationEnd">
                 <slot />
             </DropdownMenuSubContent>
         </DropdownMenuPortal>
