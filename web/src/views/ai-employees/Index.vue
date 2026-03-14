@@ -642,14 +642,17 @@ async function loadRemoteNodes() {
                                 >
                                     <Webhook :size="12" />
                                 </span>
-                                <span
+                                <vort-tip
                                     v-if="emp.remote_node_id && getNodeInfo(emp.remote_node_id)"
-                                    class="flex items-center"
-                                    :class="getNodeInfo(emp.remote_node_id)?.status === 'online' ? 'text-emerald-500' : 'text-red-400'"
                                     :title="`远程节点: ${getNodeInfo(emp.remote_node_id)?.name || ''}`"
                                 >
-                                    <Cpu :size="12" />
-                                </span>
+                                    <span
+                                        class="flex items-center"
+                                        :class="getNodeInfo(emp.remote_node_id)?.status === 'online' ? 'text-emerald-500' : 'text-red-400'"
+                                    >
+                                        <Cpu :size="12" />
+                                    </span>
+                                </vort-tip>
                             </div>
                         </div>
                         <VortButton

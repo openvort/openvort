@@ -113,6 +113,7 @@ const componentMap: Record<string, { from: string; name: string }> = {
 
     // Tooltip
     VortTooltip: { from: "@/components/vort/tooltip", name: "Tooltip" },
+    VortTip: { from: "@/components/vort/tooltip", name: "Tooltip" },
 
     // Tag
     VortTag: { from: "@/components/vort/tag", name: "Tag" },

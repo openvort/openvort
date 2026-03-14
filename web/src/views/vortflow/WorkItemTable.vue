@@ -498,18 +498,75 @@ const handleColumnSettingsSave = (settings: ColumnSettingItem[]) => {
     columnSettings.value = settings;
     const typeKey = props.type || "";
     if (typeKey) {
+        const existing = vortFlowStore.getColumnSettings(typeKey);
+        const widthMap = new Map<string, number>();
+        if (existing) {
+            for (const p of existing) {
+                if (p.width) widthMap.set(p.key, p.width);
+            }
+        }
         vortFlowStore.setColumnSettings(
             typeKey,
-            settings.map(s => ({ key: s.key, visible: s.visible })),
+            settings.map(s => {
+                const w = widthMap.get(s.key);
+                return w ? { key: s.key, visible: s.visible, width: w } : { key: s.key, visible: s.visible };
+            }),
         );
     }
 };
 
+const handleColumnWidthChange = (widths: Record<string, number>) => {
+    const typeKey = props.type || "";
+    if (!typeKey) return;
+    const existing = vortFlowStore.getColumnSettings(typeKey);
+    if (!existing || existing.length === 0) return;
+    const updated = existing.map(p => {
+        const w = widths[p.key];
+        return w ? { ...p, width: w } : p;
+    });
+    vortFlowStore.setColumnSettings(typeKey, updated);
+};
+
+const applyOrderedColumnSettings = (
+    current: ColumnSettingItem[],
+    saved: Array<{ key: string; visible: boolean }>,
+): ColumnSettingItem[] => {
+    if (!saved?.length) return current;
+    const currentMap = new Map(current.map((item) => [item.key, item]));
+    const next: ColumnSettingItem[] = [];
+    const seen = new Set<string>();
+
+    for (const item of saved) {
+        const currentItem = currentMap.get(item.key);
+        if (!currentItem) continue;
+        next.push({ ...currentItem, visible: item.visible });
+        seen.add(item.key);
+    }
+
+    for (const item of current) {
+        if (seen.has(item.key)) continue;
+        next.push(item);
+    }
+
+    return next;
+};
+
 const columns = computed<ProTableColumn<RowItem>[]>(() => {
-    const visibleKeys = new Set(columnSettings.value.filter(s => s.visible).map(s => s.key));
     const orderedKeys = columnSettings.value.filter(s => s.visible).map(s => s.key);
     const colMap = new Map(ALL_COLUMN_DEFS.map(c => [c.key, c]));
-    return orderedKeys.map(k => colMap.get(k)!).filter(Boolean);
+    const persisted = vortFlowStore.getColumnSettings(props.type || "");
+    const widthMap = new Map<string, number>();
+    if (persisted) {
+        for (const p of persisted) {
+            if (p.width) widthMap.set(p.key, p.width);
+        }
+    }
+    return orderedKeys.map(k => {
+        const def = colMap.get(k);
+        if (!def) return null;
+        const savedWidth = widthMap.get(k);
+        return savedWidth ? { ...def, width: savedWidth } : def;
+    }).filter(Boolean) as ProTableColumn<RowItem>[];
 });
 
 // ---- View dirty tracking ----
@@ -666,11 +723,10 @@ watch(currentViewId, () => {
         }
     }
     if (cv?.columns?.length) {
-        const savedMap = new Map(cv.columns.map((c: any) => [c.key, c.visible]));
-        columnSettings.value = columnSettings.value.map(s => ({
-            ...s,
-            visible: savedMap.has(s.key) ? savedMap.get(s.key)! : s.visible,
-        }));
+        columnSettings.value = applyOrderedColumnSettings(
+            columnSettings.value,
+            cv.columns.map((c: any) => ({ key: c.key, visible: c.visible })),
+        );
     }
     nextTick(() => resetViewBaseline());
 });
@@ -840,6 +896,8 @@ const mapBackendItemToRow = (item: any, typeValue: WorkItemType, index: number):
     const updated = item?.updated_at ? new Date(item.updated_at) : null;
     const updatedAt = updated ? formatCnTime(updated) : "";
     const estimateHours = item?.estimate_hours != null ? item.estimate_hours : undefined;
+    const iterationId = item?.iteration_id ? String(item.iteration_id) : "";
+    const versionId = item?.version_id ? String(item.version_id) : "";
     return {
         backendId,
         workNo,
@@ -862,7 +920,13 @@ const mapBackendItemToRow = (item: any, typeValue: WorkItemType, index: number):
         creator: creatorName,
         projectId: item?.project_id ? String(item.project_id) : "",
         projectName: item?.project_id ? (apiProjects.value.find(p => p.id === String(item.project_id))?.name || "") : "",
+        iterationId,
+        iteration: item?.iteration_name ? String(item.iteration_name) : "",
+        versionId,
+        version: item?.version_name ? String(item.version_name) : "",
         estimateHours,
+        _prevIteration: iterationId,
+        _prevVersion: versionId,
     };
 };
 
@@ -1278,11 +1342,11 @@ const handleDetailUpdate = async (data: Partial<RowItem>) => {
         const deadline = (pt && pt[1]) ? pt[1] : undefined;
         await syncRecordUpdateToApi(rec, { deadline: deadline || undefined });
     }
-    if (data.iteration !== undefined) {
+    if (data.iterationId !== undefined || data.iteration !== undefined) {
         const itemId = getRecordBackendId(rec);
         if (itemId) {
             const prevIter = rec._prevIteration || "";
-            const nextIter = data.iteration || "";
+            const nextIter = data.iterationId ?? rec.iterationId ?? "";
             if (prevIter && prevIter !== nextIter) {
                 if (rec.type === "需求") await removeVortflowIterationStory(prevIter, itemId).catch(() => {});
                 else if (rec.type === "任务") await removeVortflowIterationTask(prevIter, itemId).catch(() => {});
@@ -1294,11 +1358,11 @@ const handleDetailUpdate = async (data: Partial<RowItem>) => {
             rec._prevIteration = nextIter;
         }
     }
-    if (data.version !== undefined && rec.type === "需求") {
+    if ((data.versionId !== undefined || data.version !== undefined) && rec.type === "需求") {
         const itemId = getRecordBackendId(rec);
         if (itemId) {
             const prevVer = rec._prevVersion || "";
-            const nextVer = data.version || "";
+            const nextVer = data.versionId ?? rec.versionId ?? "";
             if (prevVer && prevVer !== nextVer) {
                 await removeVortflowVersionStory(prevVer, itemId).catch(() => {});
             }
@@ -1895,6 +1959,12 @@ const loadApiMetadata = async (withStories = false) => {
 };
 
 onMounted(async () => {
+    const hasCachedColumns = !!vortFlowStore.getColumnSettings(props.type || "");
+    if (hasCachedColumns) {
+        columnSettings.value = loadColumnSettingsFromStore();
+        resetViewBaseline();
+    }
+
     await loadMemberOptions();
     await Promise.all([
         loadApiMetadata(false),
@@ -2026,6 +2096,7 @@ onMounted(async () => {
                 :pagination="{ pageSize: 20, showSizeChanger: true, showQuickJumper: true, pageSizeOptions: [10, 20, 50] }"
                 :toolbar="false"
                 bordered
+                @column-width-change="handleColumnWidthChange"
             >
                 <template #header-status="{ column }">
                     <span>{{ column.title }}</span>

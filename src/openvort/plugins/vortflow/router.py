@@ -269,6 +269,86 @@ def _bug_dict(r: FlowBug) -> dict:
         "updated_at": r.updated_at.isoformat() if r.updated_at else None,
     }
 
+
+async def _attach_story_links(session, items: list[dict]) -> list[dict]:
+    story_ids = [str(item.get("id") or "").strip() for item in items if item.get("id")]
+    if not story_ids:
+        return items
+
+    iteration_rows = await session.execute(
+        select(FlowIterationStory.story_id, FlowIteration.id, FlowIteration.name)
+        .join(FlowIteration, FlowIteration.id == FlowIterationStory.iteration_id)
+        .where(FlowIterationStory.story_id.in_(story_ids))
+    )
+    story_iteration_map: dict[str, tuple[str, str]] = {}
+    for story_id, iteration_id, iteration_name in iteration_rows.all():
+        sid = str(story_id or "")
+        if sid and sid not in story_iteration_map:
+            story_iteration_map[sid] = (str(iteration_id or ""), str(iteration_name or ""))
+
+    version_rows = await session.execute(
+        select(FlowVersionStory.story_id, FlowVersion.id, FlowVersion.name)
+        .join(FlowVersion, FlowVersion.id == FlowVersionStory.version_id)
+        .where(FlowVersionStory.story_id.in_(story_ids))
+    )
+    story_version_map: dict[str, tuple[str, str]] = {}
+    for story_id, version_id, version_name in version_rows.all():
+        sid = str(story_id or "")
+        if sid and sid not in story_version_map:
+            story_version_map[sid] = (str(version_id or ""), str(version_name or ""))
+
+    for item in items:
+        sid = str(item.get("id") or "").strip()
+        iteration = story_iteration_map.get(sid)
+        version = story_version_map.get(sid)
+        item["iteration_id"] = iteration[0] if iteration else ""
+        item["iteration_name"] = iteration[1] if iteration else ""
+        item["version_id"] = version[0] if version else ""
+        item["version_name"] = version[1] if version else ""
+    return items
+
+
+async def _attach_task_links(session, items: list[dict]) -> list[dict]:
+    task_ids = [str(item.get("id") or "").strip() for item in items if item.get("id")]
+    if not task_ids:
+        return items
+
+    iteration_rows = await session.execute(
+        select(FlowIterationTask.task_id, FlowIteration.id, FlowIteration.name)
+        .join(FlowIteration, FlowIteration.id == FlowIterationTask.iteration_id)
+        .where(FlowIterationTask.task_id.in_(task_ids))
+    )
+    task_iteration_map: dict[str, tuple[str, str]] = {}
+    for task_id, iteration_id, iteration_name in iteration_rows.all():
+        tid = str(task_id or "")
+        if tid and tid not in task_iteration_map:
+            task_iteration_map[tid] = (str(iteration_id or ""), str(iteration_name or ""))
+
+    for item in items:
+        tid = str(item.get("id") or "").strip()
+        iteration = task_iteration_map.get(tid)
+        item["iteration_id"] = iteration[0] if iteration else ""
+        item["iteration_name"] = iteration[1] if iteration else ""
+    return items
+
+
+async def _attach_bug_links(session, items: list[dict]) -> list[dict]:
+    story_ids = [str(item.get("story_id") or "").strip() for item in items if item.get("story_id")]
+    if not story_ids:
+        return items
+
+    story_items = [{"id": story_id} for story_id in story_ids]
+    await _attach_story_links(session, story_items)
+    story_map = {str(item["id"]): item for item in story_items}
+
+    for item in items:
+        linked_story = story_map.get(str(item.get("story_id") or "").strip())
+        item["iteration_id"] = str((linked_story or {}).get("iteration_id") or "")
+        item["iteration_name"] = str((linked_story or {}).get("iteration_name") or "")
+        item["version_id"] = str((linked_story or {}).get("version_id") or "")
+        item["version_name"] = str((linked_story or {}).get("version_name") or "")
+    return items
+
 def _milestone_dict(r: FlowMilestone) -> dict:
     return {
         "id": r.id, "name": r.name, "project_id": r.project_id,
@@ -632,9 +712,11 @@ async def list_stories(
                 for parent_story_id, child_count in child_count_rows.all()
                 if parent_story_id
             }
+        items = [{**_story_dict(r), "children_count": child_count_map.get(r.id, 0)} for r in rows]
+        await _attach_story_links(session, items)
     return {
         "total": total,
-        "items": [{**_story_dict(r), "children_count": child_count_map.get(r.id, 0)} for r in rows],
+        "items": items,
     }
 
 @router.get("/stories/{story_id}")
@@ -654,12 +736,13 @@ async def get_story(story_id: str):
         children_count = (await session.execute(
             select(func.count()).select_from(FlowStory).where(FlowStory.parent_id == story_id)
         )).scalar_one()
-    return {
-        **_story_dict(r),
-        "task_count": task_count,
-        "bug_count": bug_count,
-        "children_count": children_count,
-    }
+        items = await _attach_story_links(session, [{
+            **_story_dict(r),
+            "task_count": task_count,
+            "bug_count": bug_count,
+            "children_count": children_count,
+        }])
+    return items[0]
 
 @router.post("/stories")
 async def create_story(body: StoryCreate, request: Request):
@@ -878,9 +961,11 @@ async def list_tasks(
                 for parent_task_id, child_count in child_count_rows.all()
                 if parent_task_id
             }
+        items = [{**_task_dict(r), "children_count": child_count_map.get(r.id, 0)} for r in rows]
+        await _attach_task_links(session, items)
     return {
         "total": total,
-        "items": [{**_task_dict(r), "children_count": child_count_map.get(r.id, 0)} for r in rows],
+        "items": items,
     }
 
 @router.get("/tasks/{task_id}")
@@ -893,7 +978,8 @@ async def get_task(task_id: str):
         children_count = (await session.execute(
             select(func.count()).select_from(FlowTask).where(FlowTask.parent_id == task_id)
         )).scalar_one()
-    return {**_task_dict(r), "children_count": children_count}
+        items = await _attach_task_links(session, [{**_task_dict(r), "children_count": children_count}])
+    return items[0]
 
 @router.post("/tasks")
 async def create_task(body: TaskCreate, request: Request):
@@ -1083,7 +1169,9 @@ async def list_bugs(
         total = (await session.execute(count_stmt)).scalar_one()
         stmt = stmt.offset((page - 1) * page_size).limit(page_size)
         rows = (await session.execute(stmt)).scalars().all()
-    return {"total": total, "items": [_bug_dict(r) for r in rows]}
+        items = [_bug_dict(r) for r in rows]
+        await _attach_bug_links(session, items)
+    return {"total": total, "items": items}
 
 @router.get("/bugs/{bug_id}")
 async def get_bug(bug_id: str):
@@ -1092,7 +1180,8 @@ async def get_bug(bug_id: str):
         r = await session.get(FlowBug, bug_id)
         if not r:
             return {"error": "缺陷不存在"}
-    return _bug_dict(r)
+        items = await _attach_bug_links(session, [_bug_dict(r)])
+    return items[0]
 
 @router.post("/bugs")
 async def create_bug(body: BugCreate, request: Request):

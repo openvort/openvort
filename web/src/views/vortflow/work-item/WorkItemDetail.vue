@@ -265,6 +265,7 @@ const loadFieldOptions = async () => {
     if (verRes.status === "fulfilled") {
         apiVersions.value = ((verRes.value as any)?.items || []).map((p: any) => ({ id: String(p.id), name: String(p.name || p.id) }));
     }
+    syncDetailLinkedLabels();
 };
 
 const detailPlanTimeModel = computed<DateRange | undefined>({
@@ -299,26 +300,42 @@ const detailProjectName = computed({
 });
 
 const detailIteration = computed({
-    get: () => record.value?.iteration || "",
+    get: () => record.value?.iterationId || "",
     set: (val: string) => {
         if (!record.value) return;
-        record.value.iteration = val;
-        emit("update", { iteration: val });
-        const name = apiIterations.value.find(i => i.id === val)?.name || val || "未设置";
-        appendDetailLog(`修改迭代为"${name}"`);
+        const nextId = String(val || "");
+        const name = apiIterations.value.find(i => i.id === nextId)?.name || "";
+        record.value.iterationId = nextId;
+        record.value.iteration = name;
+        emit("update", { iterationId: nextId, iteration: name });
+        const label = name || "未设置";
+        appendDetailLog(`修改迭代为"${label}"`);
     },
 });
 
 const detailVersion = computed({
-    get: () => record.value?.version || "",
+    get: () => record.value?.versionId || "",
     set: (val: string) => {
         if (!record.value) return;
-        record.value.version = val;
-        emit("update", { version: val });
-        const name = apiVersions.value.find(v => v.id === val)?.name || val || "未设置";
-        appendDetailLog(`修改版本为"${name}"`);
+        const nextId = String(val || "");
+        const name = apiVersions.value.find(v => v.id === nextId)?.name || "";
+        record.value.versionId = nextId;
+        record.value.version = name;
+        emit("update", { versionId: nextId, version: name });
+        const label = name || "未设置";
+        appendDetailLog(`修改版本为"${label}"`);
     },
 });
+
+const syncDetailLinkedLabels = () => {
+    if (!record.value) return;
+    if (record.value.iterationId && !record.value.iteration) {
+        record.value.iteration = apiIterations.value.find((item) => item.id === record.value?.iterationId)?.name || "";
+    }
+    if (record.value.versionId && !record.value.version) {
+        record.value.version = apiVersions.value.find((item) => item.id === record.value?.versionId)?.name || "";
+    }
+};
 
 const detailType = computed({
     get: () => record.value?.type || "缺陷",
@@ -343,6 +360,7 @@ const loadProjectLinkedOptions = async (projectId?: string) => {
     if (verRes.status === "fulfilled") {
         apiVersions.value = ((verRes.value as any)?.items || []).map((p: any) => ({ id: String(p.id), name: String(p.name || p.id) }));
     }
+    syncDetailLinkedLabels();
 };
 
 // ---- Inline edit: click-to-edit pattern ----

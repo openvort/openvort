@@ -53,6 +53,7 @@ const emit = defineEmits<{
   sortChange: [sorter: { field: string; order: "ascend" | "descend" | null }];
   filterChange: [filters: Record<string, any>];
   selectionChange: [selectedRowKeys: (string | number)[], selectedRows: T[]];
+  columnWidthChange: [widths: Record<string, number>];
   refresh: [];
 }>();
 
@@ -177,9 +178,7 @@ const syncColumnOrder = () => {
     return;
   }
   const latestKeys = columns.map((column) => getColumnKey(column)).filter(Boolean);
-  const existing = columnOrderKeys.value.filter((key) => latestKeys.includes(key));
-  const appended = latestKeys.filter((key) => !existing.includes(key));
-  columnOrderKeys.value = [...existing, ...appended];
+  columnOrderKeys.value = latestKeys;
 };
 
 watch(baseVisibleColumns, syncColumnOrder, { immediate: true, deep: true });
@@ -878,6 +877,7 @@ const onResizeEnd = () => {
   document.removeEventListener("mouseup", onResizeEnd);
   document.body.style.cursor = "";
   document.body.style.userSelect = "";
+  emit("columnWidthChange", { ...columnWidths.value });
 };
 
 onBeforeUnmount(() => {
@@ -893,7 +893,8 @@ defineExpose({
   dataSource: internalDataSource,
   total,
   current,
-  pageSize
+  pageSize,
+  columnWidths
 });
 </script>
 

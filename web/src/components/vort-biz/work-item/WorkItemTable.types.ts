@@ -94,7 +94,9 @@ export interface RowItem {
     creator: string;
     projectId?: string;
     projectName?: string;
+    iterationId?: string;
     iteration?: string;
+    versionId?: string;
     version?: string;
     estimateHours?: number | string;
     children?: RowItem[];

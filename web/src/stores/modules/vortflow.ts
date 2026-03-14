@@ -32,6 +32,7 @@ export interface CustomView {
 export interface PersistedColumnSetting {
     key: string;
     visible: boolean;
+    width?: number;
 }
 
 export const useVortFlowStore = defineStore(
@@ -219,7 +220,7 @@ export const useVortFlowStore = defineStore(
     },
     {
         persist: {
-            pick: ["selectedProjectId", "viewIdByType"],
+            pick: ["selectedProjectId", "viewIdByType", "columnSettingsByType", "customViews"],
         },
     }
 );

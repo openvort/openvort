@@ -258,7 +258,7 @@ watch([collapsed, () => props.isMobile, () => route.path], () => {
                         :style="{
                             maxHeight: `${20 * collapseProgress}px`,
                             marginTop: `${12 * collapseProgress}px`,
-                            marginBottom: `${4 * collapseProgress}px`,
+                            marginBottom: `${10 * collapseProgress}px`,
                             opacity: collapseProgress,
                             transition: 'none'
                         }"
