@@ -307,18 +307,26 @@ const ownerFilterConfig = computed<ColumnFilterConfig>(() => ({
     options: [
         { label: "未指派", value: "__unassigned__" },
         ...memberOptions.value.map(m => ({
-            label: m.label || m.value,
-            value: m.value,
+            label: m.name || m.id,
+            value: m.name || m.id,
+            avatarUrl: getMemberAvatarUrl(m.name || ""),
+            avatarLabel: getAvatarLabel(m.name || m.id || ""),
+            avatarBg: getAvatarBg(m.name || m.id || ""),
         })),
     ],
+    sortLabels: ["A → Z", "Z → A"] as [string, string],
 }));
 
 const collaboratorsFilterConfig = computed<ColumnFilterConfig>(() => ({
     type: "enum",
     options: memberOptions.value.map(m => ({
-        label: m.label || m.value,
-        value: m.value,
+        label: m.name || m.id,
+        value: m.name || m.id,
+        avatarUrl: getMemberAvatarUrl(m.name || ""),
+        avatarLabel: getAvatarLabel(m.name || m.id || ""),
+        avatarBg: getAvatarBg(m.name || m.id || ""),
     })),
+    sortLabels: ["A → Z", "Z → A"] as [string, string],
 }));
 
 const handleColumnSort = (field: string, order: "ascend" | "descend" | null) => {

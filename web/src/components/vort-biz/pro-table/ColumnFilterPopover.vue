@@ -12,6 +12,9 @@ export interface ColumnFilterOption {
     icon?: string;
     iconClass?: string;
     dotColor?: string;
+    avatarUrl?: string;
+    avatarLabel?: string;
+    avatarBg?: string;
 }
 
 export interface ColumnFilterConfig {
@@ -243,6 +246,14 @@ const handleClear = () => {
                             >
                                 <Checkbox :checked="selectedValues.includes(opt.value)" class="enum-checkbox" />
                                 <span v-if="opt.dotColor" class="enum-dot" :style="{ background: opt.dotColor }" />
+                                <span
+                                    v-else-if="opt.avatarUrl || opt.avatarLabel"
+                                    class="enum-avatar"
+                                    :style="{ background: opt.avatarBg || '#94a3b8' }"
+                                >
+                                    <img v-if="opt.avatarUrl" :src="opt.avatarUrl" class="enum-avatar-img" />
+                                    <template v-else>{{ opt.avatarLabel }}</template>
+                                </span>
                                 <span v-else-if="opt.icon" class="enum-icon" :class="opt.iconClass">{{ opt.icon }}</span>
                                 <span class="enum-label">{{ opt.label }}</span>
                             </div>
@@ -364,6 +375,24 @@ const handleClear = () => {
     height: 8px;
     border-radius: 50%;
     flex-shrink: 0;
+}
+.enum-avatar {
+    width: 20px;
+    height: 20px;
+    border-radius: 9999px;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 500;
+}
+.enum-avatar-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
 }
 .enum-label {
     flex: 1;
