@@ -22,8 +22,6 @@ const router = useRouter();
 const dropdownOpen = ref(false);
 const searchKeyword = ref("");
 
-const isBoard = computed(() => route.name === "vortflow-board");
-
 const selectedProject = computed(() =>
     props.projects.find(p => p.id === props.selectedId) ?? null
 );
@@ -41,10 +39,21 @@ const filteredProjects = computed(() => {
 const selectProject = (id: string) => {
     emit("update:selectedId", id);
     dropdownOpen.value = false;
+    if (route.name === "vortflow-project-detail" && id) {
+        router.push(`/vortflow/projects/${id}`);
+    }
 };
 
 const goToBoard = () => {
     router.push("/vortflow/board");
+};
+
+const goToProjectDetail = () => {
+    if (props.selectedId) {
+        router.push(`/vortflow/projects/${props.selectedId}`);
+    } else {
+        goToBoard();
+    }
 };
 
 const formatDate = (dateStr?: string) => {
@@ -58,12 +67,17 @@ const getWorkItemCount = (p: VortFlowProject) => {
 </script>
 
 <template>
-    <div v-if="!isBoard" class="project-breadcrumb">
+    <div class="project-breadcrumb">
         <button type="button" class="breadcrumb-prefix" @click="goToBoard">
-            <Layers :size="16" class="breadcrumb-icon" />
+            <Layers :size="16" />
             <span>项目</span>
         </button>
+
         <span class="breadcrumb-sep">/</span>
+
+        <button type="button" class="breadcrumb-name" @click="goToProjectDetail">
+            {{ displayName }}
+        </button>
 
         <PopoverSelect
             v-model:open="dropdownOpen"
@@ -78,14 +92,12 @@ const getWorkItemCount = (p: VortFlowProject) => {
             <template #trigger>
                 <button
                     type="button"
-                    class="breadcrumb-project"
+                    class="breadcrumb-arrow"
                     :class="{ 'is-open': dropdownOpen }"
                     @click.stop="dropdownOpen = !dropdownOpen"
                 >
-                    <span class="project-name">{{ displayName }}</span>
                     <ChevronDown
                         :size="14"
-                        class="arrow-icon"
                         :class="{ 'rotate-180': dropdownOpen }"
                     />
                 </button>
@@ -169,47 +181,57 @@ const getWorkItemCount = (p: VortFlowProject) => {
     background: rgba(0, 0, 0, 0.04);
 }
 
-.breadcrumb-icon {
-    color: inherit;
-}
-
 .breadcrumb-sep {
     color: #ccc;
     margin: 0 2px;
     user-select: none;
 }
 
-.breadcrumb-project {
+.breadcrumb-name {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
     padding: 6px 8px;
     border: none;
     background: transparent;
     cursor: pointer;
     border-radius: 6px;
     font-size: 14px;
-    transition: background 0.2s;
-}
-
-.breadcrumb-project:hover,
-.breadcrumb-project.is-open {
-    background: rgba(0, 0, 0, 0.04);
-}
-
-.project-name {
-    color: var(--vort-primary, #1456f0);
     font-weight: 500;
+    color: #374151;
     max-width: 200px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    transition: background 0.2s;
+    margin-right: 6px;
 }
 
-.arrow-icon {
+.breadcrumb-name:hover {
+    background: rgba(0, 0, 0, 0.04);
+}
+
+.breadcrumb-arrow {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border: none;
+    background: rgba(0, 0, 0, 0.04);
+    cursor: pointer;
+    border-radius: 4px;
     color: #aaa;
+    transition: color 0.2s, background 0.2s;
+}
+
+.breadcrumb-arrow:hover,
+.breadcrumb-arrow.is-open {
+    color: var(--vort-primary, #1456f0);
+    background: rgba(0, 0, 0, 0.08);
+}
+
+.breadcrumb-arrow svg {
     transition: transform 0.2s;
-    flex-shrink: 0;
 }
 
 .project-row {

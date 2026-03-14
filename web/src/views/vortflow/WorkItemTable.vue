@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ProTable, TableCell, type ProTableColumn, type ProTableRequestParams, type ProTableResponse } from "@/components/vort-biz";
 import { message } from "@/components/vort";
@@ -22,8 +22,11 @@ import type { ColumnFilterConfig, ColumnFilterValue } from "@/components/vort-bi
 import ViewSelector from "./components/ViewSelector.vue";
 import ViewManageDialog from "./components/ViewManageDialog.vue";
 import ViewCreateDialog from "./components/ViewCreateDialog.vue";
+import ColumnSettingsDialog from "./components/ColumnSettingsDialog.vue";
+import type { ColumnSettingItem } from "./components/ColumnSettingsDialog.vue";
 import { useVortFlowStore } from "@/stores";
-import { SYSTEM_VIEWS } from "./composables/useVortFlowViews";
+import type { CustomView } from "@/stores/modules/vortflow";
+import { useVortFlowViews, SYSTEM_VIEWS } from "./composables/useVortFlowViews";
 import { useWorkItemCommon } from "./work-item/useWorkItemCommon";
 import {
     getVortflowStory, getVortflowStories, getVortflowTask, getVortflowTasks, getVortflowBugs,
@@ -77,6 +80,24 @@ const onViewChange = (viewId: string) => {
 const viewManageOpen = ref(false);
 const viewCreateOpen = ref(false);
 
+const { views: mergedViews } = currentWorkItemType.value
+    ? useVortFlowViews(currentWorkItemType.value)
+    : { views: computed(() => SYSTEM_VIEWS) };
+
+const handleCreateViewFromDialog = (data: { name: string; scope: "personal" | "shared" }) => {
+    const maxOrder = vortFlowStore.customViews.reduce((max, v) => Math.max(max, v.order), -1);
+    const newView: CustomView = {
+        id: `custom_${Date.now()}`,
+        name: data.name,
+        scope: data.scope,
+        visible: true,
+        filters: {},
+        order: maxOrder + 1,
+    };
+    vortFlowStore.addCustomView(newView);
+    viewCreateOpen.value = false;
+};
+
 const {
     memberOptions,
     ownerGroups,
@@ -110,6 +131,9 @@ const owner = ref("");
 const type = ref<WorkItemType | "">(props.type ?? "");
 const status = ref("");
 const openPlanTimeFor = ref<string | null>(null);
+const planTimePickerOpen = ref(false);
+const planTimePrevValue = ref<DateRange>([]);
+const planTimeCommitted = ref(false);
 const priorityPickerOpenMap = reactive<Record<string, boolean>>({});
 const tagPickerOpenMap = reactive<Record<string, boolean>>({});
 const statusPickerOpenMap = reactive<Record<string, boolean>>({});
@@ -275,6 +299,25 @@ const tagsFilterConfig = computed<ColumnFilterConfig>(() => ({
     sortLabels: ["A → Z", "Z → A"] as [string, string],
 }));
 
+const ownerFilterConfig = computed<ColumnFilterConfig>(() => ({
+    type: "enum",
+    options: [
+        { label: "未指派", value: "__unassigned__" },
+        ...memberOptions.value.map(m => ({
+            label: m.label || m.value,
+            value: m.value,
+        })),
+    ],
+}));
+
+const collaboratorsFilterConfig = computed<ColumnFilterConfig>(() => ({
+    type: "enum",
+    options: memberOptions.value.map(m => ({
+        label: m.label || m.value,
+        value: m.value,
+    })),
+}));
+
 const handleColumnSort = (field: string, order: "ascend" | "descend" | null) => {
     columnSortField.value = order ? field : "";
     columnSortOrder.value = order;
@@ -287,9 +330,54 @@ const handleColumnFilter = (field: string, value: ColumnFilterValue | null) => {
     tableRef.value?.refresh?.();
 };
 
-const handleExportCsv = () => { message.info("CSV 导出功能开发中"); };
-const handleExportExcel = () => { message.info("Excel 导出功能开发中"); };
-const handleExportJson = () => { message.info("JSON 导出功能开发中"); };
+const getExportData = (): RowItem[] => {
+    if (selectedRows.value.length > 0) return selectedRows.value;
+    return Object.values(itemRowsById);
+};
+
+const downloadFile = (content: string, filename: string, type: string) => {
+    const bom = type.includes("csv") ? "\uFEFF" : "";
+    const blob = new Blob([bom + content], { type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+};
+
+const handleExportCsv = () => {
+    const rows = getExportData();
+    if (!rows.length) { message.warning("暂无数据可导出"); return; }
+    const headers = ["工作编号", "标题", "类型", "状态", "优先级", "负责人", "创建人", "标签", "协作者", "创建时间", "计划开始", "计划结束"];
+    const csvRows = rows.map(r => [
+        r.workNo || "", (r.title || "").replace(/"/g, '""'), r.type || "",
+        r.status || "", r.priority || "", r.owner || "", r.creator || "",
+        (r.tags || []).join(";"), (r.collaborators || []).join(";"),
+        r.createdAt || "", r.planTime?.[0] || "", r.planTime?.[1] || "",
+    ].map(v => `"${v}"`).join(","));
+    downloadFile([headers.join(","), ...csvRows].join("\n"), `工作项导出_${new Date().toISOString().slice(0, 10)}.csv`, "text/csv;charset=utf-8");
+    message.success(`已导出 ${rows.length} 条数据`);
+};
+
+const handleExportExcel = () => {
+    handleExportCsv();
+    message.info("已导出为 CSV 格式，可使用 Excel 打开");
+};
+
+const handleExportJson = () => {
+    const rows = getExportData();
+    if (!rows.length) { message.warning("暂无数据可导出"); return; }
+    const data = rows.map(r => ({
+        workNo: r.workNo, title: r.title, type: r.type, status: r.status,
+        priority: r.priority, owner: r.owner, creator: r.creator,
+        tags: r.tags, collaborators: r.collaborators, createdAt: r.createdAt,
+        planTimeStart: r.planTime?.[0] || "", planTimeEnd: r.planTime?.[1] || "",
+        description: r.description || "",
+    }));
+    downloadFile(JSON.stringify(data, null, 2), `工作项导出_${new Date().toISOString().slice(0, 10)}.json`, "application/json;charset=utf-8");
+    message.success(`已导出 ${rows.length} 条数据`);
+};
 
 const priorityModel = reactive<Record<string, Priority>>({});
 const tagsModel = reactive<Record<string, string[]>>({});
@@ -338,19 +426,52 @@ const formatFileSize = (size: number): string => {
     return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 };
 
-const columns = computed<ProTableColumn<RowItem>[]>(() => [
-    { title: "工作编号", dataIndex: "workNo", width: 130, sorter: true, align: "left", fixed: "left", slot: "workNo" },
-    { title: "标题", dataIndex: "title", width: 228, ellipsis: true, align: "left", fixed: "left", slot: "title" },
-    { title: "状态", dataIndex: "status", width: 120, slot: "status", align: "left" },
-    { title: "负责人", dataIndex: "owner", width: 160, sorter: true, align: "left", slot: "owner" },
-    { title: "优先级", dataIndex: "priority", width: 120, slot: "priority", align: "left" },
-    { title: "标签", dataIndex: "tags", width: 180, slot: "tags", align: "left" },
-    { title: "创建时间", dataIndex: "createdAt", width: 150, sorter: true, align: "left", slot: "createdAt" },
-    { title: "协作者", dataIndex: "collaborators", width: 140, slot: "collaborators", align: "left" },
-    { title: "工作项类型", dataIndex: "type", width: 120, sorter: true, align: "left", slot: "type" },
-    { title: "计划时间", dataIndex: "planTime", width: 260, sorter: true, align: "left", slot: "planTime" },
-    { title: "创建人", dataIndex: "creator", width: 160, sorter: true, align: "left", slot: "creator" }
+const columnSettingsOpen = ref(false);
+
+const ALL_COLUMN_DEFS: Array<ProTableColumn<RowItem> & { key: string }> = [
+    { key: "workNo", title: "工作编号", dataIndex: "workNo", width: 130, sorter: true, align: "left", fixed: "left", slot: "workNo" },
+    { key: "title", title: "标题", dataIndex: "title", width: 228, ellipsis: true, align: "left", fixed: "left", slot: "title" },
+    { key: "status", title: "状态", dataIndex: "status", width: 120, slot: "status", align: "left" },
+    { key: "owner", title: "负责人", dataIndex: "owner", width: 160, sorter: true, align: "left", slot: "owner" },
+    { key: "priority", title: "优先级", dataIndex: "priority", width: 120, slot: "priority", align: "left" },
+    { key: "tags", title: "标签", dataIndex: "tags", width: 180, slot: "tags", align: "left" },
+    { key: "createdAt", title: "创建时间", dataIndex: "createdAt", width: 150, sorter: true, align: "left", slot: "createdAt" },
+    { key: "collaborators", title: "协作者", dataIndex: "collaborators", width: 140, slot: "collaborators", align: "left" },
+    { key: "type", title: "工作项类型", dataIndex: "type", width: 120, sorter: true, align: "left", slot: "type" },
+    { key: "planTime", title: "计划时间", dataIndex: "planTime", width: 260, sorter: true, align: "left", slot: "planTime" },
+    { key: "creator", title: "创建人", dataIndex: "creator", width: 160, sorter: true, align: "left", slot: "creator" },
+    { key: "updatedAt", title: "更新时间", dataIndex: "updatedAt", width: 150, sorter: true, align: "left" },
+    { key: "iteration", title: "迭代", dataIndex: "iteration", width: 140, align: "left" },
+    { key: "version", title: "版本", dataIndex: "version", width: 120, align: "left" },
+    { key: "estimateHours", title: "预估工时", dataIndex: "estimateHours", width: 100, align: "left" },
+];
+
+const DEFAULT_VISIBLE_KEYS = new Set([
+    "workNo", "title", "status", "owner", "priority", "tags",
+    "createdAt", "collaborators", "type", "planTime", "creator",
 ]);
+
+const columnSettings = ref<ColumnSettingItem[]>(
+    ALL_COLUMN_DEFS.map(c => ({
+        key: c.key,
+        title: c.title || c.key,
+        fixed: c.key === "workNo" || c.key === "title",
+        visible: DEFAULT_VISIBLE_KEYS.has(c.key),
+    }))
+);
+
+const handleColumnSettingsSave = (settings: ColumnSettingItem[]) => {
+    columnSettings.value = settings;
+};
+
+const columns = computed<ProTableColumn<RowItem>[]>(() => {
+    const visibleKeys = new Set(columnSettings.value.filter(s => s.visible).map(s => s.key));
+    const orderedKeys = columnSettings.value.filter(s => s.visible).map(s => s.key);
+    const colMap = new Map(ALL_COLUMN_DEFS.map(c => [c.key, c]));
+    return orderedKeys.map(k => colMap.get(k)!).filter(Boolean);
+});
+
+const columnSettingsForDialog = computed<ColumnSettingItem[]>(() => columnSettings.value);
 
 const getRecordBackendId = (record: RowItem): string => String(record.backendId || "").trim();
 
@@ -1352,12 +1473,13 @@ const onPlanTimeChange = async (record: RowItem, value?: any) => {
     const start = normalizeDateValue(value[0]);
     const end = normalizeDateValue(value[1]);
     if (!start || !end) return;
-    const prev = [...getRowPlanTime(record, record.planTime)] as DateRange;
+    planTimeCommitted.value = true;
+    const prev = [...planTimePrevValue.value] as DateRange;
     planTimeModel[workNo] = [start, end];
     record.planTime = [start, end];
+    openPlanTimeFor.value = null;
     try {
         if (record.type === "缺陷") {
-            // 缺陷模型无 deadline 字段，保持前端显示，不进行后端同步
             message.warning("缺陷暂不支持计划时间同步到后端");
         } else {
             await syncRecordUpdateToApi(record, { deadline: end });
@@ -1366,10 +1488,16 @@ const onPlanTimeChange = async (record: RowItem, value?: any) => {
         planTimeModel[workNo] = prev;
         record.planTime = prev;
         message.error(error?.message || "计划时间同步失败");
-        openPlanTimeFor.value = null;
-        return;
     }
-    openPlanTimeFor.value = null;
+};
+
+const onPlanTimeOpenChange = (record: RowItem, open: boolean) => {
+    if (!open && openPlanTimeFor.value === record.workNo && !planTimeCommitted.value) {
+        const workNo = record.workNo;
+        planTimeModel[workNo] = [...planTimePrevValue.value];
+        record.planTime = [...planTimePrevValue.value];
+        openPlanTimeFor.value = null;
+    }
 };
 
 const getRowPlanTime = (record: RowItem, text?: DateRange): DateRange => {
@@ -1392,8 +1520,17 @@ const togglePlanTimeMenu = (workNo: string, record?: RowItem, text?: DateRange) 
         if (start && end) {
             planTimeModel[workNo] = [start, end];
         }
+        planTimePrevValue.value = planTimeModel[workNo] ? [...planTimeModel[workNo]] : [];
+        planTimeCommitted.value = false;
+        planTimePickerOpen.value = false;
+        openPlanTimeFor.value = workNo;
+        nextTick(() => {
+            planTimePickerOpen.value = true;
+        });
+    } else {
+        planTimePickerOpen.value = false;
+        openPlanTimeFor.value = null;
     }
-    openPlanTimeFor.value = willOpen ? workNo : null;
 };
 
 const getCollapsedTags = (tags: string[], resolvedWidth?: string | number): { visible: string[]; hidden: number } => {
@@ -1505,7 +1642,7 @@ onMounted(async () => {
         >
             <template v-if="currentWorkItemType" #before-count>
                 <ViewSelector
-                    :views="SYSTEM_VIEWS"
+                    :views="mergedViews"
                     :selected-id="currentViewId"
                     @update:selected-id="onViewChange"
                     @create-view="viewCreateOpen = true"
@@ -1524,7 +1661,7 @@ onMounted(async () => {
             </template>
         </WorkItemFilters>
 
-        <div class="bg-white rounded-xl p-4">
+        <div class="bg-white rounded-xl p-4 relative">
             <div v-if="selectedRows.length > 0" class="mb-3 flex items-center gap-3 text-sm">
                 <span class="text-blue-500 font-medium">已选择 {{ selectedRows.length }} 个工作项</span>
                 <VortButton variant="text" @click="batchPropertyEditorOpen = true">修改属性</VortButton>
@@ -1533,6 +1670,15 @@ onMounted(async () => {
                 </vort-popconfirm>
                 <VortButton variant="link" @click="clearSelection">取消选择</VortButton>
             </div>
+            <vort-tooltip title="表头显示设置">
+                <button
+                    type="button"
+                    class="absolute top-4 right-4 w-7 h-7 flex items-center justify-center rounded border border-gray-200 text-gray-400 hover:text-blue-500 hover:border-blue-300 transition-colors z-10"
+                    @click="columnSettingsOpen = true"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+                </button>
+            </vort-tooltip>
             <ProTable
                 ref="tableRef"
                 :columns="columns"
@@ -1594,6 +1740,32 @@ onMounted(async () => {
                         :filter-value="columnFilters['planTime']"
                         @sort="(o) => handleColumnSort('planTime', o)"
                         @filter="(v) => handleColumnFilter('planTime', v)"
+                    />
+                </template>
+
+                <template #header-owner="{ column }">
+                    <span>{{ column.title }}</span>
+                    <ColumnFilterPopover
+                        field="owner"
+                        :title="column.title || ''"
+                        :config="ownerFilterConfig"
+                        :sort-order="columnSortField === 'owner' ? columnSortOrder : null"
+                        :filter-value="columnFilters['owner']"
+                        @sort="(o) => handleColumnSort('owner', o)"
+                        @filter="(v) => handleColumnFilter('owner', v)"
+                    />
+                </template>
+
+                <template #header-collaborators="{ column }">
+                    <span>{{ column.title }}</span>
+                    <ColumnFilterPopover
+                        field="collaborators"
+                        :title="column.title || ''"
+                        :config="collaboratorsFilterConfig"
+                        :sort-order="columnSortField === 'collaborators' ? columnSortOrder : null"
+                        :filter-value="columnFilters['collaborators']"
+                        @sort="(o) => handleColumnSort('collaborators', o)"
+                        @filter="(v) => handleColumnFilter('collaborators', v)"
                     />
                 </template>
 
@@ -1786,12 +1958,14 @@ onMounted(async () => {
                             <vort-range-picker
                                 v-else
                                 v-model="planTimeModel[record.workNo]"
-                                value-format="YYYY-MM-DD"
                                 format="YYYY-MM-DD"
                                 separator="~"
-                                :placeholder="['开始日期', '结束日期']"
+                                :open="planTimePickerOpen"
+                                :allow-clear="false"
+                                :placeholder="['开始', '结束']"
                                 class="plan-time-picker"
                                 @change="(value: any) => onPlanTimeChange(record, value || text)"
+                                @open-change="(open: boolean) => onPlanTimeOpenChange(record, open)"
                                 @click.stop
                             />
                         </div>
@@ -1887,16 +2061,22 @@ onMounted(async () => {
             </template>
         </VortDialog>
 
-        <ImportDialog v-model:open="importDialogOpen" />
+        <ImportDialog v-model:open="importDialogOpen" @done="tableRef?.refresh?.()" />
         <ImportRecordDialog v-model:open="importRecordDialogOpen" />
         <BatchPropertyEditor
             v-model:open="batchPropertyEditorOpen"
             :selected-rows="selectedRows"
             :work-item-type="(props.type || '缺陷') as WorkItemType"
             :status-options="currentStatusFilterOptions"
+            @done="() => { clearSelection(); tableRef?.refresh?.(); }"
         />
-        <ViewManageDialog v-model:open="viewManageOpen" :views="SYSTEM_VIEWS" />
-        <ViewCreateDialog v-model:open="viewCreateOpen" />
+        <ViewManageDialog v-model:open="viewManageOpen" />
+        <ViewCreateDialog v-model:open="viewCreateOpen" @create="handleCreateViewFromDialog" />
+        <ColumnSettingsDialog
+            v-model:open="columnSettingsOpen"
+            :all-columns="columnSettingsForDialog"
+            @save="handleColumnSettingsSave"
+        />
     </div>
 </template>
 
@@ -2009,8 +2189,19 @@ onMounted(async () => {
     line-height: 20px;
 }
 
-.plan-time-picker {
-    @apply w-full;
+:deep(.plan-time-picker) {
+    max-width: 260px;
+    border-color: transparent !important;
+    .vort-rangepicker-prefix,.vort-rangepicker-suffix{
+        display: none;
+    }
+    .vort-rangepicker-separator{
+    padding: 0 4px;
+    }
+    .vort-rangepicker-input{
+    font-size: 13px;
+
+    }
 }
 
 .create-bug-footer {

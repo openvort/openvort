@@ -2,7 +2,10 @@
 import { ref, computed, onMounted, watch } from "vue";
 import { z } from "zod";
 import { useRouter } from "vue-router";
-import { FolderKanban, ListChecks, CheckSquare, Bug, Plus, Settings, Trash2, Bot, Repeat, Tag, Filter } from "lucide-vue-next";
+import {
+    FolderKanban, ListChecks, CheckSquare, Bug, Plus, Settings,
+    Trash2, Bot, Repeat, Filter, ArrowRight, User, Calendar,
+} from "lucide-vue-next";
 import { useDirtyCheck } from "@/hooks";
 import { useVortFlowStore } from "@/stores";
 import {
@@ -64,6 +67,28 @@ const bugCloseRate = computed(() => {
 });
 
 const projectRepos = (projectId: string) => projectRepoMap.value[projectId] || [];
+
+// SVG ring progress helper
+const ringCircumference = 2 * Math.PI * 18;
+const ringDashoffset = (percent: number) => ringCircumference * (1 - percent / 100);
+
+// Iteration status helpers
+const iterStatusColorMap: Record<string, string> = {
+    planning: "default", active: "processing", completed: "green",
+};
+const iterStatusLabel = (s: string) => {
+    const m: Record<string, string> = { planning: "规划中", active: "进行中", completed: "已完成" };
+    return m[s] || s;
+};
+
+const activeIterations = computed(() =>
+    iterations.value.filter((i: any) => i.status === "active"),
+);
+
+const formatDate = (iso: string | null | undefined) => {
+    if (!iso) return "-";
+    return String(iso).split("T")[0];
+};
 
 const loadData = async () => {
     loading.value = true;
@@ -144,6 +169,7 @@ const handleEditProject = (p: ProjectItem) => {
 };
 
 const handleViewProject = (p: ProjectItem) => {
+    vortFlowStore.setProjectId(p.id);
     router.push(`/vortflow/projects/${p.id}`);
 };
 
@@ -170,7 +196,6 @@ const handleSaveProject = async () => {
     } finally { formLoading.value = false; }
 };
 
-// AI 生成项目描述
 async function handleAiGenerateProjectDescription() {
     if (!currentProject.value.name?.trim()) {
         message.warning("请先输入项目名称");
@@ -192,6 +217,19 @@ const handleDeleteProject = async (p: ProjectItem) => {
     loadData();
 };
 
+const goToWorkItems = (type: string) => {
+    const pathMap: Record<string, string> = { stories: "/vortflow/stories", tasks: "/vortflow/tasks", bugs: "/vortflow/bugs" };
+    router.push(pathMap[type] || "/vortflow/stories");
+};
+
+const goToIterationDetail = (id: string) => {
+    router.push(`/vortflow/iterations?id=${id}`);
+};
+
+const goToAllIterations = () => {
+    router.push("/vortflow/iterations");
+};
+
 onMounted(loadData);
 
 watch(() => vortFlowStore.selectedProjectId, () => {
@@ -202,68 +240,129 @@ watch(() => vortFlowStore.selectedProjectId, () => {
 <template>
     <div class="space-y-4">
         <vort-spin :spinning="loading">
-            <!-- Stats -->
+            <div class="space-y-4">
+            <!-- Stats with SVG ring -->
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <!-- Stories -->
                 <div class="bg-white rounded-xl p-6">
-                    <div class="flex items-center justify-between mb-4">
-                        <div class="flex items-center gap-2">
-                            <div class="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
-                                <ListChecks :size="16" class="text-blue-600" />
+                    <div class="flex items-center gap-4">
+                        <div class="relative w-14 h-14 flex-shrink-0">
+                            <svg viewBox="0 0 40 40" class="w-full h-full -rotate-90">
+                                <circle cx="20" cy="20" r="18" fill="none" stroke="#e5e7eb" stroke-width="3" />
+                                <circle cx="20" cy="20" r="18" fill="none" stroke="#3b82f6" stroke-width="3"
+                                    stroke-linecap="round"
+                                    :stroke-dasharray="ringCircumference"
+                                    :stroke-dashoffset="ringDashoffset(storyProgress)"
+                                    class="transition-all duration-500"
+                                />
+                            </svg>
+                            <div class="absolute inset-0 flex items-center justify-center">
+                                <span class="text-xs font-semibold text-blue-600">{{ storyProgress }}%</span>
                             </div>
-                            <span class="text-sm text-gray-500">需求</span>
                         </div>
-                        <span class="text-2xl font-bold text-gray-800">{{ stats.stories.total }}</span>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-2">
+                                    <div class="w-7 h-7 rounded-lg bg-blue-50 flex items-center justify-center">
+                                        <ListChecks :size="14" class="text-blue-600" />
+                                    </div>
+                                    <span class="text-sm text-gray-500">需求</span>
+                                </div>
+                                <span class="text-2xl font-bold text-gray-800">{{ stats.stories.total }}</span>
+                            </div>
+                            <div class="flex items-center justify-between mt-2 text-xs text-gray-400">
+                                <span>已完成 {{ stats.stories.done }}</span>
+                            </div>
+                        </div>
                     </div>
-                    <div class="flex items-center justify-between text-xs text-gray-400">
-                        <span>已完成 {{ stats.stories.done }}</span>
-                        <span>{{ storyProgress }}%</span>
-                    </div>
-                    <div class="mt-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                        <div class="h-full bg-blue-500 rounded-full transition-all" :style="{ width: storyProgress + '%' }" />
+                    <div class="mt-3 pt-3 border-t border-gray-100">
+                        <a class="text-xs text-blue-500 hover:text-blue-700 cursor-pointer flex items-center gap-1" @click="goToWorkItems('stories')">
+                            查看全部需求 <ArrowRight :size="12" />
+                        </a>
                     </div>
                 </div>
 
+                <!-- Tasks -->
                 <div class="bg-white rounded-xl p-6">
-                    <div class="flex items-center justify-between mb-4">
-                        <div class="flex items-center gap-2">
-                            <div class="w-8 h-8 rounded-lg bg-green-50 flex items-center justify-center">
-                                <CheckSquare :size="16" class="text-green-600" />
+                    <div class="flex items-center gap-4">
+                        <div class="relative w-14 h-14 flex-shrink-0">
+                            <svg viewBox="0 0 40 40" class="w-full h-full -rotate-90">
+                                <circle cx="20" cy="20" r="18" fill="none" stroke="#e5e7eb" stroke-width="3" />
+                                <circle cx="20" cy="20" r="18" fill="none" stroke="#22c55e" stroke-width="3"
+                                    stroke-linecap="round"
+                                    :stroke-dasharray="ringCircumference"
+                                    :stroke-dashoffset="ringDashoffset(taskProgress)"
+                                    class="transition-all duration-500"
+                                />
+                            </svg>
+                            <div class="absolute inset-0 flex items-center justify-center">
+                                <span class="text-xs font-semibold text-green-600">{{ taskProgress }}%</span>
                             </div>
-                            <span class="text-sm text-gray-500">任务</span>
                         </div>
-                        <span class="text-2xl font-bold text-gray-800">{{ stats.tasks.total }}</span>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-2">
+                                    <div class="w-7 h-7 rounded-lg bg-green-50 flex items-center justify-center">
+                                        <CheckSquare :size="14" class="text-green-600" />
+                                    </div>
+                                    <span class="text-sm text-gray-500">任务</span>
+                                </div>
+                                <span class="text-2xl font-bold text-gray-800">{{ stats.tasks.total }}</span>
+                            </div>
+                            <div class="flex items-center justify-between mt-2 text-xs text-gray-400">
+                                <span>已完成 {{ stats.tasks.done }}</span>
+                            </div>
+                        </div>
                     </div>
-                    <div class="flex items-center justify-between text-xs text-gray-400">
-                        <span>已完成 {{ stats.tasks.done }}</span>
-                        <span>{{ taskProgress }}%</span>
-                    </div>
-                    <div class="mt-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                        <div class="h-full bg-green-500 rounded-full transition-all" :style="{ width: taskProgress + '%' }" />
+                    <div class="mt-3 pt-3 border-t border-gray-100">
+                        <a class="text-xs text-blue-500 hover:text-blue-700 cursor-pointer flex items-center gap-1" @click="goToWorkItems('tasks')">
+                            查看全部任务 <ArrowRight :size="12" />
+                        </a>
                     </div>
                 </div>
 
+                <!-- Bugs -->
                 <div class="bg-white rounded-xl p-6">
-                    <div class="flex items-center justify-between mb-4">
-                        <div class="flex items-center gap-2">
-                            <div class="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center">
-                                <Bug :size="16" class="text-red-600" />
+                    <div class="flex items-center gap-4">
+                        <div class="relative w-14 h-14 flex-shrink-0">
+                            <svg viewBox="0 0 40 40" class="w-full h-full -rotate-90">
+                                <circle cx="20" cy="20" r="18" fill="none" stroke="#e5e7eb" stroke-width="3" />
+                                <circle cx="20" cy="20" r="18" fill="none" stroke="#ef4444" stroke-width="3"
+                                    stroke-linecap="round"
+                                    :stroke-dasharray="ringCircumference"
+                                    :stroke-dashoffset="ringDashoffset(bugCloseRate)"
+                                    class="transition-all duration-500"
+                                />
+                            </svg>
+                            <div class="absolute inset-0 flex items-center justify-center">
+                                <span class="text-xs font-semibold text-red-600">{{ bugCloseRate }}%</span>
                             </div>
-                            <span class="text-sm text-gray-500">缺陷</span>
                         </div>
-                        <span class="text-2xl font-bold text-gray-800">{{ stats.bugs.total }}</span>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-2">
+                                    <div class="w-7 h-7 rounded-lg bg-red-50 flex items-center justify-center">
+                                        <Bug :size="14" class="text-red-600" />
+                                    </div>
+                                    <span class="text-sm text-gray-500">缺陷</span>
+                                </div>
+                                <span class="text-2xl font-bold text-gray-800">{{ stats.bugs.total }}</span>
+                            </div>
+                            <div class="flex items-center justify-between mt-2 text-xs text-gray-400">
+                                <span>已关闭 {{ stats.bugs.closed }}</span>
+                            </div>
+                        </div>
                     </div>
-                    <div class="flex items-center justify-between text-xs text-gray-400">
-                        <span>已关闭 {{ stats.bugs.closed }}</span>
-                        <span>{{ bugCloseRate }}%</span>
-                    </div>
-                    <div class="mt-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                        <div class="h-full bg-red-500 rounded-full transition-all" :style="{ width: bugCloseRate + '%' }" />
+                    <div class="mt-3 pt-3 border-t border-gray-100">
+                        <a class="text-xs text-blue-500 hover:text-blue-700 cursor-pointer flex items-center gap-1" @click="goToWorkItems('bugs')">
+                            查看全部缺陷 <ArrowRight :size="12" />
+                        </a>
                     </div>
                 </div>
             </div>
 
             <!-- Projects -->
-            <div class="bg-white rounded-xl p-6 mt-4">
+            <div class="bg-white rounded-xl p-6">
                 <div class="flex items-center justify-between mb-4">
                     <div class="flex items-center gap-3">
                         <h3 class="text-base font-medium text-gray-800">项目</h3>
@@ -287,12 +386,17 @@ watch(() => vortFlowStore.selectedProjectId, () => {
                 </div>
                 <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     <div v-for="p in projects" :key="p.id"
-                        class="border rounded-lg p-4 hover:shadow-sm transition-shadow cursor-pointer group relative"
+                        class="border border-gray-100 rounded-xl p-5 hover:shadow-md transition-all cursor-pointer group relative bg-gray-50/30"
                         @click="handleViewProject(p)"
                     >
-                        <div class="flex items-start justify-between">
-                            <h4 class="font-medium text-gray-800 mb-1">{{ p.name }}</h4>
-                            <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity" @click.stop>
+                        <div class="flex items-start justify-between mb-2">
+                            <div class="flex items-center gap-2 min-w-0 flex-1">
+                                <div class="w-8 h-8 rounded-lg bg-blue-500 flex items-center justify-center text-white text-sm font-medium flex-shrink-0">
+                                    {{ (p.name || '?')[0] }}
+                                </div>
+                                <h4 class="font-medium text-gray-800 truncate">{{ p.name }}</h4>
+                            </div>
+                            <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2" @click.stop>
                                 <vort-tooltip title="编辑">
                                     <a class="text-gray-400 hover:text-blue-600 cursor-pointer" @click="handleEditProject(p)">
                                         <Settings :size="14" />
@@ -306,15 +410,22 @@ watch(() => vortFlowStore.selectedProjectId, () => {
                             </div>
                         </div>
                         <p class="text-xs text-gray-400 line-clamp-2 mb-3">{{ p.description || '暂无描述' }}</p>
-                        <div class="flex items-center gap-2 text-xs text-gray-400 flex-wrap">
+
+                        <div class="flex items-center gap-2 text-xs flex-wrap mb-3">
+                            <vort-tag v-if="p.start_date || p.end_date" size="small" color="green">
+                                <Calendar :size="10" class="mr-0.5 inline" />
+                                {{ formatDate(p.start_date) }} ~ {{ formatDate(p.end_date) }}
+                            </vort-tag>
                             <vort-tag v-if="p.product" size="small" color="default">{{ p.product }}</vort-tag>
-                            <vort-tag v-if="p.iteration" size="small" color="blue">{{ p.iteration }}</vort-tag>
-                            <vort-tag v-if="p.version" size="small" color="green">v{{ p.version }}</vort-tag>
-                            <span v-if="p.start_date" class="text-xs text-gray-300">
-                                {{ p.start_date.split('T')[0] }} ~ {{ p.end_date ? p.end_date.split('T')[0] : '未定' }}
-                            </span>
+                            <vort-tag v-if="p.version" size="small" color="blue">v{{ p.version }}</vort-tag>
                         </div>
-                        <div class="mt-3 pt-3 border-t border-gray-100">
+
+                        <div v-if="p.owner_id" class="flex items-center gap-1.5 text-xs text-gray-500 mb-3">
+                            <User :size="12" class="text-gray-400" />
+                            <span>{{ p.owner_id }}</span>
+                        </div>
+
+                        <div class="pt-3 border-t border-gray-100">
                             <div v-if="projectRepos(p.id).length > 0" class="space-y-2">
                                 <div class="text-xs text-gray-500">关联仓库 {{ projectRepos(p.id).length }}</div>
                                 <div class="flex flex-wrap gap-1.5">
@@ -335,6 +446,64 @@ watch(() => vortFlowStore.selectedProjectId, () => {
                         </div>
                     </div>
                 </div>
+            </div>
+
+            <!-- Active Iterations -->
+            <div class="bg-white rounded-xl p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-base font-medium text-gray-800">
+                        <Repeat :size="16" class="inline mr-1.5 text-blue-500" />当前进行中的迭代
+                    </h3>
+                    <a class="text-sm text-blue-500 hover:text-blue-700 cursor-pointer flex items-center gap-1" @click="goToAllIterations">
+                        查看所有迭代 <ArrowRight :size="14" />
+                    </a>
+                </div>
+                <div v-if="activeIterations.length === 0 && iterations.length === 0" class="text-center py-8 text-gray-400">
+                    <Repeat :size="36" class="mx-auto mb-2 text-gray-300" />
+                    <p class="text-sm">暂无迭代数据</p>
+                </div>
+                <template v-else>
+                    <vort-table
+                        :data-source="activeIterations.length > 0 ? activeIterations : iterations.slice(0, 5)"
+                        :pagination="false"
+                        size="small"
+                    >
+                        <vort-table-column label="标题" prop="name" :width="200">
+                            <template #default="{ row }">
+                                <a class="text-sm text-blue-600 hover:underline cursor-pointer" @click.stop="goToIterationDetail(row.id)">
+                                    {{ row.name }}
+                                </a>
+                            </template>
+                        </vort-table-column>
+                        <vort-table-column label="状态" :width="100">
+                            <template #default="{ row }">
+                                <vort-tag :color="iterStatusColorMap[row.status] || 'default'" size="small">
+                                    {{ iterStatusLabel(row.status) }}
+                                </vort-tag>
+                            </template>
+                        </vort-table-column>
+                        <vort-table-column label="起止时间" :width="200">
+                            <template #default="{ row }">
+                                <span class="text-xs text-gray-500">
+                                    {{ formatDate(row.start_date) }} ~ {{ formatDate(row.end_date) }}
+                                </span>
+                            </template>
+                        </vort-table-column>
+                        <vort-table-column label="预估工时" :width="100">
+                            <template #default="{ row }">
+                                <span class="text-sm text-gray-600">
+                                    {{ row.estimate_hours ? `${row.estimate_hours}h` : '-' }}
+                                </span>
+                            </template>
+                        </vort-table-column>
+                        <vort-table-column label="目标" :min-width="200">
+                            <template #default="{ row }">
+                                <span class="text-xs text-gray-400 line-clamp-1">{{ row.goal || '-' }}</span>
+                            </template>
+                        </vort-table-column>
+                    </vort-table>
+                </template>
+            </div>
             </div>
         </vort-spin>
 

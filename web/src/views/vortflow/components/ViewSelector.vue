@@ -40,7 +40,9 @@ const selectView = (id: string) => {
 };
 
 const scopeLabel = (scope: string) => {
-    return scope === "shared" ? "公共" : "系统";
+    if (scope === "shared") return "公共";
+    if (scope === "personal") return "个人";
+    return "系统";
 };
 </script>
 

@@ -392,7 +392,40 @@ async def list_projects():
     async with sf() as session:
         result = await session.execute(select(FlowProject).order_by(FlowProject.created_at.desc()))
         rows = result.scalars().all()
-    return {"items": [_project_dict(r) for r in rows]}
+
+        project_story_ids: dict[str, list[str]] = {}
+        items = []
+        for r in rows:
+            story_count = (await session.execute(
+                select(func.count()).select_from(FlowStory).where(FlowStory.project_id == r.id)
+            )).scalar_one()
+
+            story_ids_result = (await session.execute(
+                select(FlowStory.id).where(FlowStory.project_id == r.id)
+            )).scalars().all()
+            project_story_ids[r.id] = list(story_ids_result)
+
+            task_count = 0
+            bug_count = 0
+            if project_story_ids[r.id]:
+                task_count = (await session.execute(
+                    select(func.count()).select_from(FlowTask).where(
+                        FlowTask.story_id.in_(project_story_ids[r.id])
+                    )
+                )).scalar_one()
+                bug_count = (await session.execute(
+                    select(func.count()).select_from(FlowBug).where(
+                        FlowBug.story_id.in_(project_story_ids[r.id])
+                    )
+                )).scalar_one()
+
+            items.append({
+                **_project_dict(r),
+                "story_count": story_count,
+                "task_count": task_count,
+                "bug_count": bug_count,
+            })
+    return {"items": items}
 
 @router.get("/projects/{project_id}")
 async def get_project(project_id: str):

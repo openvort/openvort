@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, computed } from "vue";
-import { Button, Select, SelectOption, Dialog, Input, Divider } from "@/components/vort";
+import { ref, computed, watch } from "vue";
+import { Button, Select, SelectOption, Dialog, Input, Divider, message } from "@/components/vort";
 import WorkItemPriority from "@/components/vort-biz/work-item/WorkItemPriority.vue";
 import WorkItemStatus from "@/components/vort-biz/work-item/WorkItemStatus.vue";
 import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMemberPicker.vue";
@@ -8,6 +8,9 @@ import WorkItemTagPicker from "@/components/vort-biz/work-item/WorkItemTagPicker
 import { Minus, Plus } from "lucide-vue-next";
 import type { RowItem, WorkItemType, StatusOption } from "@/components/vort-biz/work-item/WorkItemTable.types";
 import { useWorkItemCommon } from "../work-item/useWorkItemCommon";
+import {
+    updateVortflowStory, updateVortflowTask, updateVortflowBug,
+} from "@/api";
 
 interface Props {
     selectedRows: RowItem[];
@@ -23,6 +26,7 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<{
     submit: [changes: PropertyChange[]];
     cancel: [];
+    done: [];
 }>();
 
 const open = defineModel<boolean>("open", { default: false });
@@ -33,7 +37,31 @@ export interface PropertyChange {
     value: any;
 }
 
-const { ownerGroups, memberOptions } = useWorkItemCommon();
+const {
+    ownerGroups, memberOptions, toBackendPriorityLevel,
+    getBackendStatesByDisplayStatus, getMemberIdByName,
+} = useWorkItemCommon();
+
+const submitting = ref(false);
+
+const allTagOptions = computed(() => {
+    const set = new Set<string>();
+    for (const row of props.selectedRows) {
+        for (const tag of row.tags || []) {
+            if (tag) set.add(tag);
+        }
+    }
+    const defaults = ["客户需求", "演示站", "运营需求", "待开会确认", "已发布", "高优先", "稳定性", "UI优化"];
+    for (const t of defaults) set.add(t);
+    return [...set];
+});
+
+watch(open, (v) => {
+    if (v) {
+        nextId.value = 1;
+        changeRows.value = [{ id: 0, property: "priority", operator: "set", value: null }];
+    }
+});
 
 const PROPERTY_OPTIONS = [
     { label: "优先级", value: "priority" },
@@ -43,6 +71,12 @@ const PROPERTY_OPTIONS = [
     { label: "标签", value: "tags" },
     { label: "计划时间", value: "planTime" },
     { label: "预计工时", value: "estimateHours" },
+    { label: "关联仓库", value: "repo" },
+    { label: "关联版本", value: "version" },
+    { label: "关联迭代", value: "iteration" },
+    { label: "实际开始时间", value: "startAt" },
+    { label: "实际结束时间", value: "endAt" },
+    { label: "父工作项", value: "parentId" },
 ];
 
 interface ChangeRow {
@@ -86,14 +120,76 @@ const projectGroups = computed(() => {
     return Object.values(groups);
 });
 
-const handleSubmit = () => {
+const buildPatch = (change: PropertyChange, row: RowItem): Record<string, any> => {
+    const patch: Record<string, any> = {};
+    const val = change.operator === "clear" ? null : change.value;
+    switch (change.property) {
+        case "priority":
+            patch.priority = val ? toBackendPriorityLevel(val) : 4;
+            break;
+        case "status": {
+            const states = val ? getBackendStatesByDisplayStatus(val) : [];
+            if (states.length > 0) patch.state = states[0];
+            break;
+        }
+        case "owner": {
+            const memberId = val ? getMemberIdByName(val) || val : null;
+            if (row.type === "需求") patch.pm_id = memberId;
+            else patch.assignee_id = memberId;
+            break;
+        }
+        case "collaborators":
+            patch.collaborators = val || [];
+            break;
+        case "tags":
+            patch.tags = val || [];
+            break;
+        case "planTime":
+            if (val && Array.isArray(val) && val.length === 2) {
+                patch.deadline = val[1] || null;
+            } else {
+                patch.deadline = null;
+            }
+            break;
+        case "estimateHours":
+            patch.estimate_hours = val ? Number(val) : 0;
+            break;
+    }
+    return patch;
+};
+
+const handleSubmit = async () => {
     const changes: PropertyChange[] = changeRows.value
         .filter(r => r.operator === "clear" || r.value != null)
         .map(r => ({ property: r.property, operator: r.operator, value: r.value }));
-    if (changes.length > 0) {
-        emit("submit", changes);
+    if (changes.length === 0) {
+        message.warning("请至少选择一个要修改的属性");
+        return;
     }
-    open.value = false;
+    submitting.value = true;
+    let successCount = 0;
+    let failCount = 0;
+    try {
+        for (const row of props.selectedRows) {
+            const id = String(row.backendId || "").trim();
+            if (!id) continue;
+            const merged: Record<string, any> = {};
+            for (const c of changes) Object.assign(merged, buildPatch(c, row));
+            try {
+                if (row.type === "需求") await updateVortflowStory(id, merged);
+                else if (row.type === "任务") await updateVortflowTask(id, merged);
+                else if (row.type === "缺陷") await updateVortflowBug(id, merged);
+                successCount++;
+            } catch { failCount++; }
+        }
+        if (failCount > 0) message.warning(`成功 ${successCount} 项，失败 ${failCount} 项`);
+        else message.success(`已批量修改 ${successCount} 个工作项`);
+        emit("submit", changes);
+        emit("done");
+        open.value = false;
+    } finally {
+        submitting.value = false;
+    }
 };
 
 const handleCancel = () => {
@@ -149,11 +245,36 @@ const handleCancel = () => {
                             :groups="ownerGroups"
                             @update:owner="(v) => row.value = v"
                         />
+                        <WorkItemMemberPicker
+                            v-else-if="row.property === 'collaborators'"
+                            mode="collaborators"
+                            :collaborators="row.value || []"
+                            :groups="ownerGroups"
+                            @update:collaborators="(v) => row.value = v"
+                        />
                         <WorkItemTagPicker
                             v-else-if="row.property === 'tags'"
                             :model-value="row.value || []"
-                            :tag-options="[]"
+                            :options="allTagOptions"
                             @change="(v) => row.value = v"
+                        />
+                        <vort-range-picker
+                            v-else-if="row.property === 'planTime'"
+                            :model-value="row.value || []"
+                            value-format="YYYY-MM-DD"
+                            :placeholder="['开始日期', '结束日期']"
+                            allow-clear
+                            style="width: 100%"
+                            @change="(v: any) => row.value = v"
+                        />
+                        <vort-date-picker
+                            v-else-if="row.property === 'startAt' || row.property === 'endAt'"
+                            :model-value="row.value || ''"
+                            value-format="YYYY-MM-DD"
+                            placeholder="选择日期"
+                            allow-clear
+                            style="width: 100%"
+                            @change="(v: any) => row.value = v"
                         />
                         <Input
                             v-else-if="row.property === 'estimateHours'"
@@ -162,6 +283,15 @@ const handleCancel = () => {
                             type="number"
                             placeholder="小时数"
                         />
+                        <vort-select
+                            v-else-if="row.property === 'repo' || row.property === 'version' || row.property === 'iteration' || row.property === 'parentId'"
+                            v-model="row.value"
+                            size="small"
+                            placeholder="请选择"
+                            allow-clear
+                        >
+                            <vort-select-option value="">请选择</vort-select-option>
+                        </vort-select>
                         <Input v-else v-model="row.value" size="small" placeholder="请输入" />
                     </div>
                     <div v-else class="value-placeholder">将清空该字段</div>
@@ -186,7 +316,7 @@ const handleCancel = () => {
         <template #footer>
             <div class="flex justify-end gap-2">
                 <Button @click="handleCancel">取消</Button>
-                <Button type="primary" @click="handleSubmit">确认修改</Button>
+                <Button type="primary" :loading="submitting" @click="handleSubmit">确认修改</Button>
             </div>
         </template>
     </Dialog>

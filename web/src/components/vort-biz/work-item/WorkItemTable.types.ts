@@ -44,6 +44,7 @@ export interface WorkItemTableProps {
     descriptionPlaceholder?: string;
     useApi?: boolean;
     projectId?: string;
+    iterationId?: string;
     viewFilters?: ViewFilters;
 }
 

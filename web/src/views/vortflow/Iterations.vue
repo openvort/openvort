@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from "vue";
 import { z } from "zod";
+import { useRouter } from "vue-router";
 import { Plus, Info } from "lucide-vue-next";
 import { DownOutlined } from "@/components/vort/icons";
 import { useCrudPage } from "@/hooks";
@@ -30,6 +31,7 @@ interface IterationItem {
 
 type FilterParams = { page: number; size: number; keyword: string; status: string; owner_id: string };
 
+const router = useRouter();
 const vortFlowStore = useVortFlowStore();
 const filterOwnerDropdownOpen = ref(false);
 const filterOwnerKeyword = ref("");
@@ -274,8 +276,8 @@ onMounted(async () => {
             <vort-table :data-source="listData" :loading="loading" :pagination="false">
                 <vort-table-column label="标题" :min-width="220">
                     <template #default="{ row }">
-                        <div class="min-w-0">
-                            <div class="text-sm text-gray-800 truncate">{{ row.name }}</div>
+                        <div class="min-w-0 cursor-pointer" @click="router.push(`/vortflow/iterations/${row.id}`)">
+                            <div class="text-sm text-blue-600 hover:underline truncate">{{ row.name }}</div>
                             <div class="text-xs text-gray-400 truncate">{{ projectNameById(row.project_id) }}</div>
                         </div>
                     </template>

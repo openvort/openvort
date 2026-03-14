@@ -8,7 +8,7 @@ export type { ViewFilters };
 export interface VortFlowView {
     id: string;
     name: string;
-    scope: "system" | "shared";
+    scope: "system" | "shared" | "personal";
     getFilters: (currentUserId: string) => ViewFilters;
 }
 
@@ -57,8 +57,21 @@ export function useVortFlowViews(type: WorkItemType) {
 
     const currentViewId = computed(() => store.getViewId(type));
 
+    const allViews = computed<VortFlowView[]>(() => {
+        const custom: VortFlowView[] = store.customViews
+            .filter(v => v.visible)
+            .sort((a, b) => a.order - b.order)
+            .map(v => ({
+                id: v.id,
+                name: v.name,
+                scope: v.scope,
+                getFilters: () => v.filters,
+            }));
+        return [...SYSTEM_VIEWS, ...custom];
+    });
+
     const currentView = computed(() =>
-        SYSTEM_VIEWS.find(v => v.id === currentViewId.value) ?? SYSTEM_VIEWS[1]!
+        allViews.value.find(v => v.id === currentViewId.value) ?? SYSTEM_VIEWS[1]!
     );
 
     const activeViewFilters = computed<ViewFilters>(() => {
@@ -71,7 +84,7 @@ export function useVortFlowViews(type: WorkItemType) {
     };
 
     return {
-        views: SYSTEM_VIEWS,
+        views: allViews,
         currentViewId,
         currentView,
         activeViewFilters,

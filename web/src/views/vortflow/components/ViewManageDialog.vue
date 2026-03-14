@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { ref, computed } from "vue";
-import { Dialog, Button, Input, Switch, Checkbox } from "@/components/vort";
-import { GripVertical, Pencil, Trash2, Plus, Search } from "lucide-vue-next";
+import { ref, computed, watch, nextTick } from "vue";
+import { Dialog, Button, Input, Checkbox } from "@/components/vort";
+import { GripVertical, Pencil, Trash2, Check, X, Search } from "lucide-vue-next";
 import ViewCreateDialog from "./ViewCreateDialog.vue";
-import type { VortFlowView } from "../composables/useVortFlowViews";
+import { useVortFlowStore } from "@/stores";
+import { SYSTEM_VIEWS } from "../composables/useVortFlowViews";
+import type { CustomView } from "@/stores/modules/vortflow";
 
 interface ManagedView {
     id: string;
@@ -14,27 +16,37 @@ interface ManagedView {
 }
 
 const open = defineModel<boolean>("open", { default: false });
-
-const props = defineProps<{
-    views: VortFlowView[];
-}>();
-
-const emit = defineEmits<{
-    createView: [data: { name: string; scope: "personal" | "shared" }];
-    deleteView: [id: string];
-    toggleView: [id: string, visible: boolean];
-}>();
+const store = useVortFlowStore();
 
 const searchKeyword = ref("");
 const showCreateDialog = ref(false);
+const editingId = ref<string | null>(null);
+const editingName = ref("");
+const editInputRef = ref<HTMLInputElement | null>(null);
 
-const managedViews = ref<ManagedView[]>([
-    { id: "all", name: "全部工作项", scope: "system", visible: true, editable: false },
-    { id: "my_participated", name: "我参与的", scope: "system", visible: true, editable: false },
-    { id: "my_assigned", name: "我负责的", scope: "system", visible: true, editable: false },
-    { id: "parent_only", name: "父级工作项", scope: "system", visible: true, editable: false },
-    { id: "my_created", name: "我创建的", scope: "system", visible: true, editable: false },
-]);
+// Drag state
+const dragIndex = ref<number | null>(null);
+const dragOverIndex = ref<number | null>(null);
+
+const managedViews = computed<ManagedView[]>(() => {
+    const systemList: ManagedView[] = SYSTEM_VIEWS.map(v => ({
+        id: v.id,
+        name: v.name,
+        scope: v.scope as "system" | "shared",
+        visible: true,
+        editable: false,
+    }));
+    const customList: ManagedView[] = [...store.customViews]
+        .sort((a, b) => a.order - b.order)
+        .map(v => ({
+            id: v.id,
+            name: v.name,
+            scope: v.scope,
+            visible: v.visible,
+            editable: true,
+        }));
+    return [...systemList, ...customList];
+});
 
 const filteredViews = computed(() => {
     const kw = searchKeyword.value.trim().toLowerCase();
@@ -49,26 +61,113 @@ const scopeLabel = (scope: string) => {
 };
 
 const handleCreateView = (data: { name: string; scope: "personal" | "shared" }) => {
-    managedViews.value.push({
+    const maxOrder = store.customViews.reduce((max, v) => Math.max(max, v.order), -1);
+    const newView: CustomView = {
         id: `custom_${Date.now()}`,
         name: data.name,
         scope: data.scope,
         visible: true,
-        editable: true,
-    });
-    emit("createView", data);
+        filters: {},
+        order: maxOrder + 1,
+    };
+    store.addCustomView(newView);
     showCreateDialog.value = false;
 };
 
 const handleDeleteView = (id: string) => {
-    managedViews.value = managedViews.value.filter(v => v.id !== id);
-    emit("deleteView", id);
+    store.deleteCustomView(id);
 };
 
 const handleToggleView = (view: ManagedView) => {
-    view.visible = !view.visible;
-    emit("toggleView", view.id, view.visible);
+    store.toggleViewVisibility(view.id, !view.visible);
 };
+
+const startEditing = (view: ManagedView) => {
+    if (!view.editable) return;
+    editingId.value = view.id;
+    editingName.value = view.name;
+    nextTick(() => editInputRef.value?.focus());
+};
+
+const confirmEditing = () => {
+    const trimmed = editingName.value.trim();
+    if (!trimmed || !editingId.value) {
+        cancelEditing();
+        return;
+    }
+    store.updateCustomView(editingId.value, { name: trimmed });
+    editingId.value = null;
+    editingName.value = "";
+};
+
+const cancelEditing = () => {
+    editingId.value = null;
+    editingName.value = "";
+};
+
+const handleEditKeydown = (e: KeyboardEvent) => {
+    if (e.key === "Enter") confirmEditing();
+    else if (e.key === "Escape") cancelEditing();
+};
+
+// --- HTML5 drag-and-drop for custom views ---
+
+const customViewIds = computed(() =>
+    [...store.customViews].sort((a, b) => a.order - b.order).map(v => v.id)
+);
+
+const isCustomView = (id: string) => store.customViews.some(v => v.id === id);
+
+const getCustomDragIndex = (viewId: string): number => customViewIds.value.indexOf(viewId);
+
+const onDragStart = (e: DragEvent, view: ManagedView) => {
+    if (!view.editable) { e.preventDefault(); return; }
+    dragIndex.value = getCustomDragIndex(view.id);
+    e.dataTransfer!.effectAllowed = "move";
+    e.dataTransfer!.setData("text/plain", view.id);
+};
+
+const onDragOver = (e: DragEvent, view: ManagedView) => {
+    if (!isCustomView(view.id)) return;
+    e.preventDefault();
+    e.dataTransfer!.dropEffect = "move";
+    dragOverIndex.value = getCustomDragIndex(view.id);
+};
+
+const onDragLeave = () => {
+    dragOverIndex.value = null;
+};
+
+const onDrop = (e: DragEvent, view: ManagedView) => {
+    e.preventDefault();
+    const fromId = e.dataTransfer!.getData("text/plain");
+    const toId = view.id;
+    if (!fromId || fromId === toId || !isCustomView(toId)) return;
+
+    const ids = [...customViewIds.value];
+    const fromIdx = ids.indexOf(fromId);
+    const toIdx = ids.indexOf(toId);
+    if (fromIdx === -1 || toIdx === -1) return;
+
+    ids.splice(fromIdx, 1);
+    ids.splice(toIdx, 0, fromId);
+    store.reorderViews(ids);
+
+    dragIndex.value = null;
+    dragOverIndex.value = null;
+};
+
+const onDragEnd = () => {
+    dragIndex.value = null;
+    dragOverIndex.value = null;
+};
+
+watch(open, (v) => {
+    if (v) {
+        searchKeyword.value = "";
+        editingId.value = null;
+    }
+});
 </script>
 
 <template>
@@ -101,17 +200,64 @@ const handleToggleView = (view: ManagedView) => {
             </div>
 
             <div class="view-list">
-                <div v-for="view in filteredViews" :key="view.id" class="view-list-row">
+                <div
+                    v-for="view in filteredViews"
+                    :key="view.id"
+                    class="view-list-row"
+                    :class="{
+                        'is-dragging': dragIndex !== null && isCustomView(view.id) && getCustomDragIndex(view.id) === dragIndex,
+                        'drag-over': dragOverIndex !== null && isCustomView(view.id) && getCustomDragIndex(view.id) === dragOverIndex,
+                    }"
+                    :draggable="view.editable"
+                    @dragstart="onDragStart($event, view)"
+                    @dragover="onDragOver($event, view)"
+                    @dragleave="onDragLeave"
+                    @drop="onDrop($event, view)"
+                    @dragend="onDragEnd"
+                >
                     <span class="col-order">
-                        <GripVertical :size="14" class="text-gray-300 cursor-grab" />
+                        <GripVertical
+                            :size="14"
+                            class="drag-handle"
+                            :class="view.editable ? 'cursor-grab text-gray-400' : 'text-gray-200 cursor-not-allowed'"
+                        />
                     </span>
-                    <span class="col-name">{{ view.name }}</span>
+                    <span class="col-name">
+                        <template v-if="editingId === view.id">
+                            <div class="inline-edit-wrapper">
+                                <input
+                                    ref="editInputRef"
+                                    v-model="editingName"
+                                    class="inline-edit-input"
+                                    maxlength="20"
+                                    @keydown="handleEditKeydown"
+                                    @blur="confirmEditing"
+                                />
+                                <button type="button" class="inline-edit-btn confirm" @mousedown.prevent="confirmEditing">
+                                    <Check :size="14" />
+                                </button>
+                                <button type="button" class="inline-edit-btn cancel" @mousedown.prevent="cancelEditing">
+                                    <X :size="14" />
+                                </button>
+                            </div>
+                        </template>
+                        <template v-else>{{ view.name }}</template>
+                    </span>
                     <span class="col-type">{{ scopeLabel(view.scope) }}</span>
                     <span class="col-show">
-                        <Checkbox :checked="view.visible" @update:checked="handleToggleView(view)" />
+                        <Checkbox
+                            :checked="view.visible"
+                            :disabled="!view.editable"
+                            @update:checked="handleToggleView(view)"
+                        />
                     </span>
                     <span class="col-ops">
-                        <button type="button" class="op-btn" :disabled="!view.editable">
+                        <button
+                            type="button"
+                            class="op-btn"
+                            :disabled="!view.editable"
+                            @click="view.editable && startEditing(view)"
+                        >
                             <Pencil :size="14" />
                         </button>
                         <button
@@ -167,6 +313,12 @@ const handleToggleView = (view: ManagedView) => {
 .view-list-row:hover {
     background: rgba(0, 0, 0, 0.02);
 }
+.view-list-row.is-dragging {
+    opacity: 0.4;
+}
+.view-list-row.drag-over {
+    border-top: 2px solid #4096ff;
+}
 .col-order { width: 50px; text-align: center; flex-shrink: 0; }
 .col-name { flex: 1; min-width: 0; }
 .col-type { width: 80px; text-align: center; flex-shrink: 0; color: #666; }
@@ -192,5 +344,53 @@ const handleToggleView = (view: ManagedView) => {
 .op-btn:disabled {
     opacity: 0.3;
     cursor: not-allowed;
+}
+
+.inline-edit-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.inline-edit-input {
+    height: 28px;
+    padding: 0 8px;
+    border: 1px solid #d9d9d9;
+    border-radius: 4px;
+    font-size: 13px;
+    outline: none;
+    width: 160px;
+    transition: border-color 0.2s;
+}
+.inline-edit-input:focus {
+    border-color: #4096ff;
+}
+.inline-edit-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.inline-edit-btn.confirm {
+    color: #52c41a;
+}
+.inline-edit-btn.confirm:hover {
+    background: rgba(82, 196, 26, 0.1);
+}
+.inline-edit-btn.cancel {
+    color: #999;
+}
+.inline-edit-btn.cancel:hover {
+    color: #ff4d4f;
+    background: rgba(255, 77, 79, 0.08);
+}
+
+.drag-handle {
+    transition: color 0.15s;
 }
 </style>
