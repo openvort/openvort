@@ -1793,9 +1793,8 @@ defineExpose({
 }
 
 .vort-table-empty-icon {
-    width: 64px;
-    height: 64px;
-    color: var(--vort-border, #d9d9d9);
+    width: 140px;
+    height: 100px;
 }
 
 .vort-table-empty-text {

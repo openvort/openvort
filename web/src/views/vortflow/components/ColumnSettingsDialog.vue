@@ -49,12 +49,19 @@ const SYSTEM_FIELDS: { key: string; title: string }[] = [
 const ALWAYS_VISIBLE_KEYS = new Set(["workNo", "title"]);
 const SYSTEM_KEYS = new Set(SYSTEM_FIELDS.map((f) => f.key));
 
-// Local editable copy, reset on dialog open
+// Local editable copy, reset on dialog open (merge SYSTEM_FIELDS for completeness)
 const localColumns = ref<ColumnSettingItem[]>([]);
 
 watch(open, (v) => {
     if (v) {
-        localColumns.value = props.allColumns.map((c) => ({ ...c }));
+        const existing = new Set(props.allColumns.map((c) => c.key));
+        const merged = props.allColumns.map((c) => ({ ...c }));
+        for (const f of SYSTEM_FIELDS) {
+            if (!existing.has(f.key)) {
+                merged.push({ key: f.key, title: f.title, visible: false });
+            }
+        }
+        localColumns.value = merged;
     }
 });
 
@@ -165,7 +172,7 @@ const getTitle = (key: string) => fieldTitleMap.value.get(key) || key;
 </script>
 
 <template>
-    <Dialog v-model:open="open" title="表头显示设置" width="720px">
+    <Dialog v-model:open="open" title="表头显示设置" width="780px">
         <div class="column-settings">
             <!-- Left panel: selectable fields -->
             <div class="panel panel-left">
@@ -312,7 +319,7 @@ const getTitle = (key: string) => fieldTitleMap.value.get(key) || key;
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 4px 0;
+    padding: 4px 8px;
     cursor: pointer;
     border-radius: 4px;
     user-select: none;

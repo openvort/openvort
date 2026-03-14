@@ -15,6 +15,9 @@ interface ManagedView {
     editable: boolean;
 }
 
+const props = defineProps<{
+    workItemType?: string;
+}>();
 const open = defineModel<boolean>("open", { default: false });
 const store = useVortFlowStore();
 
@@ -60,17 +63,17 @@ const scopeLabel = (scope: string) => {
     return "个人";
 };
 
-const handleCreateView = (data: { name: string; scope: "personal" | "shared" }) => {
+const handleCreateView = async (data: { name: string; scope: "personal" | "shared" }) => {
     const maxOrder = store.customViews.reduce((max, v) => Math.max(max, v.order), -1);
-    const newView: CustomView = {
-        id: `custom_${Date.now()}`,
+    await store.addCustomView({
         name: data.name,
+        work_item_type: props.workItemType || "缺陷",
         scope: data.scope,
         visible: true,
         filters: {},
+        columns: [],
         order: maxOrder + 1,
-    };
-    store.addCustomView(newView);
+    });
     showCreateDialog.value = false;
 };
 

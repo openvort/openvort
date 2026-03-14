@@ -7,7 +7,7 @@ name = "openvort"
 version = "0.1.0"
 description = "开源 AI 研发工作流引擎 — 通过 IM 与 AI 交互，自动化项目管理、代码仓库、团队协作"
 readme = "README.md"
-license = "Apache-2.0"
+license = "AGPL-3.0-or-later"
 requires-python = ">=3.11"
 authors = [
     { name = "Yang Qiang" },
@@ -16,7 +16,7 @@ keywords = ["ai", "workflow", "devops", "wecom", "agent"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: Apache Software License",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Libraries",

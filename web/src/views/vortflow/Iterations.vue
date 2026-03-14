@@ -1,15 +1,15 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from "vue";
-import { z } from "zod";
 import { useRouter } from "vue-router";
-import { Plus, Info } from "lucide-vue-next";
+import { Plus } from "lucide-vue-next";
 import { DownOutlined } from "@/components/vort/icons";
 import { useCrudPage } from "@/hooks";
 import { useVortFlowStore } from "@/stores";
 import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMemberPicker.vue";
 import { useWorkItemCommon } from "./work-item/useWorkItemCommon";
+import IterationEditDialog from "./components/IterationEditDialog.vue";
 import {
-    getVortflowIterations, createVortflowIteration, updateVortflowIteration, deleteVortflowIteration,
+    getVortflowIterations, deleteVortflowIteration,
 } from "@/api";
 
 interface IterationItem {
@@ -35,8 +35,6 @@ const router = useRouter();
 const vortFlowStore = useVortFlowStore();
 const filterOwnerDropdownOpen = ref(false);
 const filterOwnerKeyword = ref("");
-const formOwnerDropdownOpen = ref(false);
-const formOwnerKeyword = ref("");
 
 const {
     ownerGroups,
@@ -105,77 +103,21 @@ const effortPercent = (i: IterationItem) => {
 
 // Dialog
 const drawerVisible = ref(false);
-const drawerTitle = ref("");
 const drawerMode = ref<"add" | "edit">("add");
 const currentIteration = ref<Partial<IterationItem & { use_doc_template?: boolean }>>({});
-const formRef = ref();
-const formLoading = ref(false);
-
-const iterationValidationSchema = z.object({
-    project_id: z.string().min(1, "请选择项目"),
-    name: z.string().min(1, "标题必填"),
-    owner_id: z.string().optional(),
-    goal: z.string().optional(),
-    start_date: z.string().optional(),
-    end_date: z.string().optional(),
-    estimate_hours: z.union([z.number(), z.string()]).optional(),
-    use_doc_template: z.boolean().optional(),
-    status: z.string().optional(),
-});
 
 const handleAddIteration = () => {
     drawerMode.value = "add";
-    drawerTitle.value = "新建迭代";
-    currentIteration.value = { status: "planning", use_doc_template: true, owner_id: "" };
+    currentIteration.value = {
+        project_id: vortFlowStore.selectedProjectId || "",
+    };
     drawerVisible.value = true;
 };
 
 const handleEditIteration = (i: IterationItem) => {
     drawerMode.value = "edit";
-    drawerTitle.value = "编辑迭代";
-    currentIteration.value = {
-        ...i,
-        owner_id: i.owner_id || i.assignee_id || i.pm_id || "",
-        start_date: i.start_date ? i.start_date.split("T")[0] : "",
-        end_date: i.end_date ? i.end_date.split("T")[0] : "",
-    };
+    currentIteration.value = { ...i };
     drawerVisible.value = true;
-};
-
-const handleSaveIteration = async (andContinue = false) => {
-    try { await formRef.value?.validate(); } catch { return; }
-    const r = currentIteration.value;
-    const estimateHours = typeof r.estimate_hours === "number" ? r.estimate_hours : undefined;
-    formLoading.value = true;
-    try {
-        if (drawerMode.value === "add") {
-            await createVortflowIteration({
-                project_id: r.project_id!, name: r.name!,
-                goal: r.goal || "", owner_id: r.owner_id || undefined,
-                start_date: r.start_date || undefined, end_date: r.end_date || undefined,
-                status: r.status || "planning", estimate_hours: estimateHours,
-            });
-            if (!andContinue) {
-                drawerVisible.value = false;
-            } else {
-                currentIteration.value = {
-                    project_id: r.project_id, status: "planning",
-                    use_doc_template: r.use_doc_template ?? true,
-                    owner_id: r.owner_id || "", name: "", goal: "",
-                    start_date: "", end_date: "", estimate_hours: undefined,
-                };
-            }
-        } else {
-            await updateVortflowIteration(r.id!, {
-                name: r.name, goal: r.goal,
-                owner_id: r.owner_id || undefined,
-                start_date: r.start_date || undefined, end_date: r.end_date || undefined,
-                status: r.status, estimate_hours: estimateHours,
-            });
-            drawerVisible.value = false;
-        }
-        loadData();
-    } finally { formLoading.value = false; }
 };
 
 const handleDeleteIteration = async (i: IterationItem) => {
@@ -188,12 +130,6 @@ const handleFilterOwnerSelect = (name: string) => {
     filterOwnerDropdownOpen.value = false;
     filterOwnerKeyword.value = "";
     onSearchSubmit();
-};
-
-const handleFormOwnerSelect = (name: string) => {
-    currentIteration.value.owner_id = getMemberIdByName(name);
-    formOwnerDropdownOpen.value = false;
-    formOwnerKeyword.value = "";
 };
 
 onMounted(async () => {
@@ -353,109 +289,12 @@ onMounted(async () => {
         </div>
 
         <!-- 新建/编辑迭代弹窗 -->
-        <vort-dialog
-            :open="drawerVisible"
-            :title="drawerTitle"
-            :width="800"
-            :centered="true"
-            @update:open="drawerVisible = $event"
-        >
-            <vort-form ref="formRef" :model="currentIteration" :rules="iterationValidationSchema" label-width="90px">
-                <vort-form-item v-if="drawerMode === 'add'" label="所属项目" name="project_id" required>
-                    <vort-select v-model="currentIteration.project_id" placeholder="请选择项目" class="w-full">
-                        <vort-select-option v-for="p in vortFlowStore.projects" :key="p.id" :value="p.id">{{ p.name }}</vort-select-option>
-                    </vort-select>
-                </vort-form-item>
-
-                <div class="grid grid-cols-2 gap-x-4">
-                    <vort-form-item label="标题" name="name" required>
-                        <vort-input v-model="currentIteration.name" placeholder="请输入标题" class="w-full" />
-                    </vort-form-item>
-                    <vort-form-item label="负责人" name="owner_id">
-                        <WorkItemMemberPicker
-                            mode="owner"
-                            :owner="getMemberNameById(currentIteration.owner_id || '')"
-                            :groups="ownerGroups"
-                            :open="formOwnerDropdownOpen"
-                            v-model:keyword="formOwnerKeyword"
-                            :show-unassigned="true"
-                            unassigned-value=""
-                            unassigned-label="未分配"
-                            :dropdown-max-height="420"
-                            :get-avatar-bg="getAvatarBg"
-                            :get-avatar-label="getAvatarLabel"
-                            :get-avatar-url="getMemberAvatarUrl"
-                            @update:open="(open) => formOwnerDropdownOpen = open"
-                            @update:owner="handleFormOwnerSelect"
-                        >
-                            <template #trigger="{ open }">
-                                <div
-                                    class="filter-select-trigger w-full"
-                                    :class="{ active: open }"
-                                    tabindex="0"
-                                    @click.stop="formOwnerDropdownOpen = !formOwnerDropdownOpen"
-                                >
-                                    <div class="flex items-center w-full gap-2 min-w-0">
-                                        <span class="filter-select-value text-sm truncate" :class="currentIteration.owner_id ? 'text-[var(--vort-text,rgba(0,0,0,0.88))]' : 'text-[var(--vort-text-quaternary,rgba(0,0,0,0.25))]'">
-                                            {{ getMemberNameById(currentIteration.owner_id || "") || "请选择负责人" }}
-                                        </span>
-                                        <span class="vort-select-arrow ml-auto" :class="{ 'vort-select-arrow-open': open }">
-                                            <DownOutlined />
-                                        </span>
-                                    </div>
-                                </div>
-                            </template>
-                        </WorkItemMemberPicker>
-                    </vort-form-item>
-                </div>
-
-                <div class="grid grid-cols-2 gap-x-4">
-                    <vort-form-item label="计划时间" name="start_date">
-                        <div class="flex items-center gap-2 w-full">
-                            <vort-date-picker v-model="currentIteration.start_date" value-format="YYYY-MM-DD" placeholder="开始日期" class="flex-1" />
-                            <span class="text-gray-400 text-sm">→</span>
-                            <vort-date-picker v-model="currentIteration.end_date" value-format="YYYY-MM-DD" placeholder="结束日期" class="flex-1" />
-                        </div>
-                    </vort-form-item>
-                    <vort-form-item label="工时规模" name="estimate_hours">
-                        <div class="flex items-center gap-2 w-full">
-                            <vort-input-number v-model="currentIteration.estimate_hours" placeholder="请输入工时规模" :min="0" class="flex-1" />
-                            <span class="text-gray-400 text-sm whitespace-nowrap">小时</span>
-                        </div>
-                    </vort-form-item>
-                </div>
-
-                <vort-form-item label="迭代目标" name="goal">
-                    <vort-textarea v-model="currentIteration.goal" placeholder="请输入迭代目标" :rows="4" class="w-full" />
-                </vort-form-item>
-
-                <vort-form-item v-if="drawerMode === 'add'" name="use_doc_template">
-                    <div class="flex items-center gap-1.5">
-                        <vort-checkbox v-model:checked="currentIteration.use_doc_template" />
-                        <span class="text-sm text-gray-700">使用文档模板</span>
-                        <vort-tooltip title="使用预设的文档模板创建迭代">
-                            <Info :size="14" class="text-gray-400 cursor-help" />
-                        </vort-tooltip>
-                    </div>
-                </vort-form-item>
-
-                <vort-form-item v-if="drawerMode === 'edit'" label="状态" name="status">
-                    <vort-select v-model="currentIteration.status" class="w-full">
-                        <vort-select-option value="planning">待开始</vort-select-option>
-                        <vort-select-option value="active">进行中</vort-select-option>
-                        <vort-select-option value="completed">已结束</vort-select-option>
-                    </vort-select>
-                </vort-form-item>
-            </vort-form>
-
-            <template #footer>
-                <div class="flex justify-end gap-3">
-                    <vort-button @click="drawerVisible = false">取消</vort-button>
-                    <vort-button v-if="drawerMode === 'add'" @click="handleSaveIteration(true)">新建并继续</vort-button>
-                    <vort-button variant="primary" :loading="formLoading" @click="handleSaveIteration()">确定</vort-button>
-                </div>
-            </template>
-        </vort-dialog>
+        <IterationEditDialog
+            v-model:open="drawerVisible"
+            :mode="drawerMode"
+            :iteration="currentIteration"
+            @saved="loadData"
+        />
     </div>
 </template>
 

@@ -1058,7 +1058,7 @@ export function removeVortflowProjectMember(projectId: string, memberId: string)
 // -- 需求 --
 
 /** VortFlow 需求列表 */
-export function getVortflowStories(params: { project_id?: string; state?: string; keyword?: string; priority?: number; parent_id?: string; submitter_id?: string; pm_id?: string; participant_id?: string; sort_by?: string; sort_order?: string; page?: number; page_size?: number }) {
+export function getVortflowStories(params: { project_id?: string; state?: string; keyword?: string; priority?: number; parent_id?: string; submitter_id?: string; pm_id?: string; participant_id?: string; iteration_id?: string; sort_by?: string; sort_order?: string; page?: number; page_size?: number }) {
     return request.get("/vortflow/stories", { params });
 }
 
@@ -1095,7 +1095,7 @@ export function getVortflowStoryTransitions(id: string) {
 // -- 任务 --
 
 /** VortFlow 任务列表 */
-export function getVortflowTasks(params: { story_id?: string; parent_id?: string; state?: string; task_type?: string; assignee_id?: string; keyword?: string; project_id?: string; creator_id?: string; participant_id?: string; sort_by?: string; sort_order?: string; page?: number; page_size?: number }) {
+export function getVortflowTasks(params: { story_id?: string; parent_id?: string; state?: string; task_type?: string; assignee_id?: string; keyword?: string; project_id?: string; creator_id?: string; participant_id?: string; iteration_id?: string; sort_by?: string; sort_order?: string; page?: number; page_size?: number }) {
     return request.get("/vortflow/tasks", { params });
 }
 
@@ -1132,7 +1132,7 @@ export function getVortflowTaskTransitions(id: string) {
 // -- 缺陷 --
 
 /** VortFlow 缺陷列表 */
-export function getVortflowBugs(params: { story_id?: string; state?: string; severity?: number; assignee_id?: string; keyword?: string; project_id?: string; reporter_id?: string; participant_id?: string; sort_by?: string; sort_order?: string; page?: number; page_size?: number }) {
+export function getVortflowBugs(params: { story_id?: string; state?: string; severity?: number; assignee_id?: string; keyword?: string; project_id?: string; reporter_id?: string; participant_id?: string; iteration_id?: string; sort_by?: string; sort_order?: string; page?: number; page_size?: number }) {
     return request.get("/vortflow/bugs", { params });
 }
 
@@ -1350,6 +1350,38 @@ export function addVortflowVersionStory(versionId: string, data: { story_id: str
 /** VortFlow 取消关联需求 */
 export function removeVortflowVersionStory(versionId: string, storyId: string) {
     return request.delete(`/vortflow/versions/${versionId}/stories/${storyId}`);
+}
+
+// ==================== VortFlow Views & Column Settings ====================
+
+/** 获取视图列表 */
+export function getVortflowViews(work_item_type?: string) {
+    return request.get("/vortflow/views", { params: { work_item_type: work_item_type || "" } });
+}
+
+/** 创建视图 */
+export function createVortflowView(data: { name: string; work_item_type: string; scope?: string; filters?: Record<string, any>; columns?: Array<{ key: string; visible: boolean }> }) {
+    return request.post("/vortflow/views", data);
+}
+
+/** 更新视图 */
+export function updateVortflowView(id: string, data: { name?: string; filters?: Record<string, any>; columns?: Array<{ key: string; visible: boolean }>; view_order?: number }) {
+    return request.put(`/vortflow/views/${id}`, data);
+}
+
+/** 删除视图 */
+export function deleteVortflowView(id: string) {
+    return request.delete(`/vortflow/views/${id}`);
+}
+
+/** 获取列设置 */
+export function getVortflowColumnSettings(work_item_type?: string) {
+    return request.get("/vortflow/column-settings", { params: { work_item_type: work_item_type || "" } });
+}
+
+/** 保存列设置 */
+export function saveVortflowColumnSettings(data: { work_item_type: string; columns: Array<{ key: string; visible: boolean }> }) {
+    return request.put("/vortflow/column-settings", data);
 }
 
 // ==================== VortGit ====================

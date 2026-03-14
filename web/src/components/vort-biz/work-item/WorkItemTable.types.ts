@@ -82,16 +82,24 @@ export interface RowItem {
     tags: string[];
     status: Status;
     createdAt: string;
+    updatedAt?: string;
     collaborators: string[];
     type: WorkItemType;
     planTime: DateRange;
+    planStartDate?: string;
+    planEndDate?: string;
     description: string;
     ownerId?: string;
     owner: string;
     creator: string;
     projectId?: string;
     projectName?: string;
+    iteration?: string;
+    version?: string;
+    estimateHours?: number | string;
     children?: RowItem[];
+    _prevIteration?: string;
+    _prevVersion?: string;
 }
 
 export interface DetailComment {

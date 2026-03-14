@@ -1463,7 +1463,7 @@ defineExpose({
 }
 
 .vort-pro-table-empty-icon {
-  width: 120px;
+  width: 140px;
   height: 100px;
 }
 

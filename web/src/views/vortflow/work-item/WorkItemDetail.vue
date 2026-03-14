@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, reactive, onMounted, watch } from "vue";
+import { ref, computed, reactive, onMounted, watch, nextTick } from "vue";
 import { message } from "@/components/vort";
 import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMemberPicker.vue";
 import WorkItemStatus from "@/components/vort-biz/work-item/WorkItemStatus.vue";
@@ -7,7 +7,8 @@ import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
 import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
 import { Pencil } from "lucide-vue-next";
 import { useWorkItemCommon } from "./useWorkItemCommon";
-import type { WorkItemType, Status, RowItem, DetailComment, DetailLog } from "@/components/vort-biz/work-item/WorkItemTable.types";
+import { getVortflowProjects, getVortflowIterations, getVortflowVersions } from "@/api";
+import type { WorkItemType, Status, DateRange, RowItem, DetailComment, DetailLog } from "@/components/vort-biz/work-item/WorkItemTable.types";
 
 interface Props {
     workNo: string;
@@ -224,14 +225,170 @@ const submitDetailComment = () => {
     message.success("评论已发布");
 };
 
+// ---- Editable field options ----
+const apiProjects = ref<Array<{ id: string; name: string }>>([]);
+const apiIterations = ref<Array<{ id: string; name: string }>>([]);
+const apiVersions = ref<Array<{ id: string; name: string }>>([]);
+
+const loadFieldOptions = async () => {
+    const projectId = record.value?.projectId || "";
+    const [projRes, iterRes, verRes] = await Promise.allSettled([
+        getVortflowProjects(),
+        projectId ? getVortflowIterations({ project_id: projectId, page: 1, page_size: 100 }) : Promise.resolve({ items: [] }),
+        projectId ? getVortflowVersions({ project_id: projectId, page: 1, page_size: 100 }) : Promise.resolve({ items: [] }),
+    ]);
+    if (projRes.status === "fulfilled") {
+        apiProjects.value = ((projRes.value as any)?.items || []).map((p: any) => ({ id: String(p.id), name: String(p.name || p.id) }));
+    }
+    if (iterRes.status === "fulfilled") {
+        apiIterations.value = ((iterRes.value as any)?.items || []).map((p: any) => ({ id: String(p.id), name: String(p.name || p.id) }));
+    }
+    if (verRes.status === "fulfilled") {
+        apiVersions.value = ((verRes.value as any)?.items || []).map((p: any) => ({ id: String(p.id), name: String(p.name || p.id) }));
+    }
+};
+
+const detailPlanTimeModel = computed<DateRange | undefined>({
+    get: () => {
+        if (!record.value) return undefined;
+        const pt = record.value.planTime;
+        return pt && pt.length === 2 && pt[0] ? [pt[0], pt[1]] as DateRange : undefined;
+    },
+    set: (value) => {
+        if (!record.value) return;
+        if (Array.isArray(value) && value.length === 2) {
+            record.value.planTime = [String(value[0] || ""), String(value[1] || "")] as DateRange;
+        } else {
+            record.value.planTime = ["", ""];
+        }
+        emit("update", { planTime: record.value.planTime });
+        appendDetailLog("修改了计划时间");
+    },
+});
+
+const detailProjectName = computed({
+    get: () => record.value?.projectName || "",
+    set: (val: string) => {
+        if (!record.value) return;
+        const match = apiProjects.value.find(p => p.name === val);
+        record.value.projectName = val;
+        if (match) record.value.projectId = match.id;
+        emit("update", { projectName: val, projectId: match?.id });
+        appendDetailLog(`修改项目为"${val}"`);
+        loadProjectLinkedOptions(match?.id || "");
+    },
+});
+
+const detailIteration = computed({
+    get: () => record.value?.iteration || "",
+    set: (val: string) => {
+        if (!record.value) return;
+        record.value.iteration = val;
+        emit("update", { iteration: val });
+        const name = apiIterations.value.find(i => i.id === val)?.name || val || "未设置";
+        appendDetailLog(`修改迭代为"${name}"`);
+    },
+});
+
+const detailVersion = computed({
+    get: () => record.value?.version || "",
+    set: (val: string) => {
+        if (!record.value) return;
+        record.value.version = val;
+        emit("update", { version: val });
+        const name = apiVersions.value.find(v => v.id === val)?.name || val || "未设置";
+        appendDetailLog(`修改版本为"${name}"`);
+    },
+});
+
+const detailType = computed({
+    get: () => record.value?.type || "缺陷",
+    set: (val: string) => {
+        if (!record.value || val === record.value.type) return;
+        record.value.type = val as WorkItemType;
+        emit("update", { type: val as WorkItemType });
+        appendDetailLog(`修改类型为"${val}"`);
+    },
+});
+
+const loadProjectLinkedOptions = async (projectId?: string) => {
+    const pid = projectId || record.value?.projectId || "";
+    if (!pid) return;
+    const [iterRes, verRes] = await Promise.allSettled([
+        getVortflowIterations({ project_id: pid, page: 1, page_size: 100 }),
+        getVortflowVersions({ project_id: pid, page: 1, page_size: 100 }),
+    ]);
+    if (iterRes.status === "fulfilled") {
+        apiIterations.value = ((iterRes.value as any)?.items || []).map((p: any) => ({ id: String(p.id), name: String(p.name || p.id) }));
+    }
+    if (verRes.status === "fulfilled") {
+        apiVersions.value = ((verRes.value as any)?.items || []).map((p: any) => ({ id: String(p.id), name: String(p.name || p.id) }));
+    }
+};
+
+// ---- Inline edit: click-to-edit pattern ----
+type EditableField = "planTime" | "iteration" | "type" | "project" | "version";
+const editingField = ref<EditableField | null>(null);
+
+const selectRefType = ref<InstanceType<any> | null>(null);
+const selectRefIteration = ref<InstanceType<any> | null>(null);
+const selectRefProject = ref<InstanceType<any> | null>(null);
+const selectRefVersion = ref<InstanceType<any> | null>(null);
+const pickerRefPlanTime = ref<InstanceType<any> | null>(null);
+
+const fieldRefMap: Record<EditableField, any> = {
+    type: selectRefType,
+    iteration: selectRefIteration,
+    project: selectRefProject,
+    version: selectRefVersion,
+    planTime: pickerRefPlanTime,
+};
+
+const startEditing = (field: EditableField) => {
+    editingField.value = field;
+    nextTick(() => {
+        const r = fieldRefMap[field]?.value;
+        if (!r) return;
+        if (field === "planTime") {
+            r.$el?.click?.();
+        } else {
+            const trigger = r.$el?.querySelector?.(".vort-select-selector") || r.$el;
+            trigger?.click?.();
+        }
+    });
+};
+const stopEditing = () => {
+    editingField.value = null;
+};
+const isEditing = (field: EditableField) => editingField.value === field;
+
+const iterationDisplayName = computed(() => {
+    const id = record.value?.iteration || "";
+    if (!id) return "未设置";
+    return apiIterations.value.find(i => i.id === id)?.name || id;
+});
+const versionDisplayName = computed(() => {
+    const id = record.value?.version || "";
+    if (!id) return "未设置";
+    return apiVersions.value.find(v => v.id === id)?.name || id;
+});
+const projectDisplayName = computed(() => record.value?.projectName || "请选择");
+const planTimeDisplayText = computed(() => {
+    const pt = record.value?.planTime;
+    if (!pt || !pt[0]) return "未设置";
+    return `${pt[0]} ~ ${pt[1]}`;
+});
+
 onMounted(async () => {
     await loadMemberOptions();
+    await loadFieldOptions();
     detailAssigneeGroupOpen["全部成员"] = true;
     ensureDetailPanelsData();
 });
 
 watch(() => props.initialData, (value) => {
     record.value = value || null;
+    if (value) loadFieldOptions();
 }, { immediate: true });
 </script>
 
@@ -361,13 +518,101 @@ watch(() => props.initialData, (value) => {
                                 </template>
                             </WorkItemMemberPicker>
                         </div>
-                        <div class="bug-detail-info-item bug-detail-info-item-row"><label>计划时间</label><div>{{ record.planTime[0] }} ~ {{ record.planTime[1] }}</div></div>
-                        <div class="bug-detail-info-item bug-detail-info-item-row"><label>迭代</label><div>未设置</div></div>
+                        <div class="bug-detail-info-item bug-detail-info-item-row">
+                            <label>计划时间</label>
+                            <div v-if="isEditing('planTime')" class="detail-field-edit">
+                                <vort-range-picker
+                                    ref="pickerRefPlanTime"
+                                    v-model="detailPlanTimeModel"
+                                    value-format="YYYY-MM-DD"
+                                    format="YYYY-MM-DD"
+                                    separator="~"
+                                    :placeholder="['未设置', '未设置']"
+                                    class="detail-field-picker"
+                                    @change="stopEditing"
+                                    @open-change="(v: boolean) => { if (!v) stopEditing() }"
+                                />
+                            </div>
+                            <div v-else class="detail-field-display" @click="startEditing('planTime')">
+                                <span :class="{ 'text-placeholder': !record.planTime?.[0] }">{{ planTimeDisplayText }}</span>
+                            </div>
+                        </div>
+                        <div class="bug-detail-info-item bug-detail-info-item-row">
+                            <label>迭代</label>
+                            <div v-if="isEditing('iteration')" class="detail-field-edit">
+                                <vort-select
+                                    ref="selectRefIteration"
+                                    v-model="detailIteration"
+                                    placeholder="未设置"
+                                    allow-clear
+                                    class="detail-field-select"
+                                    @change="stopEditing"
+                                    @blur="stopEditing"
+                                >
+                                    <vort-select-option v-for="item in apiIterations" :key="item.id" :value="item.id">{{ item.name }}</vort-select-option>
+                                </vort-select>
+                            </div>
+                            <div v-else class="detail-field-display" @click="startEditing('iteration')">
+                                <span :class="{ 'text-placeholder': !record.iteration }">{{ iterationDisplayName }}</span>
+                            </div>
+                        </div>
                     </div>
                     <div class="bug-detail-right-col">
-                        <div class="bug-detail-info-item bug-detail-info-item-row"><label>类型</label><div>{{ record.type }}</div></div>
-                        <div class="bug-detail-info-item bug-detail-info-item-row"><label>项目</label><div>VortMall</div></div>
-                        <div class="bug-detail-info-item bug-detail-info-item-row"><label>版本</label><div>未设置</div></div>
+                        <div class="bug-detail-info-item bug-detail-info-item-row">
+                            <label>类型</label>
+                            <div v-if="isEditing('type')" class="detail-field-edit">
+                                <vort-select
+                                    ref="selectRefType"
+                                    v-model="detailType"
+                                    class="detail-field-select"
+                                    @change="stopEditing"
+                                    @blur="stopEditing"
+                                >
+                                    <vort-select-option value="需求">需求</vort-select-option>
+                                    <vort-select-option value="任务">任务</vort-select-option>
+                                    <vort-select-option value="缺陷">缺陷</vort-select-option>
+                                </vort-select>
+                            </div>
+                            <div v-else class="detail-field-display" @click="startEditing('type')">
+                                <span>{{ record.type }}</span>
+                            </div>
+                        </div>
+                        <div class="bug-detail-info-item bug-detail-info-item-row">
+                            <label>项目</label>
+                            <div v-if="isEditing('project')" class="detail-field-edit">
+                                <vort-select
+                                    ref="selectRefProject"
+                                    v-model="detailProjectName"
+                                    class="detail-field-select"
+                                    @change="stopEditing"
+                                    @blur="stopEditing"
+                                >
+                                    <vort-select-option v-for="item in apiProjects" :key="item.id" :value="item.name">{{ item.name }}</vort-select-option>
+                                </vort-select>
+                            </div>
+                            <div v-else class="detail-field-display" @click="startEditing('project')">
+                                <span :class="{ 'text-placeholder': !record.projectName }">{{ projectDisplayName }}</span>
+                            </div>
+                        </div>
+                        <div class="bug-detail-info-item bug-detail-info-item-row">
+                            <label>版本</label>
+                            <div v-if="isEditing('version')" class="detail-field-edit">
+                                <vort-select
+                                    ref="selectRefVersion"
+                                    v-model="detailVersion"
+                                    placeholder="未设置"
+                                    allow-clear
+                                    class="detail-field-select"
+                                    @change="stopEditing"
+                                    @blur="stopEditing"
+                                >
+                                    <vort-select-option v-for="item in apiVersions" :key="item.id" :value="item.id">{{ item.name }}</vort-select-option>
+                                </vort-select>
+                            </div>
+                            <div v-else class="detail-field-display" @click="startEditing('version')">
+                                <span :class="{ 'text-placeholder': !record.version }">{{ versionDisplayName }}</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -1241,5 +1486,41 @@ watch(() => props.initialData, (value) => {
 .bug-detail-log-item .time {
     color: #94a3b8;
     margin-left: auto;
+}
+
+.detail-field-display {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    color: #1e293b;
+    transition: background 0.15s;
+    min-height: 28px;
+}
+
+.detail-field-display:hover {
+    background: #f1f5f9;
+}
+
+.detail-field-display .text-placeholder {
+    color: #94a3b8;
+}
+
+.detail-field-edit {
+    min-width: 0;
+}
+
+.detail-field-picker :deep(.vort-rangepicker-prefix) {
+    display: none;
+}
+
+.detail-field-picker :deep(.vort-rangepicker-separator) {
+    padding: 0 4px;
+}
+
+.detail-field-picker :deep(.vort-rangepicker-input) {
+    font-size: 14px;
 }
 </style>

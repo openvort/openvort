@@ -32,7 +32,10 @@ import {
     getVortflowStory, getVortflowStories, getVortflowTask, getVortflowTasks, getVortflowBugs,
     getVortflowProjects, createVortflowStory, createVortflowTask, createVortflowBug,
     deleteVortflowStory, deleteVortflowTask, deleteVortflowBug,
-    updateVortflowStory, updateVortflowTask, updateVortflowBug
+    updateVortflowStory, updateVortflowTask, updateVortflowBug,
+    addVortflowIterationStory, addVortflowIterationTask,
+    removeVortflowIterationStory, removeVortflowIterationTask,
+    addVortflowVersionStory, removeVortflowVersionStory,
 } from "@/api";
 import type {
     WorkItemType,
@@ -84,17 +87,17 @@ const { views: mergedViews } = currentWorkItemType.value
     ? useVortFlowViews(currentWorkItemType.value)
     : { views: computed(() => SYSTEM_VIEWS) };
 
-const handleCreateViewFromDialog = (data: { name: string; scope: "personal" | "shared" }) => {
+const handleCreateViewFromDialog = async (data: { name: string; scope: "personal" | "shared" }) => {
     const maxOrder = vortFlowStore.customViews.reduce((max, v) => Math.max(max, v.order), -1);
-    const newView: CustomView = {
-        id: `custom_${Date.now()}`,
+    await vortFlowStore.addCustomView({
         name: data.name,
+        work_item_type: props.type || "缺陷",
         scope: data.scope,
         visible: true,
         filters: {},
+        columns: [],
         order: maxOrder + 1,
-    };
-    vortFlowStore.addCustomView(newView);
+    });
     viewCreateOpen.value = false;
 };
 
@@ -444,6 +447,14 @@ const ALL_COLUMN_DEFS: Array<ProTableColumn<RowItem> & { key: string }> = [
     { key: "iteration", title: "迭代", dataIndex: "iteration", width: 140, align: "left" },
     { key: "version", title: "版本", dataIndex: "version", width: 120, align: "left" },
     { key: "estimateHours", title: "预估工时", dataIndex: "estimateHours", width: 100, align: "left" },
+    { key: "repo", title: "关联仓库", dataIndex: "repo", width: 140, align: "left" },
+    { key: "milestone", title: "关联里程碑", dataIndex: "milestone", width: 140, align: "left" },
+    { key: "branch", title: "关联分支", dataIndex: "branch", width: 140, align: "left" },
+    { key: "project", title: "关联项目", dataIndex: "projectName", width: 140, align: "left" },
+    { key: "startAt", title: "实际开始时间", dataIndex: "startAt", width: 150, align: "left" },
+    { key: "endAt", title: "实际结束时间", dataIndex: "endAt", width: 150, align: "left" },
+    { key: "loggedHours", title: "登记工时", dataIndex: "loggedHours", width: 100, align: "left" },
+    { key: "remainHours", title: "剩余工时", dataIndex: "remainHours", width: 100, align: "left" },
 ];
 
 const DEFAULT_VISIBLE_KEYS = new Set([
@@ -451,17 +462,47 @@ const DEFAULT_VISIBLE_KEYS = new Set([
     "createdAt", "collaborators", "type", "planTime", "creator",
 ]);
 
-const columnSettings = ref<ColumnSettingItem[]>(
+const buildDefaultColumnSettings = (): ColumnSettingItem[] =>
     ALL_COLUMN_DEFS.map(c => ({
         key: c.key,
         title: c.title || c.key,
         fixed: c.key === "workNo" || c.key === "title",
         visible: DEFAULT_VISIBLE_KEYS.has(c.key),
-    }))
-);
+    }));
+
+const loadColumnSettingsFromStore = (): ColumnSettingItem[] => {
+    const typeKey = props.type || "";
+    if (!typeKey) return buildDefaultColumnSettings();
+    const persisted = vortFlowStore.getColumnSettings(typeKey);
+    if (!persisted || persisted.length === 0) return buildDefaultColumnSettings();
+    const defaults = buildDefaultColumnSettings();
+    const defaultMap = new Map(defaults.map(c => [c.key, c]));
+    const result: ColumnSettingItem[] = [];
+    const seen = new Set<string>();
+    for (const p of persisted) {
+        const def = defaultMap.get(p.key);
+        if (def) {
+            result.push({ ...def, visible: p.visible });
+            seen.add(p.key);
+        }
+    }
+    for (const d of defaults) {
+        if (!seen.has(d.key)) result.push(d);
+    }
+    return result;
+};
+
+const columnSettings = ref<ColumnSettingItem[]>(loadColumnSettingsFromStore());
 
 const handleColumnSettingsSave = (settings: ColumnSettingItem[]) => {
     columnSettings.value = settings;
+    const typeKey = props.type || "";
+    if (typeKey) {
+        vortFlowStore.setColumnSettings(
+            typeKey,
+            settings.map(s => ({ key: s.key, visible: s.visible })),
+        );
+    }
 };
 
 const columns = computed<ProTableColumn<RowItem>[]>(() => {
@@ -469,6 +510,169 @@ const columns = computed<ProTableColumn<RowItem>[]>(() => {
     const orderedKeys = columnSettings.value.filter(s => s.visible).map(s => s.key);
     const colMap = new Map(ALL_COLUMN_DEFS.map(c => [c.key, c]));
     return orderedKeys.map(k => colMap.get(k)!).filter(Boolean);
+});
+
+// ---- View dirty tracking ----
+
+interface ViewSnapshot {
+    keyword: string;
+    owner: string;
+    status: string;
+    columnFilters: Record<string, ColumnFilterValue | null>;
+    sortField: string;
+    sortOrder: "ascend" | "descend" | null;
+    columns: Array<{ key: string; visible: boolean }>;
+}
+
+const viewBaseline = ref<ViewSnapshot | null>(null);
+
+const takeViewSnapshot = (): ViewSnapshot => ({
+    keyword: keyword.value,
+    owner: owner.value,
+    status: status.value,
+    columnFilters: { ...columnFilters },
+    sortField: columnSortField.value,
+    sortOrder: columnSortOrder.value,
+    columns: columnSettings.value.map(s => ({ key: s.key, visible: s.visible })),
+});
+
+const resetViewBaseline = () => {
+    viewBaseline.value = takeViewSnapshot();
+};
+
+const isSystemView = computed(() => {
+    return SYSTEM_VIEWS.some(v => v.id === currentViewId.value);
+});
+
+const currentCustomView = computed(() => {
+    if (isSystemView.value) return null;
+    return vortFlowStore.customViews.find(v => v.id === currentViewId.value) ?? null;
+});
+
+const viewDirty = computed(() => {
+    const base = viewBaseline.value;
+    if (!base) return false;
+    if (keyword.value !== base.keyword) return true;
+    if (owner.value !== base.owner) return true;
+    if (status.value !== base.status) return true;
+    if (columnSortField.value !== base.sortField) return true;
+    if (columnSortOrder.value !== base.sortOrder) return true;
+    const currentFilterKeys = Object.keys(columnFilters);
+    const baseFilterKeys = Object.keys(base.columnFilters);
+    if (currentFilterKeys.length !== baseFilterKeys.length) return true;
+    for (const k of currentFilterKeys) {
+        if (JSON.stringify(columnFilters[k]) !== JSON.stringify(base.columnFilters[k])) return true;
+    }
+    const curCols = columnSettings.value.map(s => `${s.key}:${s.visible}`).join(",");
+    const baseCols = base.columns.map(s => `${s.key}:${s.visible}`).join(",");
+    if (curCols !== baseCols) return true;
+    return false;
+});
+
+const saveViewDialogOpen = ref(false);
+const saveViewDropdownOpen = ref(false);
+const saveViewWrapperRef = ref<HTMLElement | null>(null);
+
+const onDocClickForSaveView = (e: MouseEvent) => {
+    if (saveViewWrapperRef.value && !saveViewWrapperRef.value.contains(e.target as Node)) {
+        saveViewDropdownOpen.value = false;
+    }
+};
+
+watch(saveViewDropdownOpen, (open) => {
+    if (open) {
+        document.addEventListener("click", onDocClickForSaveView, true);
+    } else {
+        document.removeEventListener("click", onDocClickForSaveView, true);
+    }
+});
+
+const collectCurrentViewState = () => {
+    const filters: Record<string, any> = {};
+    if (keyword.value) filters.keyword = keyword.value;
+    if (owner.value) filters.owner = owner.value;
+    if (status.value) filters.status = status.value;
+    if (columnSortField.value) {
+        filters.sortField = columnSortField.value;
+        filters.sortOrder = columnSortOrder.value;
+    }
+    const cfKeys = Object.keys(columnFilters);
+    if (cfKeys.length > 0) {
+        filters.columnFilters = { ...columnFilters };
+    }
+    const cols = columnSettings.value.map(s => ({ key: s.key, visible: s.visible }));
+    return { filters, cols };
+};
+
+const handleUpdateCurrentView = async () => {
+    saveViewDropdownOpen.value = false;
+    const cv = currentCustomView.value;
+    if (!cv) {
+        message.warning("系统视图不可更新，请存为新视图");
+        return;
+    }
+    const { filters, cols } = collectCurrentViewState();
+    await vortFlowStore.updateCustomView(cv.id, { filters, columns: cols });
+    message.success("视图已更新");
+    resetViewBaseline();
+};
+
+const handleSaveAsNew = () => {
+    saveViewDropdownOpen.value = false;
+    saveViewDialogOpen.value = true;
+};
+
+const handleSaveAsNewView = async (data: { name: string; scope: "personal" | "shared" }) => {
+    const { filters, cols } = collectCurrentViewState();
+    const maxOrder = vortFlowStore.customViews.reduce((max, v) => Math.max(max, v.order), -1);
+    const res = await vortFlowStore.addCustomView({
+        name: data.name,
+        work_item_type: props.type || "缺陷",
+        scope: data.scope,
+        visible: true,
+        filters,
+        columns: cols,
+        order: maxOrder + 1,
+    });
+    if (res?.id && currentWorkItemType.value) {
+        vortFlowStore.setViewId(currentWorkItemType.value, res.id);
+    }
+    saveViewDialogOpen.value = false;
+    message.success("视图已创建");
+    resetViewBaseline();
+};
+
+watch(currentViewId, () => {
+    keyword.value = "";
+    owner.value = "";
+    status.value = "";
+    columnSortField.value = "";
+    columnSortOrder.value = null;
+    for (const k of Object.keys(columnFilters)) {
+        delete columnFilters[k];
+    }
+    const cv = vortFlowStore.customViews.find(v => v.id === currentViewId.value);
+    if (cv?.filters) {
+        const f = cv.filters;
+        if (f.keyword) keyword.value = f.keyword;
+        if (f.owner) owner.value = f.owner;
+        if (f.status) status.value = f.status;
+        if (f.sortField) columnSortField.value = f.sortField;
+        if (f.sortOrder) columnSortOrder.value = f.sortOrder;
+        if (f.columnFilters) {
+            for (const [k, v] of Object.entries(f.columnFilters as Record<string, ColumnFilterValue>)) {
+                columnFilters[k] = v;
+            }
+        }
+    }
+    if (cv?.columns?.length) {
+        const savedMap = new Map(cv.columns.map((c: any) => [c.key, c.visible]));
+        columnSettings.value = columnSettings.value.map(s => ({
+            ...s,
+            visible: savedMap.has(s.key) ? savedMap.get(s.key)! : s.visible,
+        }));
+    }
+    nextTick(() => resetViewBaseline());
 });
 
 const columnSettingsForDialog = computed<ColumnSettingItem[]>(() => columnSettings.value);
@@ -624,6 +828,9 @@ const mapBackendItemToRow = (item: any, typeValue: WorkItemType, index: number):
         : [];
 
     const planDate = deadline || formatDate(created);
+    const updated = item?.updated_at ? new Date(item.updated_at) : null;
+    const updatedAt = updated ? formatCnTime(updated) : "";
+    const estimateHours = item?.estimate_hours != null ? item.estimate_hours : undefined;
     return {
         backendId,
         workNo,
@@ -636,6 +843,7 @@ const mapBackendItemToRow = (item: any, typeValue: WorkItemType, index: number):
         tags,
         status: mapBackendStateToStatus(typeValue, String(item?.state || "")),
         createdAt,
+        updatedAt,
         collaborators: collaboratorsFromBackend,
         type: typeValue,
         planTime: [planDate, planDate],
@@ -644,7 +852,8 @@ const mapBackendItemToRow = (item: any, typeValue: WorkItemType, index: number):
         owner: ownerName,
         creator: creatorName,
         projectId: item?.project_id ? String(item.project_id) : "",
-        projectName: "",
+        projectName: item?.project_id ? (apiProjects.value.find(p => p.id === String(item.project_id))?.name || "") : "",
+        estimateHours,
     };
 };
 
@@ -682,6 +891,7 @@ const postProcessTableRows = (rows: RowItem[]) => getVisibleChildRows(rows);
 
 const SORT_FIELD_MAP: Record<string, string> = {
     createdAt: "created_at",
+    updatedAt: "updated_at",
     priority: "priority",
     title: "title",
     status: "state",
@@ -793,6 +1003,7 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
             return { data: [], total: 0, current, pageSize };
         }
         const projectIdParam = props.projectId || undefined;
+        const iterationIdParam = props.iterationId || undefined;
         const vf = props.viewFilters || {};
         const viewOwner = vf.owner || undefined;
         const viewCreator = vf.creator || undefined;
@@ -804,6 +1015,7 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
                 return getVortflowStories({
                     keyword: kw, state, parent_id: "root",
                     project_id: projectIdParam,
+                    iteration_id: iterationIdParam,
                     pm_id: ownerMemberId || viewOwner || undefined,
                     submitter_id: viewCreator,
                     participant_id: viewParticipant,
@@ -818,6 +1030,7 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
                     state,
                     assignee_id: effectiveAssignee,
                     project_id: projectIdParam,
+                    iteration_id: iterationIdParam,
                     creator_id: viewCreator,
                     participant_id: viewParticipant,
                     ...sortParams,
@@ -830,6 +1043,7 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
                 state,
                 assignee_id: effectiveAssignee,
                 project_id: projectIdParam,
+                iteration_id: iterationIdParam,
                 reporter_id: viewCreator,
                 participant_id: viewParticipant,
                 ...sortParams,
@@ -995,7 +1209,7 @@ const handleCreateBug = async () => {
     await loadApiMetadata(props.type === "任务");
     createBugDrawerMode.value = "create";
     createParentItemId.value = "";
-    createProjectId.value = "";
+    createProjectId.value = props.projectId || "";
     resetCreateBugForm();
     createBugForm.type = props.type ?? createBugForm.type;
     router.replace({ query: { ...route.query, action: "create", parentId: undefined } });
@@ -1025,10 +1239,71 @@ const handleCancelCreateWorkItem = () => {
     handleCancelCreateBug();
 };
 
-const handleDetailUpdate = (data: Partial<RowItem>) => {
-    if (detailCurrentRecord.value) {
-        Object.assign(detailCurrentRecord.value, data);
-        tableRef.value?.refresh?.();
+const handleDetailUpdate = async (data: Partial<RowItem>) => {
+    if (!detailCurrentRecord.value) return;
+    const rec = detailCurrentRecord.value;
+    Object.assign(rec, data);
+
+    if (!props.useApi || !rec.backendId) return;
+
+    if (data.status !== undefined) {
+        await syncRecordStatusToApi(rec, data.status);
+    }
+    if (data.owner !== undefined || data.collaborators !== undefined) {
+        const ownerId = data.owner ? getMemberIdByName(data.owner) || data.owner : undefined;
+        const collabIds = data.collaborators?.map(n => getMemberIdByName(n) || n);
+        const patch: any = {};
+        if (rec.type === "需求") {
+            if (ownerId !== undefined) patch.pm_id = ownerId || null;
+        } else {
+            if (ownerId !== undefined) patch.assignee_id = ownerId || null;
+        }
+        if (collabIds) patch.collaborators = collabIds;
+        await syncRecordUpdateToApi(rec, patch);
+    }
+    if (data.description !== undefined) {
+        await syncRecordUpdateToApi(rec, { description: data.description });
+    }
+    if (data.planTime !== undefined) {
+        const pt = data.planTime;
+        const deadline = (pt && pt[1]) ? pt[1] : undefined;
+        await syncRecordUpdateToApi(rec, { deadline: deadline || undefined });
+    }
+    if (data.iteration !== undefined) {
+        const itemId = getRecordBackendId(rec);
+        if (itemId) {
+            const prevIter = rec._prevIteration || "";
+            const nextIter = data.iteration || "";
+            if (prevIter && prevIter !== nextIter) {
+                if (rec.type === "需求") await removeVortflowIterationStory(prevIter, itemId).catch(() => {});
+                else if (rec.type === "任务") await removeVortflowIterationTask(prevIter, itemId).catch(() => {});
+            }
+            if (nextIter && nextIter !== prevIter) {
+                if (rec.type === "需求") await addVortflowIterationStory(nextIter, { story_id: itemId }).catch(() => {});
+                else if (rec.type === "任务") await addVortflowIterationTask(nextIter, { task_id: itemId }).catch(() => {});
+            }
+            rec._prevIteration = nextIter;
+        }
+    }
+    if (data.version !== undefined && rec.type === "需求") {
+        const itemId = getRecordBackendId(rec);
+        if (itemId) {
+            const prevVer = rec._prevVersion || "";
+            const nextVer = data.version || "";
+            if (prevVer && prevVer !== nextVer) {
+                await removeVortflowVersionStory(prevVer, itemId).catch(() => {});
+            }
+            if (nextVer && nextVer !== prevVer) {
+                await addVortflowVersionStory(nextVer, { story_id: itemId }).catch(() => {});
+            }
+            rec._prevVersion = nextVer;
+        }
+    }
+    if (data.projectName !== undefined && data.projectId !== undefined) {
+        const itemId = getRecordBackendId(rec);
+        if (itemId && rec.type === "需求") {
+            await updateVortflowStory(itemId, { project_id: data.projectId || undefined } as any);
+        }
     }
 };
 
@@ -1129,6 +1404,17 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
                 });
             }
             if (createdItem) {
+                const createdId = String(createdItem.id || "");
+                // Link to iteration if specified
+                if (createdId && formData.iteration && formData.iteration !== "__unplanned__") {
+                    try {
+                        if (type === "需求") {
+                            await addVortflowIterationStory(formData.iteration, { story_id: createdId });
+                        } else if (type === "任务") {
+                            await addVortflowIterationTask(formData.iteration, { task_id: createdId });
+                        }
+                    } catch { /* iteration link failed silently */ }
+                }
                 const pinnedRow = mapBackendItemToRow(createdItem, type, 0);
                 if ((type === "需求" || type === "任务") && formData.parentId) {
                     const parentId = formData.parentId;
@@ -1601,7 +1887,13 @@ const loadApiMetadata = async (withStories = false) => {
 
 onMounted(async () => {
     await loadMemberOptions();
-    await loadApiMetadata(false);
+    await Promise.all([
+        loadApiMetadata(false),
+        vortFlowStore.loadColumnSettings(props.type || ""),
+        vortFlowStore.loadViews(props.type || ""),
+    ]);
+    columnSettings.value = loadColumnSettingsFromStore();
+    resetViewBaseline();
     tableRef.value?.refresh?.();
 
     const action = route.query.action as string;
@@ -1649,6 +1941,43 @@ onMounted(async () => {
                     @manage-views="viewManageOpen = true"
                 />
             </template>
+            <template v-if="currentWorkItemType && viewDirty" #after-filters>
+                <div class="save-view-wrapper" ref="saveViewWrapperRef">
+                    <button
+                        type="button"
+                        class="save-view-btn"
+                        @click="saveViewDropdownOpen = !saveViewDropdownOpen"
+                    >
+                        保存视图
+                        <svg
+                            class="save-view-arrow"
+                            :class="{ open: saveViewDropdownOpen }"
+                            width="12" height="12" viewBox="0 0 12 12" fill="none"
+                        >
+                            <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </button>
+                    <Transition name="dropdown">
+                        <div v-if="saveViewDropdownOpen" class="save-view-dropdown">
+                            <button
+                                type="button"
+                                class="save-view-option"
+                                :disabled="isSystemView"
+                                @click="handleUpdateCurrentView"
+                            >
+                                更新当前视图
+                            </button>
+                            <button
+                                type="button"
+                                class="save-view-option"
+                                @click="handleSaveAsNew"
+                            >
+                                存为新视图
+                            </button>
+                        </div>
+                    </Transition>
+                </div>
+            </template>
             <template #extra-actions>
                 <MoreActionsDropdown
                     @import="importDialogOpen = true"
@@ -1658,6 +1987,11 @@ onMounted(async () => {
                     @export-json="handleExportJson"
                     @batch-ops="batchPropertyEditorOpen = true"
                 />
+                <vort-tooltip title="表头显示设置">
+                    <button type="button" class="column-settings-btn" @click="columnSettingsOpen = true">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+                    </button>
+                </vort-tooltip>
             </template>
         </WorkItemFilters>
 
@@ -1670,15 +2004,6 @@ onMounted(async () => {
                 </vort-popconfirm>
                 <VortButton variant="link" @click="clearSelection">取消选择</VortButton>
             </div>
-            <vort-tooltip title="表头显示设置">
-                <button
-                    type="button"
-                    class="absolute top-4 right-4 w-7 h-7 flex items-center justify-center rounded border border-gray-200 text-gray-400 hover:text-blue-500 hover:border-blue-300 transition-colors z-10"
-                    @click="columnSettingsOpen = true"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
-                </button>
-            </vort-tooltip>
             <ProTable
                 ref="tableRef"
                 :columns="columns"
@@ -2014,6 +2339,7 @@ onMounted(async () => {
                     :project-id="createProjectId"
                     :parent-id="createParentItemId"
                     :parent-record="createParentRecord"
+                    :iteration-id="props.iterationId"
                     @close="handleCancelCreateBug"
                     @success="handleCreateSuccess"
                 />
@@ -2070,8 +2396,9 @@ onMounted(async () => {
             :status-options="currentStatusFilterOptions"
             @done="() => { clearSelection(); tableRef?.refresh?.(); }"
         />
-        <ViewManageDialog v-model:open="viewManageOpen" />
+        <ViewManageDialog v-model:open="viewManageOpen" :work-item-type="type" />
         <ViewCreateDialog v-model:open="viewCreateOpen" @create="handleCreateViewFromDialog" />
+        <ViewCreateDialog v-model:open="saveViewDialogOpen" @create="handleSaveAsNewView" />
         <ColumnSettingsDialog
             v-model:open="columnSettingsOpen"
             :all-columns="columnSettingsForDialog"
@@ -2207,6 +2534,99 @@ onMounted(async () => {
 .create-bug-footer {
     display: flex;
     gap: 12px;
+}
+
+.column-settings-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #fff;
+    cursor: pointer;
+    color: #666;
+    transition: all 0.2s;
+}
+.column-settings-btn:hover {
+    border-color: var(--vort-primary, #1456f0);
+    color: var(--vort-primary, #1456f0);
+    background: var(--vort-primary-bg, rgba(20, 86, 240, 0.04));
+}
+
+.save-view-wrapper {
+    position: relative;
+}
+
+.save-view-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 32px;
+    padding: 0 10px;
+    border: 1px solid var(--vort-primary, #1456f0);
+    border-radius: 6px;
+    background: #fff;
+    color: var(--vort-primary, #1456f0);
+    font-size: 13px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.2s;
+}
+.save-view-btn:hover {
+    background: var(--vort-primary-bg, rgba(20, 86, 240, 0.04));
+}
+
+.save-view-arrow {
+    transition: transform 0.2s;
+}
+.save-view-arrow.open {
+    transform: rotate(180deg);
+}
+
+.save-view-dropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    min-width: 150px;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08), 0 3px 6px -4px rgba(0, 0, 0, 0.12);
+    padding: 4px;
+    z-index: 50;
+}
+
+.save-view-option {
+    display: block;
+    width: 100%;
+    padding: 8px 12px;
+    border: none;
+    background: transparent;
+    text-align: left;
+    font-size: 14px;
+    color: #1e293b;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s;
+    white-space: nowrap;
+}
+.save-view-option:hover:not(:disabled) {
+    background: rgba(0, 0, 0, 0.04);
+}
+.save-view-option:disabled {
+    color: #c0c4cc;
+    cursor: not-allowed;
+}
+
+.dropdown-enter-active,
+.dropdown-leave-active {
+    transition: opacity 0.15s, transform 0.15s;
+}
+.dropdown-enter-from,
+.dropdown-leave-to {
+    opacity: 0;
+    transform: translateY(-4px);
 }
 
 </style>

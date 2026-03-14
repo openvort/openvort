@@ -5,7 +5,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Body, Query, Request
 from pydantic import BaseModel
-from sqlalchemy import func, select, delete as sa_delete
+from sqlalchemy import func, or_, select, delete as sa_delete
 
 from openvort.db.engine import get_session_factory
 from openvort.web.app import require_auth
@@ -18,6 +18,7 @@ from openvort.plugins.vortflow.models import (
     FlowProjectMember, FlowStory, FlowTask,
     FlowIteration, FlowVersion,
     FlowIterationStory, FlowIterationTask, FlowVersionStory,
+    FlowView, FlowColumnSetting,
 )
 
 router = APIRouter(prefix="/api/vortflow", tags=["vortflow"])
@@ -63,6 +64,7 @@ class StoryUpdate(BaseModel):
     collaborators: list[str] | None = None
     deadline: str | None = None
     pm_id: str | None = None
+    project_id: str | None = None
 
 class TaskCreate(BaseModel):
     story_id: str | None = None
@@ -237,6 +239,7 @@ def _story_dict(r: FlowStory) -> dict:
         "collaborators": _parse_json_list(r.collaborators_json),
         "deadline": r.deadline.isoformat() if r.deadline else None,
         "created_at": r.created_at.isoformat() if r.created_at else None,
+        "updated_at": r.updated_at.isoformat() if r.updated_at else None,
     }
 
 def _task_dict(r: FlowTask) -> dict:
@@ -250,6 +253,7 @@ def _task_dict(r: FlowTask) -> dict:
         "estimate_hours": r.estimate_hours, "actual_hours": r.actual_hours,
         "deadline": r.deadline.isoformat() if r.deadline else None,
         "created_at": r.created_at.isoformat() if r.created_at else None,
+        "updated_at": r.updated_at.isoformat() if r.updated_at else None,
     }
 
 def _bug_dict(r: FlowBug) -> dict:
@@ -262,6 +266,7 @@ def _bug_dict(r: FlowBug) -> dict:
         "tags": _parse_json_list(r.tags_json),
         "collaborators": _parse_json_list(r.collaborators_json),
         "created_at": r.created_at.isoformat() if r.created_at else None,
+        "updated_at": r.updated_at.isoformat() if r.updated_at else None,
     }
 
 def _milestone_dict(r: FlowMilestone) -> dict:
@@ -564,6 +569,7 @@ async def list_stories(
     submitter_id: str = Query("", description="按创建者过滤"),
     pm_id: str = Query("", description="按负责人过滤"),
     participant_id: str = Query("", description="按参与者过滤（检查 collaborators）"),
+    iteration_id: str = Query("", description="按迭代过滤"),
     sort_by: str = Query("", description="排序字段"),
     sort_order: str = Query("desc", description="排序方向 asc/desc"),
     page: int = Query(1, ge=1),
@@ -573,6 +579,14 @@ async def list_stories(
     async with sf() as session:
         stmt = _apply_sort(select(FlowStory), FlowStory, sort_by, sort_order, FlowStory.created_at)
         count_stmt = select(func.count()).select_from(FlowStory)
+        if iteration_id == "__unplanned__":
+            planned_ids = select(FlowIterationStory.story_id)
+            stmt = stmt.where(~FlowStory.id.in_(planned_ids))
+            count_stmt = count_stmt.where(~FlowStory.id.in_(planned_ids))
+        elif iteration_id:
+            iter_story_ids = select(FlowIterationStory.story_id).where(FlowIterationStory.iteration_id == iteration_id)
+            stmt = stmt.where(FlowStory.id.in_(iter_story_ids))
+            count_stmt = count_stmt.where(FlowStory.id.in_(iter_story_ids))
         if project_id:
             stmt = stmt.where(FlowStory.project_id == project_id)
             count_stmt = count_stmt.where(FlowStory.project_id == project_id)
@@ -701,7 +715,7 @@ async def update_story(story_id: str, body: StoryUpdate):
                 return {"error": parent_error}
             changes["parent_id"] = normalized_parent_id
             s.parent_id = normalized_parent_id
-        for field in ["title", "description", "state", "priority", "pm_id"]:
+        for field in ["title", "description", "state", "priority", "pm_id", "project_id"]:
             val = getattr(body, field)
             if val is not None:
                 changes[field] = val
@@ -797,6 +811,7 @@ async def list_tasks(
     project_id: str = Query("", description="按项目过滤（通过关联需求）"),
     creator_id: str = Query("", description="按创建者过滤"),
     participant_id: str = Query("", description="按参与者过滤（检查 collaborators）"),
+    iteration_id: str = Query("", description="按迭代过滤"),
     sort_by: str = Query("", description="排序字段"),
     sort_order: str = Query("desc", description="排序方向 asc/desc"),
     page: int = Query(1, ge=1),
@@ -806,6 +821,14 @@ async def list_tasks(
     async with sf() as session:
         stmt = _apply_sort(select(FlowTask), FlowTask, sort_by, sort_order, FlowTask.created_at)
         count_stmt = select(func.count()).select_from(FlowTask)
+        if iteration_id == "__unplanned__":
+            planned_ids = select(FlowIterationTask.task_id)
+            stmt = stmt.where(~FlowTask.id.in_(planned_ids))
+            count_stmt = count_stmt.where(~FlowTask.id.in_(planned_ids))
+        elif iteration_id:
+            iter_task_ids = select(FlowIterationTask.task_id).where(FlowIterationTask.iteration_id == iteration_id)
+            stmt = stmt.where(FlowTask.id.in_(iter_task_ids))
+            count_stmt = count_stmt.where(FlowTask.id.in_(iter_task_ids))
         if project_id:
             project_story_ids = select(FlowStory.id).where(FlowStory.project_id == project_id)
             stmt = stmt.where(FlowTask.story_id.in_(project_story_ids))
@@ -1007,6 +1030,7 @@ async def list_bugs(
     project_id: str = Query("", description="按项目过滤（通过关联需求）"),
     reporter_id: str = Query("", description="按报告者过滤"),
     participant_id: str = Query("", description="按参与者过滤（检查 collaborators）"),
+    iteration_id: str = Query("", description="按迭代过滤（通过迭代关联的需求）"),
     sort_by: str = Query("", description="排序字段"),
     sort_order: str = Query("desc", description="排序方向 asc/desc"),
     page: int = Query(1, ge=1),
@@ -1016,6 +1040,19 @@ async def list_bugs(
     async with sf() as session:
         stmt = _apply_sort(select(FlowBug), FlowBug, sort_by, sort_order, FlowBug.created_at)
         count_stmt = select(func.count()).select_from(FlowBug)
+        if iteration_id == "__unplanned__":
+            planned_story_ids = select(FlowIterationStory.story_id)
+            unplanned_cond = or_(
+                FlowBug.story_id.is_(None),
+                FlowBug.story_id == "",
+                ~FlowBug.story_id.in_(planned_story_ids),
+            )
+            stmt = stmt.where(unplanned_cond)
+            count_stmt = count_stmt.where(unplanned_cond)
+        elif iteration_id:
+            iter_story_ids = select(FlowIterationStory.story_id).where(FlowIterationStory.iteration_id == iteration_id)
+            stmt = stmt.where(FlowBug.story_id.in_(iter_story_ids))
+            count_stmt = count_stmt.where(FlowBug.story_id.in_(iter_story_ids))
         if project_id:
             project_story_ids = select(FlowStory.id).where(FlowStory.project_id == project_id)
             stmt = stmt.where(FlowBug.story_id.in_(project_story_ids))
@@ -1398,7 +1435,7 @@ async def list_iterations(
     keyword: str = Query("", description="按名称/目标搜索"),
     owner_id: str = Query("", description="按负责人过滤"),
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=200),
 ):
     sf = get_session_factory()
     async with sf() as session:
@@ -1832,5 +1869,160 @@ async def remove_version_story(version_id: str, story_id: str):
         )
         await _log_event(session, "version", version_id, "story_removed",
                          {"story_id": story_id})
+        await session.commit()
+    return {"ok": True}
+
+
+# ============ Custom Views CRUD ============
+
+class ViewCreate(BaseModel):
+    name: str
+    work_item_type: str  # 需求/任务/缺陷
+    scope: str = "personal"  # personal/shared
+    filters: dict = {}
+    columns: list = []
+
+class ViewUpdate(BaseModel):
+    name: str | None = None
+    filters: dict | None = None
+    columns: list | None = None
+    view_order: int | None = None
+
+def _view_dict(r: FlowView) -> dict:
+    return {
+        "id": r.id, "name": r.name,
+        "work_item_type": r.work_item_type,
+        "scope": r.scope, "owner_id": r.owner_id,
+        "filters": json.loads(r.filters_json) if r.filters_json else {},
+        "columns": json.loads(r.columns_json) if r.columns_json else [],
+        "order": r.view_order,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+        "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+    }
+
+@router.get("/views")
+async def list_views(
+    request: Request,
+    work_item_type: str = Query("", description="按工作项类型过滤"),
+):
+    payload = require_auth(request)
+    member_id = payload.get("sub", "")
+    sf = get_session_factory()
+    async with sf() as session:
+        stmt = (
+            select(FlowView)
+            .where(or_(
+                FlowView.scope == "shared",
+                FlowView.owner_id == member_id,
+            ))
+            .order_by(FlowView.view_order.asc(), FlowView.created_at.asc())
+        )
+        if work_item_type:
+            stmt = stmt.where(FlowView.work_item_type == work_item_type)
+        rows = (await session.execute(stmt)).scalars().all()
+    return {"items": [_view_dict(r) for r in rows]}
+
+@router.post("/views")
+async def create_view(body: ViewCreate, request: Request):
+    payload = require_auth(request)
+    member_id = payload.get("sub", "")
+    sf = get_session_factory()
+    async with sf() as session:
+        v = FlowView(
+            name=body.name,
+            work_item_type=body.work_item_type,
+            scope=body.scope,
+            owner_id=member_id,
+            filters_json=json.dumps(body.filters, ensure_ascii=False),
+            columns_json=json.dumps(body.columns, ensure_ascii=False),
+        )
+        session.add(v)
+        await session.commit()
+        await session.refresh(v)
+    return _view_dict(v)
+
+@router.put("/views/{view_id}")
+async def update_view(view_id: str, body: ViewUpdate, request: Request):
+    payload = require_auth(request)
+    member_id = payload.get("sub", "")
+    sf = get_session_factory()
+    async with sf() as session:
+        v = await session.get(FlowView, view_id)
+        if not v:
+            return {"error": "视图不存在"}
+        if v.scope == "personal" and v.owner_id != member_id:
+            return {"error": "无权修改他人的个人视图"}
+        if body.name is not None:
+            v.name = body.name
+        if body.filters is not None:
+            v.filters_json = json.dumps(body.filters, ensure_ascii=False)
+        if body.columns is not None:
+            v.columns_json = json.dumps(body.columns, ensure_ascii=False)
+        if body.view_order is not None:
+            v.view_order = body.view_order
+        await session.commit()
+        await session.refresh(v)
+    return _view_dict(v)
+
+@router.delete("/views/{view_id}")
+async def delete_view(view_id: str, request: Request):
+    payload = require_auth(request)
+    member_id = payload.get("sub", "")
+    sf = get_session_factory()
+    async with sf() as session:
+        v = await session.get(FlowView, view_id)
+        if not v:
+            return {"error": "视图不存在"}
+        if v.scope == "personal" and v.owner_id != member_id:
+            return {"error": "无权删除他人的个人视图"}
+        await session.delete(v)
+        await session.commit()
+    return {"ok": True}
+
+
+# ============ Column Settings (per user per type) ============
+
+class ColumnSettingBody(BaseModel):
+    work_item_type: str  # 需求/任务/缺陷
+    columns: list  # [{"key":"workNo","visible":true}, ...]
+
+@router.get("/column-settings")
+async def get_column_settings(
+    request: Request,
+    work_item_type: str = Query("", description="工作项类型"),
+):
+    payload = require_auth(request)
+    member_id = payload.get("sub", "")
+    sf = get_session_factory()
+    async with sf() as session:
+        stmt = select(FlowColumnSetting).where(FlowColumnSetting.member_id == member_id)
+        if work_item_type:
+            stmt = stmt.where(FlowColumnSetting.work_item_type == work_item_type)
+        rows = (await session.execute(stmt)).scalars().all()
+    result = {}
+    for r in rows:
+        result[r.work_item_type] = json.loads(r.columns_json) if r.columns_json else []
+    return result
+
+@router.put("/column-settings")
+async def save_column_settings(body: ColumnSettingBody, request: Request):
+    payload = require_auth(request)
+    member_id = payload.get("sub", "")
+    sf = get_session_factory()
+    async with sf() as session:
+        stmt = select(FlowColumnSetting).where(
+            FlowColumnSetting.member_id == member_id,
+            FlowColumnSetting.work_item_type == body.work_item_type,
+        )
+        existing = (await session.execute(stmt)).scalar_one_or_none()
+        columns_str = json.dumps(body.columns, ensure_ascii=False)
+        if existing:
+            existing.columns_json = columns_str
+        else:
+            session.add(FlowColumnSetting(
+                member_id=member_id,
+                work_item_type=body.work_item_type,
+                columns_json=columns_str,
+            ))
         await session.commit()
     return {"ok": True}

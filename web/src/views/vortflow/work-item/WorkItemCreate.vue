@@ -25,6 +25,7 @@ interface Props {
     projectId?: string;
     parentId?: string;
     parentRecord?: RowItem | null;
+    iterationId?: string;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -33,6 +34,7 @@ const props = withDefaults(defineProps<Props>(), {
     useApi: false,
     projectId: "",
     parentId: "",
+    iterationId: "",
 });
 
 const emit = defineEmits<{
@@ -441,6 +443,12 @@ const loadIterations = async () => {
     if (createBugForm.iteration && !apiIterations.value.some((item) => item.id === createBugForm.iteration)) {
         createBugForm.iteration = "";
     }
+    // Pre-select iteration from prop (skip special __unplanned__ value)
+    if (!createBugForm.iteration && props.iterationId && props.iterationId !== "__unplanned__") {
+        if (apiIterations.value.some((item) => item.id === props.iterationId)) {
+            createBugForm.iteration = props.iterationId;
+        }
+    }
 };
 
 const loadVersions = async () => {
@@ -530,6 +538,11 @@ const resetForm = () => {
         createBugForm.parentId = props.parentId;
         if (currentCreateType.value === "任务") {
             createBugForm.storyId = "";
+        }
+    }
+    if (props.iterationId && props.iterationId !== "__unplanned__") {
+        if (apiIterations.value.some((item) => item.id === props.iterationId)) {
+            createBugForm.iteration = props.iterationId;
         }
     }
 };

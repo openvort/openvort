@@ -241,3 +241,35 @@ class FlowIterationTask(Base):
     task_id: Mapped[str] = mapped_column(String(32), ForeignKey("flow_tasks.id"), index=True)
     task_order: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class FlowView(Base):
+    """自定义视图（个人/公共）"""
+
+    __tablename__ = "flow_views"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(100))
+    work_item_type: Mapped[str] = mapped_column(String(16), index=True)  # 需求/任务/缺陷
+    scope: Mapped[str] = mapped_column(String(16), default="personal")  # personal/shared
+    owner_id: Mapped[str] = mapped_column(String(32), ForeignKey("members.id"), index=True)
+    filters_json: Mapped[str] = mapped_column(Text, default="{}")
+    columns_json: Mapped[str] = mapped_column(Text, default="[]")  # [{"key":"..","visible":true}, ...]
+    view_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class FlowColumnSetting(Base):
+    """用户列设置偏好（per user per work_item_type）"""
+
+    __tablename__ = "flow_column_settings"
+    __table_args__ = (
+        UniqueConstraint("member_id", "work_item_type", name="uq_column_setting"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    member_id: Mapped[str] = mapped_column(String(32), ForeignKey("members.id"), index=True)
+    work_item_type: Mapped[str] = mapped_column(String(16))  # 需求/任务/缺陷
+    columns_json: Mapped[str] = mapped_column(Text, default="[]")  # [{"key":"..","visible":true}, ...]
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())

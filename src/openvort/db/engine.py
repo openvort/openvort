@@ -295,6 +295,42 @@ async def init_db(database_url: str) -> None:
             "CREATE INDEX IF NOT EXISTS ix_flow_iteration_tasks_task_id ON flow_iteration_tasks(task_id)"
         ))
 
+        # VortFlow custom views & column settings
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS flow_views (
+                id VARCHAR(32) PRIMARY KEY,
+                name VARCHAR(100) NOT NULL,
+                work_item_type VARCHAR(16) NOT NULL,
+                scope VARCHAR(16) DEFAULT 'personal',
+                owner_id VARCHAR(32),
+                filters_json TEXT DEFAULT '{}',
+                columns_json TEXT DEFAULT '[]',
+                view_order INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT now(),
+                updated_at TIMESTAMP DEFAULT now()
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_flow_views_owner_id ON flow_views(owner_id)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_flow_views_work_item_type ON flow_views(work_item_type)"
+        ))
+
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS flow_column_settings (
+                id VARCHAR(32) PRIMARY KEY,
+                member_id VARCHAR(32) NOT NULL,
+                work_item_type VARCHAR(16) NOT NULL,
+                columns_json TEXT DEFAULT '[]',
+                updated_at TIMESTAMP DEFAULT now(),
+                CONSTRAINT uq_column_setting UNIQUE (member_id, work_item_type)
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_flow_column_settings_member_id ON flow_column_settings(member_id)"
+        ))
+
     # Group chat table (group-project binding)
     async with _engine.begin() as conn:
         await conn.execute(text("""

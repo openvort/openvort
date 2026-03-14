@@ -263,6 +263,7 @@ const onCreate = () => emit("create");
 
             <VortButton variant="primary" @click="onSearch">查询</VortButton>
             <VortButton @click="onReset">重置</VortButton>
+            <slot name="after-filters" />
             <div class="ml-auto flex items-center gap-2">
                 <VortButton variant="primary" @click="onCreate">{{ props.createButtonText }}</VortButton>
                 <slot name="extra-actions" />
