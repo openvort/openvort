@@ -26,6 +26,7 @@ import type {
     Status,
     DateRange,
     WorkItemTableProps,
+    ViewFilters,
     NewBugForm,
     RowItem,
     DetailComment,
@@ -40,7 +41,9 @@ const props = withDefaults(defineProps<WorkItemTableProps>(), {
     createDrawerTitle: "新建缺陷",
     detailDrawerTitle: "缺陷详情",
     descriptionPlaceholder: "请填写缺陷描述",
-    useApi: false
+    useApi: true,
+    projectId: "",
+    viewFilters: () => ({}),
 });
 
 const route = useRoute();
@@ -186,10 +189,7 @@ const pinnedRowsByType = reactive<Record<WorkItemType, RowItem[]>>({
     缺陷: [],
 });
 
-const createBugTagOptions = ["客户需求", "演示站", "运营需求", "待开会确认", "已发布", "高优先", "稳定性", "UI优化"];
 const createBugProjectOptions = ["VortMall", "OpenVort", "VortFlow"];
-const createBugRepoOptions = ["openvort/web", "openvort/core", "openvort/vortflow"];
-const createBugBranchOptions = ["develop", "develop-wzh", "release/1.0"];
 
 const allStatusFilterOptions: StatusOption[] = Array.from(
     new Map(
@@ -209,34 +209,12 @@ const newTagTargetText = ref<string[] | undefined>(undefined);
 const planTimeModel = reactive<Record<string, any>>({});
 const collaboratorsModel = reactive<Record<string, string[]>>({});
 
-const rebuildMockDataset = () => {
-    if (props.useApi) return;
-    allData.value = buildDataset();
-    totalCount.value = allData.value.length;
-    Object.keys(planTimeModel).forEach((key) => delete planTimeModel[key]);
-    for (const row of allData.value) {
-        planTimeModel[row.workNo] = [...row.planTime];
-    }
-    collectTagOptions(allData.value);
-    tableRef.value?.refresh?.();
-};
-
 const resolveActiveType = (): WorkItemType => {
     if (props.type) return props.type;
     if (type.value === "需求" || type.value === "任务" || type.value === "缺陷") return type.value;
     return "缺陷";
 };
 const currentStatusFilterOptions = computed(() => getStatusOptionsByType(resolveActiveType()));
-
-const toWorkNo = (index: number): string => {
-    let n = index + 1000;
-    let code = "";
-    for (let i = 0; i < 6; i++) {
-        code = String.fromCharCode(65 + (n % 26)) + code;
-        n = Math.floor(n / 26);
-    }
-    return `#${code}`;
-};
 
 const normalizeDateValue = (value: unknown): string => {
     if (value instanceof Date) return formatDate(value);
@@ -259,101 +237,12 @@ const collectTagOptions = (rows: RowItem[]) => {
     dynamicTagOptions.value = [...set];
 };
 
-const defaultBugDescription = defaultDescriptionTemplate;
 const detailCurrentUser = "当前用户";
 const formatFileSize = (size: number): string => {
     if (size < 1024) return `${size} B`;
     if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
     return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 };
-
-const buildDataset = (): RowItem[] => {
-    const creators = ["周明", "林羽", "陈尧", "方怡"];
-    const priorities: Priority[] = ["urgent", "high", "medium", "low"];
-    const memberPool = Array.from(new Set(ownerGroups.value.flatMap((group) => [...group.members])));
-    const tagPool = Array.from(new Set([...baseTagOptions, "订单域", "支付域", "库存域", "促销域", "用户域", "网关", "前端H5", "商家后台"]));
-    const types: WorkItemType[] = props.type ? [props.type] : ["需求", "任务", "缺陷"];
-    const countPerType = 50;
-    const demandTitles = [
-        "支持商家后台批量导入 SKU 并自动校验条码重复",
-        "订单中心新增按渠道维度的成交额趋势看板",
-        "会员中心支持成长值规则按活动模板配置",
-        "结算中心支持分账结果失败自动补偿任务",
-        "营销中心新增满减与优惠券叠加规则配置",
-        "商品中心支持多规格图片按颜色维度管理",
-        "风控中心接入异常下单实时拦截策略",
-        "运费模板支持区域阶梯计价和偏远地区附加费",
-        "门店自提支持核销码失效时间自定义",
-        "售后工单中心支持按退款原因统计看板"
-    ];
-    const taskTitles = [
-        "拆分订单服务结算逻辑到 settlement-service 并补齐单测",
-        "接入 Redis 缓存热点商品详情并增加失效回源机制",
-        "重构库存预占释放流程，支持 MQ 消息幂等处理",
-        "网关统一鉴权拦截器升级，补齐租户与角色校验",
-        "支付回调处理链路增加签名校验和重放攻击防护",
-        "改造搜索接口分页参数，兼容游标与页码双模式",
-        "搭建订单超时取消定时任务监控告警面板",
-        "优化购物车合并逻辑，解决登录后重复项累加问题",
-        "完善商品上下架事件通知链路，增加重试机制",
-        "重写优惠券核销接口，支持批次并发锁"
-    ];
-    const bugTitles = [
-        "秒杀高并发场景下库存扣减偶发出现负数",
-        "提交订单后优惠券状态未及时更新导致可重复使用",
-        "支付成功后订单状态偶发停留在待支付",
-        "多门店分销场景结算金额计算结果与预期不一致",
-        "退款成功后积分未回退且会员成长值未修正",
-        "购物车跨端同步时商品勾选状态丢失",
-        "商品详情页切换规格后价格展示未实时刷新",
-        "商家后台导出订单在大数据量时出现超时失败",
-        "订单备注包含 emoji 时保存后乱码",
-        "促销活动边界时间判断错误导致提前结束"
-    ];
-    const list: RowItem[] = [];
-
-    for (let t = 0; t < types.length; t++) {
-        const currentType = types[t]!;
-        const statuses = getStatusOptionsByType(currentType).map((x) => x.value as Status);
-        const typeTitles = currentType === "需求" ? demandTitles : currentType === "任务" ? taskTitles : bugTitles;
-
-        for (let i = 0; i < countPerType; i++) {
-            const idx = t * countPerType + i + 1;
-            const created = new Date(Date.now() - idx * 1000 * 60 * 60 * 3);
-            const planStart = new Date(Date.now() + ((i + t) % 12) * 1000 * 60 * 60 * 24);
-            const planEnd = new Date(planStart.getTime() + (((i + t) % 5) + 1) * 1000 * 60 * 60 * 24);
-            const ownerName = i % 11 === 0 ? "未指派" : memberPool[(i + t) % memberPool.length]!;
-            const collaboratorA = memberPool[(i + t + 3) % memberPool.length]!;
-            const collaboratorB = memberPool[(i + t + 7) % memberPool.length]!;
-            const collaborators = [collaboratorA, collaboratorB].filter((name, index, arr) => name !== ownerName && arr.indexOf(name) === index);
-            const title = typeTitles[i % typeTitles.length]!;
-
-            list.push({
-                workNo: toWorkNo(idx),
-                backendId: "",
-                title: `【${currentType}】VortMall 微服务商城 - ${title}`,
-                priority: priorities[(i + t) % priorities.length]!,
-                tags: [tagPool[(i * 2 + t) % tagPool.length]!, tagPool[(i * 2 + t + 5) % tagPool.length]!],
-                status: statuses[(i + t) % statuses.length]!,
-                createdAt: formatCnTime(created),
-                collaborators: collaborators.length ? collaborators : [memberPool[(i + t + 1) % memberPool.length]!],
-                type: currentType,
-                planTime: [formatDate(planStart), formatDate(planEnd)],
-                description: defaultBugDescription,
-                owner: ownerName,
-                creator: creators[(i + t) % creators.length]!
-            });
-        }
-    }
-    return list;
-};
-
-const allData = ref<RowItem[]>(buildDataset());
-collectTagOptions(allData.value);
-for (const row of allData.value) {
-    planTimeModel[row.workNo] = [...row.planTime];
-}
-const nextWorkNoIndex = ref(allData.value.length + 1);
 
 const columns = computed<ProTableColumn<RowItem>[]>(() => [
     { title: "工作编号", dataIndex: "workNo", width: 130, sorter: true, align: "left", fixed: "left", slot: "workNo" },
@@ -436,73 +325,6 @@ const syncRecordStatusToApi = async (record: RowItem, displayStatus: Status) => 
     await syncRecordUpdateToApi(record, { state: targetStates[0] });
 };
 
-const randomPeoplePool = ["张三", "李四", "王五", "赵六", "钱七", "孙八", "周九", "吴十", "郑十一", "王十二", "冯十三", "陈十四"];
-const randomStatusPoolByType: Record<WorkItemType, Status[]> = {
-    需求: demandStatusFilterOptions.map((x) => x.value),
-    任务: taskStatusFilterOptions.map((x) => x.value),
-    缺陷: bugStatusFilterOptions.map((x) => x.value),
-};
-const getOwnerDropdownPool = (): string[] => {
-    const pool = Array.from(new Set(
-        ownerGroups.value
-            .flatMap((group) => group.members)
-            .map((name) => String(name || "").trim())
-            .filter(Boolean)
-    ));
-    return pool.length ? pool : randomPeoplePool;
-};
-
-const pickStableRandomPerson = (seed: string): string => {
-    const peoplePool = getOwnerDropdownPool();
-    let hash = 0;
-    for (let i = 0; i < seed.length; i++) {
-        hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
-    }
-    return peoplePool[hash % peoplePool.length]!;
-};
-const pickStableRandomStatus = (typeValue: WorkItemType, seed: string): Status => {
-    const statusPool = randomStatusPoolByType[typeValue] || bugStatusFilterOptions.map((x) => x.value);
-    let hash = 0;
-    for (let i = 0; i < seed.length; i++) {
-        hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
-    }
-    return statusPool[hash % statusPool.length]!;
-};
-
-const backendDemandTitles = [
-    "支持商家后台批量导入 SKU 并自动校验条码重复",
-    "订单中心新增按渠道维度的成交额趋势看板",
-    "会员中心支持成长值规则按活动模板配置",
-    "结算中心支持分账结果失败自动补偿任务",
-    "营销中心新增满减与优惠券叠加规则配置",
-];
-const backendTaskTitles = [
-    "拆分订单服务结算逻辑到 settlement-service 并补齐单测",
-    "接入 Redis 缓存热点商品详情并增加失效回源机制",
-    "重构库存预占释放流程，支持 MQ 消息幂等处理",
-    "网关统一鉴权拦截器升级，补齐租户与角色校验",
-    "支付回调处理链路增加签名校验和重放攻击防护",
-];
-const backendBugTitles = [
-    "秒杀高并发场景下库存扣减偶发出现负数",
-    "提交订单后优惠券状态未及时更新导致可重复使用",
-    "支付成功后订单状态偶发停留在待支付",
-    "多门店分销场景结算金额计算结果与预期不一致",
-    "购物车跨端同步时商品勾选状态丢失",
-];
-
-const getBackendDisplayTitle = (rawTitle: string, typeValue: WorkItemType, index: number): string => {
-    const source = rawTitle.trim();
-    const fallback =
-        typeValue === "需求"
-            ? backendDemandTitles[index % backendDemandTitles.length]!
-            : typeValue === "任务"
-              ? backendTaskTitles[index % backendTaskTitles.length]!
-              : backendBugTitles[index % backendBugTitles.length]!;
-    const normalized = source && source !== "-" ? source : fallback;
-    return normalized;
-};
-
 const prependPinnedRow = (typeValue: WorkItemType, row: RowItem) => {
     const list = pinnedRowsByType[typeValue] || [];
     const rowId = row.backendId || row.workNo;
@@ -570,18 +392,18 @@ const mapBackendItemToRow = (item: any, typeValue: WorkItemType, index: number):
     const workNo = `#${backendId.replace(/-/g, "").slice(0, 6).toUpperCase().padEnd(6, "X")}`;
     const ownerSourceId = String(item?.assignee_id || item?.pm_id || item?.developer_id || "").trim();
     const ownerSourceName = getMemberNameById(ownerSourceId);
-    const creatorSeed = String(item?.reporter_id || `${backendId}-creator`);
-    const collabSeed = String(item?.story_id || item?.task_id || `${backendId}-collab`);
     const ownerName = ownerSourceName || (ownerSourceId ? ownerSourceId : "未指派");
-    const creatorName = pickStableRandomPerson(creatorSeed);
-    const collaboratorName = pickStableRandomPerson(collabSeed);
-    const fallbackCollaborator = pickStableRandomPerson(`${collabSeed}-alt`);
+
+    const creatorSourceId = String(item?.submitter_id || item?.creator_id || item?.reporter_id || "").trim();
+    const creatorName = getMemberNameById(creatorSourceId) || (creatorSourceId || "");
+
     const collaboratorsFromBackend = Array.isArray(item?.collaborators)
-        ? (item.collaborators as any[]).map((x) => String(x || "").trim()).filter(Boolean)
+        ? (item.collaborators as any[]).map((x) => {
+            const id = String(x || "").trim();
+            return getMemberNameById(id) || id;
+        }).filter(Boolean)
         : [];
-    const collaborators = collaboratorsFromBackend.length
-        ? collaboratorsFromBackend
-        : [collaboratorName === ownerName ? fallbackCollaborator : collaboratorName];
+
     const tags: string[] = Array.isArray(item?.tags)
         ? (item.tags as any[]).map((x) => String(x || "").trim()).filter(Boolean)
         : [];
@@ -593,7 +415,7 @@ const mapBackendItemToRow = (item: any, typeValue: WorkItemType, index: number):
     return {
         backendId,
         workNo,
-        title: getBackendDisplayTitle(String(item?.title || ""), typeValue, index),
+        title: String(item?.title || ""),
         parentId: item?.parent_id ? String(item.parent_id) : "",
         parentTitle: "",
         childrenCount: Number(item?.children_count || 0),
@@ -602,7 +424,7 @@ const mapBackendItemToRow = (item: any, typeValue: WorkItemType, index: number):
         tags,
         status: mapBackendStateToStatus(typeValue, String(item?.state || "")),
         createdAt,
-        collaborators,
+        collaborators: collaboratorsFromBackend,
         type: typeValue,
         planTime: [planDate, planDate],
         description: item?.description || "",
@@ -662,16 +484,32 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
             totalCount.value = 0;
             return { data: [], total: 0, current, pageSize };
         }
+        const projectIdParam = props.projectId || undefined;
+        const vf = props.viewFilters || {};
+        const viewOwner = vf.owner || undefined;
+        const viewCreator = vf.creator || undefined;
+        const viewParticipant = vf.participant || undefined;
+        const effectiveAssignee = ownerMemberId || viewOwner || undefined;
         const requestByState = async (state?: string, page = current, size = pageSize) => {
             if (workType === "需求") {
-                return getVortflowStories({ keyword: kw, state, parent_id: "root", page, page_size: size });
+                return getVortflowStories({
+                    keyword: kw, state, parent_id: "root",
+                    project_id: projectIdParam,
+                    pm_id: ownerMemberId || viewOwner || undefined,
+                    submitter_id: viewCreator,
+                    participant_id: viewParticipant,
+                    page, page_size: size
+                });
             }
             if (workType === "任务") {
                 return getVortflowTasks({
                     keyword: kw,
                     parent_id: "root",
                     state,
-                    assignee_id: ownerMemberId || undefined,
+                    assignee_id: effectiveAssignee,
+                    project_id: projectIdParam,
+                    creator_id: viewCreator,
+                    participant_id: viewParticipant,
                     page,
                     page_size: size
                 });
@@ -679,7 +517,10 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
             return getVortflowBugs({
                 keyword: kw,
                 state,
-                assignee_id: ownerMemberId || undefined,
+                assignee_id: effectiveAssignee,
+                project_id: projectIdParam,
+                reporter_id: viewCreator,
+                participant_id: viewParticipant,
                 page,
                 page_size: size
             });
@@ -754,45 +595,19 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
             rows = [...pinnedRows, ...rows.filter((x) => !pinnedIds.has(x.backendId || x.workNo))];
             rows = rows.slice(0, pageSize);
         }
+        const isIncompleteView = vf.status === "incomplete";
+        if (isIncompleteView) {
+            const completedStatuses: Set<string> = new Set(["已完成", "已关闭", "已取消", "发布完成"]);
+            rows = rows.filter((x) => !completedStatuses.has(x.status));
+            totalFromApi = rows.length;
+        }
         collectTagOptions(workType === "需求" || workType === "任务" ? getVisibleChildRows(rows, ownerValue, statusValue) : rows);
         totalCount.value = totalFromApi;
         return { data: rows, total: totalFromApi, current, pageSize };
     }
 
-    let list = allData.value.slice();
-    if (kw) {
-        list = list.filter((x) => x.workNo.toLowerCase().includes(kw) || x.title.toLowerCase().includes(kw) || x.owner.toLowerCase().includes(kw));
-    }
-    if (ownerValue) {
-        list = list.filter((x) => x.owner === ownerValue);
-    }
-    if (typeValue) {
-        list = list.filter((x) => x.type === typeValue);
-    }
-    if (statusValue) {
-        list = list.filter((x) => x.status === statusValue);
-    }
-
-    const { sortField, sortOrder } = params;
-    if (sortField && sortOrder) {
-        const dir = sortOrder === "ascend" ? 1 : -1;
-        const getSortValue = (item: RowItem, field: string): string => {
-            if (field === "planTime") return item.planTime?.[0] || "";
-            return String((item as any)[field] ?? "");
-        };
-        list.sort((a, b) => (getSortValue(a, sortField) > getSortValue(b, sortField) ? dir : -dir));
-    }
-
-    const total = list.length;
-    totalCount.value = total;
-    collectTagOptions(list);
-    const start = (current - 1) * pageSize;
-    return {
-        data: list.slice(start, start + pageSize),
-        total,
-        current,
-        pageSize
-    };
+    totalCount.value = 0;
+    return { data: [], total: 0, current, pageSize };
 };
 
 const tableRef = ref<any>(null);
@@ -812,6 +627,14 @@ const onReset = () => {
     tableRef.value?.refresh?.();
 };
 
+watch(() => props.projectId, () => {
+    tableRef.value?.refresh?.();
+});
+
+watch(() => props.viewFilters, () => {
+    tableRef.value?.refresh?.();
+}, { deep: true });
+
 const rowKeyGetter = (record: RowItem) => record.backendId || record.workNo;
 
 const rowSelection = computed(() => ({
@@ -828,17 +651,12 @@ const clearSelection = () => {
 };
 
 const deleteOne = async (record: RowItem) => {
-    if (props.useApi) {
-        const id = record.backendId;
-        if (!id) throw new Error("缺少记录ID");
-        const itemType = (props.type || record.type) as WorkItemType;
-        if (itemType === "需求") await deleteVortflowStory(id);
-        else if (itemType === "任务") await deleteVortflowTask(id);
-        else await deleteVortflowBug(id);
-        return;
-    }
-    allData.value = allData.value.filter((x) => x.workNo !== record.workNo);
-    totalCount.value = allData.value.length;
+    const id = record.backendId;
+    if (!id) throw new Error("缺少记录ID");
+    const itemType = (props.type || record.type) as WorkItemType;
+    if (itemType === "需求") await deleteVortflowStory(id);
+    else if (itemType === "任务") await deleteVortflowTask(id);
+    else await deleteVortflowBug(id);
 };
 
 const handleBatchDelete = async () => {
@@ -958,7 +776,7 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
                 createdItem = await createVortflowStory({
                     project_id: defaultProject,
                     title,
-                    description: formData.description || defaultBugDescription,
+                    description: formData.description || defaultDescriptionTemplate,
                     priority: formData.priority === "urgent" ? 1 : formData.priority === "high" ? 2 : formData.priority === "medium" ? 3 : 4,
                     parent_id: formData.parentId || undefined,
                     tags: [...formData.tags],
@@ -988,7 +806,7 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
                 createdItem = await createVortflowBug({
                     story_id: formData.storyId || undefined,
                     title,
-                    description: formData.description || defaultBugDescription,
+                    description: formData.description || defaultDescriptionTemplate,
                     severity: formData.priority === "urgent" ? 1 : formData.priority === "high" ? 2 : formData.priority === "medium" ? 3 : 4,
                     assignee_id: ownerId,
                     tags: [...formData.tags],
@@ -1022,49 +840,6 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
             message.error(error?.message || "新建失败");
             return;
         }
-    }
-
-    const now = new Date();
-    const workNo = toWorkNo(nextWorkNoIndex.value++);
-    const fallbackPlanDate = formatDate(now);
-    const planTime: DateRange = (formData.planTime as DateRange)?.length === 2
-        ? [...(formData.planTime as DateRange)]
-        : [fallbackPlanDate, fallbackPlanDate];
-    const newPriority: Priority = formData.priority || "none";
-    const ownerName = formData.owner || "未指派";
-    const collaborators = [...formData.collaborators];
-
-    const newRow: RowItem = {
-        workNo,
-        title,
-        parentId: formData.parentId || "",
-        childrenCount: 0,
-        isChild: Boolean(formData.parentId),
-        priority: newPriority,
-        tags: [...formData.tags],
-        status: "待确认",
-        createdAt: formatCnTime(now),
-        collaborators,
-        type: formData.type || props.type || "缺陷",
-        planTime,
-        description: formData.description || defaultBugDescription,
-        ownerId: "",
-        owner: ownerName,
-        creator: "当前用户",
-        projectId: formData.projectId || "",
-        projectName: formData.project || "",
-    };
-
-    allData.value.unshift(newRow);
-    planTimeModel[workNo] = [...planTime];
-    priorityModel[workNo] = newPriority;
-    totalCount.value = allData.value.length;
-    tableRef.value?.refresh?.();
-    message.success("新建成功");
-    if (keepCreating) {
-        createWorkItemRef.value?.reset();
-    } else {
-        handleCancelCreateBug();
     }
 };
 
@@ -1139,7 +914,7 @@ const detailCurrentRecord = computed<RowItem | null>(() => {
     if (detailRecordSnapshot.value?.workNo === detailSelectedWorkNo.value) {
         return detailRecordSnapshot.value;
     }
-    return allData.value.find((x) => x.workNo === detailSelectedWorkNo.value) || detailRecordSnapshot.value || null;
+    return detailRecordSnapshot.value || null;
 });
 
 const detailComments = computed<DetailComment[]>(() => {
@@ -1495,13 +1270,9 @@ const loadApiMetadata = async (withStories = false) => {
 
 onMounted(async () => {
     await loadMemberOptions();
-    rebuildMockDataset();
     await loadApiMetadata(false);
-    if (props.useApi) {
-        tableRef.value?.refresh?.();
-    }
+    tableRef.value?.refresh?.();
 
-    // Handle route query parameters for direct access
     const action = route.query.action as string;
     const id = route.query.id as string;
     const parentId = route.query.parentId as string;
@@ -1512,17 +1283,16 @@ onMounted(async () => {
             createProjectId.value = findItemRowById(parentId)?.projectId || "";
         }
     } else if (action === "detail" && id) {
-        // Find the record by workNo and open detail
-        const record = allData.value.find(x => x.workNo === id);
-        if (record) {
-            handleOpenBugDetail(record);
+        const cached = findItemRowById(id);
+        if (cached) {
+            handleOpenBugDetail(cached);
         }
     }
 });
 </script>
 
 <template>
-    <div class="p-6 space-y-4">
+    <div class="space-y-4">
         <WorkItemFilters
             v-model:keyword="keyword"
             v-model:owner="owner"
@@ -1530,7 +1300,7 @@ onMounted(async () => {
             v-model:status="status"
             :page-title="props.pageTitle"
             :create-button-text="props.createButtonText"
-            :total-count="totalCount || allData.length"
+            :total-count="totalCount"
             :member-options="memberOptions"
             :owner-groups="ownerGroups"
             :status-options="currentStatusFilterOptions"

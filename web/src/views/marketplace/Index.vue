@@ -38,6 +38,7 @@ interface MarketplaceItem {
 interface InstalledItem {
     id?: string;
     name: string;
+    displayName?: string;
     description?: string;
     slug: string;
     author?: string;
@@ -362,7 +363,7 @@ const skillTypeLabel: Record<string, string> = { role: "角色入设", workflow:
 
         <!-- ====== Installed Mode ====== -->
         <template v-if="viewMode === 'installed'">
-            <div class="flex items-center gap-3">
+            <div class="flex flex-wrap items-center gap-3">
                 <div class="flex bg-gray-100 rounded-lg p-0.5">
                     <button
                         v-for="opt in ([
@@ -387,14 +388,14 @@ const skillTypeLabel: Record<string, string> = { role: "角色入设", workflow:
                     <VortButton variant="primary" size="small" class="mt-4" @click="viewMode = 'browse'">去浏览市场</VortButton>
                 </div>
 
-                <div v-else class="space-y-3">
+                <div v-else class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
                     <div
                         v-for="item in filteredInstalled"
                         :key="item.slug"
-                        class="bg-white rounded-xl border border-gray-100 p-4 hover:border-blue-300 hover:shadow-sm transition-all cursor-pointer"
+                        class="bg-white rounded-xl border border-gray-100 p-4 hover:border-blue-300 hover:shadow-sm transition-all cursor-pointer flex flex-col"
                         @click="openDetail(item)"
                     >
-                        <div class="flex items-center gap-4">
+                        <div class="flex items-start gap-3 mb-3">
                             <div
                                 class="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
                                 :class="item.type === 'plugin' ? 'bg-purple-50' : 'bg-blue-50'"
@@ -405,34 +406,43 @@ const skillTypeLabel: Record<string, string> = { role: "角色入设", workflow:
                                     :class="item.type === 'plugin' ? 'text-purple-500' : 'text-blue-500'"
                                 />
                             </div>
-                            <div class="flex-1 min-w-0">
-                                <div class="flex items-center gap-2">
-                                    <h3 class="text-sm font-medium text-gray-800 truncate">{{ item.name }}</h3>
+                            <div class="min-w-0 flex-1">
+                                <div class="flex items-center gap-1.5">
+                                    <h3 class="text-sm font-medium text-gray-800 truncate">{{ item.displayName || item.name }}</h3>
                                     <VortTag
                                         :color="item.type === 'plugin' ? 'purple' : 'blue'"
                                         size="small"
                                         :bordered="false"
                                     >{{ item.type === 'plugin' ? 'Plugin' : 'Skill' }}</VortTag>
-                                    <VortTag v-if="item.version" color="default" size="small" :bordered="false">v{{ item.version }}</VortTag>
                                 </div>
-                                <p class="text-xs text-gray-400 mt-0.5">
-                                    <span v-if="item.author">by {{ item.author }}</span>
-                                    <span v-if="item.description"> · {{ item.description }}</span>
-                                </p>
+                                <p class="text-xs text-gray-400 truncate">by {{ item.author || '?' }} · v{{ item.version || '1.0.0' }}</p>
                             </div>
-                            <div class="flex items-center gap-2 flex-shrink-0" @click.stop>
-                                <VortButton
-                                    size="small"
+                        </div>
+
+                        <p class="text-xs text-gray-500 mb-3 line-clamp-2 flex-1">{{ item.description || '暂无描述' }}</p>
+
+                        <div class="flex items-center justify-between pt-2 border-t border-gray-50" @click.stop>
+                            <span
+                                v-if="item.enabled !== false"
+                                class="inline-flex items-center gap-1 text-[11px] text-green-600"
+                            >
+                                <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                                已启用
+                            </span>
+                            <span v-else class="inline-flex items-center gap-1 text-[11px] text-gray-400">
+                                <span class="w-1.5 h-1.5 rounded-full bg-gray-300"></span>
+                                已禁用
+                            </span>
+                            <div class="flex items-center gap-1.5">
+                                <button
+                                    class="text-xs text-gray-400 hover:text-blue-500 transition-colors px-1.5 py-0.5"
                                     @click="goToManage(item.type)"
-                                >管理</VortButton>
-                                <VortButton
-                                    size="small"
-                                    danger
-                                    :loading="uninstallingSlug === item.slug"
+                                >管理</button>
+                                <button
+                                    class="text-xs text-gray-400 hover:text-red-500 transition-colors px-1.5 py-0.5"
+                                    :disabled="uninstallingSlug === item.slug"
                                     @click="handleUninstall(item)"
-                                >
-                                    <Trash2 :size="14" class="mr-1" /> 卸载
-                                </VortButton>
+                                >{{ uninstallingSlug === item.slug ? '卸载中...' : '卸载' }}</button>
                             </div>
                         </div>
                     </div>

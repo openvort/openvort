@@ -174,6 +174,9 @@ async def init_db(database_url: str) -> None:
             text("CREATE INDEX IF NOT EXISTS ix_flow_tasks_parent_id ON flow_tasks(parent_id)")
         )
         await conn.execute(
+            text("ALTER TABLE IF EXISTS flow_tasks ADD COLUMN IF NOT EXISTS creator_id VARCHAR(32)")
+        )
+        await conn.execute(
             text("ALTER TABLE IF EXISTS flow_bugs ADD COLUMN IF NOT EXISTS tags_json TEXT DEFAULT '[]'")
         )
         await conn.execute(
@@ -384,6 +387,12 @@ async def init_db(database_url: str) -> None:
                 updated_at TIMESTAMP NOT NULL DEFAULT NOW()
             )
         """))
+
+    # Marketplace display name for installed skills
+    async with _engine.begin() as conn:
+        await conn.execute(text(
+            "ALTER TABLE IF EXISTS skills ADD COLUMN IF NOT EXISTS marketplace_display_name VARCHAR(200) DEFAULT ''"
+        ))
 
     log.info(f"数据库已初始化: {database_url.split('://')[0]}")
 

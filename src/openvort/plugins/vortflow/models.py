@@ -71,6 +71,7 @@ class FlowTask(Base):
     task_type: Mapped[str] = mapped_column(String(32), default="fullstack")  # frontend/backend/fullstack/test
     state: Mapped[str] = mapped_column(String(32), default="todo", index=True)
     assignee_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("members.id"), nullable=True)
+    creator_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("members.id"), nullable=True)
     tags_json: Mapped[str] = mapped_column(Text, default="[]")
     collaborators_json: Mapped[str] = mapped_column(Text, default="[]")
     estimate_hours: Mapped[float | None] = mapped_column(nullable=True)

@@ -1315,13 +1315,23 @@ defineExpose({
 .vort-pro-table-column-sorter {
   display: inline-flex;
   flex-direction: column;
+  align-items: center;
   margin-left: 4px;
+  line-height: 0;
 }
 
 .vort-pro-table-sorter-icon {
   width: 10px;
   height: 10px;
   color: #bfbfbf;
+
+  &:first-child {
+    margin-bottom: -1px;
+  }
+
+  &:last-child {
+    margin-top: -2px;
+  }
 
   &.active {
     color: #4096ff;

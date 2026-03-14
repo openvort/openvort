@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, watch } from "vue";
 import { z } from "zod";
 import { useRouter } from "vue-router";
 import { FolderKanban, ListChecks, CheckSquare, Bug, Plus, Settings, Trash2, Bot, Repeat, Tag, Filter } from "lucide-vue-next";
 import { useDirtyCheck } from "@/hooks";
+import { useVortFlowStore } from "@/stores";
 import {
     getVortflowStats, getVortflowProjects, createVortflowProject,
     updateVortflowProject, deleteVortflowProject,
@@ -39,6 +40,7 @@ interface VortgitRepoItem {
 }
 
 const router = useRouter();
+const vortFlowStore = useVortFlowStore();
 const loading = ref(true);
 const stats = ref<DashboardStats>({ stories: { total: 0, done: 0 }, tasks: { total: 0, done: 0 }, bugs: { total: 0, closed: 0 } });
 const projects = ref<ProjectItem[]>([]);
@@ -66,10 +68,11 @@ const projectRepos = (projectId: string) => projectRepoMap.value[projectId] || [
 const loadData = async () => {
     loading.value = true;
     try {
+        const selectedPid = vortFlowStore.selectedProjectId || undefined;
         const [statsRes, projectsRes, iterRes, verRes] = await Promise.all([
-            getVortflowStats(), getVortflowProjects(),
-            getVortflowIterations({ page: 1, page_size: 100 }),
-            getVortflowVersions({ page: 1, page_size: 100 }),
+            getVortflowStats(selectedPid), getVortflowProjects(),
+            getVortflowIterations({ project_id: selectedPid, page: 1, page_size: 100 }),
+            getVortflowVersions({ project_id: selectedPid, page: 1, page_size: 100 }),
         ]);
         if (statsRes) {
             const r = statsRes as any;
@@ -80,6 +83,7 @@ const loadData = async () => {
             };
         }
         projects.value = (projectsRes as any)?.items || [];
+        vortFlowStore.loadProjects();
         iterations.value = (iterRes as any)?.items || [];
         versions.value = (verRes as any)?.items || [];
 
@@ -189,6 +193,10 @@ const handleDeleteProject = async (p: ProjectItem) => {
 };
 
 onMounted(loadData);
+
+watch(() => vortFlowStore.selectedProjectId, () => {
+    loadData();
+});
 </script>
 
 <template>

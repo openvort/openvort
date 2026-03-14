@@ -55,6 +55,7 @@ class MarketplaceInstaller:
         """
         data = await self.client.get_skill(slug, author=author)
         skill_name = data.get("name", slug)
+        display_name = data.get("displayName", "") or skill_name
         bundle_url = data.get("bundleUrl")
         has_bundle = bool(bundle_url)
 
@@ -104,6 +105,7 @@ class MarketplaceInstaller:
                 existing_skill.marketplace_slug = slug
                 existing_skill.marketplace_author = data.get("author", author)
                 existing_skill.marketplace_version = data.get("version", "1.0.0")
+                existing_skill.marketplace_display_name = display_name
                 action = "updated"
             else:
                 from openvort.db.models import _uuid
@@ -119,6 +121,7 @@ class MarketplaceInstaller:
                     marketplace_slug=slug,
                     marketplace_author=data.get("author", author),
                     marketplace_version=data.get("version", "1.0.0"),
+                    marketplace_display_name=display_name,
                 )
                 session.add(skill)
                 action = "installed"
@@ -268,6 +271,7 @@ class MarketplaceInstaller:
             items.append({
                 "id": s.id,
                 "name": s.name,
+                "displayName": s.marketplace_display_name or s.name,
                 "description": s.description,
                 "slug": s.marketplace_slug,
                 "author": s.marketplace_author,

@@ -1,14 +1,14 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, onMounted, watch } from "vue";
 import { z } from "zod";
 import { Plus, Info } from "lucide-vue-next";
 import { DownOutlined } from "@/components/vort/icons";
 import { useCrudPage } from "@/hooks";
+import { useVortFlowStore } from "@/stores";
 import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMemberPicker.vue";
 import { useWorkItemCommon } from "./work-item/useWorkItemCommon";
 import {
     getVortflowIterations, createVortflowIteration, updateVortflowIteration, deleteVortflowIteration,
-    getVortflowProjects,
 } from "@/api";
 
 interface IterationItem {
@@ -28,11 +28,9 @@ interface IterationItem {
     actual_hours?: number | null;
 }
 
-interface ProjectItem { id: string; name: string }
-
 type FilterParams = { page: number; size: number; keyword: string; status: string; owner_id: string };
 
-const projects = ref<ProjectItem[]>([]);
+const vortFlowStore = useVortFlowStore();
 const filterOwnerDropdownOpen = ref(false);
 const filterOwnerKeyword = ref("");
 const formOwnerDropdownOpen = ref(false);
@@ -58,8 +56,10 @@ const statusColorMap: Record<string, string> = { planning: "default", active: "p
 const statusLabels: Record<string, string> = { planning: "待开始", active: "进行中", completed: "已结束" };
 
 const fetchList = async (params: FilterParams) => {
+    const projectId = vortFlowStore.selectedProjectId || undefined;
     const res = await getVortflowIterations({
         keyword: params.keyword, status: params.status, owner_id: params.owner_id,
+        project_id: projectId,
         page: params.page, page_size: params.size,
     });
     return { records: (res as any).items || [], total: (res as any).total || 0 };
@@ -71,12 +71,9 @@ const { listData, loading, total, filterParams, showPagination, loadData, onSear
         defaultParams: { page: 1, size: 20, keyword: "", status: "", owner_id: "" },
     });
 
-const loadProjects = async () => {
-    try {
-        const projRes = await getVortflowProjects();
-        projects.value = (projRes as any)?.items || [];
-    } catch { /* silent */ }
-};
+watch(() => vortFlowStore.selectedProjectId, () => {
+    loadData();
+});
 
 const iterationOwnerId = (i: IterationItem) => i.owner_id || i.assignee_id || i.pm_id || "";
 const ownerName = (i: IterationItem) => i.owner_name || getMemberNameById(iterationOwnerId(i)) || "未指派";
@@ -84,7 +81,7 @@ const iterationOwnerAvatarUrl = (i: IterationItem) => {
     const name = ownerName(i);
     return name === "未指派" ? "" : getMemberAvatarUrl(name);
 };
-const projectNameById = (id: string) => projects.value.find(p => p.id === id)?.name || id;
+const projectNameById = (id: string) => vortFlowStore.projects.find(p => p.id === id)?.name || id;
 
 const formatDate = (iso: string | null) => {
     if (!iso) return "-";
@@ -198,7 +195,7 @@ const handleFormOwnerSelect = (name: string) => {
 };
 
 onMounted(async () => {
-    await Promise.all([loadProjects(), loadMemberOptions(), loadData()]);
+    await Promise.all([loadMemberOptions(), loadData()]);
 });
 </script>
 
@@ -364,7 +361,7 @@ onMounted(async () => {
             <vort-form ref="formRef" :model="currentIteration" :rules="iterationValidationSchema" label-width="90px">
                 <vort-form-item v-if="drawerMode === 'add'" label="所属项目" name="project_id" required>
                     <vort-select v-model="currentIteration.project_id" placeholder="请选择项目" class="w-full">
-                        <vort-select-option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name }}</vort-select-option>
+                        <vort-select-option v-for="p in vortFlowStore.projects" :key="p.id" :value="p.id">{{ p.name }}</vort-select-option>
                     </vort-select>
                 </vort-form-item>
 

@@ -12,3 +12,4 @@ export { useTabsStore } from "./modules/tabs";
 export { useAppStore } from "./modules/app";
 export { useConfigStore } from "./modules/config";
 export { usePluginStore } from "./modules/plugin";
+export { useVortFlowStore } from "./modules/vortflow";

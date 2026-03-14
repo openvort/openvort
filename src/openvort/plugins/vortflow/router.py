@@ -70,6 +70,7 @@ class TaskCreate(BaseModel):
     description: str = ""
     task_type: str = "fullstack"
     assignee_id: str | None = None
+    creator_id: str | None = None
     tags: list[str] = []
     collaborators: list[str] = []
     estimate_hours: float | None = None
@@ -241,7 +242,8 @@ def _task_dict(r: FlowTask) -> dict:
     return {
         "id": r.id, "title": r.title, "description": r.description,
         "state": r.state, "task_type": r.task_type,
-        "story_id": r.story_id, "parent_id": r.parent_id, "assignee_id": r.assignee_id,
+        "story_id": r.story_id, "parent_id": r.parent_id,
+        "assignee_id": r.assignee_id, "creator_id": r.creator_id,
         "tags": _parse_json_list(r.tags_json),
         "collaborators": _parse_json_list(r.collaborators_json),
         "estimate_hours": r.estimate_hours, "actual_hours": r.actual_hours,
@@ -514,6 +516,9 @@ async def list_stories(
     keyword: str = Query("", description="关键词搜索"),
     priority: int = Query(0, description="按优先级过滤"),
     parent_id: str | None = Query(None, description="按父需求过滤，root 表示仅顶层需求"),
+    submitter_id: str = Query("", description="按创建者过滤"),
+    pm_id: str = Query("", description="按负责人过滤"),
+    participant_id: str = Query("", description="按参与者过滤（检查 collaborators）"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):
@@ -540,6 +545,16 @@ async def list_stories(
         elif parent_id:
             stmt = stmt.where(FlowStory.parent_id == parent_id)
             count_stmt = count_stmt.where(FlowStory.parent_id == parent_id)
+        if submitter_id:
+            stmt = stmt.where(FlowStory.submitter_id == submitter_id)
+            count_stmt = count_stmt.where(FlowStory.submitter_id == submitter_id)
+        if pm_id:
+            stmt = stmt.where(FlowStory.pm_id == pm_id)
+            count_stmt = count_stmt.where(FlowStory.pm_id == pm_id)
+        if participant_id:
+            like_p = f'%"{participant_id}"%'
+            stmt = stmt.where(FlowStory.collaborators_json.like(like_p))
+            count_stmt = count_stmt.where(FlowStory.collaborators_json.like(like_p))
         total = (await session.execute(count_stmt)).scalar_one()
         stmt = stmt.offset((page - 1) * page_size).limit(page_size)
         rows = (await session.execute(stmt)).scalars().all()
@@ -729,6 +744,9 @@ async def list_tasks(
     task_type: str = Query("", description="按类型过滤"),
     assignee_id: str = Query("", description="按负责人过滤"),
     keyword: str = Query("", description="关键词搜索"),
+    project_id: str = Query("", description="按项目过滤（通过关联需求）"),
+    creator_id: str = Query("", description="按创建者过滤"),
+    participant_id: str = Query("", description="按参与者过滤（检查 collaborators）"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):
@@ -736,6 +754,10 @@ async def list_tasks(
     async with sf() as session:
         stmt = select(FlowTask).order_by(FlowTask.created_at.desc(), FlowTask.id.desc())
         count_stmt = select(func.count()).select_from(FlowTask)
+        if project_id:
+            project_story_ids = select(FlowStory.id).where(FlowStory.project_id == project_id)
+            stmt = stmt.where(FlowTask.story_id.in_(project_story_ids))
+            count_stmt = count_stmt.where(FlowTask.story_id.in_(project_story_ids))
         if story_id:
             stmt = stmt.where(FlowTask.story_id == story_id)
             count_stmt = count_stmt.where(FlowTask.story_id == story_id)
@@ -754,10 +776,17 @@ async def list_tasks(
         if assignee_id:
             stmt = stmt.where(FlowTask.assignee_id == assignee_id)
             count_stmt = count_stmt.where(FlowTask.assignee_id == assignee_id)
+        if creator_id:
+            stmt = stmt.where(FlowTask.creator_id == creator_id)
+            count_stmt = count_stmt.where(FlowTask.creator_id == creator_id)
         if keyword:
             like = f"%{keyword}%"
             stmt = stmt.where(FlowTask.title.ilike(like))
             count_stmt = count_stmt.where(FlowTask.title.ilike(like))
+        if participant_id:
+            like_p = f'%"{participant_id}"%'
+            stmt = stmt.where(FlowTask.collaborators_json.like(like_p))
+            count_stmt = count_stmt.where(FlowTask.collaborators_json.like(like_p))
         total = (await session.execute(count_stmt)).scalar_one()
         stmt = stmt.offset((page - 1) * page_size).limit(page_size)
         rows = (await session.execute(stmt)).scalars().all()
@@ -805,7 +834,8 @@ async def create_task(body: TaskCreate):
         t = FlowTask(
             story_id=resolved_story_id, parent_id=normalized_parent_id, title=body.title,
             description=body.description, task_type=body.task_type,
-            assignee_id=body.assignee_id, estimate_hours=body.estimate_hours,
+            assignee_id=body.assignee_id, creator_id=body.creator_id,
+            estimate_hours=body.estimate_hours,
             tags_json=json.dumps(body.tags or [], ensure_ascii=False),
             collaborators_json=json.dumps(body.collaborators or [], ensure_ascii=False),
             deadline=_parse_dt(body.deadline),
@@ -920,6 +950,9 @@ async def list_bugs(
     severity: int = Query(0, description="按严重程度过滤"),
     assignee_id: str = Query("", description="按指派人过滤"),
     keyword: str = Query("", description="关键词搜索"),
+    project_id: str = Query("", description="按项目过滤（通过关联需求）"),
+    reporter_id: str = Query("", description="按报告者过滤"),
+    participant_id: str = Query("", description="按参与者过滤（检查 collaborators）"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):
@@ -927,6 +960,10 @@ async def list_bugs(
     async with sf() as session:
         stmt = select(FlowBug).order_by(FlowBug.created_at.desc(), FlowBug.id.desc())
         count_stmt = select(func.count()).select_from(FlowBug)
+        if project_id:
+            project_story_ids = select(FlowStory.id).where(FlowStory.project_id == project_id)
+            stmt = stmt.where(FlowBug.story_id.in_(project_story_ids))
+            count_stmt = count_stmt.where(FlowBug.story_id.in_(project_story_ids))
         if story_id:
             stmt = stmt.where(FlowBug.story_id == story_id)
             count_stmt = count_stmt.where(FlowBug.story_id == story_id)
@@ -939,6 +976,13 @@ async def list_bugs(
         if assignee_id:
             stmt = stmt.where(FlowBug.assignee_id == assignee_id)
             count_stmt = count_stmt.where(FlowBug.assignee_id == assignee_id)
+        if reporter_id:
+            stmt = stmt.where(FlowBug.reporter_id == reporter_id)
+            count_stmt = count_stmt.where(FlowBug.reporter_id == reporter_id)
+        if participant_id:
+            like_p = f'%"{participant_id}"%'
+            stmt = stmt.where(FlowBug.collaborators_json.like(like_p))
+            count_stmt = count_stmt.where(FlowBug.collaborators_json.like(like_p))
         if keyword:
             like = f"%{keyword}%"
             stmt = stmt.where(FlowBug.title.ilike(like))

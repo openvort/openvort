@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { z } from "zod";
 import { useCrudPage, useDirtyCheck } from "@/hooks";
+import { useVortFlowStore } from "@/stores";
 import {
-    getVortflowMilestones, getVortflowProjects, createVortflowMilestone,
+    getVortflowMilestones, createVortflowMilestone,
     updateVortflowMilestone, deleteVortflowMilestone, completeVortflowMilestone,
     generateVortflowDescriptionPrompt,
 } from "@/api";
@@ -12,6 +13,7 @@ import { message } from "@/components/vort";
 import { Check, Clock, Milestone, Plus, Bot } from "lucide-vue-next";
 
 const router = useRouter();
+const vortFlowStore = useVortFlowStore();
 
 interface MilestoneItem {
     id: string;
@@ -31,20 +33,13 @@ const isOverdue = (dueDate: string | null, completedAt: string | null) => {
     return new Date(dueDate) < new Date();
 };
 
-// Projects
-const projects = ref<{ id: string; name: string }[]>([]);
-const loadProjects = async () => {
-    try {
-        const res = await getVortflowProjects();
-        projects.value = (res as any)?.items || [];
-    } catch { /* silent */ }
-};
-loadProjects();
+const projects = vortFlowStore.projects;
 
 // CRUD
 const fetchMilestones = async (params: FilterParams) => {
+    const projectId = vortFlowStore.selectedProjectId || params.project_id;
     const res = await getVortflowMilestones({
-        project_id: params.project_id, keyword: params.keyword,
+        project_id: projectId || undefined, keyword: params.keyword,
         page: params.page, page_size: params.size,
     });
     return { records: (res as any).items || [], total: (res as any).total || 0 };
@@ -55,6 +50,10 @@ const { listData, loading, total, filterParams, showPagination, loadData, onSear
         api: fetchMilestones,
         defaultParams: { page: 1, size: 20, project_id: "", keyword: "" },
     });
+
+watch(() => vortFlowStore.selectedProjectId, () => {
+    loadData();
+});
 
 // Drawer
 const drawerVisible = ref(false);
@@ -120,7 +119,7 @@ async function handleAiGenerateDescription() {
         message.warning("请先输入里程碑名称");
         return;
     }
-    const projectName = projects.value.find(p => p.id === currentRow.value.project_id)?.name || "";
+    const projectName = vortFlowStore.projects.find(p => p.id === currentRow.value.project_id)?.name || "";
     try {
         const res: any = await generateVortflowDescriptionPrompt("milestone", projectName, currentRow.value.name);
         if (res?.prompt) {
@@ -145,7 +144,7 @@ const handleComplete = async (item: MilestoneItem) => {
     }
 };
 
-const projectName = (id: string) => projects.value.find(p => p.id === id)?.name || '-';
+const projectName = (id: string) => vortFlowStore.projects.find(p => p.id === id)?.name || '-';
 
 loadData();
 </script>
@@ -163,12 +162,6 @@ loadData();
                 <div class="flex items-center gap-2 w-full sm:w-auto">
                     <span class="text-sm text-gray-500 whitespace-nowrap">关键词</span>
                     <vort-input-search v-model="filterParams.keyword" placeholder="搜索里程碑..." allow-clear class="flex-1 sm:w-[200px]" @search="onSearchSubmit" @keyup.enter="onSearchSubmit" />
-                </div>
-                <div class="flex items-center gap-2 w-full sm:w-auto">
-                    <span class="text-sm text-gray-500 whitespace-nowrap">项目</span>
-                    <vort-select v-model="filterParams.project_id" placeholder="全部项目" allow-clear class="flex-1 sm:w-[160px]" @change="onSearchSubmit">
-                        <vort-select-option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name }}</vort-select-option>
-                    </vort-select>
                 </div>
                 <div class="flex items-center gap-2">
                     <vort-button variant="primary" @click="onSearchSubmit">查询</vort-button>

@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, onMounted, watch } from "vue";
 import { useCrudPage } from "@/hooks";
 import { Plus } from "lucide-vue-next";
 import { DownOutlined } from "@/components/vort/icons";
 import { message } from "@/components/vort";
+import { useVortFlowStore } from "@/stores";
 import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMemberPicker.vue";
 import { useWorkItemCommon } from "./work-item/useWorkItemCommon";
 import {
     getVortflowVersions, createVortflowVersion, updateVortflowVersion, deleteVortflowVersion,
-    releaseVortflowVersion, getVortflowProjects,
+    releaseVortflowVersion,
 } from "@/api";
 
 interface VersionItem {
@@ -25,11 +26,9 @@ interface VersionItem {
     created_at: string | null;
 }
 
-interface ProjectItem { id: string; name: string }
-
 type FilterParams = { page: number; size: number; keyword: string; status: string; owner_id: string };
 
-const projects = ref<ProjectItem[]>([]);
+const vortFlowStore = useVortFlowStore();
 const activeTab = ref("version-list");
 const filterOwnerDropdownOpen = ref(false);
 const filterOwnerKeyword = ref("");
@@ -58,8 +57,10 @@ const statusLabels: Record<string, string> = { planning: "规划中", released: 
 const stageLabelMap: Record<string, string> = { planning: "开发环境", released: "已发布", archived: "已归档" };
 
 const fetchList = async (params: FilterParams) => {
+    const projectId = vortFlowStore.selectedProjectId || undefined;
     const res = await getVortflowVersions({
         keyword: params.keyword, status: params.status, owner_id: params.owner_id,
+        project_id: projectId,
         page: params.page, page_size: params.size,
     });
     return { records: (res as any).items || [], total: (res as any).total || 0 };
@@ -71,12 +72,9 @@ const { listData, loading, total, filterParams, showPagination, loadData, onSear
         defaultParams: { page: 1, size: 20, keyword: "", status: "", owner_id: "" },
     });
 
-const loadProjects = async () => {
-    try {
-        const projRes = await getVortflowProjects();
-        projects.value = (projRes as any)?.items || [];
-    } catch { /* silent */ }
-};
+watch(() => vortFlowStore.selectedProjectId, () => {
+    loadData();
+});
 
 const getVersionOwnerId = (item: VersionItem) => String(item.owner_id || "").trim();
 const getVersionOwnerName = (item: VersionItem) => getMemberNameById(getVersionOwnerId(item)) || "未指派";
@@ -138,7 +136,7 @@ const handleEditVersion = (v: VersionItem) => {
 };
 
 const handleCreateVersion = async (andContinue = false) => {
-    const projectId = projects.value[0]?.id;
+    const projectId = vortFlowStore.selectedProjectId || vortFlowStore.projects[0]?.id;
     if (!projectId) return;
     const data = createVersionForm.value;
     if (!String(data.version_no || "").trim()) { message.warning("版本号必填"); return; }
@@ -199,7 +197,7 @@ const handleFormOwnerSelect = (name: string) => {
 };
 
 onMounted(async () => {
-    await Promise.all([loadProjects(), loadMemberOptions(), loadData()]);
+    await Promise.all([loadMemberOptions(), loadData()]);
 });
 </script>
 

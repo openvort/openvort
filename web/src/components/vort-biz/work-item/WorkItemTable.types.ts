@@ -27,6 +27,14 @@ export type Status =
 
 export type DateRange = [string, string];
 
+export interface ViewFilters {
+    owner?: string;
+    status?: string;
+    parentOnly?: boolean;
+    creator?: string;
+    participant?: string;
+}
+
 export interface WorkItemTableProps {
     type: WorkItemType;
     pageTitle?: string;
@@ -35,6 +43,8 @@ export interface WorkItemTableProps {
     detailDrawerTitle?: string;
     descriptionPlaceholder?: string;
     useApi?: boolean;
+    projectId?: string;
+    viewFilters?: ViewFilters;
 }
 
 export interface NewBugForm {
