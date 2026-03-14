@@ -221,7 +221,7 @@ onMounted(async () => {
 
                 <vort-table-column label="状态" :width="100">
                     <template #default="{ row }">
-                        <vort-tag :color="statusColorMap[row.status] || 'default'" size="small">
+                        <vort-tag :color="statusColorMap[row.status] || 'default'">
                             {{ statusLabels[row.status] || row.status }}
                         </vort-tag>
                     </template>

@@ -29,7 +29,7 @@ import type { CustomView } from "@/stores/modules/vortflow";
 import { useVortFlowViews, SYSTEM_VIEWS } from "./composables/useVortFlowViews";
 import { useWorkItemCommon } from "./work-item/useWorkItemCommon";
 import {
-    getVortflowStory, getVortflowStories, getVortflowTask, getVortflowTasks, getVortflowBugs,
+    getVortflowStory, getVortflowStories, getVortflowTask, getVortflowTasks, getVortflowBug, getVortflowBugs,
     getVortflowProjects, createVortflowStory, createVortflowTask, createVortflowBug,
     deleteVortflowStory, deleteVortflowTask, deleteVortflowBug,
     updateVortflowStory, updateVortflowTask, updateVortflowBug,
@@ -762,17 +762,26 @@ const findItemRowById = (itemId?: string): RowItem | null => {
     return itemRowsById[itemId] || null;
 };
 
+const findItemRowByIdentifier = (itemId?: string): RowItem | null => {
+    if (!itemId) return null;
+    const byBackendId = findItemRowById(itemId);
+    if (byBackendId) return byBackendId;
+    return Object.values(itemRowsById).find((row) => row.workNo === itemId) || null;
+};
+
 const loadItemById = async (itemId: string | undefined, itemType: WorkItemType): Promise<RowItem | null> => {
     if (!itemId) return null;
-    const cached = findItemRowById(itemId);
+    const cached = findItemRowByIdentifier(itemId);
     if (cached) return cached;
     try {
         const res: any = itemType === "任务"
             ? await getVortflowTask(itemId)
-            : await getVortflowStory(itemId);
+            : itemType === "缺陷"
+                ? await getVortflowBug(itemId)
+                : await getVortflowStory(itemId);
         if (!res?.id) return null;
         const row = mapBackendItemToRow(res, itemType, 0);
-        itemRowsById[itemId] = row;
+        itemRowsById[String(res.id)] = row;
         return row;
     } catch {
         return null;
@@ -1507,7 +1516,7 @@ const handleOpenBugDetail = async (record: RowItem) => {
         description: record.description || base.description
     });
 
-    router.replace({ query: { ...route.query, action: "detail", id: record.workNo } });
+    router.replace({ query: { ...route.query, action: "detail", id: record.backendId || record.workNo } });
 };
 
 const detailCurrentRecord = computed<RowItem | null>(() => {
@@ -1906,9 +1915,11 @@ onMounted(async () => {
             createProjectId.value = findItemRowById(parentId)?.projectId || "";
         }
     } else if (action === "detail" && id) {
-        const cached = findItemRowById(id);
-        if (cached) {
-            handleOpenBugDetail(cached);
+        const record = findItemRowByIdentifier(id) || await loadItemById(id, props.type);
+        if (record) {
+            handleOpenBugDetail(record);
+        } else {
+            router.replace({ query: { ...route.query, action: undefined, id: undefined, parentId: undefined } });
         }
     }
 });
