@@ -126,7 +126,7 @@ async def websocket_endpoint(ws: WebSocket, token: str = Query("")):
         await ws.close(code=4003, reason="unauthorized")
         return
 
-    member_id = payload.get("member_id", "")
+    member_id = payload.get("sub", "") or payload.get("member_id", "")
     name = payload.get("name", "")
     if not member_id:
         await ws.close(code=4003, reason="invalid token")

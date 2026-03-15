@@ -1516,6 +1516,12 @@ onMounted(async () => {
             contactListRef.value?.refreshContacts?.();
         });
         on("schedule_result", () => { loadActiveAssignments(); });
+        on("unread_update", () => { contactListRef.value?.refreshContacts?.(); });
+        on("_reconnected", () => {
+            contactListRef.value?.refreshContacts?.();
+            if (currentSessionId.value) loadHistory();
+            loadActiveAssignments();
+        });
     } catch { /* silent */ }
 
     // Bind native keydown on textarea for panel keyboard interception (arrows, ESC, Tab, Backspace)

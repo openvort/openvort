@@ -101,6 +101,30 @@ async def mark_session_read(
     return marked
 
 
+async def push_unread_update(owner_id: str, session_id: str) -> None:
+    """Push unread_update via WebSocket after DB commit.
+
+    Call this AFTER committing the transaction that incremented unread_count.
+    """
+    try:
+        from openvort.web.ws import manager as ws_manager
+        from openvort.web.deps import get_db_session_factory
+
+        sf = get_db_session_factory()
+        if not sf:
+            return
+        async with sf() as db:
+            counts = await get_unread_counts(db, owner_id=owner_id)
+        new_count = counts.get(session_id, 0)
+        await ws_manager.send_to(owner_id, {
+            "type": "unread_update",
+            "session_id": session_id,
+            "count": new_count,
+        })
+    except Exception:
+        pass
+
+
 async def get_unread_counts(
     db: AsyncSession,
     *,

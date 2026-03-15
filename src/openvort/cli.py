@@ -788,19 +788,8 @@ async def _start_service(web_flag: bool | None):
                     "job_id": job_id,
                     "job_name": job_name,
                 })
-                # Push unread_update so frontend can show badge immediately
-                from openvort.core.chat_message import get_unread_counts
-                try:
-                    async with session_factory() as _s:
-                        counts = await get_unread_counts(_s, owner_id=owner_id)
-                    new_count = counts.get(target_session_id, 0)
-                    await ws_manager.send_to(owner_id, {
-                        "type": "unread_update",
-                        "session_id": target_session_id,
-                        "count": new_count,
-                    })
-                except Exception:
-                    pass
+                from openvort.core.chat_message import push_unread_update
+                await push_unread_update(owner_id, target_session_id)
         except Exception as e:
             log.debug(f"WebSocket 推送失败（用户可能不在线）: {e}")
 

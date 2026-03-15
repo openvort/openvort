@@ -76,7 +76,7 @@ def create_app() -> FastAPI:
     from openvort.web.webhooks import webhooks_router
 
     # WebSocket（无需 JWT 依赖，内部自行认证）
-    app.include_router(ws_router, tags=["websocket"])
+    app.include_router(ws_router, prefix="/api", tags=["websocket"])
 
     # Webhook 触发器（外部系统回调，自行验证签名）
     app.include_router(webhooks_router, prefix="/api/webhooks", tags=["webhooks"])

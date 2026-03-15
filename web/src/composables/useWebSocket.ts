@@ -12,6 +12,11 @@ const MAX_RECONNECT_DELAY = 30000;
 const handlers = new Map<string, Set<WsMessageHandler>>();
 let initialized = false;
 
+const PING_INTERVAL = 25000;
+const PONG_TIMEOUT = 10000;
+let pingTimer: ReturnType<typeof setInterval> | null = null;
+let pongTimer: ReturnType<typeof setTimeout> | null = null;
+
 function getWsUrl(token: string): string {
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     return `${proto}//${location.host}/api/ws?token=${encodeURIComponent(token)}`;
@@ -36,6 +41,11 @@ function tryNotify(data: any) {
 function dispatchMessage(data: any) {
     const msgType = data?.type;
     if (!msgType) return;
+
+    if (msgType === "pong") {
+        clearPongTimeout();
+        return;
+    }
 
     const notificationStore = useNotificationStore();
 
@@ -67,6 +77,48 @@ function dispatchMessage(data: any) {
     }
 }
 
+function startHeartbeat() {
+    stopHeartbeat();
+    pingTimer = setInterval(() => {
+        if (ws.value && ws.value.readyState === WebSocket.OPEN) {
+            try {
+                ws.value.send(JSON.stringify({ type: "ping" }));
+            } catch {
+                forceReconnect();
+                return;
+            }
+            pongTimer = setTimeout(() => {
+                forceReconnect();
+            }, PONG_TIMEOUT);
+        }
+    }, PING_INTERVAL);
+}
+
+function clearPongTimeout() {
+    if (pongTimer) {
+        clearTimeout(pongTimer);
+        pongTimer = null;
+    }
+}
+
+function stopHeartbeat() {
+    if (pingTimer) {
+        clearInterval(pingTimer);
+        pingTimer = null;
+    }
+    clearPongTimeout();
+}
+
+function forceReconnect() {
+    stopHeartbeat();
+    if (ws.value) {
+        try { ws.value.close(); } catch { /* noop */ }
+        ws.value = null;
+    }
+    connected.value = false;
+    scheduleReconnect();
+}
+
 function doConnect() {
     const userStore = useUserStore();
     const token = userStore.token;
@@ -78,9 +130,17 @@ function doConnect() {
         socket.onopen = () => {
             connected.value = true;
             reconnectDelay = 1000;
+            startHeartbeat();
 
             const notificationStore = useNotificationStore();
             notificationStore.fetchUnreadCounts();
+
+            const reconnectHandlers = handlers.get("_reconnected");
+            if (reconnectHandlers) {
+                reconnectHandlers.forEach((h) => {
+                    try { h({}); } catch { /* noop */ }
+                });
+            }
         };
 
         socket.onmessage = (event) => {
@@ -93,6 +153,7 @@ function doConnect() {
         socket.onclose = () => {
             connected.value = false;
             ws.value = null;
+            stopHeartbeat();
             scheduleReconnect();
         };
 
@@ -124,6 +185,7 @@ export function initWebSocket() {
 
 export function closeWebSocket() {
     initialized = false;
+    stopHeartbeat();
     if (reconnectTimer) {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
