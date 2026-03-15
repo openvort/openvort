@@ -184,7 +184,7 @@ async def run_my_job(request: Request, job_id: str):
     # 先验证归属
     service = _get_service()
     job = await service.get_job(job_id)
-    if not job or job["owner_id"] != member_id:
+    if not job or (job["owner_id"] != member_id and job.get("creator_id", "") != member_id):
         return {"success": False, "error": "任务不存在或无权限"}
     result = await service.run_now(job_id)
     return result

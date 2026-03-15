@@ -115,12 +115,19 @@ class ScheduleManageTool(BaseTool):
 
         action_config = {"prompt": prompt}
 
-        # 获取执行人（AI 员工）- 如果当前在与 AI 员工聊天，使用 AI 员工作为执行人
+        # When chatting with an AI employee: owner = AI employee, creator = user
         target_member_id = params.get("_target_member_id", "")
+        if target_member_id:
+            task_owner_id = target_member_id
+            task_creator_id = member_id
+        else:
+            task_owner_id = member_id
+            task_creator_id = member_id
 
         try:
             job = await service.create_job(
-                owner_id=member_id,  # 任务拥有者是发起请求的真实用户
+                owner_id=task_owner_id,
+                creator_id=task_creator_id,
                 name=name,
                 description=params.get("description", ""),
                 schedule_type=schedule_type,
@@ -128,7 +135,7 @@ class ScheduleManageTool(BaseTool):
                 timezone=params.get("timezone", "Asia/Shanghai"),
                 action_config=action_config,
                 enabled=params.get("enabled", True),
-                target_member_id=target_member_id,  # 执行人
+                target_member_id=target_member_id,
             )
             return json.dumps({"ok": True, "message": f"定时任务「{name}」创建成功", "job": job}, ensure_ascii=False)
         except Exception as e:

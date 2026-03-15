@@ -104,8 +104,10 @@ class ScheduleJob(Base):
     name: Mapped[str] = mapped_column(String(128))
     description: Mapped[str] = mapped_column(Text, default="")
 
-    # 归属
+    # 归属: owner_id = task owner (AI employee when delegated, user for personal reminders)
     owner_id: Mapped[str] = mapped_column(String(32), ForeignKey("members.id"), index=True)
+    # creator_id = who delegated/created this task (always the real human user)
+    creator_id: Mapped[str] = mapped_column(String(32), default="", index=True)
     scope: Mapped[str] = mapped_column(String(16), default="personal")  # personal | team
 
     # 调度
@@ -117,10 +119,9 @@ class ScheduleJob(Base):
     action_type: Mapped[str] = mapped_column(String(32), default="agent_chat")  # agent_chat
     action_config: Mapped[str] = mapped_column(Text, default="{}")  # JSON: {"prompt": "..."}
 
-    # AI 员工绑定（用于定时汇报）
-    target_member_id: Mapped[str] = mapped_column(String(32), default="", nullable=True)  # 绑定的 AI 员工 ID
+    # DEPRECATED: use owner_id instead; kept for backward compat during migration
+    target_member_id: Mapped[str] = mapped_column(String(32), default="", nullable=True)
 
-    # 可见性（团队任务是否对成员展示）
     visible: Mapped[bool] = mapped_column(Boolean, default=True)
 
     # 状态

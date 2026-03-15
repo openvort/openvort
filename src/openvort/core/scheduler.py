@@ -25,10 +25,23 @@ class Scheduler:
         Args:
             job_id: 任务 ID
             func: 异步函数
-            cron_expr: cron 表达式（分 时 日 月 周）
+            cron_expr: 5-field (分 时 日 月 周) or 6-field (秒 分 时 日 月 周)
         """
         parts = cron_expr.split()
-        if len(parts) != 5:
+        cron_kwargs: dict = {}
+
+        if len(parts) == 6:
+            log.info(f"检测到 6 段 cron 表达式，首段作为秒字段: {cron_expr}")
+            cron_kwargs = dict(
+                second=parts[0], minute=parts[1], hour=parts[2],
+                day=parts[3], month=parts[4], day_of_week=parts[5],
+            )
+        elif len(parts) == 5:
+            cron_kwargs = dict(
+                minute=parts[0], hour=parts[1],
+                day=parts[2], month=parts[3], day_of_week=parts[4],
+            )
+        else:
             log.error(f"无效的 cron 表达式: {cron_expr}")
             return
 
@@ -36,12 +49,8 @@ class Scheduler:
             func,
             "cron",
             id=job_id,
-            minute=parts[0],
-            hour=parts[1],
-            day=parts[2],
-            month=parts[3],
-            day_of_week=parts[4],
             replace_existing=True,
+            **cron_kwargs,
             **kwargs,
         )
         log.info(f"已添加 cron 任务: {job_id} ({cron_expr})")

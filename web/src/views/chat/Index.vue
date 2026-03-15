@@ -84,10 +84,16 @@ const offlineSummary = ref<{ unreads: number; highlights: string[] } | null>(nul
 function dismissOfflineSummary() { offlineSummary.value = null; }
 
 const isAiMode = computed(() => !activeContact.value || activeContact.value.type === "ai");
+const notificationStore = useNotificationStore();
 const currentSessionTitle = computed(() => {
     if (!currentSessionId.value) return "新对话";
     const s = sessions.value.find(s => s.session_id === currentSessionId.value);
     return s?.title || "新对话";
+});
+const activeTaskStatus = computed(() => {
+    const c = activeContact.value;
+    if (!c || !c.is_virtual) return null;
+    return notificationStore.getTaskStatus(c.id);
 });
 
 // ---- 草稿暂存（切换会话时保留未发送内容）----
@@ -1471,6 +1477,21 @@ onMounted(async () => {
                 (activeContact.value as any).remote_node_status = data.status;
             }
         });
+        on("message", (data: any) => {
+            if (!data?.session_id || !data?.content) return;
+            if (data.session_id === currentSessionId.value && !loading.value) {
+                const newMsg: ChatMessage = {
+                    id: String(++messageCounter),
+                    role: "assistant",
+                    content: data.content,
+                    timestamp: Date.now(),
+                    avatar_url: activeContact.value?.avatar_url,
+                };
+                messages.value.push(newMsg);
+                nextTick(scrollToBottom);
+            }
+            contactListRef.value?.refreshContacts?.();
+        });
     } catch { /* silent */ }
 
     // Bind native keydown on textarea for panel keyboard interception (arrows, ESC, Tab, Backspace)
@@ -1847,6 +1868,21 @@ onUnmounted(() => {
                 </div>
                 </VortImagePreviewGroup>
             </VortScrollbar>
+
+            <!-- AI employee task status bar -->
+            <Transition name="vort-popover">
+                <div v-if="activeTaskStatus && activeContact?.is_virtual"
+                    class="mx-6 mb-1 px-3 py-2 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-between gap-2 text-xs">
+                    <div class="flex items-center gap-2 min-w-0 text-blue-600">
+                        <span class="inline-block w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse flex-shrink-0" />
+                        <span class="truncate">{{ activeTaskStatus.jobName ? `正在执行「${activeTaskStatus.jobName}」...` : '正在执行任务...' }}</span>
+                    </div>
+                    <button @click="memberProfileOpen = true"
+                        class="text-blue-500 hover:text-blue-700 whitespace-nowrap flex-shrink-0 cursor-pointer">
+                        查看工作安排
+                    </button>
+                </div>
+            </Transition>
 
             <!-- 输入区域 -->
             <div class="relative px-6 py-4" ref="inputArea"

@@ -30,13 +30,13 @@ const publicSkills = ref<any[]>([]);
 const savingBio = ref(false);
 
 // 工作安排
-const activeTab = ref<"profile" | "work">("profile");
+const activeTab = ref<"profile" | "work">("work");
 const workAssignments = ref<any[]>([]);
 const loadingWork = ref(false);
 
 const tabs = [
-    { key: "profile", label: "个人档案", icon: User },
     { key: "work", label: "工作安排", icon: ClipboardList },
+    { key: "profile", label: "个人档案", icon: User },
 ];
 
 async function loadWorkAssignments() {

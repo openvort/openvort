@@ -430,6 +430,26 @@ async def init_db(database_url: str) -> None:
             "ALTER TABLE IF EXISTS skills ADD COLUMN IF NOT EXISTS marketplace_display_name VARCHAR(200) DEFAULT ''"
         ))
 
+    # Migrate schedule_jobs: add creator_id + fix owner semantics
+    async with _engine.begin() as conn:
+        await conn.execute(text(
+            "ALTER TABLE IF EXISTS schedule_jobs ADD COLUMN IF NOT EXISTS creator_id VARCHAR(32) DEFAULT ''"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_schedule_jobs_creator_id ON schedule_jobs(creator_id)"
+        ))
+        # One-time data migration: for rows where target_member_id is set (AI employee),
+        # move owner_id -> creator_id, target_member_id -> owner_id, reset visible
+        await conn.execute(text("""
+            UPDATE schedule_jobs
+            SET creator_id = owner_id,
+                owner_id = target_member_id,
+                visible = true
+            WHERE target_member_id IS NOT NULL
+              AND target_member_id != ''
+              AND (creator_id IS NULL OR creator_id = '')
+        """))
+
     # --- Messaging & notification system tables ---
     async with _engine.begin() as conn:
         # chat_messages: persistent message records for UI, unread tracking, search
