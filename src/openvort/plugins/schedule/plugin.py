@@ -11,11 +11,11 @@ log = get_logger("plugins.schedule")
 
 
 class SchedulePlugin(BasePlugin):
-    """定时任务管理插件"""
+    """计划任务管理插件"""
 
     name = "schedule"
-    display_name = "定时任务"
-    description = "通过 AI 对话创建和管理定时任务，支持 cron 定时、固定间隔、一次性执行"
+    display_name = "计划任务"
+    description = "通过 AI 对话创建和管理计划任务，支持 cron 定时、固定间隔、一次性执行"
     version = "0.1.0"
     core = True
 

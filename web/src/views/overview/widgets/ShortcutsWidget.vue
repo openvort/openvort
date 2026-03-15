@@ -13,7 +13,7 @@ const shortcuts = [
     { title: "AI 助手", icon: MessageSquare, desc: "和 AI 对话", path: "/chat", gradient: "from-blue-500 to-blue-600" },
     { title: "项目看板", icon: LayoutDashboard, desc: "项目管理", path: "/vortflow/board", gradient: "from-indigo-500 to-indigo-600" },
     { title: "汇报中心", icon: FileText, desc: "日报/周报/月报", path: "/reports", gradient: "from-emerald-500 to-emerald-600" },
-    { title: "定时任务", icon: Clock, desc: "自动化任务", path: "/schedules", gradient: "from-amber-500 to-amber-600" },
+    { title: "计划任务", icon: Clock, desc: "自动化任务", path: "/schedules", gradient: "from-amber-500 to-amber-600" },
 ];
 
 const adminShortcuts = [

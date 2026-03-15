@@ -62,9 +62,9 @@ BUILTIN_PERMISSIONS = [
     {"code": "logs.view", "display_name": "查看日志"},
     # 仪表盘
     {"code": "dashboard.view", "display_name": "查看仪表盘"},
-    # 定时任务
-    {"code": "schedules.use", "display_name": "使用定时任务"},
-    {"code": "schedules.manage", "display_name": "管理定时任务"},
+    # 计划任务
+    {"code": "schedules.use", "display_name": "使用计划任务"},
+    {"code": "schedules.manage", "display_name": "管理计划任务"},
     # Webhook
     {"code": "webhooks.view", "display_name": "查看 Webhook"},
     {"code": "webhooks.manage", "display_name": "管理 Webhook"},

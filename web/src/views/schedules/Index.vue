@@ -360,7 +360,7 @@ watch(activeTab, (tab) => {
                             <VortButton variant="primary" @click="openCreate('personal')">
                                 <Plus :size="14" class="mr-1" /> 新建任务
                             </VortButton>
-                            <AiAssistButton prompt="我想创建一个定时任务，请引导我完成设置。我需要设置任务名称、调度规则（支持 cron 定时/固定间隔/一次性执行）以及任务到期后 AI 要执行的内容。" />
+                            <AiAssistButton prompt="我想创建一个计划任务，请引导我完成设置。我需要设置任务名称、调度规则（支持 cron 定时/固定间隔/一次性执行）以及任务到期后 AI 要执行的内容。" />
                         </div>
                     </div>
 

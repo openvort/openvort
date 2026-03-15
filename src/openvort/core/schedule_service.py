@@ -108,6 +108,20 @@ class ScheduleService:
             return False
         return job.owner_id == member_id or job.creator_id == member_id
 
+    async def _delete_linked_work_assignments(self, session, job: ScheduleJob) -> None:
+        """Delete work assignments automatically created for a schedule."""
+        await session.execute(
+            delete(WorkAssignment).where(
+                or_(
+                    and_(
+                        WorkAssignment.source_type == "schedule",
+                        WorkAssignment.source_id == job.job_id,
+                    ),
+                    WorkAssignment.related_schedule_id == job.id,
+                )
+            )
+        )
+
     async def update_job(
         self,
         job_id: str,
@@ -150,6 +164,7 @@ class ScheduleService:
             if not self._has_permission(job, owner_id, is_admin):
                 return False
 
+            await self._delete_linked_work_assignments(session, job)
             await session.execute(delete(ScheduleJob).where(ScheduleJob.job_id == job_id))
             await session.commit()
 
@@ -168,6 +183,7 @@ class ScheduleService:
             for job in jobs:
                 if not self._has_permission(job, owner_id, is_admin):
                     continue
+                await self._delete_linked_work_assignments(session, job)
                 await session.execute(
                     delete(ScheduleJob).where(ScheduleJob.job_id == job.job_id)
                 )

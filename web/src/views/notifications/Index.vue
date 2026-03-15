@@ -37,7 +37,7 @@ const statusOptions = [
 
 const sourceOptions = [
     { label: "全部", value: "" },
-    { label: "定时任务", value: "schedule" },
+    { label: "计划任务", value: "schedule" },
     { label: "AI 消息", value: "ai_message" },
     { label: "系统", value: "system" },
 ];

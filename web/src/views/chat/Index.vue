@@ -13,7 +13,8 @@ import {
     sendChatMessage, getChatStreamUrl, getChatHistory, getChatSessionInfo,
     setChatThinking, compactChatSession, resetChatSession,
     getChatSessions, createChatSession, getChatMembers, getChatContacts, abortChatMessage, startMemberChat,
-    getVortflowBugs, getVortflowTasks, getVortflowStories, getVortflowMilestones
+    getVortflowBugs, getVortflowTasks, getVortflowStories, getVortflowMilestones,
+    getWorkAssignments
 } from "@/api";
 import { usePluginStore } from "@/stores/modules/plugin";
 import { useNotificationStore } from "@/stores/modules/notification";
@@ -95,6 +96,17 @@ const activeTaskStatus = computed(() => {
     if (!c || !c.is_virtual) return null;
     return notificationStore.getTaskStatus(c.id);
 });
+
+const activeAssignments = ref<any[]>([]);
+async function loadActiveAssignments() {
+    const c = activeContact.value;
+    if (!c || !c.is_virtual) { activeAssignments.value = []; return; }
+    try {
+        const res: any = await getWorkAssignments({ assignee_member_id: c.id });
+        const all = res?.assignments || [];
+        activeAssignments.value = all.filter((a: any) => a.status === "ongoing" || a.status === "in_progress");
+    } catch { activeAssignments.value = []; }
+}
 
 // ---- 草稿暂存（切换会话时保留未发送内容）----
 const drafts = new Map<string, Draft>();

@@ -231,7 +231,7 @@ const sourceTypeLabels: Record<string, string> = {
     manual: "手动创建",
     chat: "聊天安排",
     code_task: "代码任务",
-    schedule: "定时任务",
+    schedule: "计划任务",
 };
 </script>
 

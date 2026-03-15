@@ -143,7 +143,7 @@ const CORE_SUBGROUPS: Record<string, string> = {
     settings: "系统设置",
     logs: "日志",
     dashboard: "仪表盘",
-    schedules: "定时任务",
+    schedules: "计划任务",
     webhooks: "Webhook",
     agents: "Agent",
 };
@@ -155,7 +155,7 @@ const PLUGIN_DISPLAY_NAMES: Record<string, string> = {
     zentao: "禅道",
     jenkins: "Jenkins",
     report: "汇报",
-    schedule: "定时任务",
+    schedule: "计划任务",
 };
 
 const groupedPermissions = computed(() => {

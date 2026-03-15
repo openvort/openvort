@@ -21,7 +21,7 @@ const routes: RouteRecordRaw[] = [
             // 所有角色可访问
             { path: "chat", name: "chat", component: () => import("@/views/chat/Index.vue"), meta: { title: "AI 助手", fullscreen: true } },
             { path: "overview", name: "overview", component: () => import("@/views/overview/Index.vue"), meta: { title: "概览" } },
-            { path: "schedules", name: "schedules", component: () => import("@/views/schedules/Index.vue"), meta: { title: "定时任务" } },
+            { path: "schedules", name: "schedules", component: () => import("@/views/schedules/Index.vue"), meta: { title: "计划任务" } },
             { path: "reports", name: "reports", component: () => import("@/views/reports/Index.vue"), meta: { title: "汇报中心" } },
             { path: "profile", name: "profile", component: () => import("@/views/profile/Index.vue"), meta: { title: "个人设置" } },
             { path: "notifications", name: "notifications", component: () => import("@/views/notifications/Index.vue"), meta: { title: "通知中心" } },
