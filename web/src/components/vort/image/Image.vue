@@ -168,14 +168,34 @@ const previewSrc = computed(() => {
     return props.src;
 });
 
+function normalizeSize(value?: number | string): string | undefined {
+    if (value === undefined || value === null || value === "") {
+        return undefined;
+    }
+    if (typeof value === "number") {
+        return `${value}px`;
+    }
+    const trimmed = value.trim();
+    if (/^\d+(\.\d+)?$/.test(trimmed)) {
+        return `${trimmed}px`;
+    }
+    return trimmed;
+}
+
 // 图片尺寸样式
 const imageStyle = computed(() => {
     const style: Record<string, string> = {};
     if (props.width) {
-        style.width = typeof props.width === "number" ? `${props.width}px` : props.width;
+        const width = normalizeSize(props.width);
+        if (width) {
+            style.width = width;
+        }
     }
     if (props.height) {
-        style.height = typeof props.height === "number" ? `${props.height}px` : props.height;
+        const height = normalizeSize(props.height);
+        if (height) {
+            style.height = height;
+        }
     }
     // 合并外部传入的 style
     if (props.style) {
