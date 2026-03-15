@@ -52,6 +52,12 @@ class ScheduleService:
         target_member_id: str = "",
     ) -> dict:
         job_id = f"sched_{uuid.uuid4().hex[:12]}"
+
+        # Convert relative seconds to absolute ISO for once-type tasks
+        if schedule_type == "once" and schedule.strip().isdigit():
+            run_at = datetime.now() + timedelta(seconds=int(schedule.strip()))
+            schedule = run_at.isoformat()
+
         job = ScheduleJob(
             job_id=job_id,
             name=name,
@@ -326,7 +332,7 @@ class ScheduleService:
         sched_context = (
             f"[系统] 你正在执行定时任务「{job.name}」，任务创建者是{owner_name or job.owner_id}。"
             f"当前执行人是{executor_name}。"
-            f"请根据任务要求执行操作，如需发送消息请通过 wecom_send_message 等工具发送给创建者。\n\n"
+            f"请直接执行任务并输出结果，不需要通过 IM 工具发送消息，系统会自动将结果通知创建者。\n\n"
             f"任务要求：{prompt}"
         )
 
@@ -413,6 +419,9 @@ class ScheduleService:
                 run_at = datetime.now() + timedelta(seconds=int(schedule_val))
             else:
                 run_at = datetime.fromisoformat(schedule_val)
+                if run_at <= datetime.now():
+                    log.info(f"一次性任务 {job.job_id} 调度时间已过 ({schedule_val})，将立即执行")
+                    run_at = datetime.now() + timedelta(seconds=2)
             self._scheduler.add_once(job.job_id, callback, run_at)
 
     async def _job_callback(self, job_id: str) -> None:

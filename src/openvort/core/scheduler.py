@@ -66,6 +66,7 @@ class Scheduler:
             func: 异步函数
             run_at: 执行时间（datetime）
         """
+        kwargs.setdefault("misfire_grace_time", 3600)
         self._scheduler.add_job(
             func,
             "date",

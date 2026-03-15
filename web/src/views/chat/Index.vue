@@ -201,14 +201,10 @@ function mergeToolCalls(tools: ToolCall[]): ToolCall[] {
 
 function toggleToolCollapsed(tool: ToolCall) {
     tool.collapsed = !tool.collapsed;
-    nextTick(scrollToBottom);
 }
 
 function toggleToolsExpanded(msg: ChatMessage) {
     msg.toolsExpanded = !msg.toolsExpanded;
-    if (msg.toolsExpanded) {
-        nextTick(scrollToBottom);
-    }
 }
 
 // --- 流式 Markdown 渲染 ---
