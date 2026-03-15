@@ -1729,14 +1729,42 @@ onUnmounted(() => {
             </div>
 
             <!-- Offline summary banner -->
-            <div v-if="offlineSummary" class="mx-4 mt-2 mb-0 px-4 py-3 bg-blue-50 border border-blue-200 rounded-lg flex items-start gap-3">
-                <div class="flex-1 min-w-0">
-                    <div class="text-sm font-medium text-blue-700">你离开期间有 {{ offlineSummary.unreads }} 条未读消息</div>
-                    <ul v-if="offlineSummary.highlights.length" class="mt-1 text-xs text-blue-600 space-y-0.5">
-                        <li v-for="(h, i) in offlineSummary.highlights" :key="i" class="truncate">{{ h }}</li>
-                    </ul>
+            <div v-if="offlineSummary" class="mx-4 mt-3 mb-1">
+                <div class="relative overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                    <div class="absolute inset-y-0 left-0 w-1 bg-blue-500" />
+                    <div class="flex items-start gap-3 px-4 py-4 pl-5">
+                        <div class="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-600">
+                            <Clock :size="16" />
+                        </div>
+                        <div class="min-w-0 flex-1">
+                            <div class="flex flex-wrap items-center gap-2">
+                                <div class="text-sm font-semibold text-slate-800">离开期间未读消息</div>
+                                <span class="inline-flex items-center rounded-full border border-blue-100 bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
+                                    {{ offlineSummary.unreads }} 条
+                                </span>
+                            </div>
+                            <p class="mt-1 text-xs text-slate-500">为你摘取了最近的关键消息，方便快速回看。</p>
+                            <div v-if="offlineSummary.highlights.length" class="mt-3 space-y-2">
+                                <div
+                                    v-for="(h, i) in offlineSummary.highlights.slice(0, 3)"
+                                    :key="i"
+                                    class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600 line-clamp-2"
+                                >
+                                    {{ h }}
+                                </div>
+                            </div>
+                            <div v-if="offlineSummary.highlights.length > 3" class="mt-2 text-xs text-slate-400">
+                                还有 {{ offlineSummary.highlights.length - 3 }} 条摘要未展开
+                            </div>
+                        </div>
+                        <button
+                            class="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                            @click="dismissOfflineSummary"
+                        >
+                            <X :size="14" />
+                        </button>
+                    </div>
                 </div>
-                <button class="text-blue-400 hover:text-blue-600 text-xs flex-shrink-0" @click="dismissOfflineSummary">关闭</button>
             </div>
 
             <!-- 消息列表 -->

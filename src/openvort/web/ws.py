@@ -33,60 +33,82 @@ class ConnectedClient:
 
 
 class ConnectionManager:
-    """WebSocket 连接管理器"""
+    """WebSocket 连接管理器（支持同一用户多标签页连接）"""
 
     def __init__(self):
-        self._clients: dict[str, ConnectedClient] = {}  # member_id -> client
+        self._clients: dict[str, list[ConnectedClient]] = {}  # member_id -> [clients]
         self._lock = asyncio.Lock()
 
-    async def connect(self, ws: WebSocket, member_id: str, name: str = "") -> None:
+    async def connect(self, ws: WebSocket, member_id: str, name: str = "") -> ConnectedClient:
         await ws.accept()
+        client = ConnectedClient(ws=ws, member_id=member_id, name=name)
         async with self._lock:
-            # 踢掉同一用户的旧连接
-            old = self._clients.get(member_id)
-            if old:
-                try:
-                    await old.ws.close(code=4001, reason="replaced")
-                except Exception:
-                    pass
-            self._clients[member_id] = ConnectedClient(ws=ws, member_id=member_id, name=name)
-        log.info(f"WebSocket 连接: {member_id} ({name})")
-        # 广播上线
+            if member_id not in self._clients:
+                self._clients[member_id] = []
+            self._clients[member_id].append(client)
+        log.info(f"WebSocket 连接: {member_id} ({name}), 当前连接数={len(self._clients.get(member_id, []))}")
+        await self.broadcast_presence()
+        return client
+
+    async def disconnect_client(self, client: ConnectedClient) -> None:
+        """断开单个客户端连接"""
+        member_id = client.member_id
+        async with self._lock:
+            clients = self._clients.get(member_id, [])
+            try:
+                clients.remove(client)
+            except ValueError:
+                pass
+            if not clients:
+                self._clients.pop(member_id, None)
+        remaining = len(self._clients.get(member_id, []))
+        log.info(f"WebSocket 断开: {member_id}, 剩余连接数={remaining}")
         await self.broadcast_presence()
 
     async def disconnect(self, member_id: str) -> None:
+        """断开用户的所有连接（兼容旧调用）"""
         async with self._lock:
-            self._clients.pop(member_id, None)
-        log.info(f"WebSocket 断开: {member_id}")
+            clients = self._clients.pop(member_id, [])
+        for c in clients:
+            try:
+                await c.ws.close()
+            except Exception:
+                pass
+        log.info(f"WebSocket 断开全部: {member_id}")
         await self.broadcast_presence()
 
     async def send_to(self, member_id: str, data: dict) -> None:
-        """发送消息给指定用户"""
-        client = self._clients.get(member_id)
-        if client:
+        """发送消息给指定用户的所有连接"""
+        clients = self._clients.get(member_id, [])
+        dead: list[ConnectedClient] = []
+        for client in clients:
             try:
                 await client.ws.send_json(data)
             except Exception:
-                await self.disconnect(member_id)
+                dead.append(client)
+        for c in dead:
+            await self.disconnect_client(c)
 
     async def broadcast(self, data: dict, exclude: str = "") -> None:
         """广播消息给所有连接的客户端"""
-        disconnected = []
-        for mid, client in self._clients.items():
+        dead: list[ConnectedClient] = []
+        for mid, clients in self._clients.items():
             if mid == exclude:
                 continue
-            try:
-                await client.ws.send_json(data)
-            except Exception:
-                disconnected.append(mid)
-        for mid in disconnected:
-            await self.disconnect(mid)
+            for client in clients:
+                try:
+                    await client.ws.send_json(data)
+                except Exception:
+                    dead.append(client)
+        for c in dead:
+            await self.disconnect_client(c)
 
     async def broadcast_presence(self) -> None:
         """广播在线状态"""
         online = [
-            {"member_id": c.member_id, "name": c.name}
-            for c in self._clients.values()
+            {"member_id": mid, "name": clients[0].name}
+            for mid, clients in self._clients.items()
+            if clients
         ]
         await self.broadcast({"type": "presence", "online": online})
 
@@ -100,8 +122,9 @@ class ConnectionManager:
     def get_online_members(self) -> list[dict]:
         """获取在线成员列表"""
         return [
-            {"member_id": c.member_id, "name": c.name, "connected_at": c.connected_at}
-            for c in self._clients.values()
+            {"member_id": mid, "name": clients[0].name, "connected_at": clients[0].connected_at}
+            for mid, clients in self._clients.items()
+            if clients
         ]
 
     @property
@@ -132,7 +155,7 @@ async def websocket_endpoint(ws: WebSocket, token: str = Query("")):
         await ws.close(code=4003, reason="invalid token")
         return
 
-    await manager.connect(ws, member_id, name)
+    client = await manager.connect(ws, member_id, name)
 
     # Push offline summary on connect
     try:
@@ -182,9 +205,7 @@ async def websocket_endpoint(ws: WebSocket, token: str = Query("")):
             msg_type = data.get("type", "")
 
             if msg_type == "ping":
-                client = manager._clients.get(member_id)
-                if client:
-                    client.last_ping = time.time()
+                client.last_ping = time.time()
                 await ws.send_json({"type": "pong", "ts": time.time()})
 
             elif msg_type == "typing":
@@ -192,7 +213,6 @@ async def websocket_endpoint(ws: WebSocket, token: str = Query("")):
                 await manager.broadcast_typing(member_id, is_typing)
 
             elif msg_type == "notification":
-                # 管理员可推送通知给指定用户
                 target = data.get("target", "")
                 content = data.get("content", "")
                 if target and content:
@@ -207,4 +227,4 @@ async def websocket_endpoint(ws: WebSocket, token: str = Query("")):
     except Exception as e:
         log.warning(f"WebSocket 异常 ({member_id}): {e}")
     finally:
-        await manager.disconnect(member_id)
+        await manager.disconnect_client(client)
