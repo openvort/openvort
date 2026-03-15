@@ -5,10 +5,10 @@ import {
     getMemberSkills, createPersonalSkill, updatePersonalSkill, deletePersonalSkill,
     getPublicSkills, subscribeMemberSkill, unsubscribeMemberSkill,
     updateMemberBio, generateMemberBioPrompt,
-    getWorkAssignments, updateWorkAssignmentStatus,
+    getWorkAssignments, updateWorkAssignmentStatus, deleteWorkAssignment,
 } from "@/api";
 import { message, dialog } from "@/components/vort";
-import { Bot, Plus, Trash2, Save, User, Globe, BookOpen, ClipboardList, Clock } from "lucide-vue-next";
+import { Bot, Plus, Trash2, Save, User, Globe, BookOpen, ClipboardList, Clock, Pause, Play, Square } from "lucide-vue-next";
 
 const props = defineProps<{
     open: boolean;
@@ -19,6 +19,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
     (e: "update:open", val: boolean): void;
+    (e: "assignments-changed"): void;
 }>();
 
 const router = useRouter();
@@ -33,6 +34,24 @@ const savingBio = ref(false);
 const activeTab = ref<"profile" | "work">("work");
 const workAssignments = ref<any[]>([]);
 const loadingWork = ref(false);
+const statusFilter = ref("active");
+
+const filterTabs = [
+    { key: "active", label: "进行中" },
+    { key: "all", label: "全部" },
+    { key: "pending", label: "待执行" },
+    { key: "ongoing", label: "持续进行" },
+    { key: "paused", label: "已暂停" },
+    { key: "completed", label: "已完成" },
+];
+
+const filteredAssignments = computed(() => {
+    if (statusFilter.value === "all") return workAssignments.value;
+    if (statusFilter.value === "active") {
+        return workAssignments.value.filter((a: any) => a.status !== "completed" && a.status !== "cancelled");
+    }
+    return workAssignments.value.filter((a: any) => a.status === statusFilter.value);
+});
 
 const tabs = [
     { key: "work", label: "工作安排", icon: ClipboardList },
@@ -196,22 +215,96 @@ async function toggleSubscribe(skill: any) {
 }
 
 // ---- Work assignment actions ----
-const statusOptions = [
-    { value: "pending", label: "待处理" },
-    { value: "in_progress", label: "进行中" },
-    { value: "completed", label: "已完成" },
-    { value: "ongoing", label: "持续进行" },
-];
+const statusLabels: Record<string, string> = {
+    pending: "待执行",
+    in_progress: "执行中",
+    completed: "已完成",
+    ongoing: "持续进行",
+    paused: "已暂停",
+};
 
-async function handleUpdateStatus(assignment: any, newStatus: string) {
+async function handlePause(assignment: any) {
     try {
-        await updateWorkAssignmentStatus(assignment.id, newStatus);
-        assignment.status = newStatus;
-        message.success("状态已更新");
-    } catch (e: any) {
-        message.error(e?.response?.data?.detail || "更新失败");
+        await updateWorkAssignmentStatus(assignment.id, "paused");
+        assignment.status = "paused";
+        message.success("已暂停");
+        emit("assignments-changed");
+    } catch { message.error("操作失败"); }
+}
+
+async function handleResume(assignment: any) {
+    const target = assignment.source_type === "schedule" ? "ongoing" : "pending";
+    try {
+        await updateWorkAssignmentStatus(assignment.id, target);
+        assignment.status = target;
+        message.success("已恢复");
+        emit("assignments-changed");
+    } catch { message.error("操作失败"); }
+}
+
+async function handleComplete(assignment: any) {
+    try {
+        await updateWorkAssignmentStatus(assignment.id, "completed");
+        assignment.status = "completed";
+        message.success("已结束");
+        emit("assignments-changed");
+    } catch { message.error("操作失败"); }
+}
+
+async function handleDelete(assignment: any) {
+    dialog.confirm({
+        title: "删除工作安排",
+        content: `确定删除「${assignment.title}」？关联的定时任务也会一并删除。`,
+        okText: "删除",
+        cancelText: "取消",
+        okVariant: "danger",
+        onOk: async () => {
+            try {
+                await deleteWorkAssignment(assignment.id);
+                workAssignments.value = workAssignments.value.filter((a: any) => a.id !== assignment.id);
+                message.success("已删除");
+                emit("assignments-changed");
+            } catch { message.error("删除失败"); }
+        },
+    });
+}
+
+// ---- Schedule execution detail dialog ----
+const execDetailOpen = ref(false);
+const execDetailAssignment = ref<any>(null);
+
+function handleAssignmentClick(assignment: any) {
+    if (assignment.source_type === "schedule" && assignment.schedule_info) {
+        execDetailAssignment.value = assignment;
+        execDetailOpen.value = true;
     }
 }
+
+function formatFullTime(iso: string | null): string {
+    if (!iso) return "-";
+    return new Date(iso).toLocaleString("zh-CN", {
+        year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", second: "2-digit",
+    });
+}
+
+const scheduleTypeLabels: Record<string, string> = {
+    cron: "定时执行",
+    interval: "固定间隔",
+    once: "一次性",
+};
+
+const execStatusLabels: Record<string, string> = {
+    success: "成功",
+    failed: "失败",
+    pending: "未执行",
+};
+
+const execStatusColors: Record<string, string> = {
+    success: "bg-green-100 text-green-600",
+    failed: "bg-red-100 text-red-600",
+    pending: "bg-gray-100 text-gray-500",
+};
 
 const priorityColors: Record<string, string> = {
     low: "bg-gray-100 text-gray-500",
@@ -221,10 +314,11 @@ const priorityColors: Record<string, string> = {
 };
 
 const statusColors: Record<string, string> = {
-    pending: "bg-gray-100 text-gray-600",
+    pending: "bg-amber-50 text-amber-600",
     in_progress: "bg-blue-100 text-blue-600",
     completed: "bg-green-100 text-green-600",
     ongoing: "bg-purple-100 text-purple-600",
+    paused: "bg-gray-100 text-gray-500",
 };
 
 const sourceTypeLabels: Record<string, string> = {
@@ -334,17 +428,30 @@ const sourceTypeLabels: Record<string, string> = {
 
         <!-- Tab: 工作安排 -->
         <div v-show="activeTab === 'work'">
+        <!-- filter bar -->
+        <div class="flex items-center gap-1 mb-3 flex-wrap">
+            <button v-for="ft in filterTabs" :key="ft.key"
+                class="px-2.5 py-1 text-xs rounded-full transition-colors cursor-pointer"
+                :class="statusFilter === ft.key
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'"
+                @click="statusFilter = ft.key">
+                {{ ft.label }}
+            </button>
+        </div>
         <VortSpin :spinning="loadingWork">
             <div class="space-y-4">
-                <div v-if="workAssignments.length === 0" class="text-xs text-gray-400 py-8 text-center bg-gray-50 rounded-lg">
-                    暂无工作安排
+                <div v-if="filteredAssignments.length === 0" class="text-xs text-gray-400 py-8 text-center bg-gray-50 rounded-lg">
+                    {{ statusFilter === 'all' ? '暂无工作安排' : '暂无此状态的工作安排' }}
                 </div>
                 <div v-else class="space-y-3">
-                    <div v-for="assignment in workAssignments" :key="assignment.id"
-                        class="p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
-                        <div class="flex items-start justify-between gap-2 mb-2">
+                    <div v-for="assignment in filteredAssignments" :key="assignment.id"
+                        class="p-3 bg-gray-50 rounded-lg hover:bg-gray-100/80 transition-colors group cursor-pointer"
+                        @click="handleAssignmentClick(assignment)">
+                        <!-- row 1: title + status badge -->
+                        <div class="flex items-start justify-between gap-2">
                             <div class="min-w-0 flex-1">
-                                <div class="text-sm font-medium text-gray-800 truncate">{{ assignment.title }}</div>
+                                <div class="text-sm font-medium text-gray-800 truncate" :class="{ 'line-through opacity-50': assignment.status === 'completed' }">{{ assignment.title }}</div>
                                 <div v-if="assignment.summary" class="text-xs text-gray-500 mt-0.5 line-clamp-2">{{ assignment.summary }}</div>
                             </div>
                             <div class="flex-shrink-0 flex items-center gap-1.5">
@@ -352,37 +459,145 @@ const sourceTypeLabels: Record<string, string> = {
                                     {{ assignment.priority === 'urgent' ? '紧急' : assignment.priority === 'high' ? '高' : assignment.priority === 'low' ? '低' : '普通' }}
                                 </span>
                                 <span class="text-[10px] px-1.5 py-0.5 rounded" :class="statusColors[assignment.status] || statusColors.pending">
-                                    {{ statusOptions.find(s => s.value === assignment.status)?.label || assignment.status }}
+                                    {{ statusLabels[assignment.status] || assignment.status }}
                                 </span>
                             </div>
                         </div>
-                        <div class="flex items-center justify-between">
+                        <!-- row 2: meta + actions -->
+                        <div class="flex items-center justify-between mt-2">
                             <div class="flex items-center gap-3 text-[10px] text-gray-400">
                                 <span v-if="assignment.source_type" class="flex items-center gap-0.5">
                                     <Clock :size="10" />
                                     {{ sourceTypeLabels[assignment.source_type] || assignment.source_type }}
                                 </span>
                                 <span v-if="assignment.last_action_at">
-                                    最近行动: {{ new Date(assignment.last_action_at).toLocaleDateString() }}
+                                    最近行动: {{ new Date(assignment.last_action_at).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }) }}
                                 </span>
                             </div>
-                            <VortSelect
-                                :value="assignment.status"
-                                size="small"
-                                style="width: 90px"
-                                @change="handleUpdateStatus(assignment, $event)">
-                                <VortSelectOption v-for="opt in statusOptions" :key="opt.value" :value="opt.value" :label="opt.label" />
-                            </VortSelect>
+                            <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity" @click.stop>
+                                <!-- pause / resume -->
+                                <button v-if="assignment.status === 'paused'"
+                                    class="p-1 rounded hover:bg-green-100 text-green-600 cursor-pointer" title="恢复"
+                                    @click="handleResume(assignment)">
+                                    <Play :size="13" />
+                                </button>
+                                <button v-else-if="assignment.status !== 'completed'"
+                                    class="p-1 rounded hover:bg-amber-100 text-amber-600 cursor-pointer" title="暂停"
+                                    @click="handlePause(assignment)">
+                                    <Pause :size="13" />
+                                </button>
+                                <!-- complete -->
+                                <button v-if="assignment.status !== 'completed'"
+                                    class="p-1 rounded hover:bg-green-100 text-green-600 cursor-pointer" title="结束"
+                                    @click="handleComplete(assignment)">
+                                    <Square :size="13" />
+                                </button>
+                                <!-- delete -->
+                                <button class="p-1 rounded hover:bg-red-100 text-red-500 cursor-pointer" title="删除"
+                                    @click="handleDelete(assignment)">
+                                    <Trash2 :size="13" />
+                                </button>
+                            </div>
                         </div>
                         <div v-if="assignment.plan" class="mt-2 pt-2 border-t border-gray-200">
                             <div class="text-[10px] text-gray-400 mb-1">执行计划:</div>
                             <div class="text-xs text-gray-600 whitespace-pre-line">{{ assignment.plan }}</div>
+                        </div>
+                        <!-- Schedule execution summary -->
+                        <div v-if="assignment.schedule_info" class="mt-2 pt-2 border-t border-gray-200">
+                            <div class="flex items-center gap-2 text-[10px]">
+                                <span class="text-gray-400">{{ scheduleTypeLabels[assignment.schedule_info.schedule_type] || assignment.schedule_info.schedule_type }}</span>
+                                <span class="px-1 py-0.5 rounded" :class="execStatusColors[assignment.schedule_info.last_status] || execStatusColors.pending">
+                                    {{ execStatusLabels[assignment.schedule_info.last_status] || assignment.schedule_info.last_status }}
+                                </span>
+                                <span v-if="assignment.schedule_info.last_run_at" class="text-gray-400">
+                                    {{ formatFullTime(assignment.schedule_info.last_run_at) }}
+                                </span>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
         </VortSpin>
         </div>
+
+        <!-- Schedule execution detail dialog (nested) -->
+        <VortDialog :open="execDetailOpen" title="执行详情" :width="520" @update:open="execDetailOpen = $event">
+            <template v-if="execDetailAssignment">
+                <div class="space-y-4">
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <span class="text-xs text-gray-400">任务名称</span>
+                            <div class="text-sm text-gray-800 mt-0.5">{{ execDetailAssignment.title }}</div>
+                        </div>
+                        <div>
+                            <span class="text-xs text-gray-400">状态</span>
+                            <div class="mt-0.5">
+                                <span class="text-xs px-1.5 py-0.5 rounded" :class="statusColors[execDetailAssignment.status] || statusColors.pending">
+                                    {{ statusLabels[execDetailAssignment.status] || execDetailAssignment.status }}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <template v-if="execDetailAssignment.schedule_info">
+                        <div class="border-t border-gray-100 pt-3">
+                            <h4 class="text-xs font-medium text-gray-600 mb-2">调度信息</h4>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <span class="text-xs text-gray-400">调度类型</span>
+                                    <div class="text-sm text-gray-800 mt-0.5">{{ scheduleTypeLabels[execDetailAssignment.schedule_info.schedule_type] || execDetailAssignment.schedule_info.schedule_type }}</div>
+                                </div>
+                                <div>
+                                    <span class="text-xs text-gray-400">调度规则</span>
+                                    <div class="text-sm text-gray-800 mt-0.5 font-mono">{{ execDetailAssignment.schedule_info.schedule }}</div>
+                                </div>
+                                <div>
+                                    <span class="text-xs text-gray-400">启用状态</span>
+                                    <div class="mt-0.5">
+                                        <span class="text-xs px-1.5 py-0.5 rounded" :class="execDetailAssignment.schedule_info.enabled ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-500'">
+                                            {{ execDetailAssignment.schedule_info.enabled ? '已启用' : '已禁用' }}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="border-t border-gray-100 pt-3">
+                            <h4 class="text-xs font-medium text-gray-600 mb-2">最近执行记录</h4>
+                            <div v-if="!execDetailAssignment.schedule_info.last_run_at" class="text-xs text-gray-400 py-3 text-center bg-gray-50 rounded">
+                                尚未执行
+                            </div>
+                            <template v-else>
+                                <div class="grid grid-cols-2 gap-3 mb-3">
+                                    <div>
+                                        <span class="text-xs text-gray-400">执行时间</span>
+                                        <div class="text-sm text-gray-800 mt-0.5">{{ formatFullTime(execDetailAssignment.schedule_info.last_run_at) }}</div>
+                                    </div>
+                                    <div>
+                                        <span class="text-xs text-gray-400">执行状态</span>
+                                        <div class="mt-0.5">
+                                            <span class="text-xs px-1.5 py-0.5 rounded" :class="execStatusColors[execDetailAssignment.schedule_info.last_status] || execStatusColors.pending">
+                                                {{ execStatusLabels[execDetailAssignment.schedule_info.last_status] || execDetailAssignment.schedule_info.last_status }}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div v-if="execDetailAssignment.schedule_info.last_result">
+                                    <span class="text-xs text-gray-400">执行结果</span>
+                                    <div class="mt-1 p-3 bg-gray-50 rounded-lg text-xs text-gray-700 whitespace-pre-wrap max-h-[300px] overflow-y-auto leading-relaxed">{{ execDetailAssignment.schedule_info.last_result }}</div>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+
+                    <div v-if="execDetailAssignment.source_detail" class="border-t border-gray-100 pt-3">
+                        <span class="text-xs text-gray-400">任务指令</span>
+                        <div class="mt-1 p-3 bg-gray-50 rounded-lg text-xs text-gray-700 whitespace-pre-wrap">{{ execDetailAssignment.source_detail }}</div>
+                    </div>
+                </div>
+            </template>
+        </VortDialog>
 
         <!-- Personal skill edit drawer (nested) -->
         <VortDialog :open="skillDrawerOpen" :title="skillDrawerMode === 'add' ? '新增个人技能' : '编辑个人技能'" :width="480" @update:open="skillDrawerOpen = $event">

@@ -78,11 +78,13 @@ class SessionStore:
             session.messages = []
             log.info(f"Session {session.key} 已超时，清空历史")
 
-        return session.messages
+        return list(session.messages)
 
     def append(self, channel: str, user_id: str, message: dict, session_id: str = "default") -> None:
         """追加一条消息（仅内存，不触发 DB 写入）"""
         session = self._get_or_create(channel, user_id, session_id)
+        if "_ts" not in message:
+            message["_ts"] = time.time()
         session.messages.append(message)
         session.updated_at = time.time()
         self._trim(session)
@@ -90,8 +92,13 @@ class SessionStore:
     async def save_messages(self, channel: str, user_id: str, messages: list[dict], session_id: str = "default") -> None:
         """替换整个对话历史（写内存 + 异步写 DB）"""
         session = self._get_or_create(channel, user_id, session_id)
+        now = time.time()
+        old_count = len(session.messages)
+        for msg in messages[old_count:]:
+            if "_ts" not in msg:
+                msg["_ts"] = now
         session.messages = messages
-        session.updated_at = time.time()
+        session.updated_at = now
         self._trim(session)
 
         if self._session_factory:
@@ -185,7 +192,10 @@ class SessionStore:
             return {"message_count": 0, "exists": False}
         return {
             "message_count": len(session.messages),
+            "created_at": session.created_at,
             "updated_at": session.updated_at,
+            "target_type": session.target_type,
+            "target_id": session.target_id,
             "thinking_level": session.thinking_level,
             "usage_mode": session.usage_mode,
             "total_input_tokens": session.total_input_tokens,

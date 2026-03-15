@@ -746,6 +746,15 @@ async def _start_service(web_flag: bool | None):
         except Exception as e:
             log.warning(f"Failed to persist schedule result to chat_messages: {e}")
 
+        # 0.5 Inject into SessionStore so the message persists in chat history
+        if target_session_id and is_ai_employee:
+            try:
+                msgs = await session_store.get_messages("web", owner_id, target_session_id)
+                msgs.append({"role": "assistant", "content": full_message})
+                await session_store.save_messages("web", owner_id, msgs, target_session_id)
+            except Exception as e:
+                log.debug(f"注入 SessionStore 失败: {e}")
+
         # 1. WebSocket push (web UI)
         try:
             from openvort.web.ws import manager as ws_manager
@@ -774,7 +783,7 @@ async def _start_service(web_flag: bool | None):
                     "sender_type": "member",
                     "sender_id": executor_member.id,
                     "sender_name": executor_name,
-                    "content": result_text[:5000],
+                    "content": full_message,
                     "from_schedule": True,
                     "job_id": job_id,
                     "job_name": job_name,

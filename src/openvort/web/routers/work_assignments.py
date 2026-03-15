@@ -91,29 +91,54 @@ async def list_assignments(
         result = await db.execute(stmt)
         assignments = result.scalars().all()
 
-    return {
-        "assignments": [
-            {
-                "id": a.id,
-                "title": a.title,
-                "summary": a.summary,
-                "plan": a.plan,
-                "requested_by_member_id": a.requested_by_member_id,
-                "assignee_member_id": a.assignee_member_id,
-                "source_type": a.source_type,
-                "source_id": a.source_id,
-                "source_detail": a.source_detail,
-                "related_schedule_id": a.related_schedule_id,
-                "status": a.status,
-                "priority": a.priority,
-                "due_date": a.due_date.isoformat() if a.due_date else None,
-                "last_action_at": a.last_action_at.isoformat() if a.last_action_at else None,
-                "created_at": a.created_at.isoformat(),
-                "updated_at": a.updated_at.isoformat(),
+    # Batch-load linked ScheduleJob info for schedule-sourced assignments
+    schedule_map: dict[int, "ScheduleJob"] = {}
+    schedule_ids = [a.related_schedule_id for a in assignments if a.related_schedule_id]
+    if schedule_ids:
+        try:
+            from openvort.db.models import ScheduleJob
+            async with session_factory() as db2:
+                sj_stmt = select(ScheduleJob).where(ScheduleJob.id.in_(schedule_ids))
+                sj_result = await db2.execute(sj_stmt)
+                for sj in sj_result.scalars().all():
+                    schedule_map[sj.id] = sj
+        except Exception:
+            pass
+
+    result_list = []
+    for a in assignments:
+        item: dict = {
+            "id": a.id,
+            "title": a.title,
+            "summary": a.summary,
+            "plan": a.plan,
+            "requested_by_member_id": a.requested_by_member_id,
+            "assignee_member_id": a.assignee_member_id,
+            "source_type": a.source_type,
+            "source_id": a.source_id,
+            "source_detail": a.source_detail,
+            "related_schedule_id": a.related_schedule_id,
+            "status": a.status,
+            "priority": a.priority,
+            "due_date": a.due_date.isoformat() if a.due_date else None,
+            "last_action_at": a.last_action_at.isoformat() if a.last_action_at else None,
+            "created_at": a.created_at.isoformat(),
+            "updated_at": a.updated_at.isoformat(),
+        }
+        sj = schedule_map.get(a.related_schedule_id) if a.related_schedule_id else None
+        if sj:
+            item["schedule_info"] = {
+                "job_id": sj.job_id,
+                "schedule_type": sj.schedule_type,
+                "schedule": sj.schedule,
+                "enabled": sj.enabled,
+                "last_run_at": sj.last_run_at.isoformat() if sj.last_run_at else None,
+                "last_status": sj.last_status or "pending",
+                "last_result": sj.last_result or "",
             }
-            for a in assignments
-        ]
-    }
+        result_list.append(item)
+
+    return {"assignments": result_list}
 
 
 @work_assignments_router.post("")
@@ -244,7 +269,7 @@ async def update_assignment(
 
 @work_assignments_router.delete("/{assignment_id}")
 async def delete_assignment(request: Request, assignment_id: int):
-    """删除工作安排（仅 owner 可以删除）"""
+    """删除工作安排（仅 owner 可以删除），联动删除关联的 ScheduleJob"""
     from sqlalchemy import select, delete
     from openvort.db.models import WorkAssignment
 
@@ -261,15 +286,18 @@ async def delete_assignment(request: Request, assignment_id: int):
         if not assignment:
             return {"success": False, "error": "工作安排不存在"}
 
-        # 只有委托人或者 AI 员工本人可以删除
         if (
             assignment.requested_by_member_id != member_id
             and assignment.assignee_member_id != member_id
         ):
             return {"success": False, "error": "无权限删除"}
 
+        related_schedule_id = assignment.related_schedule_id
         await db.delete(assignment)
         await db.commit()
+
+    if related_schedule_id:
+        await _delete_linked_schedule(related_schedule_id, member_id)
 
     return {"success": True}
 
@@ -278,7 +306,7 @@ async def delete_assignment(request: Request, assignment_id: int):
 async def update_assignment_status(
     request: Request, assignment_id: int, status: str
 ):
-    """快速更新工作安排状态"""
+    """快速更新工作安排状态，联动暂停/恢复/结束关联的 ScheduleJob"""
     from sqlalchemy import select
     from openvort.db.models import WorkAssignment
 
@@ -295,16 +323,71 @@ async def update_assignment_status(
         if not assignment:
             return {"success": False, "error": "工作安排不存在"}
 
-        # 只有委托人或者 AI 员工本人可以更新状态
         if (
             assignment.requested_by_member_id != member_id
             and assignment.assignee_member_id != member_id
         ):
             return {"success": False, "error": "无权限更新"}
 
+        old_status = assignment.status
         assignment.status = status
         assignment.last_action_at = datetime.utcnow()
         await db.commit()
         await db.refresh(assignment)
+        related_schedule_id = assignment.related_schedule_id
+
+    if related_schedule_id:
+        await _sync_schedule_state(related_schedule_id, old_status, status, member_id)
 
     return {"success": True, "status": assignment.status}
+
+
+# ---- helpers: sync with ScheduleJob ----
+
+async def _get_schedule_service():
+    from openvort.web.deps import get_schedule_service
+    return get_schedule_service()
+
+
+async def _delete_linked_schedule(schedule_id: int, member_id: str):
+    """Delete the ScheduleJob linked to this work assignment."""
+    svc = await _get_schedule_service()
+    if not svc:
+        return
+    from sqlalchemy import select
+    from openvort.db.models import ScheduleJob
+    from openvort.web.deps import get_db_session_factory
+    session_factory = get_db_session_factory()
+    async with session_factory() as db:
+        stmt = select(ScheduleJob).where(ScheduleJob.id == schedule_id)
+        result = await db.execute(stmt)
+        job = result.scalar_one_or_none()
+        if job:
+            await svc.delete_job(job.job_id, owner_id=member_id, is_admin=True)
+
+
+async def _sync_schedule_state(
+    schedule_id: int, old_status: str, new_status: str, member_id: str
+):
+    """Pause/resume/remove the linked ScheduleJob when assignment status changes."""
+    svc = await _get_schedule_service()
+    if not svc:
+        return
+    from sqlalchemy import select
+    from openvort.db.models import ScheduleJob
+    from openvort.web.deps import get_db_session_factory
+    session_factory = get_db_session_factory()
+    async with session_factory() as db:
+        stmt = select(ScheduleJob).where(ScheduleJob.id == schedule_id)
+        result = await db.execute(stmt)
+        job = result.scalar_one_or_none()
+        if not job:
+            return
+
+    should_disable = new_status in ("paused", "completed")
+    should_enable = new_status in ("ongoing", "pending", "in_progress")
+
+    if should_disable and job.enabled:
+        await svc.toggle_job(job.job_id, owner_id=member_id, is_admin=True)
+    elif should_enable and not job.enabled:
+        await svc.toggle_job(job.job_id, owner_id=member_id, is_admin=True)

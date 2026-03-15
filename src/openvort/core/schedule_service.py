@@ -371,9 +371,10 @@ class ScheduleService:
         else:
             executor_name = "系统助手"
 
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         sched_context = (
             f"[系统] 你正在执行定时任务「{job.name}」，任务委派人是{creator_name or notify_target}。"
-            f"当前执行人是{executor_name}。"
+            f"当前执行人是{executor_name}。当前执行时间：{now_str}。"
             f"请直接执行任务并输出结果，不需要通过 IM 工具发送消息，系统会自动将结果通知委派人。\n\n"
             f"任务要求：{prompt}"
         )

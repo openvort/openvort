@@ -6,7 +6,7 @@ import {
     Send, Bot, Loader2, Wrench, X, ImagePlus, FileText, MonitorPlay, Smile,
     Settings, Check, Brain, PackageMinus, RotateCcw, Zap, StopCircle, Square,
     Hash, Bug, ListTodo, BookOpen, Milestone, GitBranch, ChevronDown, ChevronRight,
-    Copy, RefreshCw, Search
+    Copy, RefreshCw, Search, Clock, Pause, ChevronUp
 } from "lucide-vue-next";
 import { Popover as VortPopover, Image as VortImage, ImagePreviewGroup as VortImagePreviewGroup } from "@/components/vort";
 import {
@@ -27,6 +27,7 @@ import SessionSwitcher from "./SessionSwitcher.vue";
 import MemberProfile from "./MemberProfile.vue";
 import AiEmployeeBadge from "./AiEmployeeBadge.vue";
 import type { ChatMessage, ChatSession, PendingImage, Contact, MentionMember, SlashCommand, Draft, HashTagCategory, HashTagItem, ToolCall } from "./types";
+import { shouldShowTimestamp, formatTimeDivider } from "./utils";
 
 const route = useRoute();
 const router = useRouter();
@@ -98,13 +99,18 @@ const activeTaskStatus = computed(() => {
 });
 
 const activeAssignments = ref<any[]>([]);
+const taskBarCollapsed = ref(localStorage.getItem('chat-taskbar-collapsed') === '1');
+function toggleTaskBar() {
+    taskBarCollapsed.value = !taskBarCollapsed.value;
+    localStorage.setItem('chat-taskbar-collapsed', taskBarCollapsed.value ? '1' : '0');
+}
 async function loadActiveAssignments() {
     const c = activeContact.value;
     if (!c || !c.is_virtual) { activeAssignments.value = []; return; }
     try {
         const res: any = await getWorkAssignments({ assignee_member_id: c.id });
         const all = res?.assignments || [];
-        activeAssignments.value = all.filter((a: any) => a.status === "ongoing" || a.status === "in_progress");
+        activeAssignments.value = all.filter((a: any) => a.status !== "completed" && a.status !== "cancelled");
     } catch { activeAssignments.value = []; }
 }
 
@@ -151,6 +157,7 @@ watch(activeContact, (contact) => {
             position: contact.position,
         }));
     }
+    loadActiveAssignments();
 }, { deep: true });
 
 // ---- 流式跨会话保持 ----
@@ -408,7 +415,7 @@ async function loadHistory() {
                     role: m.role,
                     content,
                     images,
-                    timestamp: m.timestamp || Date.now()
+                    timestamp: m.timestamp ? m.timestamp * 1000 : 0
                 };
                 if (m.tool_calls?.length) {
                     msg.toolCalls = mergeToolCalls(
@@ -440,11 +447,14 @@ async function loadHistory() {
                 }
                 return msg;
             });
-            // Merge consecutive assistant messages (defensive fallback)
+            // Merge consecutive assistant messages (same agentic-loop round),
+            // but keep schedule/proactive notifications as separate messages.
+            const NO_MERGE_RE = /^【/;
             const merged: ChatMessage[] = [];
             for (const msg of raw) {
                 const last = merged[merged.length - 1];
-                if (msg.role === "assistant" && last?.role === "assistant") {
+                const isNotification = NO_MERGE_RE.test(msg.content) || (last && NO_MERGE_RE.test(last.content));
+                if (msg.role === "assistant" && last?.role === "assistant" && !isNotification) {
                     if (msg.content) {
                         last.content = last.content
                             ? last.content + "\n\n" + msg.content
@@ -590,6 +600,7 @@ async function handleSend() {
                 scrollToBottom();
                 loadSessionInfo();
             }
+            loadActiveAssignments();
         }
 
         const url = getChatStreamUrl(messageId, userStore.token);
@@ -1504,6 +1515,7 @@ onMounted(async () => {
             }
             contactListRef.value?.refreshContacts?.();
         });
+        on("schedule_result", () => { loadActiveAssignments(); });
     } catch { /* silent */ }
 
     // Bind native keydown on textarea for panel keyboard interception (arrows, ESC, Tab, Backspace)
@@ -1741,7 +1753,11 @@ onUnmounted(() => {
                     </div>
 
                     <!-- 消息气泡 -->
-                    <div v-for="msg in messages" :key="msg.id" class="flex group" :class="msg.role === 'user' ? 'justify-end' : 'justify-start'">
+                    <template v-for="(msg, msgIdx) in messages" :key="msg.id">
+                    <div v-if="shouldShowTimestamp(messages, msgIdx)" class="chat-time-divider flex justify-center my-3">
+                        <span class="text-xs text-gray-400 px-3 py-0.5 rounded-full select-none">{{ formatTimeDivider(msg.timestamp) }}</span>
+                    </div>
+                    <div class="flex group" :class="msg.role === 'user' ? 'justify-end' : 'justify-start'">
                         <div class="flex max-w-[80%]" :class="msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'">
                             <div class="flex-shrink-0 relative" :class="msg.role === 'user' ? 'ml-3' : 'mr-3'">
                                 <!-- 用户消息头像 -->
@@ -1751,7 +1767,7 @@ onUnmounted(() => {
                                 <!-- AI 回复头像 -->
                                 <div v-else class="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden"
                                     :class="[
-                                        isAiMode ? 'bg-gray-100' : (msg.avatar_url ? '' : 'bg-gray-100'),
+                                        isAiMode ? 'bg-gray-100' : ((msg.avatar_url || activeContact?.avatar_url) ? '' : 'bg-gray-100'),
                                         !isAiMode ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''
                                     ]"
                                     @click="!isAiMode && (memberProfileOpen = true)">
@@ -1761,7 +1777,7 @@ onUnmounted(() => {
                                     </template>
                                     <!-- 成员聊天模式：显示成员头像 -->
                                     <template v-else>
-                                        <img v-if="msg.avatar_url" :src="msg.avatar_url" class="w-full h-full object-cover" />
+                                        <img v-if="msg.avatar_url || activeContact?.avatar_url" :src="msg.avatar_url || activeContact?.avatar_url" class="w-full h-full object-cover" />
                                         <span v-else class="text-sm font-medium text-gray-500">{{ (activeContact?.name || '?')[0] }}</span>
                                         <!-- AI 小标识 -->
                                         <div class="absolute -top-1 -right-1 w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center">
@@ -1878,26 +1894,50 @@ onUnmounted(() => {
                         </div>
                     </div>
                 </div>
+                </template>
                 </VortImagePreviewGroup>
             </VortScrollbar>
 
-            <!-- AI employee task status bar -->
-            <Transition name="vort-popover">
-                <div v-if="activeTaskStatus && activeContact?.is_virtual"
-                    class="mx-6 mb-1 px-3 py-2 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-between gap-2 text-xs">
-                    <div class="flex items-center gap-2 min-w-0 text-blue-600">
-                        <span class="inline-block w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse flex-shrink-0" />
-                        <span class="truncate">{{ activeTaskStatus.jobName ? `正在执行「${activeTaskStatus.jobName}」...` : '正在执行任务...' }}</span>
+            <!-- AI employee active tasks bar -->
+            <div v-if="activeContact?.is_virtual && activeAssignments.length > 0"
+                class="mx-6 pt-2 mb-0 flex items-center gap-1.5 text-xs">
+                <span class="text-gray-400 text-xs leading-none mr-0.5 flex-shrink-0">{{ activeAssignments.length }} 项进行中任务{{ taskBarCollapsed ? '' : '：' }}</span>
+                <template v-if="!taskBarCollapsed">
+                    <div class="flex items-center gap-1.5 flex-wrap min-w-0 flex-1">
+                        <span v-for="a in activeAssignments.slice(0, 4)" :key="a.id"
+                            @click="memberProfileOpen = true"
+                            class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded cursor-pointer whitespace-nowrap max-w-[200px] transition-colors"
+                            :class="{
+                                'bg-purple-50 text-purple-600 hover:bg-purple-100': a.status === 'ongoing',
+                                'bg-amber-50 text-amber-600 hover:bg-amber-100': a.status === 'pending',
+                                'bg-blue-50 text-blue-600 hover:bg-blue-100': a.status === 'in_progress',
+                                'bg-gray-50 text-gray-400 hover:bg-gray-100': a.status === 'paused',
+                            }">
+                            <Pause v-if="a.status === 'paused'" :size="10" class="flex-shrink-0" />
+                            <span v-else :class="{
+                                'bg-purple-500 animate-pulse': a.status === 'ongoing',
+                                'bg-amber-400': a.status === 'pending',
+                                'bg-blue-500 animate-pulse': a.status === 'in_progress',
+                            }" class="inline-block w-1.5 h-1.5 rounded-full flex-shrink-0" />
+                            <span class="truncate">{{ a.status === 'paused' ? '[已暂停] ' : '' }}{{ a.title }}</span>
+                        </span>
+                        <span v-if="activeAssignments.length > 4"
+                            @click="memberProfileOpen = true"
+                            class="text-gray-400 text-[10px] cursor-pointer hover:text-blue-500">+{{ activeAssignments.length - 4 }}</span>
+                        <button @click="toggleTaskBar"
+                            class="text-gray-300 hover:text-gray-500 transition-colors cursor-pointer flex-shrink-0 p-0.5">
+                            <ChevronUp :size="14" />
+                        </button>
                     </div>
-                    <button @click="memberProfileOpen = true"
-                        class="text-blue-500 hover:text-blue-700 whitespace-nowrap flex-shrink-0 cursor-pointer">
-                        查看工作安排
-                    </button>
-                </div>
-            </Transition>
+                </template>
+                <button v-if="taskBarCollapsed" @click="toggleTaskBar"
+                    class="text-gray-300 hover:text-gray-500 transition-colors cursor-pointer flex-shrink-0 p-0.5">
+                    <ChevronDown :size="14" />
+                </button>
+            </div>
 
             <!-- 输入区域 -->
-            <div class="relative px-6 py-4" ref="inputArea"
+            <div class="relative px-6 pt-2.5 pb-4" ref="inputArea"
                 @dragover="handleDragOver" @dragleave="handleDragLeave" @drop="handleDrop">
                 <div v-if="isDragging"
                     class="absolute inset-0 z-10 flex items-center justify-center bg-blue-50/80 border-2 border-dashed border-blue-400 rounded-xl pointer-events-none">
@@ -2148,6 +2188,7 @@ onUnmounted(() => {
             :member-id="activeContact.id"
             :member-name="activeContact.name"
             :member-avatar-url="activeContact.avatar_url"
+            @assignments-changed="loadActiveAssignments"
         />
     </div>
 </template>

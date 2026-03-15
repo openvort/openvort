@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from "vue";
 import { useRouter } from "vue-router";
-import { Bell, CheckCircle, Clock, AlertTriangle, Filter, CheckCheck, Settings } from "lucide-vue-next";
+import { Bell, CheckCircle, Clock, Bot, Filter, CheckCheck, Settings } from "lucide-vue-next";
 import { getNotifications, batchReadNotifications } from "@/api";
 import { message } from "@/components/vort";
 
@@ -177,7 +177,8 @@ onMounted(() => {
                 @click="goToChat(n.session_id)"
             >
                 <div class="flex-shrink-0 mt-0.5">
-                    <AlertTriangle v-if="n.source === 'schedule'" :size="16" class="text-amber-500" />
+                    <Clock v-if="n.source === 'schedule'" :size="16" class="text-blue-500" />
+                    <Bot v-else-if="n.source === 'ai_message'" :size="16" class="text-blue-500" />
                     <Bell v-else :size="16" class="text-gray-400" />
                 </div>
                 <div class="flex-1 min-w-0">

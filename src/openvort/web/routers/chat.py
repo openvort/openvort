@@ -376,6 +376,7 @@ async def chat_history(request: Request, limit: int = 50, session_id: str = "def
         images: list[str] = []
         tool_calls: list[dict] = []
         avatar_url = ""
+        msg_ts = msg.get("_ts", 0)
         if isinstance(msg.get("content"), str):
             content = msg["content"]
         elif isinstance(msg.get("content"), list):
@@ -416,7 +417,7 @@ async def chat_history(request: Request, limit: int = 50, session_id: str = "def
                 "id": str(i),
                 "role": role,
                 "content": content,
-                "timestamp": 0,
+                "timestamp": msg_ts,
                 "avatar_url": avatar_url,
             }
             if tool_calls:
@@ -427,24 +428,31 @@ async def chat_history(request: Request, limit: int = 50, session_id: str = "def
                 "id": str(i),
                 "role": role,
                 "content": content,
-                "timestamp": 0,
+                "timestamp": msg_ts,
             }
             if images:
                 entry["images"] = images
             result.append(entry)
 
-    # Merge consecutive assistant messages into one (same agentic-loop round)
+    # Merge consecutive assistant messages into one (same agentic-loop round),
+    # but keep schedule/proactive notifications as separate messages.
+    _NO_MERGE_PREFIXES = ("【AI 员工", "【定时任务】")
     merged_result: list[dict] = []
     for entry in result:
         prev = merged_result[-1] if merged_result else None
-        if entry["role"] == "assistant" and prev and prev["role"] == "assistant":
-            if entry["content"]:
-                prev["content"] = (prev["content"] + "\n\n" + entry["content"]).strip()
+        content_str = entry.get("content", "")
+        prev_content = prev.get("content", "") if prev else ""
+        is_notification = content_str.startswith(_NO_MERGE_PREFIXES) or prev_content.startswith(_NO_MERGE_PREFIXES)
+        if entry["role"] == "assistant" and prev and prev["role"] == "assistant" and not is_notification:
+            if content_str:
+                prev["content"] = (prev["content"] + "\n\n" + content_str).strip()
             if entry.get("tool_calls"):
                 prev.setdefault("tool_calls", [])
                 prev["tool_calls"].extend(entry["tool_calls"])
             if not prev.get("avatar_url") and entry.get("avatar_url"):
                 prev["avatar_url"] = entry["avatar_url"]
+            if not prev.get("timestamp") and entry.get("timestamp"):
+                prev["timestamp"] = entry["timestamp"]
         else:
             merged_result.append(entry)
 
