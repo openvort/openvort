@@ -24,7 +24,7 @@ OpenVort 是一个开源 AI 研发工作流引擎，通过 IM（企业微信/钉
 | 前端 | Vue 3.5 + TypeScript 5.9 + Vite 7 + Tailwind CSS 4 + Pinia 3 |
 | 包管理 | hatchling（PEP 621） |
 | 代码规范 | Ruff |
-| 协议 | Apache-2.0 |
+| 协议 | AGPL-3.0-or-later |
 
 ## 核心架构
 
