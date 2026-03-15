@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, onUnmounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { useAppStore, useUserStore, usePluginStore } from "@/stores";
+import { useAppStore, useUserStore, usePluginStore, useNotificationStore } from "@/stores";
 import { menuConfig, type MenuConfig } from "@/router/menus";
 import openvortLogo from "@/assets/brand/openvort-logo.png";
 import {
@@ -9,7 +9,7 @@ import {
     CheckCircle, User, Settings, ChevronDown, PanelLeftClose, PanelLeftOpen,
     MessageSquare, Puzzle, Radio, Users, Clock, BookOpen, Webhook, GitBranch, Cpu,
     Kanban, LayoutDashboard, ListChecks, CheckSquare, Bug, Milestone,
-    Wrench, FolderGit2, Server, Shield, Sparkles, Library, Bot, Store
+    Wrench, FolderGit2, Server, Shield, Sparkles, Library, Bot, Store, Bell
 } from "lucide-vue-next";
 
 const props = defineProps<{ isMobile?: boolean }>();
@@ -19,6 +19,7 @@ const router = useRouter();
 const appStore = useAppStore();
 const userStore = useUserStore();
 const pluginStore = usePluginStore();
+const notificationStore = useNotificationStore();
 const SUBMENU_STATE_KEY = "openvort.sidebar.open-submenus";
 const expandedMenus = ref<string[]>([]);
 const popupItem = ref<MenuConfig | null>(null);
@@ -82,7 +83,7 @@ const iconMap: Record<string, any> = {
     kanban: Kanban, "layout-dashboard": LayoutDashboard, "list-checks": ListChecks,
     "check-square": CheckSquare, bug: Bug, milestone: Milestone,
     wrench: Wrench, "folder-git-2": FolderGit2, server: Server, shield: Shield,
-    sparkles: Sparkles, library: Library, bot: Bot, store: Store,
+    sparkles: Sparkles, library: Library, bot: Bot, store: Store, bell: Bell,
 };
 
 const filterByRole = (items: MenuConfig[]) => {
@@ -281,7 +282,10 @@ watch([collapsed, () => props.isMobile, () => route.path], () => {
                         :class="isActive(item) ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50'"
                         @click="handleClick(item)"
                     >
-                        <component :is="iconMap[item.icon]" v-if="iconMap[item.icon]" :size="18" class="flex-shrink-0" />
+                        <component :is="iconMap[item.icon]" v-if="iconMap[item.icon]" :size="18" class="flex-shrink-0 relative">
+                        </component>
+                        <span v-if="item.path === '/chat' && collapsed && notificationStore.totalUnreadCount > 0"
+                            class="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-red-500 border border-white" />
                         <span
                             class="ml-3 text-[14px] leading-5 truncate overflow-hidden"
                             :style="{
@@ -290,6 +294,9 @@ watch([collapsed, () => props.isMobile, () => route.path], () => {
                                 transition: 'none'
                             }"
                         >{{ item.title }}</span>
+                        <span v-if="item.path === '/chat' && !collapsed && notificationStore.totalUnreadCount > 0"
+                            class="ml-auto flex-shrink-0 min-w-[18px] h-[18px] rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center px-1"
+                        >{{ notificationStore.totalUnreadCount > 99 ? '99+' : notificationStore.totalUnreadCount }}</span>
                     </div>
 
                     <!-- 有子菜单 -->

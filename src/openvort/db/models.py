@@ -79,6 +79,7 @@ class ChatSession(Base):
     target_id: Mapped[str] = mapped_column(String(32), default="")  # target member id when target_type="member"
     pinned: Mapped[bool] = mapped_column(Boolean, default=False)
     hidden: Mapped[bool] = mapped_column(Boolean, default=False)
+    unread_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -299,6 +300,63 @@ class VoiceProvider(Base):
     owner_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("members.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class ChatMessage(Base):
+    """Chat message — persistent record of every user/assistant message for UI display, unread tracking, and search."""
+
+    __tablename__ = "chat_messages"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    owner_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    sender_type: Mapped[str] = mapped_column(String(16), nullable=False)  # user / assistant / system
+    sender_id: Mapped[str] = mapped_column(String(32), default="")
+    content: Mapped[str] = mapped_column(Text, default="")
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}")  # tool calls, attachments, etc.
+    source: Mapped[str] = mapped_column(String(16), default="chat")  # chat / schedule / webhook / proactive
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class Notification(Base):
+    """Notification record — tracks delayed IM delivery and read status."""
+
+    __tablename__ = "notifications"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    recipient_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    source: Mapped[str] = mapped_column(String(32), nullable=False)  # schedule / ai_message / webhook / system
+    source_id: Mapped[str] = mapped_column(String(64), default="")
+    session_id: Mapped[str] = mapped_column(String(64), default="")
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(16), default="pending")  # pending / sent / read / cancelled
+    im_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    im_channel: Mapped[str] = mapped_column(String(32), default="")
+    read_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class AgentTask(Base):
+    """Agent task — tracks a running/completed agent execution for async task management."""
+
+    __tablename__ = "agent_tasks"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
+    session_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    owner_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    executor_id: Mapped[str] = mapped_column(String(32), default="")
+    source: Mapped[str] = mapped_column(String(16), default="chat")  # chat / schedule / webhook
+    source_id: Mapped[str] = mapped_column(String(64), default="")
+    status: Mapped[str] = mapped_column(String(16), default="pending")  # pending / running / completed / failed / cancelled
+    description: Mapped[str] = mapped_column(Text, default="")
+    progress: Mapped[str] = mapped_column(Text, default="")
+    result_summary: Mapped[str] = mapped_column(Text, default="")
+    cancel_requested: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class ImInbox(Base):

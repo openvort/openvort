@@ -170,6 +170,51 @@ export function hideChatContact(sessionId: string) {
     return request.delete(`/chat/contacts/${sessionId}`);
 }
 
+/** 标记会话已读 */
+export function markChatRead(sessionId: string) {
+    return request.post("/chat/mark-read", { session_id: sessionId });
+}
+
+/** 获取所有会话的未读计数 */
+export function getChatUnreadCounts() {
+    return request.get("/chat/unread-counts");
+}
+
+/** 获取当前用户的活跃任务列表 */
+export function getChatActiveTasks() {
+    return request.get("/chat/active-tasks");
+}
+
+/** 取消正在执行的任务 */
+export function cancelChatTask(taskId: string) {
+    return request.post(`/chat/tasks/${taskId}/cancel`);
+}
+
+/** 向正在执行的任务追加消息 */
+export function injectChatTaskMessage(taskId: string, content: string) {
+    return request.post(`/chat/tasks/${taskId}/message`, { content });
+}
+
+/** 搜索聊天消息 */
+export function searchChatMessages(q: string, sessionId?: string, limit?: number) {
+    return request.get("/chat/messages/search", { params: { q, session_id: sessionId, limit } });
+}
+
+/** 分页加载聊天消息 */
+export function getChatMessages(sessionId: string, before?: string, limit?: number) {
+    return request.get("/chat/messages", { params: { session_id: sessionId, before, limit } });
+}
+
+/** 获取通知列表 */
+export function getNotifications(params?: { status?: string; source?: string; page?: number; limit?: number }) {
+    return request.get("/notifications", { params });
+}
+
+/** 批量标记通知为已读 */
+export function batchReadNotifications(notificationIds?: number[], all?: boolean) {
+    return request.post("/notifications/batch-read", { notification_ids: notificationIds || [], all: all || false });
+}
+
 /** 健康检查（版本号 + LLM 状态） */
 export function getHealthStatus(force?: boolean) {
     return request.get("/health", { params: force ? { force: true } : undefined, skipErrorMessage: true });

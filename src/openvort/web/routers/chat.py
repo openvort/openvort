@@ -216,6 +216,7 @@ async def stream_response(message_id: str, request: Request):
     member_id = msg["member_id"]
     session_id = msg.get("session_id", "default")
     log.info(f"开始流式响应: message_id={message_id}, member_id={member_id}, session_id={session_id}")
+
     running = RunningMessage(
         message_id=message_id,
         member_id=member_id,
@@ -224,10 +225,59 @@ async def stream_response(message_id: str, request: Request):
         stream_task=None,
     )
     _running_messages[message_id] = running
-
-    # 首条消息自动设置标题
     session_store = get_session_store()
 
+    from openvort.core.task_runner import get_task_runner
+    task_runner = get_task_runner()
+
+    if task_runner:
+        task_id = await task_runner.start_task(
+            session_id=session_id,
+            owner_id=member_id,
+            executor_id=msg.get("target_id", ""),
+            source="chat",
+            agent=agent,
+            content=msg["content"],
+            images=msg.get("images", []),
+            target_type=msg.get("target_type", "ai"),
+            target_id=msg.get("target_id", ""),
+        )
+
+        async def task_event_stream():
+            try:
+                async for event in task_runner.subscribe(task_id):
+                    if await request.is_disconnected():
+                        log.info(f"SSE viewer disconnected (task continues): task_id={task_id}")
+                        break
+                    evt_type = event.get("type", "")
+                    data = event.get("data", "")
+                    yield {"event": evt_type, "data": data}
+                    if evt_type == "done":
+                        break
+
+                if msg["content"].strip() and session_id != "default":
+                    messages = await session_store.get_messages("web", member_id, session_id)
+                    user_text_count = sum(
+                        1 for m in messages
+                        if m.get("role") == "user" and isinstance(m.get("content"), str)
+                    )
+                    if user_text_count <= 5:
+                        try:
+                            title = await session_store.auto_title(
+                                "web", member_id, session_id, llm_client=agent._llm,
+                            )
+                            yield {"event": "title_updated", "data": json.dumps({"session_id": session_id, "title": title}, ensure_ascii=False)}
+                        except Exception as e:
+                            log.warning(f"自动标题生成失败: {e}")
+            except Exception as e:
+                log.error(f"Task stream error: {e}")
+                yield {"event": "server_error", "data": str(e)}
+            finally:
+                _running_messages.pop(message_id, None)
+
+        return EventSourceResponse(task_event_stream(), ping=15)
+
+    # Fallback: direct execution (no TaskRunner)
     async def event_stream():
         disconnected = False
         running.stream_task = asyncio.current_task()
@@ -244,7 +294,6 @@ async def stream_response(message_id: str, request: Request):
                 if running.cancel_event.is_set():
                     break
                 if await request.is_disconnected():
-                    log.warning(f"客户端断开连接: message_id={message_id}, member_id={member_id}, session_id={session_id}")
                     disconnected = True
                     running.cancel_event.set()
                     break
@@ -252,23 +301,14 @@ async def stream_response(message_id: str, request: Request):
                 event_type = event.get("type", "")
                 if event_type == "text":
                     yield {"event": "text", "data": event["text"]}
-                elif event_type == "tool_use":
-                    yield {"event": "tool_use", "data": json.dumps(event, ensure_ascii=False)}
-                elif event_type == "tool_output":
-                    yield {"event": "tool_output", "data": json.dumps(event, ensure_ascii=False)}
-                elif event_type == "tool_progress":
-                    yield {"event": "tool_progress", "data": json.dumps(event, ensure_ascii=False)}
-                elif event_type == "tool_result":
-                    yield {"event": "tool_result", "data": json.dumps(event, ensure_ascii=False)}
-                elif event_type == "usage":
-                    yield {"event": "usage", "data": json.dumps(event, ensure_ascii=False)}
+                elif event_type in ("tool_use", "tool_output", "tool_progress", "tool_result", "usage"):
+                    yield {"event": event_type, "data": json.dumps(event, ensure_ascii=False)}
 
             if running.cancel_event.is_set():
                 if not disconnected:
                     yield {"event": "interrupted", "data": "aborted"}
                 return
 
-            # Auto-title: use LLM to summarize for the first 5 user messages
             if msg["content"].strip() and session_id != "default":
                 messages = await session_store.get_messages("web", member_id, session_id)
                 user_text_count = sum(
@@ -284,7 +324,6 @@ async def stream_response(message_id: str, request: Request):
                     except Exception as e:
                         log.warning(f"自动标题生成失败: {e}")
 
-            log.info(f"流式响应完成: message_id={message_id}, member_id={member_id}, session_id={session_id}")
             yield {"event": "done", "data": "ok"}
         except asyncio.CancelledError:
             if running.cancel_event.is_set() and not disconnected:
@@ -292,7 +331,7 @@ async def stream_response(message_id: str, request: Request):
                 return
             raise
         except Exception as e:
-            log.error(f"流式响应异常: message_id={message_id}, member_id={member_id}, session_id={session_id}, error={e}")
+            log.error(f"流式响应异常: {e}")
             yield {"event": "server_error", "data": str(e)}
         finally:
             _running_messages.pop(message_id, None)
@@ -545,6 +584,227 @@ async def reset_session(req: ResetRequest, request: Request):
     return {"success": True}
 
 
+# ---- 消息搜索与分页 ----
+
+
+@router.get("/messages")
+async def list_messages(
+    request: Request,
+    session_id: str = "",
+    before: str = "",
+    limit: int = 50,
+):
+    """Paginated message loading from chat_messages table."""
+    payload = require_auth(request)
+    member_id = payload.get("sub", "")
+
+    from sqlalchemy import select, desc
+    from openvort.db.models import ChatMessage
+    from openvort.web.deps import get_db_session_factory
+
+    sf = get_db_session_factory()
+    async with sf() as db:
+        stmt = select(ChatMessage).where(ChatMessage.owner_id == member_id)
+        if session_id:
+            stmt = stmt.where(ChatMessage.session_id == session_id)
+        if before:
+            from datetime import datetime as _dt
+            try:
+                ts = _dt.fromisoformat(before)
+                stmt = stmt.where(ChatMessage.created_at < ts)
+            except Exception:
+                pass
+        stmt = stmt.order_by(desc(ChatMessage.created_at)).limit(limit)
+        result = await db.execute(stmt)
+        rows = result.scalars().all()
+
+    return {
+        "messages": [
+            {
+                "id": m.id,
+                "session_id": m.session_id,
+                "sender_type": m.sender_type,
+                "sender_id": m.sender_id,
+                "content": m.content,
+                "source": m.source,
+                "is_read": m.is_read,
+                "created_at": m.created_at.isoformat() if m.created_at else "",
+            }
+            for m in reversed(rows)
+        ]
+    }
+
+
+@router.get("/messages/search")
+async def search_messages(
+    request: Request,
+    q: str = "",
+    session_id: str = "",
+    limit: int = 20,
+):
+    """Full-text search in chat_messages."""
+    payload = require_auth(request)
+    member_id = payload.get("sub", "")
+
+    if not q or len(q) < 2:
+        return {"messages": []}
+
+    from sqlalchemy import select, desc
+    from openvort.db.models import ChatMessage
+    from openvort.web.deps import get_db_session_factory
+
+    sf = get_db_session_factory()
+    async with sf() as db:
+        pattern = f"%{q}%"
+        stmt = (
+            select(ChatMessage)
+            .where(
+                ChatMessage.owner_id == member_id,
+                ChatMessage.content.ilike(pattern),
+            )
+        )
+        if session_id:
+            stmt = stmt.where(ChatMessage.session_id == session_id)
+        stmt = stmt.order_by(desc(ChatMessage.created_at)).limit(limit)
+        result = await db.execute(stmt)
+        rows = result.scalars().all()
+
+    return {
+        "messages": [
+            {
+                "id": m.id,
+                "session_id": m.session_id,
+                "sender_type": m.sender_type,
+                "content": m.content,
+                "source": m.source,
+                "created_at": m.created_at.isoformat() if m.created_at else "",
+            }
+            for m in rows
+        ]
+    }
+
+
+# ---- 任务管理接口 ----
+
+
+@router.get("/active-tasks")
+async def active_tasks(request: Request):
+    """Return running tasks for the current user."""
+    payload = require_auth(request)
+    member_id = payload.get("sub", "")
+
+    from openvort.core.task_runner import get_task_runner
+    runner = get_task_runner()
+    tasks = runner.get_active_tasks(member_id) if runner else []
+    return {"tasks": tasks}
+
+
+class CancelTaskRequest(BaseModel):
+    pass
+
+
+@router.post("/tasks/{task_id}/cancel")
+async def cancel_task(task_id: str, request: Request):
+    """Cancel a running task."""
+    require_auth(request)
+    from openvort.core.task_runner import get_task_runner
+    runner = get_task_runner()
+    if not runner:
+        return {"success": False, "error": "TaskRunner not initialized"}
+    ok = await runner.cancel_task(task_id)
+    return {"success": ok}
+
+
+class InjectMessageRequest(BaseModel):
+    content: str
+
+
+@router.post("/tasks/{task_id}/message")
+async def inject_task_message(task_id: str, req: InjectMessageRequest, request: Request):
+    """Inject a follow-up message into a running task."""
+    require_auth(request)
+    from openvort.core.task_runner import get_task_runner
+    runner = get_task_runner()
+    if not runner:
+        return {"success": False, "error": "TaskRunner not initialized"}
+    ok = await runner.inject_message(task_id, req.content)
+    return {"success": ok}
+
+
+@router.get("/task/{task_id}/stream")
+async def reconnect_task_stream(task_id: str, request: Request):
+    """Reconnect to a running task's event stream."""
+    require_auth(request)
+    from openvort.core.task_runner import get_task_runner
+    runner = get_task_runner()
+
+    if not runner:
+        async def no_runner():
+            yield {"event": "server_error", "data": "TaskRunner not initialized"}
+        return EventSourceResponse(no_runner())
+
+    async def restream():
+        try:
+            async for event in runner.subscribe(task_id):
+                if await request.is_disconnected():
+                    break
+                yield {"event": event.get("type", ""), "data": event.get("data", "")}
+                if event.get("type") == "done":
+                    break
+        except Exception as e:
+            yield {"event": "server_error", "data": str(e)}
+
+    return EventSourceResponse(restream(), ping=15)
+
+
+# ---- 未读管理接口 ----
+
+
+class MarkReadRequest(BaseModel):
+    session_id: str
+
+
+@router.post("/mark-read")
+async def mark_read(req: MarkReadRequest, request: Request):
+    """Mark all messages in a session as read and reset unread_count."""
+    payload = require_auth(request)
+    member_id = payload.get("sub", "")
+
+    from openvort.web.deps import get_db_session_factory
+    from openvort.core.chat_message import mark_session_read
+
+    sf = get_db_session_factory()
+    async with sf() as db:
+        marked = await mark_session_read(db, owner_id=member_id, session_id=req.session_id)
+
+    # Cancel pending IM notifications for this session
+    try:
+        from openvort.core.notification import get_notification_center
+        nc = get_notification_center()
+        if nc:
+            await nc.cancel_pending(member_id, req.session_id)
+    except Exception:
+        pass
+
+    return {"success": True, "marked": marked}
+
+
+@router.get("/unread-counts")
+async def unread_counts(request: Request):
+    """Return unread counts for all sessions with unread > 0."""
+    payload = require_auth(request)
+    member_id = payload.get("sub", "")
+
+    from openvort.web.deps import get_db_session_factory
+    from openvort.core.chat_message import get_unread_counts
+
+    sf = get_db_session_factory()
+    async with sf() as db:
+        counts = await get_unread_counts(db, owner_id=member_id)
+
+    return {"counts": counts}
+
+
 # ---- 联系人列表接口 ----
 
 
@@ -614,6 +874,7 @@ async def list_contacts(request: Request):
         if not ai_last_time and ai_rows:
             ai_last_time = ai_rows[0].updated_at.timestamp() if ai_rows[0].updated_at else 0
 
+        ai_total_unread = sum(getattr(r, "unread_count", 0) or 0 for r in ai_rows)
         contacts.append({
             "type": "ai",
             "id": "ai",
@@ -621,7 +882,7 @@ async def list_contacts(request: Request):
             "avatar_url": "",
             "last_message": ai_last_message,
             "last_message_time": ai_last_time,
-            "unread": 0,
+            "unread": ai_total_unread,
             "session_count": ai_session_count,
             "pinned": True,
         })
@@ -681,7 +942,7 @@ async def list_contacts(request: Request):
                 "position": m_info.get("position", ""),
                 "last_message": _extract_last_message(row.messages),
                 "last_message_time": row.updated_at.timestamp() if row.updated_at else 0,
-                "unread": 0,
+                "unread": getattr(row, "unread_count", 0) or 0,
                 "session_id": row.session_id,
                 "pinned": row.pinned,
                 "is_virtual": m_info.get("is_virtual", False),

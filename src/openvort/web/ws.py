@@ -134,6 +134,48 @@ async def websocket_endpoint(ws: WebSocket, token: str = Query("")):
 
     await manager.connect(ws, member_id, name)
 
+    # Push offline summary on connect
+    try:
+        from openvort.web.deps import get_db_session_factory
+        sf = get_db_session_factory()
+        if sf:
+            from sqlalchemy import select, func as sa_func
+            from openvort.db.models import ChatMessage, ChatSession
+            async with sf() as db:
+                unread_stmt = (
+                    select(
+                        ChatMessage.session_id,
+                        ChatMessage.content,
+                        ChatMessage.source,
+                    )
+                    .where(
+                        ChatMessage.owner_id == member_id,
+                        ChatMessage.is_read == False,  # noqa: E712
+                        ChatMessage.sender_type == "assistant",
+                    )
+                    .order_by(ChatMessage.created_at.desc())
+                    .limit(10)
+                )
+                result = await db.execute(unread_stmt)
+                unread_msgs = result.all()
+
+                if unread_msgs:
+                    highlights = []
+                    for msg in unread_msgs[:5]:
+                        preview = (msg.content or "")[:80]
+                        if msg.source == "schedule":
+                            highlights.append(preview)
+                        else:
+                            highlights.append(preview)
+
+                    await ws.send_json({
+                        "type": "offline_summary",
+                        "unreads": len(unread_msgs),
+                        "highlights": highlights,
+                    })
+    except Exception as e:
+        log.debug(f"Failed to push offline summary: {e}")
+
     try:
         while True:
             data = await ws.receive_json()

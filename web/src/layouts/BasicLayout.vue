@@ -1,14 +1,18 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { ref, watch, onMounted, onUnmounted } from "vue";
 import { useRoute } from "vue-router";
 import { useAppStore } from "@/stores";
 import { useBreakpoint } from "@/hooks";
+import { initWebSocket, closeWebSocket } from "@/composables/useWebSocket";
 import Sidebar from "./components/Sidebar.vue";
 import Header from "./components/Header.vue";
 
 const route = useRoute();
 const appStore = useAppStore();
 const { isMobile } = useBreakpoint();
+
+onMounted(() => { initWebSocket(); });
+onUnmounted(() => { closeWebSocket(); });
 const isScrolled = ref(false);
 type LayoutScrollbarRef = {
     setScrollTop?: (value: number) => void;

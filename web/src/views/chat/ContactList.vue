@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, nextTick } from "vue";
 import { Bot, Plus, Search, Loader2, Pin } from "lucide-vue-next";
-import { getChatContacts, getChatMembers, startMemberChat, togglePinContact, hideChatContact, resetChatSession } from "@/api";
+import { getChatContacts, getChatMembers, startMemberChat, togglePinContact, hideChatContact, resetChatSession, markChatRead } from "@/api";
 import { message, dialog, Popover as VortPopover } from "@/components/vort";
+import { useNotificationStore } from "@/stores/modules/notification";
 import { pinyin } from "pinyin-pro";
 import type { Contact, MentionMember } from "./types";
 import AiEmployeeBadge from "./AiEmployeeBadge.vue";
@@ -73,6 +74,11 @@ async function loadContacts() {
     try {
         const res: any = await getChatContacts();
         contacts.value = res?.contacts || [];
+        for (const c of contacts.value) {
+            if (c.unread > 0 && c.session_id) {
+                notificationStore.setUnread(c.session_id, c.unread);
+            }
+        }
     } catch {
         contacts.value = [];
     } finally {
@@ -113,8 +119,22 @@ async function handleTogglePin(contact: Contact) {
     }
 }
 
-function handleMarkUnread(contact: Contact) {
-    contact.unread = contact.unread ? 0 : 1;
+const notificationStore = useNotificationStore();
+
+function getContactUnread(contact: Contact): number {
+    if (contact.session_id) return notificationStore.getUnread(contact.session_id);
+    return contact.unread || 0;
+}
+
+async function handleMarkUnread(contact: Contact) {
+    const sid = contact.session_id;
+    if (!sid) return;
+    if (notificationStore.getUnread(sid) > 0) {
+        notificationStore.clearUnread(sid);
+        try { await markChatRead(sid); } catch { /* silent */ }
+    } else {
+        notificationStore.setUnread(sid, 1);
+    }
 }
 
 async function handleClearHistory(contact: Contact) {
@@ -383,11 +403,15 @@ defineExpose({ refreshContacts, loadContacts });
                                 <span class="text-[11px] text-gray-400 flex-shrink-0 whitespace-nowrap">{{ formatTime(c.last_message_time) }}</span>
                             </div>
                             <div class="flex items-center justify-between mt-0.5 gap-2">
-                                <span class="text-xs text-gray-400 truncate min-w-0">{{ c.last_message || (c.type === 'ai' ? '点击开始对话' : '') }}</span>
+                                <span v-if="c.is_virtual && notificationStore.getTaskStatus(c.id)" class="text-xs text-blue-500 truncate min-w-0 flex items-center gap-1">
+                                    <span class="inline-block w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                                    {{ notificationStore.getTaskStatus(c.id)?.jobName ? `正在执行「${notificationStore.getTaskStatus(c.id)!.jobName}」...` : '正在执行任务...' }}
+                                </span>
+                                <span v-else class="text-xs text-gray-400 truncate min-w-0">{{ c.last_message || (c.type === 'ai' ? '点击开始对话' : '') }}</span>
                                 <div class="flex items-center gap-1 flex-shrink-0">
                                     <Pin v-if="c.pinned && c.type !== 'ai'" :size="12" class="text-gray-300 rotate-45" />
-                                    <div v-if="c.unread" class="w-4 h-4 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center">
-                                        {{ c.unread > 99 ? '99+' : c.unread }}
+                                    <div v-if="getContactUnread(c)" class="w-4 h-4 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center">
+                                        {{ getContactUnread(c) > 99 ? '99+' : getContactUnread(c) }}
                                     </div>
                                 </div>
                             </div>
@@ -396,7 +420,7 @@ defineExpose({ refreshContacts, loadContacts });
 
                     <template #overlay>
                         <VortDropdownMenuItem @click="handleMarkUnread(c)">
-                            {{ c.unread ? '标为已读' : '标为未读' }}
+                            {{ getContactUnread(c) ? '标为已读' : '标为未读' }}
                         </VortDropdownMenuItem>
                         <VortDropdownMenuItem v-if="c.type !== 'ai'" @click="handleTogglePin(c)">
                             {{ c.pinned ? '取消置顶' : '置顶' }}

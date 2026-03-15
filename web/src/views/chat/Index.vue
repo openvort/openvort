@@ -6,7 +6,7 @@ import {
     Send, Bot, Loader2, Wrench, X, ImagePlus, FileText, MonitorPlay, Smile,
     Settings, Check, Brain, PackageMinus, RotateCcw, Zap, StopCircle, Square,
     Hash, Bug, ListTodo, BookOpen, Milestone, GitBranch, ChevronDown, ChevronRight,
-    Copy, RefreshCw
+    Copy, RefreshCw, Search
 } from "lucide-vue-next";
 import { Popover as VortPopover, Image as VortImage, ImagePreviewGroup as VortImagePreviewGroup } from "@/components/vort";
 import {
@@ -16,6 +16,8 @@ import {
     getVortflowBugs, getVortflowTasks, getVortflowStories, getVortflowMilestones
 } from "@/api";
 import { usePluginStore } from "@/stores/modules/plugin";
+import { useNotificationStore } from "@/stores/modules/notification";
+import { markChatRead } from "@/api";
 import { message, dialog } from "@/components/vort";
 import { marked } from "marked";
 import { pinyin } from "pinyin-pro";
@@ -55,6 +57,31 @@ const contactListRef = ref<InstanceType<typeof ContactList>>();
 const sessionSwitcherRef = ref<InstanceType<typeof SessionSwitcher>>();
 
 const memberProfileOpen = ref(false);
+
+// ---- Message search ----
+const searchOpen = ref(false);
+const searchQuery = ref("");
+const searchResults = ref<Array<{ id: number; session_id: string; sender_type: string; content: string; created_at: string }>>([]);
+const searching = ref(false);
+
+async function handleSearch() {
+    const q = searchQuery.value.trim();
+    if (q.length < 2) { searchResults.value = []; return; }
+    searching.value = true;
+    try {
+        const { searchChatMessages } = await import("@/api");
+        const res: any = await searchChatMessages(q, currentSessionId.value || undefined, 20);
+        searchResults.value = res?.messages || [];
+    } catch {
+        searchResults.value = [];
+    } finally {
+        searching.value = false;
+    }
+}
+
+// ---- Offline summary banner ----
+const offlineSummary = ref<{ unreads: number; highlights: string[] } | null>(null);
+function dismissOfflineSummary() { offlineSummary.value = null; }
 
 const isAiMode = computed(() => !activeContact.value || activeContact.value.type === "ai");
 const currentSessionTitle = computed(() => {
@@ -108,8 +135,7 @@ watch(activeContact, (contact) => {
     }
 }, { deep: true });
 
-// ---- 红点 & 流式跨会话保持 ----
-const unreadSessionIds = ref<Set<string>>(new Set());
+// ---- 流式跨会话保持 ----
 
 interface ActiveStream {
     sessionId: string;
@@ -314,8 +340,12 @@ async function switchSession(sessionId: string) {
     messageCounter = 0;
     sessionTokens.value = { input: 0, output: 0, messages: 0, cacheCreation: 0, cacheRead: 0 };
 
-    // 清除红点
-    unreadSessionIds.value.delete(sessionId);
+    // 清除红点 + mark-read API
+    const notifStore = useNotificationStore();
+    if (notifStore.getUnread(sessionId) > 0) {
+        notifStore.clearUnread(sessionId);
+        markChatRead(sessionId).catch(() => {});
+    }
 
     // 检查是否有活跃的流式连接
     const existingStream = activeStreams.get(sessionId);
@@ -540,9 +570,8 @@ async function handleSend() {
                 loading.value = false;
             }
 
-            // 如果当前不在这个会话，标记红点
             if (currentSessionId.value !== sendSessionId) {
-                unreadSessionIds.value.add(sendSessionId);
+                // noop: unread is managed by notification store via WebSocket
             } else {
                 scrollToBottom();
                 loadSessionInfo();
@@ -1432,6 +1461,22 @@ onMounted(async () => {
     document.addEventListener("paste", handlePaste);
     document.addEventListener("click", handleClickOutsidePanel);
 
+    // Listen for offline summary and node status changes via WebSocket
+    try {
+        const { useWebSocket } = await import("@/composables/useWebSocket");
+        const { on } = useWebSocket();
+        on("offline_summary", (data: any) => {
+            if (data.unreads > 0) {
+                offlineSummary.value = { unreads: data.unreads, highlights: data.highlights || [] };
+            }
+        });
+        on("node_status_change", (data: any) => {
+            if (activeContact.value && activeContact.value.remote_node_id === data.node_id) {
+                (activeContact.value as any).remote_node_status = data.status;
+            }
+        });
+    } catch { /* silent */ }
+
     // Bind native keydown on textarea for panel keyboard interception (arrows, ESC, Tab, Backspace)
     nextTick(() => {
         const textarea = document.querySelector('textarea.chat-textarea') as HTMLTextAreaElement;
@@ -1573,6 +1618,36 @@ onUnmounted(() => {
                             {{ formatTokens(sessionTokens.input + sessionTokens.output) }}
                         </span>
                     </VortTooltip>
+                    <VortPopover v-model:open="searchOpen" trigger="click" placement="bottomRight" :arrow="false">
+                        <VortTooltip title="搜索消息">
+                            <button class="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer">
+                                <Search :size="16" />
+                            </button>
+                        </VortTooltip>
+                        <template #content>
+                            <div class="w-[320px] -m-1">
+                                <input
+                                    v-model="searchQuery"
+                                    placeholder="输入关键词搜索消息..."
+                                    class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-blue-400"
+                                    @input="handleSearch"
+                                    @keydown.enter="handleSearch"
+                                />
+                                <div v-if="searching" class="py-3 text-center text-xs text-gray-400">搜索中...</div>
+                                <div v-else-if="searchResults.length" class="max-h-[300px] overflow-y-auto mt-2 space-y-1">
+                                    <div
+                                        v-for="r in searchResults" :key="r.id"
+                                        class="px-3 py-2 rounded-lg hover:bg-gray-50 cursor-pointer"
+                                        @click="searchOpen = false"
+                                    >
+                                        <div class="text-xs text-gray-400">{{ r.sender_type === 'user' ? '我' : 'AI' }} - {{ r.created_at?.slice(0, 10) }}</div>
+                                        <div class="text-sm text-gray-700 line-clamp-2 mt-0.5">{{ r.content }}</div>
+                                    </div>
+                                </div>
+                                <div v-else-if="searchQuery.length >= 2" class="py-3 text-center text-xs text-gray-400">无结果</div>
+                            </div>
+                        </template>
+                    </VortPopover>
                     <VortPopover v-model:open="thinkingOpen" trigger="click" placement="bottomRight" :arrow="false">
                         <VortTooltip title="Thinking 级别">
                             <button class="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer">
@@ -1604,6 +1679,17 @@ onUnmounted(() => {
                         </button>
                     </VortTooltip>
                 </div>
+            </div>
+
+            <!-- Offline summary banner -->
+            <div v-if="offlineSummary" class="mx-4 mt-2 mb-0 px-4 py-3 bg-blue-50 border border-blue-200 rounded-lg flex items-start gap-3">
+                <div class="flex-1 min-w-0">
+                    <div class="text-sm font-medium text-blue-700">你离开期间有 {{ offlineSummary.unreads }} 条未读消息</div>
+                    <ul v-if="offlineSummary.highlights.length" class="mt-1 text-xs text-blue-600 space-y-0.5">
+                        <li v-for="(h, i) in offlineSummary.highlights" :key="i" class="truncate">{{ h }}</li>
+                    </ul>
+                </div>
+                <button class="text-blue-400 hover:text-blue-600 text-xs flex-shrink-0" @click="dismissOfflineSummary">关闭</button>
             </div>
 
             <!-- 消息列表 -->

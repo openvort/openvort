@@ -24,6 +24,7 @@ const routes: RouteRecordRaw[] = [
             { path: "schedules", name: "schedules", component: () => import("@/views/schedules/Index.vue"), meta: { title: "定时任务" } },
             { path: "reports", name: "reports", component: () => import("@/views/reports/Index.vue"), meta: { title: "汇报中心" } },
             { path: "profile", name: "profile", component: () => import("@/views/profile/Index.vue"), meta: { title: "个人设置" } },
+            { path: "notifications", name: "notifications", component: () => import("@/views/notifications/Index.vue"), meta: { title: "通知中心" } },
             { path: "demo/pro-table", name: "demo-pro-table", component: () => import("@/views/demo/ProTableDemo.vue"), meta: { title: "ProTable Demo" } },
             // VortFlow (nested under VortFlowLayout)
             {

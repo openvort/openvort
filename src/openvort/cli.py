@@ -249,6 +249,24 @@ async def _start_service(web_flag: bool | None):
     except Exception as e:
         log.warning(f"远程工作节点服务初始化失败: {e}")
 
+    # Initialize TaskRunner for async agent execution
+    try:
+        from openvort.core.task_runner import init_task_runner
+        task_runner = init_task_runner(session_factory)
+        await task_runner.recover_on_startup()
+        log.info("AgentTaskRunner 已初始化")
+    except Exception as e:
+        log.warning(f"TaskRunner 初始化失败: {e}")
+
+    # Initialize NotificationCenter for delayed IM delivery
+    try:
+        from openvort.core.notification import init_notification_center
+        notif_center = init_notification_center(session_factory, registry)
+        await notif_center.recover_on_startup()
+        log.info("NotificationCenter 已初始化")
+    except Exception as e:
+        log.warning(f"NotificationCenter 初始化失败: {e}")
+
     # 加载 Skill（知识注入，DB 驱动）
     from openvort.skill.loader import SkillLoader
     skill_loader = SkillLoader(registry)
@@ -661,16 +679,9 @@ async def _start_service(web_flag: bool | None):
         result_text: str,
         executor_member=None,
         job_id: str = "",
+        status: str = "success",
     ):
-        """Push scheduled task result to the job owner via WebSocket and IM channels.
-
-        Args:
-            owner_id: 任务拥有者/接收通知的成员 ID
-            job_name: 任务名称
-            result_text: 执行结果文本
-            executor_member: 执行人 Member 对象（可能是 AI 员工）
-            job_id: 任务 ID
-        """
+        """Push scheduled task result to the job owner via WebSocket and IM channels."""
         from openvort.plugin.base import Message as _Msg
 
         # 确定执行人名称和身份
@@ -688,11 +699,63 @@ async def _start_service(web_flag: bool | None):
 
         full_message = prefix + result_text[:3000]  # 限制总长度
 
-        # 1. WebSocket push (web UI) - 以 AI 员工身份发送消息到聊天会话
+        # 0. Persist to chat_messages + bump unread_count
+        target_session_id = ""
+        try:
+            from openvort.core.chat_message import write_chat_message
+            from sqlalchemy import select as _sel
+            from openvort.db.models import ChatSession
+
+            if is_ai_employee and executor_member:
+                async with session_factory() as _s:
+                    stmt = _sel(ChatSession).where(
+                        ChatSession.user_id == owner_id,
+                        ChatSession.channel == "web",
+                        ChatSession.target_type == "member",
+                        ChatSession.target_id == executor_member.id,
+                        ChatSession.hidden == False,  # noqa: E712
+                    )
+                    session_obj = (await _s.execute(stmt)).scalar_one_or_none()
+                    if not session_obj:
+                        # Auto-create session for this AI employee
+                        session_obj = ChatSession(
+                            channel="web",
+                            user_id=owner_id,
+                            session_id=__import__("uuid").uuid4().hex[:8],
+                            title=executor_member.name or "AI 员工",
+                            messages="[]",
+                            target_type="member",
+                            target_id=executor_member.id,
+                        )
+                        _s.add(session_obj)
+                        await _s.flush()
+
+                    target_session_id = session_obj.session_id
+                    await write_chat_message(
+                        _s,
+                        session_id=target_session_id,
+                        owner_id=owner_id,
+                        sender_type="assistant",
+                        sender_id=executor_member.id,
+                        content=full_message,
+                        source="schedule",
+                        is_read=False,
+                        increment_unread=True,
+                    )
+                    await _s.commit()
+        except Exception as e:
+            log.warning(f"Failed to persist schedule result to chat_messages: {e}")
+
+        # 1. WebSocket push (web UI)
         try:
             from openvort.web.ws import manager as ws_manager
 
-            # 发送结构化通知
+            severity = "error" if status == "failed" else "info"
+            actions = [
+                {"label": "重新执行", "action": "rerun", "job_id": job_id},
+                {"label": "查看详情", "action": "view_detail", "job_id": job_id},
+            ] if job_id else []
+
             await ws_manager.send_to(owner_id, {
                 "type": "schedule_result",
                 "job_id": job_id,
@@ -700,74 +763,54 @@ async def _start_service(web_flag: bool | None):
                 "result": result_text[:2000],
                 "executor_name": executor_name,
                 "is_ai_employee": is_ai_employee,
+                "severity": severity,
+                "actions": actions,
             })
 
-            # 同时发送模拟消息到聊天会话（以执行人身份）
-            if is_ai_employee and executor_member:
-                # 查询 owner 的默认会话或创建新会话
-                from sqlalchemy import select as _sel
-                from openvort.db.models import ChatSession
-
-                async with session_factory() as _s:
-                    # 查找该用户与 AI 员工的会话
-                    stmt = _sel(ChatSession).where(
-                        ChatSession.user_id == owner_id,
-                        ChatSession.channel == "web",
-                        ChatSession.target_type == "member",
-                        ChatSession.target_id == executor_member.id,
-                    )
-                    session_obj = (await _s.execute(stmt)).scalar_one_or_none()
-
-                    if session_obj:
-                        # 发送到现有会话
-                        await ws_manager.send_to(owner_id, {
-                            "type": "message",
-                            "session_id": session_obj.session_id,
-                            "sender_type": "member",
-                            "sender_id": executor_member.id,
-                            "sender_name": executor_name,
-                            "content": result_text[:5000],
-                            "from_schedule": True,
-                            "job_id": job_id,
-                            "job_name": job_name,
-                        })
+            if is_ai_employee and executor_member and target_session_id:
+                await ws_manager.send_to(owner_id, {
+                    "type": "message",
+                    "session_id": target_session_id,
+                    "sender_type": "member",
+                    "sender_id": executor_member.id,
+                    "sender_name": executor_name,
+                    "content": result_text[:5000],
+                    "from_schedule": True,
+                    "job_id": job_id,
+                    "job_name": job_name,
+                })
+                # Push unread_update so frontend can show badge immediately
+                from openvort.core.chat_message import get_unread_counts
+                try:
+                    async with session_factory() as _s:
+                        counts = await get_unread_counts(_s, owner_id=owner_id)
+                    new_count = counts.get(target_session_id, 0)
+                    await ws_manager.send_to(owner_id, {
+                        "type": "unread_update",
+                        "session_id": target_session_id,
+                        "count": new_count,
+                    })
+                except Exception:
+                    pass
         except Exception as e:
             log.debug(f"WebSocket 推送失败（用户可能不在线）: {e}")
 
-        # 2. IM channel push (wecom/dingtalk/feishu/openclaw)
+        # 2. Delayed IM notification via NotificationCenter
         try:
-            from sqlalchemy import select as _sel
-            from openvort.contacts.models import PlatformIdentity
-
-            async with session_factory() as _s:
-                stmt = _sel(PlatformIdentity.platform, PlatformIdentity.platform_user_id).where(
-                    PlatformIdentity.member_id == owner_id,
+            from openvort.core.notification import get_notification_center
+            nc = get_notification_center()
+            if nc:
+                await nc.schedule_notify(
+                    recipient_id=owner_id,
+                    source="schedule",
+                    source_id=job_id,
+                    session_id=target_session_id,
+                    title=f"{executor_name} {'完成' if status == 'success' else '执行失败'}了「{job_name}」",
+                    summary=result_text[:300],
+                    severity="error" if status == "failed" else "info",
                 )
-                rows = (await _s.execute(stmt)).all()
-
-            im_platforms = {"wecom", "dingtalk", "feishu", "openclaw"}
-            for platform, platform_user_id in rows:
-                if platform not in im_platforms:
-                    continue
-                ch = registry.get_channel(platform)
-                if ch and ch.is_configured():
-                    try:
-                        # 构建带执行人前缀的消息
-                        if is_ai_employee:
-                            im_content = f"【AI 员工·{executor_name}】已完成任务「{job_name}」\n\n{result_text[:3000]}"
-                        else:
-                            im_content = f"【定时任务】已完成任务「{job_name}」\n\n{result_text[:3000]}"
-
-                        await ch.send(platform_user_id, _Msg(
-                            content=im_content,
-                            channel=platform,
-                        ))
-                        log.info(f"定时任务结果已推送: {owner_id} via {platform}")
-                        break  # one IM channel is enough
-                    except Exception as e:
-                        log.warning(f"通过 {platform} 推送定时任务结果失败: {e}")
         except Exception as e:
-            log.warning(f"IM 推送定时任务结果失败: {e}")
+            log.warning(f"NotificationCenter 调度失败: {e}")
 
     _scheduler = _Scheduler()
     _scheduler.start()

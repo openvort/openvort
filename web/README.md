@@ -29,7 +29,8 @@ npm run typecheck  # TypeScript 类型检查
 
 ```
 src/views/
-├── chat/           # AI 聊天（SSE 流式 + 工具调用展示）
+├── chat/           # AI 聊天（SSE 流式 + 工具调用展示 + WebSocket 实时通知）
+├── notifications/  # 通知中心（通知列表 / 筛选 / 批量已读）
 ├── dashboard/      # 仪表盘
 ├── overview/       # 总览（可定制 Widget）
 ├── vortflow/       # VortFlow 敏捷流程（Board/Stories/Tasks/Bugs/Milestones）
@@ -44,7 +45,30 @@ src/views/
 ├── settings/       # 系统设置
 ├── agents/         # Agent 配置
 ├── login/          # 登录
-└── profile/        # 个人设置
+└── profile/        # 个人设置（含通知偏好 — 声音/桌面/IM 延迟/DND）
+```
+
+## 核心 Composables
+
+```
+src/composables/
+├── useWebSocket.ts      # 全局 WebSocket 连接（自动重连 + 消息分发）
+└── useNotification.ts   # 通知能力（声音/Toast/桌面通知/Tab 标题）
+```
+
+## 状态管理（Pinia Stores）
+
+```
+src/stores/modules/
+├── user.ts           # 用户认证与信息
+├── app.ts            # 应用状态（侧边栏等）
+├── notification.ts   # 未读计数 + 任务执行状态（全局实时）
+├── activeTasks.ts    # AI 活跃任务追踪
+├── config.ts         # 配置
+├── plugin.ts         # 插件
+├── vortflow.ts       # VortFlow
+├── menu.ts           # 菜单
+└── tabs.ts           # 标签页
 ```
 
 ## 与后端集成

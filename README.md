@@ -5,9 +5,11 @@
 ## 特性
 
 - **AI 驱动** — 基于 Claude tool use 的 agentic loop，Agent 自主决策调用工具，支持多模型 Failover
-- **AI 员工** — 虚拟成员绑定岗位与 Skill，通过定时任务自动执行日报/代码审查/测试等工作
+- **AI 员工** — 虚拟成员绑定岗位与 Skill，通过定时任务自动执行日报/代码审查/测试等工作；支持绑定远程节点（Mac Mini + OpenClaw），在远程电脑上执行编码/部署等实操任务
+- **异步任务执行** — Agent 执行与 SSE 解耦，用户离开页面 AI 继续工作；任务完成后自动通知；支持从任意页面查看进度、中断或追加指令
+- **消息通知系统** — Chat 为消息归宿，IM 为门铃：实时 WebSocket 推送未读红点、声音/Toast/桌面通知、Tab 标题计数；延迟检测已读后按用户偏好 IM 通道优先级发送简短提醒；通知聚合 + 免打扰时段
 - **多 IM 支持** — 企业微信、钉钉、飞书、OpenClaw 多平台网关，支持语音消息收发（ASR/TTS）
-- **Web 管理面板** — Vue 3 + FastAPI，支持 AI 聊天（SSE 流式）、概览仪表盘、AI 配置中心、项目管理、代码仓库、知识库、汇报、定时任务等
+- **Web 管理面板** — Vue 3 + FastAPI，支持 AI 聊天（SSE 流式）、概览仪表盘、AI 配置中心、项目管理、代码仓库、知识库、汇报、定时任务、通知中心等
 - **插件化架构** — Plugin 是 OpenVort 的核心扩展单元，Channel（IM 通道）和 Plugin（Tool + Prompt）均可插拔，`pip install` 即可扩展
 - **内置 10 个插件** — 禅道、VortFlow 敏捷流程、VortGit 代码仓库、Jenkins CI/CD、知识库（RAG）、汇报管理、定时任务、浏览器自动化、系统管理
 - **Skill 知识注入** — 四级 Skill 体系（内置/公共/个人/市场），7 个内置 Skill 按岗位自动映射
@@ -94,7 +96,7 @@ npm run dev   # Vite dev server，默认 http://localhost:9090，/api 代理到 
 
 ```
 src/openvort/
-├── core/           # 引擎核心（Agent Runtime / LLM Client / Session / Dispatcher / 远程节点 / 升级服务）
+├── core/           # 引擎核心（Agent Runtime / LLM Client / Session / Dispatcher / 远程节点 / TaskRunner 异步执行 / NotificationCenter 通知中心 / 升级服务）
 ├── config/         # 配置（Pydantic Settings + DB 配置服务）
 ├── plugin/         # 插件框架（BasePlugin / BaseTool / Registry / Loader）
 ├── plugins/        # 内置插件（禅道 / VortFlow / VortGit / Jenkins / 知识库 / 汇报 / 浏览器 / 定时任务 / 系统）

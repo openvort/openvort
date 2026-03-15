@@ -47,6 +47,61 @@ const passwordDialogOpen = ref(false);
 const passwordForm = reactive({ old_password: "", new_password: "", confirm_password: "" });
 const savingPassword = ref(false);
 
+// Page notification prefs (sound + desktop)
+const pageSoundEnabled = ref(true);
+const pageDesktopEnabled = ref(false);
+
+function loadPageNotifyPrefs() {
+    try {
+        const raw = localStorage.getItem("notification-prefs");
+        if (raw) {
+            const p = JSON.parse(raw);
+            pageSoundEnabled.value = p.sound_enabled !== false;
+            pageDesktopEnabled.value = p.desktop_enabled === true;
+        }
+    } catch { /* silent */ }
+}
+
+function savePageNotifyPrefs() {
+    localStorage.setItem("notification-prefs", JSON.stringify({
+        sound_enabled: pageSoundEnabled.value,
+        desktop_enabled: pageDesktopEnabled.value,
+    }));
+}
+
+async function handleDesktopToggle(val: boolean) {
+    if (val && typeof Notification !== "undefined" && Notification.permission !== "granted") {
+        const result = await Notification.requestPermission();
+        if (result !== "granted") {
+            message.warning("桌面通知权限被拒绝，请在浏览器设置中允许");
+            return;
+        }
+    }
+    pageDesktopEnabled.value = val;
+    savePageNotifyPrefs();
+}
+
+// IM notification prefs
+const imDelaySeconds = ref(60);
+const dndStart = ref("22:00");
+const dndEnd = ref("08:00");
+
+async function handleSaveImPrefs() {
+    try {
+        const currentPrefs: any = await getNotificationPrefs();
+        const merged = {
+            ...(currentPrefs || {}),
+            im_notify_delay_seconds: imDelaySeconds.value,
+            dnd_start: dndStart.value,
+            dnd_end: dndEnd.value,
+        };
+        await updateNotificationPrefs(merged);
+        message.success("IM 通知设置已保存");
+    } catch {
+        message.error("保存失败");
+    }
+}
+
 // 通知设置
 const notifyLoading = ref(false);
 const savingNotify = ref(false);
@@ -132,6 +187,7 @@ const securityItems = computed(() => [
 // ---- 加载数据 ----
 
 onMounted(async () => {
+    loadPageNotifyPrefs();
     loading.value = true;
     try {
         const res: any = await getProfile();
@@ -741,6 +797,54 @@ function handleMenuClick(key: string) {
                         <div v-else-if="activeMenu === 'notification'">
                             <h3 class="text-base font-medium text-gray-800 mb-2">通知设置</h3>
                             <p class="text-sm text-gray-400 mb-6">选择每种通知类型通过哪些通道接收</p>
+
+                            <!-- Page notification settings -->
+                            <div class="mb-6 space-y-4 border-b border-gray-100 pb-6">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <div class="text-sm font-medium text-gray-700">消息提示音</div>
+                                        <div class="text-xs text-gray-400 mt-0.5">收到新消息时播放提示音</div>
+                                    </div>
+                                    <VortSwitch :checked="pageSoundEnabled" @change="(v: boolean) => { pageSoundEnabled = v; savePageNotifyPrefs(); }" />
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <div class="text-sm font-medium text-gray-700">桌面通知</div>
+                                        <div class="text-xs text-gray-400 mt-0.5">浏览器不在前台时显示系统通知</div>
+                                    </div>
+                                    <VortSwitch :checked="pageDesktopEnabled" @change="handleDesktopToggle" />
+                                </div>
+                            </div>
+
+                            <!-- IM notification settings -->
+                            <div class="mb-6 space-y-4 border-b border-gray-100 pb-6">
+                                <h4 class="text-sm font-medium text-gray-600">IM 通知设置</h4>
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <div class="text-sm font-medium text-gray-700">IM 通知延迟</div>
+                                        <div class="text-xs text-gray-400 mt-0.5">消息到达后多久未读才发送 IM 提醒</div>
+                                    </div>
+                                    <VortSelect v-model="imDelaySeconds" :options="[
+                                        { label: '30 秒', value: 30 },
+                                        { label: '1 分钟', value: 60 },
+                                        { label: '5 分钟', value: 300 },
+                                    ]" class="w-28" />
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <div class="text-sm font-medium text-gray-700">免打扰时段</div>
+                                        <div class="text-xs text-gray-400 mt-0.5">该时段内不发送 IM 提醒</div>
+                                    </div>
+                                    <div class="flex items-center gap-2 text-sm">
+                                        <VortInput v-model="dndStart" placeholder="22:00" class="w-20 text-center" />
+                                        <span class="text-gray-400">~</span>
+                                        <VortInput v-model="dndEnd" placeholder="08:00" class="w-20 text-center" />
+                                    </div>
+                                </div>
+                                <div class="mt-3">
+                                    <VortButton variant="primary" size="small" @click="handleSaveImPrefs">保存 IM 设置</VortButton>
+                                </div>
+                            </div>
 
                             <VortSpin :spinning="notifyLoading">
                                 <div v-if="channels.length > 0">

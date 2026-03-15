@@ -64,7 +64,10 @@ src/openvort/
 │   ├── events.py           # EventBus — 事件总线
 │   ├── scheduler.py        # Scheduler — APScheduler 定时任务
 │   ├── schedule_service.py # ScheduleService — 定时任务业务层
-│   └── coding_env.py       # CodingEnvironment — 编码执行环境
+│   ├── coding_env.py       # CodingEnvironment — 编码执行环境
+│   ├── task_runner.py      # AgentTaskRunner — 异步后台 Agent 执行引擎（SSE 解耦）
+│   ├── notification.py     # NotificationCenter — 延迟 IM 通知、聚合、DND
+│   └── chat_message.py     # ChatMessage helpers — 消息写入 / 已读标记 / 未读计数
 ├── plugin/                 # 插件框架
 │   ├── base.py             # BasePlugin / BaseChannel / BaseTool / Message
 │   ├── registry.py         # PluginRegistry — Tool/Channel/Prompt 注册中心
@@ -91,12 +94,12 @@ src/openvort/
 ├── auth/                   # RBAC 权限（admin/manager/member/guest）
 ├── web/                    # Web 管理面板后端
 │   ├── app.py              # FastAPI 应用工厂
-│   ├── ws.py               # WebSocket（presence/typing/通知）
+│   ├── ws.py               # WebSocket（presence/typing/unread_update/task_status/offline_summary/node_status_change）
 │   ├── webhooks.py         # Webhook 触发器
 │   └── routers/            # API 路由（含 marketplace.py）
 ├── db/                     # SQLAlchemy 2.0 async（PostgreSQL + create_all）
 │   ├── engine.py           # async engine + session factory + auto-migrate
-│   └── models.py           # 基础 ORM 模型（Skill 含 marketplace_slug/version/hash）
+│   └── models.py           # 基础 ORM 模型（含 ChatMessage / Notification / AgentTask / ChatSession.unread_count）
 ├── skills/                 # 内置 Skill 示例
 │   ├── code-review/        # 代码评审知识
 │   └── daily-report/       # 日报知识

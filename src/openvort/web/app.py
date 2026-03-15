@@ -86,6 +86,10 @@ def create_app() -> FastAPI:
 
     # 登录用户可访问
     app.include_router(chat_router, prefix="/api/chat", tags=["chat"], dependencies=[Depends(require_auth)])
+
+    from openvort.web.routers.notifications import router as notifications_router
+    app.include_router(notifications_router, prefix="/api/notifications", tags=["notifications"], dependencies=[Depends(require_auth)])
+
     app.include_router(dashboard_router, prefix="/api/dashboard", tags=["dashboard"], dependencies=[Depends(require_auth)])
     app.include_router(me_router, prefix="/api/me", tags=["me"], dependencies=[Depends(require_auth)])
     app.include_router(schedules_router, prefix="/api/schedules", tags=["schedules"], dependencies=[Depends(require_auth)])

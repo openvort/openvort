@@ -4,6 +4,7 @@ import { useRouter } from "vue-router";
 import { useUserStore, useAppStore } from "@/stores";
 import { LogOut, User, Menu, RefreshCw, ArrowUpCircle, X, Download, Loader2 } from "lucide-vue-next";
 import { getHealthStatus, getUpgradeStreamUrl } from "@/api";
+import ActiveTaskIndicator from "@/components/ActiveTaskIndicator.vue";
 
 defineProps<{ isScrolled: boolean; isMobile?: boolean }>();
 
@@ -207,6 +208,9 @@ const stepLabel = computed(() => {
         </div>
 
         <!-- 右侧 -->
+        <div class="flex items-center gap-2 md:gap-4 flex-shrink-0">
+            <ActiveTaskIndicator />
+        </div>
         <div class="flex items-center gap-2 md:gap-4 flex-shrink-0">
             <!-- 版本号 -->
             <div class="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-gray-50 text-[11px] text-gray-400 font-mono">

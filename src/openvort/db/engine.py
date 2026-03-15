@@ -430,6 +430,82 @@ async def init_db(database_url: str) -> None:
             "ALTER TABLE IF EXISTS skills ADD COLUMN IF NOT EXISTS marketplace_display_name VARCHAR(200) DEFAULT ''"
         ))
 
+    # --- Messaging & notification system tables ---
+    async with _engine.begin() as conn:
+        # chat_messages: persistent message records for UI, unread tracking, search
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                id BIGSERIAL PRIMARY KEY,
+                session_id VARCHAR(64) NOT NULL,
+                owner_id VARCHAR(32) NOT NULL,
+                sender_type VARCHAR(16) NOT NULL,
+                sender_id VARCHAR(32) DEFAULT '',
+                content TEXT DEFAULT '',
+                metadata_json TEXT DEFAULT '{}',
+                source VARCHAR(16) DEFAULT 'chat',
+                is_read BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT now()
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_chat_messages_session ON chat_messages(session_id, created_at)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_chat_messages_owner_unread ON chat_messages(owner_id, is_read) WHERE NOT is_read"
+        ))
+
+        # notifications: delayed IM delivery tracking
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS notifications (
+                id BIGSERIAL PRIMARY KEY,
+                recipient_id VARCHAR(32) NOT NULL,
+                source VARCHAR(32) NOT NULL,
+                source_id VARCHAR(64) DEFAULT '',
+                session_id VARCHAR(64) DEFAULT '',
+                title VARCHAR(200) NOT NULL,
+                summary TEXT DEFAULT '',
+                status VARCHAR(16) DEFAULT 'pending',
+                im_sent_at TIMESTAMP,
+                im_channel VARCHAR(32) DEFAULT '',
+                read_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT now()
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_notifications_recipient ON notifications(recipient_id, status)"
+        ))
+
+        # agent_tasks: async task execution tracking
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS agent_tasks (
+                id VARCHAR(64) PRIMARY KEY,
+                session_id VARCHAR(64) NOT NULL,
+                owner_id VARCHAR(32) NOT NULL,
+                executor_id VARCHAR(32) DEFAULT '',
+                source VARCHAR(16) DEFAULT 'chat',
+                source_id VARCHAR(64) DEFAULT '',
+                status VARCHAR(16) DEFAULT 'pending',
+                description TEXT DEFAULT '',
+                progress TEXT DEFAULT '',
+                result_summary TEXT DEFAULT '',
+                cancel_requested BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT now(),
+                started_at TIMESTAMP,
+                completed_at TIMESTAMP
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_agent_tasks_owner ON agent_tasks(owner_id, status)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_agent_tasks_executor ON agent_tasks(executor_id, status)"
+        ))
+
+        # chat_sessions: add unread_count column
+        await conn.execute(text(
+            "ALTER TABLE IF EXISTS chat_sessions ADD COLUMN IF NOT EXISTS unread_count INTEGER DEFAULT 0"
+        ))
+
     log.info(f"数据库已初始化: {database_url.split('://')[0]}")
 
 

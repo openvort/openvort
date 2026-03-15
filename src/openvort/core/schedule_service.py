@@ -333,9 +333,22 @@ class ScheduleService:
         result_text = ""
         status = "success"
 
+        # Push task_status: executing
+        try:
+            from openvort.web.ws import manager as _ws
+            executor_id = ctx.member.id if ctx.member else ""
+            if executor_id:
+                await _ws.send_to(job.owner_id, {
+                    "type": "task_status",
+                    "member_id": executor_id,
+                    "status": "executing",
+                    "job_name": job.name,
+                })
+        except Exception:
+            pass
+
         try:
             if self._agent and job.action_type == "agent_chat":
-                # AgentRuntime.process 会自动根据 ctx.member.is_virtual 注入人设
                 result_text = await self._agent.process(ctx, sched_context)
             else:
                 result_text = "Agent 未初始化或不支持的 action_type"
@@ -344,6 +357,20 @@ class ScheduleService:
             result_text = str(e)
             status = "failed"
             log.error(f"执行任务 {job.job_id} 失败: {e}")
+        finally:
+            # Push task_status: idle
+            try:
+                from openvort.web.ws import manager as _ws
+                executor_id = ctx.member.id if ctx.member else ""
+                if executor_id:
+                    await _ws.send_to(job.owner_id, {
+                        "type": "task_status",
+                        "member_id": executor_id,
+                        "status": "idle",
+                        "job_name": "",
+                    })
+            except Exception:
+                pass
 
         # 更新执行状态
         async with self._session_factory() as session:
@@ -365,6 +392,7 @@ class ScheduleService:
                     result_text=result_text,
                     executor_member=ctx.member,
                     job_id=job.job_id,
+                    status=status,
                 )
             except Exception as e:
                 log.error(f"通知任务结果失败: {e}")

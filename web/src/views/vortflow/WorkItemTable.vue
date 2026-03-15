@@ -996,6 +996,24 @@ const applyColumnFilters = (rows: RowItem[]): RowItem[] => {
             if (field === "status") {
                 const vals = fv.value as string[];
                 if (vals?.length && !vals.includes(row.status)) return false;
+            } else if (field === "owner") {
+                const vals = fv.value as string[];
+                if (vals?.length) {
+                    const rowOwner = String(row.owner || "").trim();
+                    const matched = vals.some((value) => {
+                        if (value === "__unassigned__") {
+                            return !String(row.ownerId || "").trim() || rowOwner === "未指派" || !rowOwner;
+                        }
+                        return rowOwner === value;
+                    });
+                    if (!matched) return false;
+                }
+            } else if (field === "collaborators") {
+                const vals = fv.value as string[];
+                if (vals?.length) {
+                    const rowCollaborators = (row.collaborators || []).map((name) => String(name || "").trim()).filter(Boolean);
+                    if (!vals.some((value) => rowCollaborators.includes(value))) return false;
+                }
             } else if (field === "tags") {
                 const vals = fv.value as string[];
                 if (vals?.length) {

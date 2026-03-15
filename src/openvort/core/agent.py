@@ -1220,6 +1220,8 @@ class AgentRuntime:
         if remote_node_info:
             parts.append(AgentRuntime._build_remote_node_prompt_section(remote_node_info))
 
+        parts.append(AgentRuntime._build_async_task_prompt())
+
         parts.append(f"""
 ## 行为准则
 - 像正常同事聊天一样说话，简洁自然，不要太正式
@@ -1258,6 +1260,8 @@ class AgentRuntime:
         if remote_node_info:
             parts.append(AgentRuntime._build_remote_node_prompt_section(remote_node_info))
 
+        parts.append(AgentRuntime._build_async_task_prompt())
+
         parts.append(f"""
 ## 行为准则
 - 完全以{member.name}的身份交流，就像真正的{member.name}在跟同事说话
@@ -1291,6 +1295,15 @@ class AgentRuntime:
 1. 告知同事需要先在远程电脑「{node_name}」上手动完成登录/授权
 2. 说明具体需要登录哪个网站或服务
 3. 等同事确认登录完成后，再继续执行原任务"""
+
+    @staticmethod
+    def _build_async_task_prompt() -> str:
+        return """
+## 任务执行模式
+
+当同事要求你执行需要多步操作或预计耗时较长的任务时（如执行代码、远程操作、查询数据等），请先用一句简短的话确认你已接手（如"好的，我来处理，完成后通知你"），然后继续执行。这样同事可以放心去做其他事。
+
+对于快速问答（不涉及工具调用的简单对话），直接正常回复即可，不需要确认。"""
 
     @staticmethod
     def _build_user_content(text: str, images: list[dict]) -> str | list[dict]:

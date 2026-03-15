@@ -11,6 +11,7 @@ export interface MenuConfig {
 
 export const menuConfig: MenuConfig[] = [
     { title: "AI 助手", icon: "message-square", path: "/chat" },
+    { title: "通知中心", icon: "bell", path: "/notifications" },
     { title: "概览", icon: "home", path: "/overview" },
     { title: "组织管理", icon: "users", path: "/contacts", label: "团队 & 扩展", requiredRole: "admin" },
     { title: "AI 员工", icon: "bot", path: "/ai-employees", requiredRole: "admin" },

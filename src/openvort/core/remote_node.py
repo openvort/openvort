@@ -214,16 +214,30 @@ class RemoteNodeService:
     # ---- Internal ----
 
     async def _update_status(self, node_id: str, status: str) -> None:
+        old_status = None
         try:
             async with self._sf() as db:
                 node = await db.get(RemoteNode, node_id)
                 if node:
+                    old_status = node.status
                     node.status = status
                     if status == "online":
                         node.last_heartbeat_at = datetime.now()
                     await db.commit()
         except Exception:
             pass
+
+        if old_status and old_status != status:
+            try:
+                from openvort.web.ws import manager as _ws
+                await _ws.broadcast({
+                    "type": "node_status_change",
+                    "node_id": node_id,
+                    "status": status,
+                    "old_status": old_status,
+                })
+            except Exception:
+                pass
 
     @staticmethod
     def _to_dict(node: RemoteNode) -> dict:
