@@ -36,8 +36,9 @@ class ReportManageTool(BaseTool):
                 "template_id": {"type": "string", "description": "模板 ID（更新/删除/创建规则时需要）"},
                 "rule_id": {"type": "string", "description": "规则 ID（更新/删除规则时需要）"},
                 "name": {"type": "string", "description": "模板名称（创建/更新模板时）"},
+                "description": {"type": "string", "description": "模板描述（说明此汇报要提交的内容）"},
                 "report_type": {
-                    "type": "string", "enum": ["daily", "weekly", "monthly"],
+                    "type": "string", "enum": ["daily", "weekly", "monthly", "quarterly"],
                     "description": "汇报类型",
                 },
                 "content_schema": {
@@ -76,6 +77,7 @@ class ReportManageTool(BaseTool):
                 return json.dumps({"ok": False, "error": "模板名称不能为空"}, ensure_ascii=False)
             result = await service.create_template(
                 name=name,
+                description=params.get("description", ""),
                 report_type=report_type,
                 content_schema=params.get("content_schema"),
                 auto_collect=params.get("auto_collect"),
@@ -87,7 +89,7 @@ class ReportManageTool(BaseTool):
             if not template_id:
                 return json.dumps({"ok": False, "error": "需要 template_id"}, ensure_ascii=False)
             fields = {}
-            for key in ("name", "report_type", "content_schema", "auto_collect"):
+            for key in ("name", "description", "report_type", "content_schema", "auto_collect"):
                 if key in params:
                     fields[key] = params[key]
             result = await service.update_template(template_id, **fields)
@@ -128,7 +130,7 @@ class ReportManageTool(BaseTool):
                 return json.dumps({"ok": False, "error": "需要 rule_id"}, ensure_ascii=False)
             fields = {}
             for key in ("scope", "target_id", "reviewer_id", "deadline_cron",
-                        "reminder_minutes", "escalation_minutes", "enabled"):
+                        "workdays_only", "reminder_minutes", "escalation_minutes", "enabled"):
                 if key in params:
                     fields[key] = params[key]
             result = await service.update_rule(rule_id, **fields)

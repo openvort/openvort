@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from "vue";
+import { ref, computed, onMounted, watch } from "vue";
 import { useCrudPage } from "@/hooks";
 import { Plus } from "lucide-vue-next";
 import { DownOutlined } from "@/components/vort/icons";
@@ -9,7 +9,7 @@ import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMember
 import { useWorkItemCommon } from "./work-item/useWorkItemCommon";
 import {
     getVortflowVersions, createVortflowVersion, updateVortflowVersion, deleteVortflowVersion,
-    releaseVortflowVersion,
+    releaseVortflowVersion, getVortflowVersionStories,
 } from "@/api";
 
 interface VersionItem {
@@ -24,11 +24,15 @@ interface VersionItem {
     release_date: string | null;
     status: string;
     created_at: string | null;
+    release_log?: string;
 }
 
 type FilterParams = { page: number; size: number; keyword: string; status: string; owner_id: string };
 
 const vortFlowStore = useVortFlowStore();
+const projectName = computed(() =>
+    vortFlowStore.projects.find(p => p.id === vortFlowStore.selectedProjectId)?.name || ""
+);
 const activeTab = ref("version-list");
 const filterOwnerDropdownOpen = ref(false);
 const filterOwnerKeyword = ref("");
@@ -95,6 +99,40 @@ const getVersionProgress = (row: VersionItem): number => {
     return byStatus[row.status] ?? 0;
 };
 
+// Release plan
+const selectedVersionId = ref("");
+const releasePlanStories = ref<any[]>([]);
+const releasePlanLoading = ref(false);
+const storyStatusLabels: Record<string, string> = {
+    open: "待处理", in_progress: "进行中", testing: "测试中",
+    done: "已完成", closed: "已关闭",
+};
+const isStoryDone = (status: string) => status === "done" || status === "closed";
+const releasePlanProgress = computed(() => {
+    const stories = releasePlanStories.value;
+    if (!stories.length) return { done: 0, total: 0, percent: 0 };
+    const done = stories.filter((s: any) => isStoryDone(s.status)).length;
+    return { done, total: stories.length, percent: Math.round((done / stories.length) * 100) };
+});
+
+const fetchReleasePlanStories = async () => {
+    if (!selectedVersionId.value) {
+        releasePlanStories.value = [];
+        return;
+    }
+    releasePlanLoading.value = true;
+    try {
+        const res = await getVortflowVersionStories(selectedVersionId.value);
+        releasePlanStories.value = Array.isArray(res) ? res : ((res as any)?.items || []);
+    } finally {
+        releasePlanLoading.value = false;
+    }
+};
+
+watch([activeTab, selectedVersionId], ([tab, vid]) => {
+    if (tab === "release-plan" && vid) fetchReleasePlanStories();
+});
+
 // Dialog
 const createDialogOpen = ref(false);
 const createFormLoading = ref(false);
@@ -130,7 +168,7 @@ const handleEditVersion = (v: VersionItem) => {
         title: v.description || "",
         owner_id: String(v.owner_id || ""),
         release_date: (v.planned_release_at || v.release_date || "") ? (String(v.planned_release_at || v.release_date).split("T")[0] ?? "") : "",
-        release_log: "",
+        release_log: v.release_log || "",
     };
     createDialogOpen.value = true;
 };
@@ -151,6 +189,7 @@ const handleCreateVersion = async (andContinue = false) => {
                 description: String(data.title).trim(),
                 owner_id: data.owner_id || undefined,
                 planned_release_at: data.release_date || undefined,
+                release_log: data.release_log || undefined,
                 progress: 0, status: "planning",
             });
             if (andContinue) {
@@ -165,6 +204,7 @@ const handleCreateVersion = async (andContinue = false) => {
                 description: String(data.title).trim(),
                 owner_id: data.owner_id || undefined,
                 planned_release_at: data.release_date || undefined,
+                release_log: data.release_log || undefined,
                 status: editingVersionStatus.value,
             });
             createDialogOpen.value = false;
@@ -180,6 +220,11 @@ const handleDeleteVersion = async (v: VersionItem) => {
 
 const handleReleaseVersion = async (v: VersionItem) => {
     await releaseVortflowVersion(v.id);
+    loadData();
+};
+
+const handleArchiveVersion = async (v: VersionItem) => {
+    await updateVortflowVersion(v.id, { status: "archived" });
     loadData();
 };
 
@@ -213,9 +258,14 @@ onMounted(async () => {
                         <vort-tab-pane tab-key="release-plan" tab="发布计划" />
                     </vort-tabs>
                 </div>
-                <vort-button variant="primary" @click="handleAddVersion">
-                    <Plus :size="14" class="mr-1" /> 新建版本
-                </vort-button>
+                <div class="flex items-center gap-2">
+                    <AiAssistButton
+                        :prompt="`我想在项目「${projectName}」中创建一个新版本，请引导我完成，包括版本号、描述、计划发布日期。`"
+                    />
+                    <vort-button variant="primary" @click="handleAddVersion">
+                        <Plus :size="14" class="mr-1" /> 新建版本
+                    </vort-button>
+                </div>
             </div>
             <div v-if="activeTab === 'version-list'" class="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4">
                 <div class="flex items-center gap-2 w-full sm:w-auto">
@@ -340,13 +390,17 @@ onMounted(async () => {
                     </template>
                 </vort-table-column>
 
-                <vort-table-column label="操作" :width="170" fixed="right">
+                <vort-table-column label="操作" :width="220" fixed="right">
                     <template #default="{ row }">
                         <div class="flex items-center gap-2 whitespace-nowrap">
                             <a v-if="row.status === 'planning'" class="text-sm text-blue-600 cursor-pointer" @click="handleReleaseVersion(row)">发布</a>
                             <vort-divider v-if="row.status === 'planning'" type="vertical" />
                             <a class="text-sm text-blue-600 cursor-pointer" @click="handleEditVersion(row)">编辑</a>
                             <vort-divider type="vertical" />
+                            <vort-popconfirm v-if="row.status === 'planning' || row.status === 'released'" title="确认归档该版本？" @confirm="handleArchiveVersion(row)">
+                                <a class="text-sm text-blue-600 cursor-pointer">归档</a>
+                            </vort-popconfirm>
+                            <vort-divider v-if="row.status === 'planning' || row.status === 'released'" type="vertical" />
                             <vort-popconfirm title="确认删除该版本？" @confirm="handleDeleteVersion(row)">
                                 <a class="text-sm text-red-500 cursor-pointer">删除</a>
                             </vort-popconfirm>
@@ -367,9 +421,40 @@ onMounted(async () => {
             </div>
         </div>
 
-        <!-- 发布计划占位 -->
+        <!-- 发布计划 -->
         <div v-if="activeTab === 'release-plan'" class="bg-white rounded-xl p-6">
-            <div class="py-12 text-center text-sm text-gray-400">发布计划模块待上线</div>
+            <div class="mb-4 flex items-center gap-4">
+                <span class="text-sm text-gray-500 whitespace-nowrap">选择版本</span>
+                <vort-select v-model="selectedVersionId" placeholder="请选择版本" allow-clear class="w-[260px]">
+                    <vort-select-option v-for="v in listData" :key="v.id" :value="v.id">{{ v.name }} - {{ v.description }}</vort-select-option>
+                </vort-select>
+            </div>
+
+            <div v-if="!selectedVersionId" class="py-12 text-center text-sm text-gray-400">请先选择一个版本</div>
+            <div v-else-if="releasePlanLoading" class="py-12 text-center text-sm text-gray-400">加载中...</div>
+            <template v-else>
+                <div class="mb-4 flex items-center gap-3">
+                    <span class="text-sm font-medium text-gray-700">完成进度</span>
+                    <div class="flex items-center gap-2">
+                        <div class="w-[200px] h-2 rounded-full bg-gray-100 overflow-hidden">
+                            <div class="h-full rounded-full bg-green-500 transition-all" :style="{ width: `${releasePlanProgress.percent}%` }" />
+                        </div>
+                        <span class="text-sm text-gray-600">{{ releasePlanProgress.done }} / {{ releasePlanProgress.total }}</span>
+                    </div>
+                </div>
+                <div v-if="!releasePlanStories.length" class="py-8 text-center text-sm text-gray-400">该版本暂无关联需求</div>
+                <div v-else class="space-y-2">
+                    <div
+                        v-for="story in releasePlanStories" :key="story.id"
+                        class="flex items-center justify-between px-4 py-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition"
+                    >
+                        <span class="text-sm text-gray-800">{{ story.title || story.name || "-" }}</span>
+                        <vort-tag :color="isStoryDone(story.status) ? 'green' : 'default'">
+                            {{ storyStatusLabels[story.status] || story.status }}
+                        </vort-tag>
+                    </div>
+                </div>
+            </template>
         </div>
 
         <!-- 新建/编辑版本弹窗 -->

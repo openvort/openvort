@@ -14,7 +14,8 @@ import {
     setChatThinking, compactChatSession, resetChatSession,
     getChatSessions, createChatSession, getChatMembers, getChatContacts, abortChatMessage, startMemberChat,
     getVortflowBugs, getVortflowTasks, getVortflowStories, getVortflowMilestones,
-    getWorkAssignments
+    getWorkAssignments,
+    restoreChatContext
 } from "@/api";
 import { usePluginStore } from "@/stores/modules/plugin";
 import { useNotificationStore } from "@/stores/modules/notification";
@@ -49,6 +50,10 @@ const thinkingLevel = ref<string>("off");
 const thinkingOpen = ref(false);
 const sessionTokens = ref({ input: 0, output: 0, messages: 0, cacheCreation: 0, cacheRead: 0 });
 const compacting = ref(false);
+const contextResetAt = ref(0);
+const hasMoreHistory = ref(false);
+const historyOffset = ref(0);
+const loadingMore = ref(false);
 let messageCounter = 0;
 
 // ---- Contact & Session state ----
@@ -339,6 +344,9 @@ function handleNewSession() {
     sessionTokens.value = { input: 0, output: 0, messages: 0, cacheCreation: 0, cacheRead: 0 };
     loading.value = false;
     thinkingLevel.value = "off";
+    contextResetAt.value = 0;
+    hasMoreHistory.value = false;
+    historyOffset.value = 0;
     restoreDraft("");
 }
 
@@ -394,83 +402,52 @@ async function switchSession(sessionId: string) {
 }
 
 // --- 历史 & 发送 ---
+const HISTORY_PAGE_SIZE = 20;
+
 async function loadHistory() {
     if (!currentSessionId.value) return;
+    contextResetAt.value = 0;
+    hasMoreHistory.value = false;
+    historyOffset.value = 0;
     try {
-        const res: any = await getChatHistory(50, currentSessionId.value);
+        const res: any = await getChatHistory(currentSessionId.value, HISTORY_PAGE_SIZE, 0);
+        if (res?.context_reset_at) {
+            contextResetAt.value = res.context_reset_at;
+        }
         if (res?.messages) {
-            const raw: ChatMessage[] = res.messages.map((m: any) => {
-                const images = m.images?.map((img: string) => {
-                    if (img && !img.startsWith('data:') && !img.startsWith('http') && !img.startsWith('/')) {
-                        return `/api/${img}`;
-                    }
-                    return img;
-                });
-                let content = m.content || "";
-                if (images?.length && /^(请看图片)+$/.test(content.trim())) {
-                    content = "";
-                }
-                const msg: ChatMessage = {
-                    id: m.id || String(++messageCounter),
-                    role: m.role,
-                    content,
-                    images,
-                    timestamp: m.timestamp ? m.timestamp * 1000 : 0
-                };
-                if (m.tool_calls?.length) {
-                    msg.toolCalls = mergeToolCalls(
-                        m.tool_calls.map((tc: any) => {
-                                // 解析截图: 支持多个 [screenshot]base64 段
-                                let output = tc.output || "";
-                                let screenshots: string[] | undefined;
-                                if (output && output.includes("[screenshot]")) {
-                                    const matches = Array.from(
-                                        output.matchAll(/\[screenshot\]([A-Za-z0-9+/=]+)/g),
-                                    );
-                                    if (matches.length) {
-                                        screenshots = matches.map((m) => m[1].trim());
-                                        output = output
-                                            .replace(/\[screenshot\][A-Za-z0-9+/=]+/g, "")
-                                            .trim();
-                                    }
-                                }
-                                return {
-                                    name: tc.name,
-                                    status: tc.status || "done",
-                                    output,
-                                    screenshots,
-                                    collapsed: true,
-                                    count: 1,
-                                };
-                            })
-                    );
-                }
-                return msg;
-            });
-            // Merge consecutive assistant messages (same agentic-loop round),
-            // but keep schedule/proactive notifications as separate messages.
-            const NO_MERGE_RE = /^【/;
-            const merged: ChatMessage[] = [];
-            for (const msg of raw) {
-                const last = merged[merged.length - 1];
-                const isNotification = NO_MERGE_RE.test(msg.content) || (last && NO_MERGE_RE.test(last.content));
-                if (msg.role === "assistant" && last?.role === "assistant" && !isNotification) {
-                    if (msg.content) {
-                        last.content = last.content
-                            ? last.content + "\n\n" + msg.content
-                            : msg.content;
-                    }
-                    if (msg.toolCalls?.length) {
-                        last.toolCalls = [...(last.toolCalls || []), ...msg.toolCalls];
-                    }
-                } else {
-                    merged.push(msg);
-                }
-            }
-            messages.value = merged;
+            messages.value = parseHistoryMessages(res.messages);
+            historyOffset.value = messages.value.length;
+            hasMoreHistory.value = res.has_more || false;
             scrollToBottom();
         }
     } catch { /* 首次无历史 */ }
+}
+
+async function loadMoreHistory() {
+    if (!currentSessionId.value || loadingMore.value || !hasMoreHistory.value) return;
+
+    const wrap = chatScrollbar.value?.wrapRef;
+    if (!wrap) return;
+
+    loadingMore.value = true;
+    const prevScrollHeight = wrap.scrollHeight;
+    const prevScrollTop = wrap.scrollTop;
+
+    try {
+        const res: any = await getChatHistory(currentSessionId.value, HISTORY_PAGE_SIZE, historyOffset.value);
+        if (res?.messages?.length) {
+            const older = parseHistoryMessages(res.messages);
+            messages.value = [...older, ...messages.value];
+            historyOffset.value += older.length;
+            hasMoreHistory.value = res.has_more || false;
+
+            await nextTick();
+            wrap.scrollTop = prevScrollTop + (wrap.scrollHeight - prevScrollHeight);
+        } else {
+            hasMoreHistory.value = false;
+        }
+    } catch { /* ignore */ }
+    finally { loadingMore.value = false; }
 }
 
 async function handleSend() {
@@ -916,11 +893,85 @@ async function handleCompact() {
 async function handleReset() {
     if (!currentSessionId.value) return;
     try {
-        await resetChatSession(currentSessionId.value);
+        const res: any = await resetChatSession(currentSessionId.value);
         messages.value = [];
         sessionTokens.value = { input: 0, output: 0, messages: 0, cacheCreation: 0, cacheRead: 0 };
+        contextResetAt.value = res?.context_reset_at || Date.now() / 1000;
+        hasMoreHistory.value = false;
+        historyOffset.value = 0;
         message.success("会话已重置");
     } catch { message.error("重置失败"); }
+}
+
+async function handleReloadHistory() {
+    if (!currentSessionId.value || loadingMore.value) return;
+    loadingMore.value = true;
+    try {
+        await restoreChatContext(currentSessionId.value);
+        contextResetAt.value = 0;
+        await loadHistory();
+        await loadSessionInfo();
+    } catch {
+        message.error("加载历史记录失败");
+    } finally {
+        loadingMore.value = false;
+    }
+}
+
+function parseHistoryMessages(raw: any[]): ChatMessage[] {
+    const parsed: ChatMessage[] = raw.map((m: any) => {
+        const images = m.images?.map((img: string) => {
+            if (img && !img.startsWith('data:') && !img.startsWith('http') && !img.startsWith('/')) {
+                return `/api/${img}`;
+            }
+            return img;
+        });
+        let content = m.content || "";
+        if (images?.length && /^(请看图片)+$/.test(content.trim())) {
+            content = "";
+        }
+        const msg: ChatMessage = {
+            id: m.id || String(++messageCounter),
+            role: m.role,
+            content,
+            images,
+            timestamp: m.timestamp ? m.timestamp * 1000 : 0,
+        };
+        if (m.tool_calls?.length) {
+            msg.toolCalls = mergeToolCalls(
+                m.tool_calls.map((tc: any) => {
+                    let output = tc.output || "";
+                    let screenshots: string[] | undefined;
+                    if (output && output.includes("[screenshot]")) {
+                        const matches = Array.from(output.matchAll(/\[screenshot\]([A-Za-z0-9+/=]+)/g));
+                        if (matches.length) {
+                            screenshots = matches.map((m) => m[1].trim());
+                            output = output.replace(/\[screenshot\][A-Za-z0-9+/=]+/g, "").trim();
+                        }
+                    }
+                    return { name: tc.name, status: tc.status || "done", output, screenshots, collapsed: true, count: 1 };
+                })
+            );
+        }
+        return msg;
+    });
+    const NO_MERGE_RE = /^【/;
+    const merged: ChatMessage[] = [];
+    for (const msg of parsed) {
+        const last = merged[merged.length - 1];
+        const isNotification = NO_MERGE_RE.test(msg.content) || (last && NO_MERGE_RE.test(last.content));
+        if (msg.role === "assistant" && last?.role === "assistant" && !isNotification) {
+            if (msg.content) {
+                last.content = last.content ? last.content + "\n\n" + msg.content : msg.content;
+            }
+            if (msg.toolCalls?.length) {
+                last.toolCalls = [...(last.toolCalls || []), ...msg.toolCalls];
+            }
+        } else {
+            merged.push(msg);
+        }
+    }
+    return merged;
 }
 
 function formatTokens(n: number): string {
@@ -1590,11 +1641,30 @@ onMounted(async () => {
 
     // Handle pre-filled prompt from query parameter (e.g., AiAssistButton)
     applyPromptFromQuery();
+
+    // Scroll-up to load archived history
+    await nextTick();
+    const scrollWrap = chatScrollbar.value?.wrapRef;
+    if (scrollWrap) {
+        scrollWrap.addEventListener("scroll", onChatScroll);
+    }
 });
+
+function onChatScroll() {
+    const wrap = chatScrollbar.value?.wrapRef;
+    if (!wrap || !hasMoreHistory.value || loadingMore.value) return;
+    if (wrap.scrollTop < 60) {
+        loadMoreHistory();
+    }
+}
 
 onUnmounted(() => {
     document.removeEventListener("paste", handlePaste);
     document.removeEventListener("click", handleClickOutsidePanel);
+    const scrollWrap = chatScrollbar.value?.wrapRef;
+    if (scrollWrap) {
+        scrollWrap.removeEventListener("scroll", onChatScroll);
+    }
     for (const stream of activeStreams.values()) {
         try { stream.eventSource?.close(); } catch { /* noop */ }
         if (stream.twTimer) clearInterval(stream.twTimer);
@@ -1767,6 +1837,19 @@ onUnmounted(() => {
                 </div>
             </div>
 
+            <!-- 重置后：重新加载会话记录按钮 -->
+            <div v-if="contextResetAt > 0 && currentSessionId" class="flex justify-center py-2 border-b border-gray-100">
+                <button
+                    class="text-sm text-blue-500 hover:text-blue-600 cursor-pointer transition-colors flex items-center gap-1"
+                    :disabled="loadingMore"
+                    @click="handleReloadHistory"
+                >
+                    <Loader2 v-if="loadingMore" :size="14" class="animate-spin" />
+                    <RefreshCw v-else :size="14" />
+                    <span>{{ loadingMore ? '加载中...' : '重新加载会话记录' }}</span>
+                </button>
+            </div>
+
             <!-- 消息列表 -->
             <VortScrollbar ref="chatScrollbar" class="flex-1" wrap-class="px-6 py-4" view-class="flex flex-col min-h-full">
                 <VortImagePreviewGroup class="space-y-6">
@@ -1784,6 +1867,16 @@ onUnmounted(() => {
                         </div>
                         <p class="text-sm">{{ isAiMode ? '你好，我是 OpenVort AI 助手' : `与 ${activeContact?.name} 的对话` }}</p>
                         <p class="text-xs mt-1">{{ isAiMode ? '可以帮你管理任务、查询 Bug、了解项目进展' : 'AI 将以该成员的身份背景为你提供上下文相关的对话' }}</p>
+                    </div>
+
+                    <!-- 滚动到顶加载更多指示器 -->
+                    <div v-if="loadingMore && messages.length > 0" class="flex justify-center py-2">
+                        <Loader2 :size="16" class="animate-spin text-gray-400" />
+                    </div>
+
+                    <!-- 全部历史已加载标记 -->
+                    <div v-if="messages.length > 0 && historyOffset > 0 && !hasMoreHistory && !loadingMore" class="flex justify-center py-2">
+                        <span class="text-xs text-gray-300 select-none">- 已加载全部历史记录 -</span>
                     </div>
 
                     <!-- 消息气泡 -->

@@ -4,11 +4,13 @@ VortFlow 插件主类
 敏捷开发流程引擎 — 需求全生命周期管理。
 """
 
+import asyncio
 from pathlib import Path
 
 from openvort.plugin.base import BasePlugin, BaseTool
+from openvort.plugins.vortflow.aggregator import im_aggregator
 from openvort.plugins.vortflow.engine import FlowEngine
-from openvort.plugins.vortflow.notifier import Notifier
+from openvort.plugins.vortflow.notifier import notifier as _notifier_singleton
 from openvort.utils.logging import get_logger
 
 log = get_logger("plugins.vortflow")
@@ -24,7 +26,13 @@ class VortFlowPlugin(BasePlugin):
 
     def __init__(self):
         self._engine = FlowEngine()
-        self._notifier = Notifier()
+        self._notifier = _notifier_singleton
+        try:
+            from openvort.web.ws import manager as ws_manager
+            self._notifier.set_ws_manager(ws_manager)
+        except ImportError:
+            pass
+        asyncio.create_task(im_aggregator.start())
 
     def get_tools(self) -> list[BaseTool]:
         from openvort.db.engine import get_session_factory

@@ -39,6 +39,7 @@ class Session:
     target_id: str = ""  # target member id when target_type="member"
     pinned: bool = False
     hidden: bool = False
+    context_reset_at: float = 0  # unix timestamp; >0 means context was reset
 
     @property
     def key(self) -> str:
@@ -111,6 +112,109 @@ class SessionStore:
 
         if self._session_factory:
             await self._delete_from_db(channel, user_id, session_id)
+
+    async def reset_context(self, channel: str, user_id: str, session_id: str = "default") -> float:
+        """Reset AI context but preserve messages in archived_messages.
+
+        Returns the reset timestamp (unix).
+        """
+        key = f"{channel}:{user_id}:{session_id}"
+        now = time.time()
+
+        session = self._sessions.get(key)
+        if session:
+            session.messages = []
+            session.updated_at = now
+            session.context_reset_at = now
+
+        if self._session_factory:
+            await self._reset_context_in_db(channel, user_id, session_id, now)
+
+        return now
+
+    async def get_archived_history(
+        self, channel: str, user_id: str, session_id: str = "default",
+        offset: int = 0, limit: int = 50,
+    ) -> dict:
+        """Load paginated archived messages from DB (for display after context reset)."""
+        if not self._session_factory:
+            return {"messages": [], "total": 0, "has_more": False}
+
+        try:
+            from sqlalchemy import select
+            from openvort.db.models import ChatSession
+
+            async with self._session_factory() as db:
+                stmt = select(ChatSession.archived_messages).where(
+                    ChatSession.channel == channel,
+                    ChatSession.user_id == user_id,
+                    ChatSession.session_id == session_id,
+                )
+                result = await db.execute(stmt)
+                raw = result.scalar_one_or_none()
+
+            if not raw:
+                return {"messages": [], "total": 0, "has_more": False}
+
+            all_msgs = json.loads(raw)
+            total = len(all_msgs)
+            if offset >= total:
+                return {"messages": [], "total": total, "has_more": False}
+
+            end = total - offset
+            start = max(0, end - limit)
+            page = all_msgs[start:end]
+            return {"messages": page, "total": total, "has_more": start > 0}
+        except Exception as e:
+            log.warning(f"读取归档消息失败 ({channel}:{user_id}:{session_id}): {e}")
+            return {"messages": [], "total": 0, "has_more": False}
+
+    async def restore_context(self, channel: str, user_id: str, session_id: str = "default") -> int:
+        """Restore archived messages back into active context.
+
+        Returns count of restored messages.
+        """
+        if not self._session_factory:
+            return 0
+
+        try:
+            from sqlalchemy import select
+            from openvort.db.models import ChatSession
+
+            async with self._session_factory() as db:
+                stmt = select(ChatSession).where(
+                    ChatSession.channel == channel,
+                    ChatSession.user_id == user_id,
+                    ChatSession.session_id == session_id,
+                )
+                result = await db.execute(stmt)
+                row = result.scalar_one_or_none()
+
+                if not row or not row.archived_messages:
+                    return 0
+
+                archived = json.loads(row.archived_messages)
+                current = json.loads(row.messages) if row.messages else []
+                merged = archived + current
+
+                row.messages = json.dumps(merged, ensure_ascii=False)
+                row.archived_messages = None
+                row.context_reset_at = None
+                await db.commit()
+
+            key = f"{channel}:{user_id}:{session_id}"
+            session = self._sessions.get(key)
+            if session:
+                session.messages = merged
+                session.context_reset_at = 0
+                session.updated_at = time.time()
+            else:
+                session = await self._load_from_db(channel, user_id, session_id)
+
+            return len(archived)
+        except Exception as e:
+            log.warning(f"恢复会话上下文失败 ({channel}:{user_id}:{session_id}): {e}")
+            return 0
 
     async def compact(self, channel: str, user_id: str, llm_client=None, keep_recent: int = 10, session_id: str = "default") -> str:
         """压缩会话历史：用 LLM 生成摘要替换旧消息，保留最近 N 条"""
@@ -202,6 +306,7 @@ class SessionStore:
             "total_output_tokens": session.total_output_tokens,
             "total_cache_creation_tokens": session.total_cache_creation_tokens,
             "total_cache_read_tokens": session.total_cache_read_tokens,
+            "context_reset_at": session.context_reset_at,
             "exists": True,
         }
 
@@ -585,6 +690,9 @@ class SessionStore:
             updated_at = row.updated_at.timestamp() if row.updated_at else time.time()
             created_at = row.created_at.timestamp() if row.created_at else updated_at
 
+            context_reset_at_dt = getattr(row, "context_reset_at", None)
+            context_reset_ts = context_reset_at_dt.timestamp() if context_reset_at_dt else 0
+
             session = Session(
                 channel=channel,
                 user_id=user_id,
@@ -597,6 +705,7 @@ class SessionStore:
                 target_id=getattr(row, "target_id", None) or "",
                 pinned=getattr(row, "pinned", False) or False,
                 hidden=getattr(row, "hidden", False) or False,
+                context_reset_at=context_reset_ts,
             )
             self._sessions[session.key] = session
             log.debug(f"从 DB 恢复 Session {session.key}，{len(messages)} 条消息")
@@ -633,6 +742,37 @@ class SessionStore:
                 await db.commit()
         except Exception as e:
             log.warning(f"保存 Session 到 DB 失败 ({channel}:{user_id}:{session_id}): {e}")
+
+    async def _reset_context_in_db(self, channel: str, user_id: str, session_id: str, reset_ts: float) -> None:
+        """Archive current messages and clear active context in DB."""
+        try:
+            from datetime import datetime, timezone
+            from sqlalchemy import select
+            from openvort.db.models import ChatSession
+
+            async with self._session_factory() as db:
+                stmt = select(ChatSession).where(
+                    ChatSession.channel == channel,
+                    ChatSession.user_id == user_id,
+                    ChatSession.session_id == session_id,
+                )
+                result = await db.execute(stmt)
+                row = result.scalar_one_or_none()
+
+                if not row:
+                    return
+
+                current_msgs = json.loads(row.messages) if row.messages else []
+                existing_archived = json.loads(row.archived_messages) if row.archived_messages else []
+                merged_archived = existing_archived + current_msgs
+
+                row.archived_messages = json.dumps(merged_archived, ensure_ascii=False) if merged_archived else None
+                row.messages = "[]"
+                row.context_reset_at = datetime.fromtimestamp(reset_ts, tz=timezone.utc)
+                await db.commit()
+                log.info(f"上下文已重置 ({channel}:{user_id}:{session_id})，归档 {len(current_msgs)} 条消息")
+        except Exception as e:
+            log.warning(f"重置上下文失败 ({channel}:{user_id}:{session_id}): {e}")
 
     async def _delete_from_db(self, channel: str, user_id: str, session_id: str = "default") -> None:
         try:

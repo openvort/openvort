@@ -6,6 +6,10 @@ import {
     createVortflowStory, createVortflowTask, createVortflowBug,
 } from "@/api";
 
+const props = defineProps<{
+    projectId?: string;
+}>();
+
 const open = defineModel<boolean>("open", { default: false });
 
 const emit = defineEmits<{
@@ -93,7 +97,7 @@ const createItem = async (item: Record<string, any>) => {
         : Array.isArray(item.tags) ? item.tags : (item["标签"] || "").split(";").filter(Boolean);
     const desc = item.description || item["描述"] || "";
 
-    const base = { title, priority, tags, description: desc };
+    const base = { title, priority, tags, description: desc, project_id: props.projectId || undefined };
     if (type === "需求") await createVortflowStory(base);
     else if (type === "任务") await createVortflowTask({ ...base, task_type: "fullstack" });
     else if (type === "缺陷") await createVortflowBug({ ...base, severity: 3 });

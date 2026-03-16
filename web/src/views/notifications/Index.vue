@@ -40,6 +40,7 @@ const sourceOptions = [
     { label: "计划任务", value: "schedule" },
     { label: "AI 消息", value: "ai_message" },
     { label: "系统", value: "system" },
+    { label: "VortFlow", value: "vortflow" },
 ];
 
 async function loadNotifications() {

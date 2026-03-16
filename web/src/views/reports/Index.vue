@@ -1,17 +1,16 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from "vue";
+import { ref, onMounted, computed, watch } from "vue";
 import { useRouter } from "vue-router";
 import {
     getReports, getReportDetail, submitReport, reviewReport,
     getReportTemplates, createReportTemplate, deleteReportTemplate,
-    getReportRules, createReportRule, deleteReportRule,
+    getReportRules, createReportRule, updateReportRule, deleteReportRule,
     getReportStats, getMembers, generateReportContentPrompt,
-    getReportingRelations, createReportingRelation, deleteReportingRelation,
 } from "@/api";
 import {
     Plus, FileText, Send, CheckCircle, XCircle, Clock,
     BarChart3, Settings, ChevronLeft, ChevronRight, Eye, Bot,
-    ArrowRight,
+    Search,
 } from "lucide-vue-next";
 import { message } from "@/components/vort";
 import { useUserStore } from "@/stores";
@@ -37,6 +36,7 @@ interface ReportItem {
 interface TemplateItem {
     id: string;
     name: string;
+    description: string;
     report_type: string;
     content_schema: object;
     auto_collect: object;
@@ -49,8 +49,10 @@ interface RuleItem {
     template_name: string;
     scope: string;
     target_id: string;
+    target_name: string;
     reviewer_id: string;
     deadline_cron: string;
+    workdays_only: boolean;
     reminder_minutes: number;
     escalation_minutes: number;
     enabled: boolean;
@@ -104,17 +106,38 @@ const loadingRules = ref(false);
 
 // Template dialog
 const templateDialogOpen = ref(false);
-const templateForm = ref({ name: "", report_type: "daily" });
+const templateForm = ref({ name: "", description: "", report_type: "daily" });
 const savingTemplate = ref(false);
 
 // Rule dialog
 const ruleDialogOpen = ref(false);
-const ruleForm = ref({ template_id: "", scope: "member", target_id: "", reviewer_id: "", deadline_cron: "0 18 * * 1-5" });
+const ruleForm = ref({
+    template_id: "",
+    scope: "member",
+    target_ids: [] as string[],
+    deadline_cron: "0 18 * * 1-5",
+    workdays_only: true,
+});
 const savingRule = ref(false);
 
-// Member search for rules
-const ruleMemberSearch = ref("");
-const ruleMemberResults = ref<MemberItem[]>([]);
+// Member list for rule dialog
+const allMembers = ref<MemberItem[]>([]);
+const memberSearchQuery = ref("");
+const loadingMembers = ref(false);
+
+const filteredMembers = computed(() => {
+    if (!memberSearchQuery.value.trim()) return allMembers.value;
+    const q = memberSearchQuery.value.trim().toLowerCase();
+    return allMembers.value.filter(m => m.name.toLowerCase().includes(q));
+});
+
+const isAllSelected = computed(() =>
+    filteredMembers.value.length > 0 && filteredMembers.value.every(m => ruleForm.value.target_ids.includes(m.id))
+);
+
+const isSomeSelected = computed(() =>
+    filteredMembers.value.some(m => ruleForm.value.target_ids.includes(m.id)) && !isAllSelected.value
+);
 
 // Stats
 const stats = ref({ total: 0, draft: 0, submitted: 0, reviewed: 0, rejected: 0 });
@@ -126,6 +149,7 @@ const typeOptions = [
     { label: "日报", value: "daily" },
     { label: "周报", value: "weekly" },
     { label: "月报", value: "monthly" },
+    { label: "季报", value: "quarterly" },
 ];
 const statusOptions = [
     { label: "全部", value: "" },
@@ -134,8 +158,8 @@ const statusOptions = [
     { label: "已审阅", value: "reviewed" },
     { label: "已退回", value: "rejected" },
 ];
-const typeLabel = (val: string) => ({ daily: "日报", weekly: "周报", monthly: "月报" }[val] || val);
-const typeColor = (val: string) => ({ daily: "blue", weekly: "purple", monthly: "orange" }[val] || "default");
+const typeLabel = (val: string) => ({ daily: "日报", weekly: "周报", monthly: "月报", quarterly: "季报" }[val] || val);
+const typeColor = (val: string) => ({ daily: "blue", weekly: "purple", monthly: "orange", quarterly: "cyan" }[val] || "default");
 const statusLabel = (val: string) => ({ draft: "草稿", submitted: "已提交", reviewed: "已审阅", rejected: "已退回" }[val] || val);
 const statusColor = (val: string) => ({ draft: "default", submitted: "processing", reviewed: "green", rejected: "red" }[val] || "default");
 
@@ -207,7 +231,7 @@ async function handleSubmit() {
     finally { submitting.value = false; }
 }
 
-// AI 生成汇报内容
+// AI generate report content
 async function handleAiGenerateContent(reportType?: string, reportDate?: string) {
     const type = reportType || submitForm.value.report_type;
     const date = reportDate || submitForm.value.report_date || new Date().toISOString().slice(0, 10);
@@ -276,7 +300,7 @@ async function loadStats() {
 }
 
 function openTemplateDialog() {
-    templateForm.value = { name: "", report_type: "daily" };
+    templateForm.value = { name: "", description: "", report_type: "daily" };
     templateDialogOpen.value = true;
 }
 
@@ -307,36 +331,85 @@ async function handleDeleteTemplate(id: string) {
     } catch { message.error("删除失败"); }
 }
 
-async function searchRuleMembers() {
-    if (!ruleMemberSearch.value.trim()) return;
+// ---- Rule CRUD ----
+
+async function loadAllMembers() {
+    if (allMembers.value.length > 0) return;
+    loadingMembers.value = true;
     try {
-        const res: any = await getMembers({ search: ruleMemberSearch.value, size: 10 });
-        ruleMemberResults.value = res?.members || [];
-    } catch { ruleMemberResults.value = []; }
+        const res: any = await getMembers({ size: 500 });
+        allMembers.value = (res?.members || []).filter((m: any) => !m.is_virtual);
+    } catch { allMembers.value = []; }
+    finally { loadingMembers.value = false; }
+}
+
+function toggleMemberSelection(memberId: string) {
+    const idx = ruleForm.value.target_ids.indexOf(memberId);
+    if (idx > -1) {
+        ruleForm.value.target_ids.splice(idx, 1);
+    } else {
+        ruleForm.value.target_ids.push(memberId);
+    }
+}
+
+function toggleSelectAll() {
+    if (isAllSelected.value) {
+        const visibleIds = new Set(filteredMembers.value.map(m => m.id));
+        ruleForm.value.target_ids = ruleForm.value.target_ids.filter(id => !visibleIds.has(id));
+    } else {
+        const currentSet = new Set(ruleForm.value.target_ids);
+        filteredMembers.value.forEach(m => currentSet.add(m.id));
+        ruleForm.value.target_ids = [...currentSet];
+    }
 }
 
 function openRuleDialog() {
-    ruleForm.value = { template_id: "", scope: "member", target_id: "", reviewer_id: "", deadline_cron: "0 18 * * 1-5" };
-    ruleMemberSearch.value = "";
-    ruleMemberResults.value = [];
+    ruleForm.value = {
+        template_id: "",
+        scope: "member",
+        target_ids: [],
+        deadline_cron: "0 18 * * 1-5",
+        workdays_only: true,
+    };
+    memberSearchQuery.value = "";
     ruleDialogOpen.value = true;
+    loadAllMembers();
 }
 
 async function handleSaveRule() {
-    if (!ruleForm.value.template_id || !ruleForm.value.target_id) {
-        message.error("请选择模板和目标成员");
+    if (!ruleForm.value.template_id) {
+        message.error("请选择汇报模板");
+        return;
+    }
+    if (ruleForm.value.target_ids.length === 0) {
+        message.error("请至少选择一位成员");
         return;
     }
     savingRule.value = true;
     try {
-        const res: any = await createReportRule(ruleForm.value);
+        const res: any = await createReportRule({
+            template_id: ruleForm.value.template_id,
+            scope: ruleForm.value.scope,
+            target_ids: ruleForm.value.target_ids,
+            deadline_cron: ruleForm.value.deadline_cron,
+            workdays_only: ruleForm.value.workdays_only,
+        });
         if (res?.success) {
-            message.success("规则已创建");
+            message.success(`已创建 ${res.count} 条规则`);
             ruleDialogOpen.value = false;
             await loadRules();
-        } else { message.error("创建失败"); }
+        } else { message.error(res?.error || "创建失败"); }
     } catch { message.error("创建失败"); }
     finally { savingRule.value = false; }
+}
+
+async function handleToggleRule(rule: RuleItem) {
+    try {
+        const res: any = await updateReportRule(rule.id, { enabled: !rule.enabled });
+        if (res?.success) {
+            rule.enabled = !rule.enabled;
+        } else { message.error("操作失败"); }
+    } catch { message.error("操作失败"); }
 }
 
 async function handleDeleteRule(id: string) {
@@ -349,88 +422,7 @@ async function handleDeleteRule(id: string) {
     } catch { message.error("删除失败"); }
 }
 
-// ---- 汇报关系 ----
-
-interface RelationItem {
-    id: number;
-    reporter_id: string;
-    reporter_name: string;
-    supervisor_id: string;
-    supervisor_name: string;
-    relation_type: string;
-    is_primary: boolean;
-    created_at: string;
-}
-
-const relations = ref<RelationItem[]>([]);
-const loadingRelations = ref(false);
-
-const relationDialogOpen = ref(false);
-const relationForm = ref({ reporter_id: "", supervisor_id: "", relation_type: "direct" });
-const savingRelation = ref(false);
-const relationMemberSearch = ref("");
-const relationMemberResults = ref<MemberItem[]>([]);
-
-const relationTypeOptions = [
-    { label: "直属", value: "direct" },
-    { label: "虚线", value: "dotted" },
-    { label: "职能", value: "functional" },
-];
-
-const relationTypeLabel = (val: string) => relationTypeOptions.find(o => o.value === val)?.label || val;
-
-async function loadRelations() {
-    loadingRelations.value = true;
-    try {
-        const res: any = await getReportingRelations();
-        relations.value = res?.relations || [];
-    } catch { /* ignore */ }
-    finally { loadingRelations.value = false; }
-}
-
-function openRelationDialog() {
-    relationForm.value = { reporter_id: "", supervisor_id: "", relation_type: "direct" };
-    relationMemberSearch.value = "";
-    relationMemberResults.value = [];
-    relationDialogOpen.value = true;
-}
-
-async function searchRelationMembers() {
-    if (!relationMemberSearch.value.trim()) return;
-    try {
-        const res: any = await getMembers({ search: relationMemberSearch.value, size: 20 });
-        relationMemberResults.value = res?.members || [];
-    } catch { relationMemberResults.value = []; }
-}
-
-async function handleSaveRelation() {
-    if (!relationForm.value.reporter_id || !relationForm.value.supervisor_id) {
-        message.error("请选择汇报人和上级");
-        return;
-    }
-    savingRelation.value = true;
-    try {
-        const res: any = await createReportingRelation(relationForm.value);
-        if (res?.success) {
-            message.success("汇报关系已创建");
-            relationDialogOpen.value = false;
-            await loadRelations();
-        } else { message.error(res?.error || "创建失败"); }
-    } catch { message.error("创建失败"); }
-    finally { savingRelation.value = false; }
-}
-
-async function handleDeleteRelation(id: number) {
-    try {
-        const res: any = await deleteReportingRelation(id);
-        if (res?.success) {
-            message.success("已删除");
-            await loadRelations();
-        } else { message.error("删除失败"); }
-    } catch { message.error("删除失败"); }
-}
-
-// ---- 头像工具 ----
+// ---- Avatar helpers ----
 
 const AVATAR_COLORS = [
     'bg-blue-500', 'bg-green-500', 'bg-purple-500', 'bg-orange-500',
@@ -462,13 +454,12 @@ onMounted(() => {
     loadStats();
     loadTemplates();
     loadRules();
-    loadRelations();
 });
 </script>
 
 <template>
     <div class="space-y-4">
-        <!-- 统计卡片 -->
+        <!-- Stats cards -->
         <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
             <div class="bg-white rounded-xl p-4">
                 <div class="text-sm text-gray-400">总汇报数</div>
@@ -492,10 +483,10 @@ onMounted(() => {
             </div>
         </div>
 
-        <!-- 主内容区 -->
+        <!-- Main content -->
         <div class="bg-white rounded-xl p-6">
             <VortTabs v-model:activeKey="activeTab">
-                <!-- 我的汇报 -->
+                <!-- My reports -->
                 <VortTabPane tab-key="my" tab="我的汇报">
                     <div class="flex items-center justify-between mb-4">
                         <div class="flex items-center gap-3">
@@ -538,7 +529,7 @@ onMounted(() => {
                     </VortSpin>
                 </VortTabPane>
 
-                <!-- 下属汇报 -->
+                <!-- Subordinate reports -->
                 <VortTabPane tab-key="subordinate" tab="下属汇报">
                     <div class="flex items-center justify-between mb-4">
                         <div class="flex items-center gap-3">
@@ -546,6 +537,10 @@ onMounted(() => {
                                 <VortSelectOption v-for="opt in statusOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</VortSelectOption>
                             </VortSelect>
                         </div>
+                        <AiAssistButton
+                            label="帮我汇总"
+                            prompt="请帮我汇总下属提交的汇报。请查看我所有下属最近的日报/周报，总结关键进展、风险和阻塞项，生成一份管理层摘要。"
+                        />
                     </div>
 
                     <VortSpin :spinning="loadingSub">
@@ -574,56 +569,10 @@ onMounted(() => {
                     </VortSpin>
                 </VortTabPane>
 
-                <!-- 汇报关系 -->
-                <VortTabPane v-if="isAdmin" tab-key="reporting" tab="汇报关系">
-                    <div class="flex items-center justify-between mb-4">
-                        <h4 class="text-base font-medium text-gray-800">汇报关系</h4>
-                        <div class="flex items-center gap-2">
-                            <AiAssistButton prompt="我想添加一条汇报关系，请引导我完成。需要设置汇报人（下级）、上级、以及关系类型（直属/虚线/职能）。" />
-                            <VortButton variant="primary" @click="openRelationDialog">
-                                <Plus :size="14" class="mr-1" /> 新增
-                            </VortButton>
-                        </div>
-                    </div>
-
-                    <VortSpin :spinning="loadingRelations">
-                        <div v-if="relations.length" class="space-y-2">
-                            <div
-                                v-for="r in relations" :key="r.id"
-                                class="flex items-center justify-between px-5 py-3.5 rounded-lg border border-gray-100 hover:bg-gray-50"
-                            >
-                                <div class="flex items-center gap-3 text-sm">
-                                    <span
-                                        class="inline-flex items-center justify-center w-7 h-7 rounded-full text-white text-xs font-medium flex-shrink-0"
-                                        :class="getAvatarColor(r.reporter_name)"
-                                    >{{ getInitial(r.reporter_name) }}</span>
-                                    <span class="font-medium text-gray-800">{{ r.reporter_name }}</span>
-                                    <ArrowRight :size="14" class="text-gray-400" />
-                                    <span
-                                        class="inline-flex items-center justify-center w-7 h-7 rounded-full text-white text-xs font-medium flex-shrink-0"
-                                        :class="getAvatarColor(r.supervisor_name)"
-                                    >{{ getInitial(r.supervisor_name) }}</span>
-                                    <span class="font-medium text-gray-800">{{ r.supervisor_name }}</span>
-                                    <VortTag :color="r.relation_type === 'direct' ? 'blue' : r.relation_type === 'dotted' ? 'orange' : 'cyan'" size="small">
-                                        {{ relationTypeLabel(r.relation_type) }}
-                                    </VortTag>
-                                    <VortTag v-if="r.is_primary" color="green" size="small">主要</VortTag>
-                                </div>
-                                <VortPopconfirm title="确认删除此汇报关系？" @confirm="handleDeleteRelation(r.id)">
-                                    <a class="text-sm text-red-500 cursor-pointer">删除</a>
-                                </VortPopconfirm>
-                            </div>
-                        </div>
-                        <div v-else class="text-gray-400 text-sm text-center py-16">
-                            暂无汇报关系，点击右上角「新增」添加
-                        </div>
-                    </VortSpin>
-                </VortTabPane>
-
-                <!-- 汇报设置 -->
+                <!-- Settings -->
                 <VortTabPane v-if="isAdmin" tab-key="settings" tab="汇报设置">
                     <div class="space-y-6">
-                        <!-- 模板管理 -->
+                        <!-- Template management -->
                         <div>
                             <div class="flex items-center justify-between mb-3">
                                 <h4 class="text-sm font-medium text-gray-600">汇报模板</h4>
@@ -638,9 +587,14 @@ onMounted(() => {
                                         class="flex items-center justify-between px-4 py-3 rounded-lg border border-gray-100"
                                     >
                                         <div class="flex items-center gap-3">
-                                            <FileText :size="16" class="text-gray-400" />
-                                            <span class="text-sm font-medium text-gray-800">{{ t.name }}</span>
-                                            <VortTag :color="typeColor(t.report_type)" size="small">{{ typeLabel(t.report_type) }}</VortTag>
+                                            <FileText :size="16" class="text-gray-400 flex-shrink-0" />
+                                            <div class="min-w-0">
+                                                <div class="flex items-center gap-2">
+                                                    <span class="text-sm font-medium text-gray-800">{{ t.name }}</span>
+                                                    <VortTag :color="typeColor(t.report_type)" size="small">{{ typeLabel(t.report_type) }}</VortTag>
+                                                </div>
+                                                <div v-if="t.description" class="text-xs text-gray-400 mt-0.5 truncate max-w-md">{{ t.description }}</div>
+                                            </div>
                                         </div>
                                         <VortPopconfirm title="确认删除此模板？" @confirm="handleDeleteTemplate(t.id)">
                                             <a class="text-sm text-red-500 cursor-pointer">删除</a>
@@ -653,7 +607,7 @@ onMounted(() => {
 
                         <VortDivider />
 
-                        <!-- 规则管理 -->
+                        <!-- Rule management -->
                         <div>
                             <div class="flex items-center justify-between mb-3">
                                 <h4 class="text-sm font-medium text-gray-600">汇报规则</h4>
@@ -668,14 +622,17 @@ onMounted(() => {
                                         class="flex items-center justify-between px-4 py-3 rounded-lg border border-gray-100"
                                     >
                                         <div class="flex items-center gap-3 text-sm">
-                                            <VortTag size="small" :color="r.enabled ? 'green' : 'default'">
-                                                {{ r.enabled ? '启用' : '禁用' }}
-                                            </VortTag>
+                                            <VortSwitch
+                                                :checked="r.enabled"
+                                                size="small"
+                                                @change="handleToggleRule(r)"
+                                            />
                                             <span class="text-gray-800">{{ r.template_name || '未知模板' }}</span>
                                             <span class="text-gray-400">{{ r.scope === 'member' ? '个人' : '部门' }}: {{ r.target_id.slice(0, 8) }}</span>
                                             <span class="text-gray-400">
                                                 <Clock :size="12" class="inline mr-1" />{{ r.deadline_cron }}
                                             </span>
+                                            <VortTag v-if="r.workdays_only" size="small" color="blue">仅工作日</VortTag>
                                         </div>
                                         <VortPopconfirm title="确认删除此规则？" @confirm="handleDeleteRule(r.id)">
                                             <a class="text-sm text-red-500 cursor-pointer">删除</a>
@@ -690,7 +647,7 @@ onMounted(() => {
             </VortTabs>
         </div>
 
-        <!-- 汇报详情抽屉 -->
+        <!-- Report detail drawer -->
         <VortDrawer :open="detailVisible" title="汇报详情" :width="600" @update:open="detailVisible = $event">
             <template v-if="detailLoading">
                 <div class="flex items-center justify-center py-16 text-gray-400">加载中...</div>
@@ -738,7 +695,7 @@ onMounted(() => {
             </template>
         </VortDrawer>
 
-        <!-- 写汇报弹窗 -->
+        <!-- Submit report dialog -->
         <VortDialog
             :open="submitDialogOpen"
             title="写汇报"
@@ -756,6 +713,7 @@ onMounted(() => {
                             <VortSelectOption value="daily">日报</VortSelectOption>
                             <VortSelectOption value="weekly">周报</VortSelectOption>
                             <VortSelectOption value="monthly">月报</VortSelectOption>
+                            <VortSelectOption value="quarterly">季报</VortSelectOption>
                         </VortSelect>
                     </div>
                     <div>
@@ -781,7 +739,7 @@ onMounted(() => {
             </div>
         </VortDialog>
 
-        <!-- 审阅弹窗 -->
+        <!-- Review dialog -->
         <VortDialog
             :open="reviewDialogOpen"
             title="审阅汇报"
@@ -805,7 +763,7 @@ onMounted(() => {
             </div>
         </VortDialog>
 
-        <!-- 新增模板弹窗 -->
+        <!-- New template dialog -->
         <VortDialog
             :open="templateDialogOpen"
             title="新增汇报模板"
@@ -820,80 +778,28 @@ onMounted(() => {
                     <VortInput v-model="templateForm.name" placeholder="如：技术团队日报" />
                 </div>
                 <div>
+                    <label class="block text-xs text-gray-500 mb-1">模板描述</label>
+                    <VortTextarea v-model="templateForm.description" :rows="3" placeholder="描述此模板要求提交的汇报内容，如：每日工作进展、遇到的问题及解决方案、明日计划等" />
+                </div>
+                <div>
                     <label class="block text-xs text-gray-500 mb-1">汇报类型</label>
                     <VortSelect v-model="templateForm.report_type" style="width: 100%">
                         <VortSelectOption value="daily">日报</VortSelectOption>
                         <VortSelectOption value="weekly">周报</VortSelectOption>
                         <VortSelectOption value="monthly">月报</VortSelectOption>
+                        <VortSelectOption value="quarterly">季报</VortSelectOption>
                     </VortSelect>
                 </div>
             </div>
         </VortDialog>
 
-        <!-- 新增汇报关系弹窗 -->
-        <VortDialog
-            :open="relationDialogOpen"
-            title="新增汇报关系"
-            :ok-text="'创建'"
-            :confirm-loading="savingRelation"
-            @update:open="relationDialogOpen = $event"
-            @ok="handleSaveRelation"
-        >
-            <div class="space-y-4">
-                <div>
-                    <label class="block text-xs text-gray-500 mb-1">搜索成员</label>
-                    <VortInputSearch
-                        v-model="relationMemberSearch"
-                        placeholder="输入姓名搜索"
-                        @search="searchRelationMembers"
-                        @press-enter="searchRelationMembers"
-                    />
-                </div>
-                <div v-if="relationMemberResults.length" class="max-h-40 overflow-y-auto border border-gray-100 rounded-lg p-2 space-y-1">
-                    <div
-                        v-for="m in relationMemberResults" :key="m.id"
-                        class="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-gray-50 text-sm"
-                    >
-                        <span class="font-medium text-gray-800">{{ m.name }}</span>
-                        <div class="flex items-center gap-1">
-                            <VortButton size="small" @click="relationForm.reporter_id = m.id; message.info(`已选为汇报人: ${m.name}`)">
-                                设为汇报人
-                            </VortButton>
-                            <VortButton size="small" @click="relationForm.supervisor_id = m.id; message.info(`已选为上级: ${m.name}`)">
-                                设为上级
-                            </VortButton>
-                        </div>
-                    </div>
-                </div>
-                <div class="grid grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-xs text-gray-500 mb-1">汇报人（下级）</label>
-                        <div class="text-sm text-gray-800 px-3 py-2 bg-gray-50 rounded-lg min-h-[36px]">
-                            {{ relationMemberResults.find(m => m.id === relationForm.reporter_id)?.name || '未选择' }}
-                        </div>
-                    </div>
-                    <div>
-                        <label class="block text-xs text-gray-500 mb-1">上级</label>
-                        <div class="text-sm text-gray-800 px-3 py-2 bg-gray-50 rounded-lg min-h-[36px]">
-                            {{ relationMemberResults.find(m => m.id === relationForm.supervisor_id)?.name || '未选择' }}
-                        </div>
-                    </div>
-                </div>
-                <div>
-                    <label class="block text-xs text-gray-500 mb-1">关系类型</label>
-                    <VortSelect v-model="relationForm.relation_type" style="width: 100%">
-                        <VortSelectOption v-for="opt in relationTypeOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</VortSelectOption>
-                    </VortSelect>
-                </div>
-            </div>
-        </VortDialog>
-
-        <!-- 新增规则弹窗 -->
+        <!-- New rule dialog -->
         <VortDialog
             :open="ruleDialogOpen"
             title="新增汇报规则"
             :ok-text="'创建'"
             :confirm-loading="savingRule"
+            :width="520"
             @update:open="ruleDialogOpen = $event"
             @ok="handleSaveRule"
         >
@@ -904,30 +810,68 @@ onMounted(() => {
                         <VortSelectOption v-for="t in templates" :key="t.id" :value="t.id">{{ t.name }}</VortSelectOption>
                     </VortSelect>
                 </div>
+
                 <div>
-                    <label class="block text-xs text-gray-500 mb-1">搜索成员</label>
-                    <VortInputSearch
-                        v-model="ruleMemberSearch"
-                        placeholder="输入姓名搜索"
-                        @search="searchRuleMembers"
-                        @press-enter="searchRuleMembers"
-                    />
-                    <div v-if="ruleMemberResults.length" class="mt-2 max-h-32 overflow-y-auto border border-gray-100 rounded-lg p-2 space-y-1">
-                        <div
-                            v-for="m in ruleMemberResults" :key="m.id"
-                            class="flex items-center justify-between px-3 py-1.5 rounded hover:bg-gray-50 text-sm cursor-pointer"
-                        >
-                            <span>{{ m.name }}</span>
-                            <div class="flex gap-1">
-                                <VortButton size="small" @click="ruleForm.target_id = m.id; message.info(`汇报人: ${m.name}`)">汇报人</VortButton>
-                                <VortButton size="small" @click="ruleForm.reviewer_id = m.id; message.info(`审阅人: ${m.name}`)">审阅人</VortButton>
+                    <label class="block text-xs text-gray-500 mb-1">
+                        选择成员
+                        <span class="text-gray-300 ml-1">已选 {{ ruleForm.target_ids.length }} 人</span>
+                    </label>
+
+                    <div class="border border-gray-200 rounded-lg overflow-hidden">
+                        <!-- Search + select all header -->
+                        <div class="flex items-center gap-2 px-3 py-2 bg-gray-50 border-b border-gray-200">
+                            <VortCheckbox
+                                :checked="isAllSelected"
+                                :indeterminate="isSomeSelected"
+                                @update:checked="toggleSelectAll"
+                            />
+                            <div class="relative flex-1">
+                                <Search :size="14" class="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                                <input
+                                    v-model="memberSearchQuery"
+                                    type="text"
+                                    placeholder="搜索成员..."
+                                    class="w-full h-8 pl-8 pr-3 text-sm border border-gray-200 rounded-md outline-none focus:border-blue-500 bg-white"
+                                />
                             </div>
+                        </div>
+
+                        <!-- Member list -->
+                        <div class="max-h-64 overflow-y-auto">
+                            <VortSpin :spinning="loadingMembers">
+                                <div v-if="filteredMembers.length" class="divide-y divide-gray-50">
+                                    <label
+                                        v-for="m in filteredMembers" :key="m.id"
+                                        class="flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 cursor-pointer"
+                                    >
+                                        <VortCheckbox
+                                            :checked="ruleForm.target_ids.includes(m.id)"
+                                            @update:checked="toggleMemberSelection(m.id)"
+                                        />
+                                        <span
+                                            class="inline-flex items-center justify-center w-7 h-7 rounded-full text-white text-xs font-medium flex-shrink-0"
+                                            :class="getAvatarColor(m.name)"
+                                        >{{ getInitial(m.name) }}</span>
+                                        <span class="text-sm text-gray-800">{{ m.name }}</span>
+                                    </label>
+                                </div>
+                                <div v-else class="text-gray-400 text-sm text-center py-6">无匹配成员</div>
+                            </VortSpin>
                         </div>
                     </div>
                 </div>
-                <div>
-                    <label class="block text-xs text-gray-500 mb-1">截止时间 (cron)</label>
-                    <VortInput v-model="ruleForm.deadline_cron" placeholder="0 18 * * 1-5 (工作日18点)" />
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">截止时间 (cron)</label>
+                        <VortInput v-model="ruleForm.deadline_cron" placeholder="0 18 * * 1-5" />
+                    </div>
+                    <div class="flex items-end pb-0.5">
+                        <label class="inline-flex items-center gap-2 cursor-pointer">
+                            <VortSwitch v-model:checked="ruleForm.workdays_only" size="small" />
+                            <span class="text-sm text-gray-600">仅工作日执行</span>
+                        </label>
+                    </div>
                 </div>
             </div>
         </VortDialog>

@@ -207,6 +207,7 @@ async def get_notification_prefs(request: Request):
         "system": {"web": True},
         "task": {"web": True},
         "team": {"web": False},
+        "vortflow": {"web": True, "im": True},
     }
     # 合并已保存的偏好
     for key in defaults:

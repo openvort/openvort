@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from openvort.db.engine import Base
@@ -52,6 +52,10 @@ class FlowStory(Base):
     tags_json: Mapped[str] = mapped_column(Text, default="[]")
     collaborators_json: Mapped[str] = mapped_column(Text, default="[]")
     deadline: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    start_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    end_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    repo_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    branch: Mapped[str] = mapped_column(String(200), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -77,6 +81,10 @@ class FlowTask(Base):
     estimate_hours: Mapped[float | None] = mapped_column(nullable=True)
     actual_hours: Mapped[float | None] = mapped_column(nullable=True)
     deadline: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    start_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    end_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    repo_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    branch: Mapped[str] = mapped_column(String(200), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -98,6 +106,13 @@ class FlowBug(Base):
     developer_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("members.id"), nullable=True)
     tags_json: Mapped[str] = mapped_column(Text, default="[]")
     collaborators_json: Mapped[str] = mapped_column(Text, default="[]")
+    estimate_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
+    actual_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
+    deadline: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    start_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    end_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    repo_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    branch: Mapped[str] = mapped_column(String(200), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -272,4 +287,19 @@ class FlowColumnSetting(Base):
     member_id: Mapped[str] = mapped_column(String(32), ForeignKey("members.id"), index=True)
     work_item_type: Mapped[str] = mapped_column(String(16))  # 需求/任务/缺陷
     columns_json: Mapped[str] = mapped_column(Text, default="[]")  # [{"key":"..","visible":true}, ...]
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class FlowComment(Base):
+    """Work item comment"""
+
+    __tablename__ = "flow_comments"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    entity_type: Mapped[str] = mapped_column(String(32), index=True)  # story/task/bug
+    entity_id: Mapped[str] = mapped_column(String(32), index=True)
+    author_id: Mapped[str] = mapped_column(String(32), ForeignKey("members.id"), index=True)
+    content: Mapped[str] = mapped_column(Text, default="")
+    mentions_json: Mapped[str] = mapped_column(Text, default="[]")  # member_ids mentioned via @
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())

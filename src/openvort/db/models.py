@@ -75,6 +75,8 @@ class ChatSession(Base):
     session_id: Mapped[str] = mapped_column(String(64), index=True, default="default")
     title: Mapped[str] = mapped_column(String(200), default="新对话")
     messages: Mapped[str] = mapped_column(Text, default="[]")  # JSON
+    archived_messages: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)  # JSON — preserved after context reset
+    context_reset_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
     target_type: Mapped[str] = mapped_column(String(16), default="ai", index=True)  # "ai" | "member"
     target_id: Mapped[str] = mapped_column(String(32), default="")  # target member id when target_type="member"
     pinned: Mapped[bool] = mapped_column(Boolean, default=False)

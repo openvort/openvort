@@ -4,17 +4,17 @@ import { z } from "zod";
 import { useRouter } from "vue-router";
 import {
     FolderKanban, ListChecks, CheckSquare, Bug, Plus, Settings,
-    Trash2, Bot, Repeat, Filter, ArrowRight, User, Calendar,
+    Trash2, Repeat, Filter, ArrowRight, User, Calendar,
 } from "lucide-vue-next";
 import { useDirtyCheck } from "@/hooks";
 import { useVortFlowStore } from "@/stores";
+import { useWorkItemCommon } from "./work-item/useWorkItemCommon";
 import {
     getVortflowStats, getVortflowProjects, createVortflowProject,
     updateVortflowProject, deleteVortflowProject,
-    getVortgitRepos, generateVortflowDescriptionPrompt,
+    getVortgitRepos,
     getVortflowIterations, getVortflowVersions,
 } from "@/api";
-import { message } from "@/components/vort";
 
 interface ProjectItem {
     id: string;
@@ -44,6 +44,7 @@ interface VortgitRepoItem {
 
 const router = useRouter();
 const vortFlowStore = useVortFlowStore();
+const { getMemberNameById, loadMemberOptions } = useWorkItemCommon();
 const loading = ref(true);
 const stats = ref<DashboardStats>({ stories: { total: 0, done: 0 }, tasks: { total: 0, done: 0 }, bugs: { total: 0, closed: 0 } });
 const projects = ref<ProjectItem[]>([]);
@@ -196,22 +197,6 @@ const handleSaveProject = async () => {
     } finally { formLoading.value = false; }
 };
 
-async function handleAiGenerateProjectDescription() {
-    if (!currentProject.value.name?.trim()) {
-        message.warning("请先输入项目名称");
-        return;
-    }
-    try {
-        const res: any = await generateVortflowDescriptionPrompt("project", currentProject.value.name, "");
-        if (res?.prompt) {
-            drawerVisible.value = false;
-            router.push({ name: "chat", query: { prompt: res.prompt } });
-        }
-    } catch (e: any) {
-        message.error(e?.response?.data?.detail || "生成失败");
-    }
-}
-
 const handleDeleteProject = async (p: ProjectItem) => {
     await deleteVortflowProject(p.id);
     loadData();
@@ -230,7 +215,10 @@ const goToAllIterations = () => {
     router.push("/vortflow/iterations");
 };
 
-onMounted(loadData);
+onMounted(() => {
+    loadData();
+    loadMemberOptions();
+});
 
 watch(() => vortFlowStore.selectedProjectId, () => {
     loadData();
@@ -376,9 +364,14 @@ watch(() => vortFlowStore.selectedProjectId, () => {
                             </vort-select>
                         </div>
                     </div>
-                    <vort-button variant="primary" @click="handleAddProject">
-                        <Plus :size="14" class="mr-1" /> 新增项目
-                    </vort-button>
+                    <div class="flex items-center gap-2">
+                        <AiAssistButton
+                            prompt="我想创建一个新的 VortFlow 项目，请引导我完成设置，包括项目名称、描述、起止时间。"
+                        />
+                        <vort-button variant="primary" @click="handleAddProject">
+                            <Plus :size="14" class="mr-1" /> 新增项目
+                        </vort-button>
+                    </div>
                 </div>
                 <div v-if="projects.length === 0" class="text-center py-12 text-gray-400">
                     <FolderKanban :size="48" class="mx-auto mb-3 text-gray-300" />
@@ -422,7 +415,7 @@ watch(() => vortFlowStore.selectedProjectId, () => {
 
                         <div v-if="p.owner_id" class="flex items-center gap-1.5 text-xs text-gray-500 mb-3">
                             <User :size="12" class="text-gray-400" />
-                            <span>{{ p.owner_id }}</span>
+                            <span>{{ getMemberNameById(p.owner_id) || p.owner_id }}</span>
                         </div>
 
                         <div class="pt-3 border-t border-gray-100">
@@ -529,14 +522,7 @@ watch(() => vortFlowStore.selectedProjectId, () => {
                     <vort-date-picker v-model="currentProject.end_date" value-format="YYYY-MM-DD" placeholder="请选择结束日期" class="w-full" />
                 </vort-form-item>
                 <vort-form-item label="描述" name="description">
-                    <div class="space-y-2">
-                        <VortEditor v-model="currentProject.description" placeholder="请输入项目描述" min-height="160px" />
-                        <div class="flex justify-end">
-                            <vort-button size="small" @click="handleAiGenerateProjectDescription">
-                                <Bot :size="12" class="mr-1" /> AI 助手创建
-                            </vort-button>
-                        </div>
-                    </div>
+                    <VortEditor v-model="currentProject.description" placeholder="请输入项目描述" min-height="160px" />
                 </vort-form-item>
             </vort-form>
             <div class="flex justify-end gap-3 mt-6">

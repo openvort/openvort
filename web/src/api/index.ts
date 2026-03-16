@@ -70,9 +70,9 @@ export function getEnabledChannels() {
     return request.get("/admin/channels");
 }
 
-/** 获取聊天历史 */
-export function getChatHistory(limit = 50, sessionId = "default") {
-    return request.get("/chat/history", { params: { limit, session_id: sessionId } });
+/** 获取聊天历史（分页） */
+export function getChatHistory(sessionId = "default", limit = 20, offset = 0) {
+    return request.get("/chat/history", { params: { limit, offset, session_id: sessionId } });
 }
 
 /** 发送聊天消息，返回 message_id */
@@ -111,9 +111,14 @@ export function compactChatSession(sessionId = "default") {
     return request.post("/chat/compact", { session_id: sessionId });
 }
 
-/** 重置会话 */
+/** 重置会话（上下文清空，消息归档保留） */
 export function resetChatSession(sessionId = "default") {
     return request.post("/chat/reset", { session_id: sessionId });
+}
+
+/** 恢复会话上下文（将归档消息还原为活跃上下文） */
+export function restoreChatContext(sessionId = "default") {
+    return request.post("/chat/restore-context", { session_id: sessionId });
 }
 
 /** 搜索成员（@mention 提示） */
@@ -1354,6 +1359,7 @@ export function createVortflowVersion(data: {
     progress?: number;
     release_date?: string;
     status?: string;
+    release_log?: string;
 }) {
     return request.post("/vortflow/versions", data);
 }
@@ -1368,6 +1374,7 @@ export function updateVortflowVersion(id: string, data: {
     progress?: number;
     release_date?: string;
     status?: string;
+    release_log?: string;
 }) {
     return request.put(`/vortflow/versions/${id}`, data);
 }
@@ -1395,6 +1402,22 @@ export function addVortflowVersionStory(versionId: string, data: { story_id: str
 /** VortFlow 取消关联需求 */
 export function removeVortflowVersionStory(versionId: string, storyId: string) {
     return request.delete(`/vortflow/versions/${versionId}/stories/${storyId}`);
+}
+
+// ==================== VortFlow Comments & Activity ====================
+
+/** VortFlow work item comments */
+export function getVortflowComments(entityType: string, entityId: string) {
+    return request.get(`/vortflow/comments/${entityType}/${entityId}`);
+}
+
+export function createVortflowComment(entityType: string, entityId: string, data: { content: string; mentions?: string[] }) {
+    return request.post(`/vortflow/comments/${entityType}/${entityId}`, data);
+}
+
+/** VortFlow work item activity log */
+export function getVortflowActivity(entityType: string, entityId: string, params?: { page?: number; page_size?: number }) {
+    return request.get(`/vortflow/activity/${entityType}/${entityId}`, { params });
 }
 
 // ==================== VortFlow Views & Column Settings ====================
@@ -1571,7 +1594,7 @@ export function getReportTemplates() {
 }
 
 /** 创建汇报模板 */
-export function createReportTemplate(data: { name: string; report_type: string; content_schema?: object; auto_collect?: object }) {
+export function createReportTemplate(data: { name: string; description?: string; report_type: string; content_schema?: object; auto_collect?: object }) {
     return request.post("/reports/templates", data);
 }
 
@@ -1587,9 +1610,14 @@ export function getReportRules(templateId?: string) {
     return request.get("/reports/rules", { params: { template_id: templateId } });
 }
 
-/** 创建汇报规则 */
-export function createReportRule(data: { template_id: string; scope: string; target_id: string; reviewer_id?: string; deadline_cron?: string; reminder_minutes?: number; escalation_minutes?: number; enabled?: boolean }) {
+/** 创建汇报规则 (支持 target_ids 批量) */
+export function createReportRule(data: { template_id: string; scope: string; target_id?: string; target_ids?: string[]; reviewer_id?: string; deadline_cron?: string; workdays_only?: boolean; reminder_minutes?: number; escalation_minutes?: number; enabled?: boolean }) {
     return request.post("/reports/rules", data);
+}
+
+/** 更新汇报规则 */
+export function updateReportRule(id: string, data: { enabled?: boolean; deadline_cron?: string; workdays_only?: boolean }) {
+    return request.put(`/reports/rules/${id}`, data);
 }
 
 /** 删除汇报规则 */

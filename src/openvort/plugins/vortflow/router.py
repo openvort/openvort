@@ -1,5 +1,6 @@
 """VortFlow FastAPI 子路由 — 完整 CRUD + 状态流转 + 事件日志"""
 
+import asyncio
 import json
 from datetime import datetime
 
@@ -8,13 +9,14 @@ from pydantic import BaseModel
 from sqlalchemy import func, or_, select, delete as sa_delete
 
 from openvort.db.engine import get_session_factory
+from openvort.plugins.vortflow.notifier import notifier as _notifier
 from openvort.web.app import require_auth
 from openvort.plugins.vortflow.engine import (
     STORY_TRANSITIONS, TASK_TRANSITIONS, BUG_TRANSITIONS,
     StoryState, TaskState, BugState,
 )
 from openvort.plugins.vortflow.models import (
-    FlowBug, FlowEvent, FlowMilestone, FlowProject,
+    FlowBug, FlowComment, FlowEvent, FlowMilestone, FlowProject,
     FlowProjectMember, FlowStory, FlowTask,
     FlowIteration, FlowVersion,
     FlowIterationStory, FlowIterationTask, FlowVersionStory,
@@ -65,6 +67,10 @@ class StoryUpdate(BaseModel):
     deadline: str | None = None
     pm_id: str | None = None
     project_id: str | None = None
+    start_at: str | None = None
+    end_at: str | None = None
+    repo_id: str | None = None
+    branch: str | None = None
 
 class TaskCreate(BaseModel):
     story_id: str | None = None
@@ -90,6 +96,10 @@ class TaskUpdate(BaseModel):
     estimate_hours: float | None = None
     actual_hours: float | None = None
     deadline: str | None = None
+    start_at: str | None = None
+    end_at: str | None = None
+    repo_id: str | None = None
+    branch: str | None = None
 
 class BugCreate(BaseModel):
     story_id: str | None = None
@@ -109,6 +119,13 @@ class BugUpdate(BaseModel):
     assignee_id: str | None = None
     tags: list[str] | None = None
     collaborators: list[str] | None = None
+    estimate_hours: float | None = None
+    actual_hours: float | None = None
+    deadline: str | None = None
+    start_at: str | None = None
+    end_at: str | None = None
+    repo_id: str | None = None
+    branch: str | None = None
 
 class MilestoneCreate(BaseModel):
     project_id: str
@@ -238,6 +255,10 @@ def _story_dict(r: FlowStory) -> dict:
         "tags": _parse_json_list(r.tags_json),
         "collaborators": _parse_json_list(r.collaborators_json),
         "deadline": r.deadline.isoformat() if r.deadline else None,
+        "start_at": r.start_at.isoformat() if getattr(r, "start_at", None) else None,
+        "end_at": r.end_at.isoformat() if getattr(r, "end_at", None) else None,
+        "repo_id": getattr(r, "repo_id", None) or "",
+        "branch": getattr(r, "branch", None) or "",
         "created_at": r.created_at.isoformat() if r.created_at else None,
         "updated_at": r.updated_at.isoformat() if r.updated_at else None,
     }
@@ -252,6 +273,10 @@ def _task_dict(r: FlowTask) -> dict:
         "collaborators": _parse_json_list(r.collaborators_json),
         "estimate_hours": r.estimate_hours, "actual_hours": r.actual_hours,
         "deadline": r.deadline.isoformat() if r.deadline else None,
+        "start_at": r.start_at.isoformat() if getattr(r, "start_at", None) else None,
+        "end_at": r.end_at.isoformat() if getattr(r, "end_at", None) else None,
+        "repo_id": getattr(r, "repo_id", None) or "",
+        "branch": getattr(r, "branch", None) or "",
         "created_at": r.created_at.isoformat() if r.created_at else None,
         "updated_at": r.updated_at.isoformat() if r.updated_at else None,
     }
@@ -265,6 +290,13 @@ def _bug_dict(r: FlowBug) -> dict:
         "developer_id": r.developer_id,
         "tags": _parse_json_list(r.tags_json),
         "collaborators": _parse_json_list(r.collaborators_json),
+        "estimate_hours": getattr(r, "estimate_hours", None),
+        "actual_hours": getattr(r, "actual_hours", None),
+        "deadline": r.deadline.isoformat() if getattr(r, "deadline", None) else None,
+        "start_at": r.start_at.isoformat() if getattr(r, "start_at", None) else None,
+        "end_at": r.end_at.isoformat() if getattr(r, "end_at", None) else None,
+        "repo_id": getattr(r, "repo_id", None) or "",
+        "branch": getattr(r, "branch", None) or "",
         "created_at": r.created_at.isoformat() if r.created_at else None,
         "updated_at": r.updated_at.isoformat() if r.updated_at else None,
     }
@@ -297,14 +329,28 @@ async def _attach_story_links(session, items: list[dict]) -> list[dict]:
         if sid and sid not in story_version_map:
             story_version_map[sid] = (str(version_id or ""), str(version_name or ""))
 
+    # Milestone links (story_id on FlowMilestone)
+    milestone_rows = await session.execute(
+        select(FlowMilestone.story_id, FlowMilestone.id, FlowMilestone.name)
+        .where(FlowMilestone.story_id.in_(story_ids))
+    )
+    story_milestone_map: dict[str, tuple[str, str]] = {}
+    for ms_story_id, ms_id, ms_name in milestone_rows.all():
+        msid = str(ms_story_id or "")
+        if msid and msid not in story_milestone_map:
+            story_milestone_map[msid] = (str(ms_id or ""), str(ms_name or ""))
+
     for item in items:
         sid = str(item.get("id") or "").strip()
         iteration = story_iteration_map.get(sid)
         version = story_version_map.get(sid)
+        milestone = story_milestone_map.get(sid)
         item["iteration_id"] = iteration[0] if iteration else ""
         item["iteration_name"] = iteration[1] if iteration else ""
         item["version_id"] = version[0] if version else ""
         item["version_name"] = version[1] if version else ""
+        item["milestone_id"] = milestone[0] if milestone else ""
+        item["milestone_name"] = milestone[1] if milestone else ""
     return items
 
 
@@ -777,15 +823,22 @@ async def create_story(body: StoryCreate, request: Request):
         )
         await session.commit()
         await session.refresh(s)
+    asyncio.create_task(_notifier.notify_item_created(
+        "story", s.id, s.title, s.project_id, member_id,
+        collaborator_ids=body.collaborators,
+    ))
     return _story_dict(s)
 
 @router.put("/stories/{story_id}")
-async def update_story(story_id: str, body: StoryUpdate):
+async def update_story(story_id: str, body: StoryUpdate, request: Request):
+    payload = require_auth(request)
+    actor_id = payload.get("sub", "")
     sf = get_session_factory()
     async with sf() as session:
         s = await session.get(FlowStory, story_id)
         if not s:
             return {"error": "需求不存在"}
+        old_pm_id = s.pm_id
         changes = {}
         if body.parent_id is not None:
             normalized_parent_id, parent_error = await _validate_story_parent(
@@ -812,10 +865,26 @@ async def update_story(story_id: str, body: StoryUpdate):
         if body.deadline is not None:
             s.deadline = _parse_dt(body.deadline)
             changes["deadline"] = body.deadline
+        if body.start_at is not None:
+            s.start_at = _parse_dt(body.start_at)
+            changes["start_at"] = body.start_at
+        if body.end_at is not None:
+            s.end_at = _parse_dt(body.end_at)
+            changes["end_at"] = body.end_at
+        if body.repo_id is not None:
+            s.repo_id = body.repo_id or None
+            changes["repo_id"] = body.repo_id
+        if body.branch is not None:
+            s.branch = body.branch
+            changes["branch"] = body.branch
         if changes:
             await _log_event(session, "story", story_id, "updated", changes)
         await session.commit()
         await session.refresh(s)
+    if body.pm_id and body.pm_id != old_pm_id:
+        asyncio.create_task(_notifier.notify_assignment(
+            "story", story_id, s.title, actor_id, body.pm_id,
+        ))
     return _story_dict(s)
 
 @router.delete("/stories/{story_id}")
@@ -843,7 +912,9 @@ async def delete_story(story_id: str):
     return {"ok": True}
 
 @router.post("/stories/{story_id}/transition")
-async def transition_story(story_id: str, body: TransitionBody):
+async def transition_story(story_id: str, body: TransitionBody, request: Request):
+    payload = require_auth(request)
+    actor_id = payload.get("sub", "")
     sf = get_session_factory()
     async with sf() as session:
         s = await session.get(FlowStory, story_id)
@@ -860,10 +931,18 @@ async def transition_story(story_id: str, body: TransitionBody):
             return {"error": f"不允许从 {current.value} 转换到 {target.value}，可选: {allowed_names}"}
         old_state = s.state
         s.state = target.value
+        collaborators = _parse_json_list(s.collaborators_json)
         await _log_event(session, "story", story_id, "state_changed",
                          {"from": old_state, "to": target.value})
         await session.commit()
         await session.refresh(s)
+    asyncio.create_task(_notifier.notify_state_change(
+        "story", story_id, s.title, actor_id,
+        old_state, target.value,
+        assignee_id=s.pm_id,
+        collaborator_ids=collaborators,
+        creator_id=s.submitter_id,
+    ))
     return _story_dict(s)
 
 @router.get("/stories/{story_id}/transitions")
@@ -1014,15 +1093,23 @@ async def create_task(body: TaskCreate, request: Request):
         )
         await session.commit()
         await session.refresh(t)
+    asyncio.create_task(_notifier.notify_item_created(
+        "task", t.id, t.title, resolved_story_id or "", member_id,
+        assignee_id=body.assignee_id,
+        collaborator_ids=body.collaborators,
+    ))
     return _task_dict(t)
 
 @router.put("/tasks/{task_id}")
-async def update_task(task_id: str, body: TaskUpdate):
+async def update_task(task_id: str, body: TaskUpdate, request: Request):
+    payload = require_auth(request)
+    actor_id = payload.get("sub", "")
     sf = get_session_factory()
     async with sf() as session:
         t = await session.get(FlowTask, task_id)
         if not t:
             return {"error": "任务不存在"}
+        old_assignee_id = t.assignee_id
         changes = {}
         for field in ["title", "description", "task_type", "state", "assignee_id", "estimate_hours", "actual_hours"]:
             val = getattr(body, field)
@@ -1038,10 +1125,26 @@ async def update_task(task_id: str, body: TaskUpdate):
         if body.deadline is not None:
             t.deadline = _parse_dt(body.deadline)
             changes["deadline"] = body.deadline
+        if body.start_at is not None:
+            t.start_at = _parse_dt(body.start_at)
+            changes["start_at"] = body.start_at
+        if body.end_at is not None:
+            t.end_at = _parse_dt(body.end_at)
+            changes["end_at"] = body.end_at
+        if body.repo_id is not None:
+            t.repo_id = body.repo_id or None
+            changes["repo_id"] = body.repo_id
+        if body.branch is not None:
+            t.branch = body.branch
+            changes["branch"] = body.branch
         if changes:
             await _log_event(session, "task", task_id, "updated", changes)
         await session.commit()
         await session.refresh(t)
+    if body.assignee_id and body.assignee_id != old_assignee_id:
+        asyncio.create_task(_notifier.notify_assignment(
+            "task", task_id, t.title, actor_id, body.assignee_id,
+        ))
     return _task_dict(t)
 
 @router.delete("/tasks/{task_id}")
@@ -1068,7 +1171,9 @@ async def delete_task(task_id: str):
     return {"ok": True}
 
 @router.post("/tasks/{task_id}/transition")
-async def transition_task(task_id: str, body: TransitionBody):
+async def transition_task(task_id: str, body: TransitionBody, request: Request):
+    payload = require_auth(request)
+    actor_id = payload.get("sub", "")
     sf = get_session_factory()
     async with sf() as session:
         t = await session.get(FlowTask, task_id)
@@ -1084,10 +1189,18 @@ async def transition_task(task_id: str, body: TransitionBody):
             return {"error": f"不允许从 {current.value} 转换到 {target.value}，可选: {[s.value for s in allowed]}"}
         old_state = t.state
         t.state = target.value
+        collaborators = _parse_json_list(t.collaborators_json)
         await _log_event(session, "task", task_id, "state_changed",
                          {"from": old_state, "to": target.value})
         await session.commit()
         await session.refresh(t)
+    asyncio.create_task(_notifier.notify_state_change(
+        "task", task_id, t.title, actor_id,
+        old_state, target.value,
+        assignee_id=t.assignee_id,
+        collaborator_ids=collaborators,
+        creator_id=t.creator_id,
+    ))
     return _task_dict(t)
 
 @router.get("/tasks/{task_id}/transitions")
@@ -1202,17 +1315,25 @@ async def create_bug(body: BugCreate, request: Request):
         await _log_event(session, "bug", b.id, "created", {"title": body.title})
         await session.commit()
         await session.refresh(b)
+    asyncio.create_task(_notifier.notify_item_created(
+        "bug", b.id, b.title, body.story_id or "", member_id,
+        assignee_id=body.assignee_id,
+        collaborator_ids=body.collaborators,
+    ))
     return _bug_dict(b)
 
 @router.put("/bugs/{bug_id}")
-async def update_bug(bug_id: str, body: BugUpdate):
+async def update_bug(bug_id: str, body: BugUpdate, request: Request):
+    payload = require_auth(request)
+    actor_id = payload.get("sub", "")
     sf = get_session_factory()
     async with sf() as session:
         b = await session.get(FlowBug, bug_id)
         if not b:
             return {"error": "缺陷不存在"}
+        old_assignee_id = b.assignee_id
         changes = {}
-        for field in ["title", "description", "severity", "state", "assignee_id"]:
+        for field in ["title", "description", "severity", "state", "assignee_id", "estimate_hours", "actual_hours"]:
             val = getattr(body, field)
             if val is not None:
                 changes[field] = val
@@ -1223,10 +1344,29 @@ async def update_bug(bug_id: str, body: BugUpdate):
         if body.collaborators is not None:
             b.collaborators_json = json.dumps(body.collaborators, ensure_ascii=False)
             changes["collaborators"] = body.collaborators
+        if body.deadline is not None:
+            b.deadline = _parse_dt(body.deadline)
+            changes["deadline"] = body.deadline
+        if body.start_at is not None:
+            b.start_at = _parse_dt(body.start_at)
+            changes["start_at"] = body.start_at
+        if body.end_at is not None:
+            b.end_at = _parse_dt(body.end_at)
+            changes["end_at"] = body.end_at
+        if body.repo_id is not None:
+            b.repo_id = body.repo_id or None
+            changes["repo_id"] = body.repo_id
+        if body.branch is not None:
+            b.branch = body.branch
+            changes["branch"] = body.branch
         if changes:
             await _log_event(session, "bug", bug_id, "updated", changes)
         await session.commit()
         await session.refresh(b)
+    if body.assignee_id and body.assignee_id != old_assignee_id:
+        asyncio.create_task(_notifier.notify_assignment(
+            "bug", bug_id, b.title, actor_id, body.assignee_id,
+        ))
     return _bug_dict(b)
 
 @router.delete("/bugs/{bug_id}")
@@ -1242,7 +1382,9 @@ async def delete_bug(bug_id: str):
     return {"ok": True}
 
 @router.post("/bugs/{bug_id}/transition")
-async def transition_bug(bug_id: str, body: TransitionBody):
+async def transition_bug(bug_id: str, body: TransitionBody, request: Request):
+    payload = require_auth(request)
+    actor_id = payload.get("sub", "")
     sf = get_session_factory()
     async with sf() as session:
         b = await session.get(FlowBug, bug_id)
@@ -1258,10 +1400,18 @@ async def transition_bug(bug_id: str, body: TransitionBody):
             return {"error": f"不允许从 {current.value} 转换到 {target.value}，可选: {[s.value for s in allowed]}"}
         old_state = b.state
         b.state = target.value
+        collaborators = _parse_json_list(b.collaborators_json)
         await _log_event(session, "bug", bug_id, "state_changed",
                          {"from": old_state, "to": target.value})
         await session.commit()
         await session.refresh(b)
+    asyncio.create_task(_notifier.notify_state_change(
+        "bug", bug_id, b.title, actor_id,
+        old_state, target.value,
+        assignee_id=b.assignee_id,
+        collaborator_ids=collaborators,
+        creator_id=b.reporter_id,
+    ))
     return _bug_dict(b)
 
 @router.get("/bugs/{bug_id}/transitions")
@@ -1547,7 +1697,47 @@ async def list_iterations(
         total = (await session.execute(count_stmt)).scalar_one()
         stmt = stmt.offset((page - 1) * page_size).limit(page_size)
         rows = (await session.execute(stmt)).scalars().all()
-    return {"total": total, "items": [_iteration_dict(r) for r in rows]}
+
+        iter_ids = [r.id for r in rows]
+        story_stats: dict[str, dict[str, int]] = {}
+        task_stats: dict[str, dict[str, int]] = {}
+        if iter_ids:
+            for iter_id, cnt in (await session.execute(
+                select(FlowIterationStory.iteration_id, func.count())
+                .where(FlowIterationStory.iteration_id.in_(iter_ids))
+                .group_by(FlowIterationStory.iteration_id)
+            )):
+                story_stats.setdefault(iter_id, {"total": 0, "done": 0})["total"] = cnt
+            for iter_id, cnt in (await session.execute(
+                select(FlowIterationStory.iteration_id, func.count())
+                .join(FlowStory, FlowIterationStory.story_id == FlowStory.id)
+                .where(FlowIterationStory.iteration_id.in_(iter_ids), FlowStory.state == "done")
+                .group_by(FlowIterationStory.iteration_id)
+            )):
+                story_stats.setdefault(iter_id, {"total": 0, "done": 0})["done"] = cnt
+            for iter_id, cnt in (await session.execute(
+                select(FlowIterationTask.iteration_id, func.count())
+                .where(FlowIterationTask.iteration_id.in_(iter_ids))
+                .group_by(FlowIterationTask.iteration_id)
+            )):
+                task_stats.setdefault(iter_id, {"total": 0, "done": 0})["total"] = cnt
+            for iter_id, cnt in (await session.execute(
+                select(FlowIterationTask.iteration_id, func.count())
+                .join(FlowTask, FlowIterationTask.task_id == FlowTask.id)
+                .where(FlowIterationTask.iteration_id.in_(iter_ids), FlowTask.state == "done")
+                .group_by(FlowIterationTask.iteration_id)
+            )):
+                task_stats.setdefault(iter_id, {"total": 0, "done": 0})["done"] = cnt
+
+        items = []
+        for r in rows:
+            d = _iteration_dict(r)
+            s = story_stats.get(r.id, {"total": 0, "done": 0})
+            t = task_stats.get(r.id, {"total": 0, "done": 0})
+            d["work_item_total"] = s["total"] + t["total"]
+            d["work_item_done"] = s["done"] + t["done"]
+            items.append(d)
+    return {"total": total, "items": items}
 
 
 @router.get("/iterations/{iteration_id}")
@@ -2115,3 +2305,78 @@ async def save_column_settings(body: ColumnSettingBody, request: Request):
             ))
         await session.commit()
     return {"ok": True}
+
+
+# ============ Comments & Activity ============
+
+class CommentCreate(BaseModel):
+    content: str
+    mentions: list[str] = []
+
+@router.get("/comments/{entity_type}/{entity_id}")
+async def list_comments(entity_type: str, entity_id: str):
+    sf = get_session_factory()
+    async with sf() as session:
+        stmt = (
+            select(FlowComment)
+            .where(FlowComment.entity_type == entity_type, FlowComment.entity_id == entity_id)
+            .order_by(FlowComment.created_at.asc())
+        )
+        rows = (await session.execute(stmt)).scalars().all()
+    return {"items": [
+        {
+            "id": r.id, "entity_type": r.entity_type, "entity_id": r.entity_id,
+            "author_id": r.author_id, "content": r.content,
+            "mentions": _parse_json_list(r.mentions_json),
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+        }
+        for r in rows
+    ]}
+
+@router.post("/comments/{entity_type}/{entity_id}")
+async def create_comment(entity_type: str, entity_id: str, body: CommentCreate, request: Request):
+    payload = require_auth(request)
+    member_id = payload.get("sub", "")
+    sf = get_session_factory()
+    async with sf() as session:
+        c = FlowComment(
+            entity_type=entity_type,
+            entity_id=entity_id,
+            author_id=member_id,
+            content=body.content,
+            mentions_json=json.dumps(body.mentions or [], ensure_ascii=False),
+        )
+        session.add(c)
+        await _log_event(session, entity_type, entity_id, "comment_added",
+                         {"author_id": member_id, "preview": body.content[:100]})
+        await session.commit()
+        await session.refresh(c)
+    return {
+        "id": c.id, "entity_type": c.entity_type, "entity_id": c.entity_id,
+        "author_id": c.author_id, "content": c.content,
+        "mentions": _parse_json_list(c.mentions_json),
+        "created_at": c.created_at.isoformat() if c.created_at else None,
+        "updated_at": c.updated_at.isoformat() if c.updated_at else None,
+    }
+
+@router.get("/activity/{entity_type}/{entity_id}")
+async def list_activity(entity_type: str, entity_id: str, page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=200)):
+    sf = get_session_factory()
+    async with sf() as session:
+        stmt = (
+            select(FlowEvent)
+            .where(FlowEvent.entity_type == entity_type, FlowEvent.entity_id == entity_id)
+            .order_by(FlowEvent.created_at.desc())
+            .offset((page - 1) * page_size).limit(page_size)
+        )
+        rows = (await session.execute(stmt)).scalars().all()
+    return {"items": [
+        {
+            "id": r.id, "entity_type": r.entity_type, "entity_id": r.entity_id,
+            "action": r.action, "actor_id": r.actor_id,
+            "detail": r.detail,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in rows
+    ]}

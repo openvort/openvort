@@ -35,7 +35,7 @@ class ReportSubmitTool(BaseTool):
                 "report_id": {"type": "string", "description": "汇报 ID（submit/edit/withdraw 时需要）"},
                 "reporter_name": {"type": "string", "description": "汇报人姓名（generate 时用于匹配 member）"},
                 "report_type": {
-                    "type": "string", "enum": ["daily", "weekly", "monthly"],
+                    "type": "string", "enum": ["daily", "weekly", "monthly", "quarterly"],
                     "description": "汇报类型",
                 },
                 "report_date": {"type": "string", "description": "汇报日期（YYYY-MM-DD），默认今天"},
@@ -196,6 +196,10 @@ class ReportSubmitTool(BaseTool):
             start = report_date - timedelta(days=report_date.weekday())
             since = start.isoformat()
             until = report_date.isoformat()
+        elif report_type == "quarterly":
+            quarter_start_month = ((report_date.month - 1) // 3) * 3 + 1
+            since = report_date.replace(month=quarter_start_month, day=1).isoformat()
+            until = report_date.isoformat()
         else:
             since = report_date.replace(day=1).isoformat()
             until = report_date.isoformat()
@@ -255,14 +259,14 @@ class ReportSubmitTool(BaseTool):
 
     @staticmethod
     def _build_title(report_type: str, report_date: date, reporter_name: str) -> str:
-        type_label = {"daily": "日报", "weekly": "周报", "monthly": "月报"}.get(report_type, "汇报")
+        type_label = {"daily": "日报", "weekly": "周报", "monthly": "月报", "quarterly": "季报"}.get(report_type, "汇报")
         name_part = f"{reporter_name} " if reporter_name else ""
         return f"{name_part}{type_label} - {report_date.isoformat()}"
 
     @staticmethod
     def _build_content(report_type: str, collected_data: dict) -> str:
         lines = []
-        type_label = {"daily": "日报", "weekly": "周报", "monthly": "月报"}.get(report_type, "汇报")
+        type_label = {"daily": "日报", "weekly": "周报", "monthly": "月报", "quarterly": "季报"}.get(report_type, "汇报")
         lines.append(f"## {type_label}\n")
 
         git = collected_data.get("git")

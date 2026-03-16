@@ -340,22 +340,20 @@ async def stream_response(message_id: str, request: Request):
 
 
 @router.get("/history")
-async def chat_history(request: Request, limit: int = 50, session_id: str = "default"):
-    """获取当前用户的聊天历史"""
+async def chat_history(request: Request, limit: int = 20, offset: int = 0, session_id: str = "default"):
+    """获取当前用户的聊天历史（支持分页：offset 从末尾向前跳过）"""
     payload = require_auth(request)
     member_id = payload.get("sub", "")
 
     session_store = get_session_store()
     messages = await session_store.get_messages("web", member_id, session_id)
 
-    # 获取当前会话的目标信息（成员聊天模式需要获取成员头像）
-    session_info = session_store.get_session_info("web", member_id, session_id)
-    target_type = session_info.get("target_type", "ai")
-    target_id = session_info.get("target_id", "")
+    sess_info = session_store.get_session_info("web", member_id, session_id)
+    context_reset_at = sess_info.get("context_reset_at", 0)
+    target_type = sess_info.get("target_type", "ai")
+    target_id = sess_info.get("target_id", "")
 
-    # 如果是成员聊天，获取成员信息
     member_avatar_url = ""
-    member_name = ""
     if target_type == "member" and target_id:
         from sqlalchemy import select
         from openvort.contacts.models import Member
@@ -366,11 +364,10 @@ async def chat_history(request: Request, limit: int = 50, session_id: str = "def
             m = await db.get(Member, target_id)
             if m:
                 member_avatar_url = m.avatar_url or ""
-                member_name = m.name or ""
 
-    trimmed = messages[-limit:]
-    result = []
-    for i, msg in enumerate(trimmed):
+    # Format ALL raw messages
+    formatted = []
+    for i, msg in enumerate(messages):
         role = msg.get("role", "user")
         content = ""
         images: list[str] = []
@@ -397,9 +394,8 @@ async def chat_history(request: Request, limit: int = 50, session_id: str = "def
                     elif block.get("type") == "tool_result":
                         continue
 
-        # Match tool outputs from the next user message (tool_result blocks)
         if role == "assistant" and tool_calls:
-            next_msg = trimmed[i + 1] if i + 1 < len(trimmed) else None
+            next_msg = messages[i + 1] if i + 1 < len(messages) else None
             if next_msg and next_msg.get("role") == "user" and isinstance(next_msg.get("content"), list):
                 result_map: dict[str, str] = {}
                 for block in next_msg["content"]:
@@ -408,7 +404,6 @@ async def chat_history(request: Request, limit: int = 50, session_id: str = "def
                 for tc in tool_calls:
                     tc["output"] = result_map.get(tc.get("id", ""), "")
 
-        # 设置头像：成员聊天时，assistant 消息使用成员头像
         if role == "assistant" and target_type == "member":
             avatar_url = member_avatar_url
 
@@ -422,7 +417,7 @@ async def chat_history(request: Request, limit: int = 50, session_id: str = "def
             }
             if tool_calls:
                 entry["tool_calls"] = tool_calls
-            result.append(entry)
+            formatted.append(entry)
         elif role == "user" and (content or images):
             entry = {
                 "id": str(i),
@@ -432,14 +427,13 @@ async def chat_history(request: Request, limit: int = 50, session_id: str = "def
             }
             if images:
                 entry["images"] = images
-            result.append(entry)
+            formatted.append(entry)
 
-    # Merge consecutive assistant messages into one (same agentic-loop round),
-    # but keep schedule/proactive notifications as separate messages.
+    # Merge consecutive assistant messages
     _NO_MERGE_PREFIXES = ("【AI 员工", "【定时任务】")
-    merged_result: list[dict] = []
-    for entry in result:
-        prev = merged_result[-1] if merged_result else None
+    merged: list[dict] = []
+    for entry in formatted:
+        prev = merged[-1] if merged else None
         content_str = entry.get("content", "")
         prev_content = prev.get("content", "") if prev else ""
         is_notification = content_str.startswith(_NO_MERGE_PREFIXES) or prev_content.startswith(_NO_MERGE_PREFIXES)
@@ -454,9 +448,20 @@ async def chat_history(request: Request, limit: int = 50, session_id: str = "def
             if not prev.get("timestamp") and entry.get("timestamp"):
                 prev["timestamp"] = entry["timestamp"]
         else:
-            merged_result.append(entry)
+            merged.append(entry)
 
-    return {"messages": merged_result}
+    # Paginate from the end: offset=0 → latest N, offset=20 → next 20 older
+    total = len(merged)
+    offset = max(0, offset)
+    end_idx = total - offset
+    start_idx = max(0, end_idx - limit)
+    page = merged[start_idx:end_idx] if end_idx > 0 else []
+    has_more = start_idx > 0
+
+    resp: dict = {"messages": page, "has_more": has_more}
+    if context_reset_at:
+        resp["context_reset_at"] = context_reset_at
+    return resp
 
 
 @router.get("/session-info")
@@ -582,14 +587,30 @@ class ResetRequest(BaseModel):
 
 @router.post("/reset")
 async def reset_session(req: ResetRequest, request: Request):
-    """重置当前会话"""
+    """Reset AI context but preserve messages as archived history."""
     payload = require_auth(request)
     member_id = payload.get("sub", "")
 
     session_store = get_session_store()
-    await session_store.clear("web", member_id, req.session_id)
+    reset_ts = await session_store.reset_context("web", member_id, req.session_id)
 
-    return {"success": True}
+    return {"success": True, "context_reset_at": reset_ts}
+
+
+class RestoreContextRequest(BaseModel):
+    session_id: str = "default"
+
+
+@router.post("/restore-context")
+async def restore_context(req: RestoreContextRequest, request: Request):
+    """Restore archived messages back into active AI context."""
+    payload = require_auth(request)
+    member_id = payload.get("sub", "")
+
+    session_store = get_session_store()
+    count = await session_store.restore_context("web", member_id, req.session_id)
+
+    return {"success": True, "restored_count": count}
 
 
 # ---- 消息搜索与分页 ----

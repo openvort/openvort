@@ -5,6 +5,7 @@ import { getChatUnreadCounts } from "@/api";
 export const useNotificationStore = defineStore("notification", () => {
     const unreadCounts = ref<Record<string, number>>({});
     const taskStatuses = ref<Record<string, { status: string; jobName: string }>>({});
+    const vortflowUnreadCount = ref(0);
 
     const totalUnreadCount = computed(() =>
         Object.values(unreadCounts.value).reduce((sum, c) => sum + c, 0)
@@ -38,6 +39,14 @@ export const useNotificationStore = defineStore("notification", () => {
         return taskStatuses.value[memberId] || null;
     }
 
+    function incrementVortflowUnread() {
+        vortflowUnreadCount.value++;
+    }
+
+    function clearVortflowUnread() {
+        vortflowUnreadCount.value = 0;
+    }
+
     async function fetchUnreadCounts() {
         try {
             const res = await getChatUnreadCounts();
@@ -55,11 +64,14 @@ export const useNotificationStore = defineStore("notification", () => {
         unreadCounts,
         taskStatuses,
         totalUnreadCount,
+        vortflowUnreadCount,
         getUnread,
         setUnread,
         clearUnread,
         setTaskStatus,
         getTaskStatus,
+        incrementVortflowUnread,
+        clearVortflowUnread,
         fetchUnreadCounts,
     };
 });

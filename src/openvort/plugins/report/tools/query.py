@@ -43,7 +43,7 @@ class ReportQueryTool(BaseTool):
                 "member_name": {"type": "string", "description": "成员姓名（用于定位 member_id）"},
                 "report_id": {"type": "string", "description": "汇报 ID（详情/审阅时需要）"},
                 "report_type": {
-                    "type": "string", "enum": ["daily", "weekly", "monthly"],
+                    "type": "string", "enum": ["daily", "weekly", "monthly", "quarterly"],
                     "description": "按类型筛选",
                 },
                 "status": {

@@ -99,6 +99,15 @@ export interface RowItem {
     versionId?: string;
     version?: string;
     estimateHours?: number | string;
+    loggedHours?: number | string;
+    remainHours?: number | string;
+    milestoneId?: string;
+    milestone?: string;
+    repoId?: string;
+    repo?: string;
+    branch?: string;
+    startAt?: string;
+    endAt?: string;
     children?: RowItem[];
     _prevIteration?: string;
     _prevVersion?: string;

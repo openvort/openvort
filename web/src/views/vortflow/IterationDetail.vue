@@ -37,6 +37,9 @@ const tabConfig = computed(() => {
 });
 
 const projectId = computed(() => iteration.value?.project_id || vortFlowStore.selectedProjectId || "");
+const projectName = computed(() =>
+    vortFlowStore.projects.find(p => p.id === projectId.value)?.name || ""
+);
 
 // Sidebar: "unplanned" vs normal iteration view
 const activeView = ref<"unplanned" | "iteration">("iteration");
@@ -79,16 +82,11 @@ const formatDate = (iso: string | null | undefined) => {
     return String(iso).split("T")[0].replace(/-/g, ".");
 };
 
-const iterTimeProgress = (iter: any) => {
-    if (iter.status === "completed") return 100;
-    if (iter.status === "planning") return 0;
-    if (!iter.start_date || !iter.end_date) return 0;
-    const start = new Date(iter.start_date).getTime();
-    const end = new Date(iter.end_date).getTime();
-    const now = Date.now();
-    if (now <= start) return 0;
-    if (now >= end) return 95;
-    return Math.round(((now - start) / (end - start)) * 100);
+const workItemProgress = (iter: any) => {
+    const total = iter.work_item_total || 0;
+    const done = iter.work_item_done || 0;
+    if (!total) return 0;
+    return Math.round((done / total) * 100);
 };
 
 const effortPercent = (iter: any) => {
@@ -253,13 +251,15 @@ onMounted(() => loadAll());
                     <!-- Header: new + filter -->
                     <div class="px-4 pt-4 pb-3">
                         <div class="flex items-center justify-between">
-                            <button
-                                class="inline-flex items-center gap-1.5 text-sm text-gray-600 hover:text-blue-600 transition-colors cursor-pointer"
-                                @click="handleNewIteration"
-                            >
-                                <Plus :size="14" />
-                                <span>新建迭代</span>
-                            </button>
+                            <div class="flex items-center gap-2">
+                                <button
+                                    class="inline-flex items-center gap-1.5 text-sm text-gray-600 hover:text-blue-600 transition-colors cursor-pointer"
+                                    @click="handleNewIteration"
+                                >
+                                    <Plus :size="14" />
+                                    <span>新建迭代</span>
+                                </button>
+                            </div>
                             <div ref="sidebarFilterRef" class="relative">
                                 <button
                                     class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-blue-600 transition-colors cursor-pointer"
@@ -396,7 +396,7 @@ onMounted(() => loadAll());
                                     <div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
                                         <div
                                             class="h-full bg-blue-400 rounded-full transition-all"
-                                            :style="{ width: `${iterTimeProgress(iter)}%` }"
+                                            :style="{ width: `${workItemProgress(iter)}%` }"
                                         />
                                     </div>
                                 </div>

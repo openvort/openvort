@@ -26,7 +26,8 @@ class ReportTemplate(Base):
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(128))  # "技术团队日报"
-    report_type: Mapped[str] = mapped_column(String(16))  # daily / weekly / monthly
+    description: Mapped[str] = mapped_column(String(512), default="")  # template purpose / submission guidance
+    report_type: Mapped[str] = mapped_column(String(16))  # daily / weekly / monthly / quarterly
     content_schema: Mapped[str] = mapped_column(Text, default="{}")  # JSON: required fields, format
     auto_collect: Mapped[str] = mapped_column(Text, default='{"git": true, "vortflow": true}')  # data sources
     owner_id: Mapped[str] = mapped_column(String(32), ForeignKey("members.id"), nullable=True)
@@ -50,6 +51,7 @@ class ReportRule(Base):
     target_id: Mapped[str] = mapped_column(String(32))  # member_id or department_id
     reviewer_id: Mapped[str] = mapped_column(String(32), ForeignKey("members.id"), nullable=True)
     deadline_cron: Mapped[str] = mapped_column(String(64), default="0 18 * * 1-5")  # 5-field cron
+    workdays_only: Mapped[bool] = mapped_column(Boolean, default=True)
     reminder_minutes: Mapped[int] = mapped_column(Integer, default=30)
     escalation_minutes: Mapped[int] = mapped_column(Integer, default=120)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)

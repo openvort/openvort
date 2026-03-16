@@ -28,12 +28,14 @@ class ReportService:
         self,
         name: str,
         report_type: str,
+        description: str = "",
         content_schema: dict | None = None,
         auto_collect: dict | None = None,
         owner_id: str | None = None,
     ) -> dict:
         tmpl = ReportTemplate(
             name=name,
+            description=description,
             report_type=report_type,
             content_schema=json.dumps(content_schema or {}),
             auto_collect=json.dumps(auto_collect or {"git": True, "vortflow": True}),
@@ -54,7 +56,7 @@ class ReportService:
             if not tmpl:
                 return None
 
-            for key in ("name", "report_type", "owner_id"):
+            for key in ("name", "description", "report_type", "owner_id"):
                 if key in fields:
                     setattr(tmpl, key, fields[key])
             if "content_schema" in fields:
@@ -125,7 +127,7 @@ class ReportService:
                 return None
 
             for key in ("scope", "target_id", "reviewer_id", "deadline_cron",
-                        "reminder_minutes", "escalation_minutes", "enabled"):
+                        "workdays_only", "reminder_minutes", "escalation_minutes", "enabled"):
                 if key in fields:
                     setattr(rule, key, fields[key])
 
@@ -365,6 +367,7 @@ class ReportService:
         return {
             "id": t.id,
             "name": t.name,
+            "description": t.description or "",
             "report_type": t.report_type,
             "content_schema": json.loads(t.content_schema) if t.content_schema else {},
             "auto_collect": json.loads(t.auto_collect) if t.auto_collect else {},
@@ -381,8 +384,10 @@ class ReportService:
             "template_name": r.template.name if hasattr(r, "template") and r.template else "",
             "scope": r.scope,
             "target_id": r.target_id,
+            "target_name": "",
             "reviewer_id": r.reviewer_id or "",
             "deadline_cron": r.deadline_cron,
+            "workdays_only": r.workdays_only,
             "reminder_minutes": r.reminder_minutes,
             "escalation_minutes": r.escalation_minutes,
             "enabled": r.enabled,

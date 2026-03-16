@@ -17,6 +17,8 @@ interface ManagedView {
 
 const props = defineProps<{
     workItemType?: string;
+    currentFilters?: Record<string, any>;
+    currentColumns?: Array<{ key: string; visible: boolean }>;
 }>();
 const open = defineModel<boolean>("open", { default: false });
 const store = useVortFlowStore();
@@ -70,8 +72,8 @@ const handleCreateView = async (data: { name: string; scope: "personal" | "share
         work_item_type: props.workItemType || "缺陷",
         scope: data.scope,
         visible: true,
-        filters: {},
-        columns: [],
+        filters: props.currentFilters ?? {},
+        columns: props.currentColumns ?? [],
         order: maxOrder + 1,
     });
     showCreateDialog.value = false;

@@ -28,6 +28,7 @@ const emit = defineEmits<{
 }>();
 
 const {
+    ownerGroups,
     getStatusOptionsByType,
     getStatusOption,
     getAvatarBg,
@@ -102,10 +103,7 @@ const filteredDetailStatusOptions = computed(() => {
 });
 
 const filteredDetailAssigneeGroups = computed(() => {
-    const groups = [
-        { label: "项目成员", members: ["代志祥", "陈艳", "陈曦", "祝璞", "刘洋", "甘洋", "邱锐", "熊纲强"] },
-        { label: "企业成员", members: ["apollo_Xuuu", "曾春红", "superdargon", "邱锐", "熊纲强"] },
-    ];
+    const groups = ownerGroups.value;
     const kw = detailAssigneeKeyword.value.trim();
     if (!kw) return groups;
     return groups
@@ -406,6 +404,10 @@ watch(() => props.initialData, (value) => {
                     <Copy :size="14" />
                     复制链接
                 </button>
+                <AiAssistButton
+                    :prompt="`我要对${record.type}「${record.title}」(${record.workNo}) 进一步操作，请告诉我可以做什么。`"
+                    label="AI 助手"
+                />
                 <WorkItemStatus
                     :model-value="record.status"
                     :options="filteredDetailStatusOptions"

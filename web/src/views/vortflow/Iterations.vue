@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from "vue";
+import { ref, computed, onMounted, watch } from "vue";
 import { useRouter } from "vue-router";
 import { Plus } from "lucide-vue-next";
 import { DownOutlined } from "@/components/vort/icons";
@@ -33,6 +33,9 @@ type FilterParams = { page: number; size: number; keyword: string; status: strin
 
 const router = useRouter();
 const vortFlowStore = useVortFlowStore();
+const projectName = computed(() =>
+    vortFlowStore.projects.find(p => p.id === vortFlowStore.selectedProjectId)?.name || ""
+);
 const filterOwnerDropdownOpen = ref(false);
 const filterOwnerKeyword = ref("");
 
@@ -143,9 +146,14 @@ onMounted(async () => {
         <div class="bg-white rounded-xl p-6">
             <div class="flex items-center justify-between mb-4">
                 <h3 class="text-base font-medium text-gray-800">迭代管理</h3>
-                <vort-button variant="primary" @click="handleAddIteration">
-                    <Plus :size="14" class="mr-1" /> 新增迭代
-                </vort-button>
+                <div class="flex items-center gap-2">
+                    <AiAssistButton
+                        :prompt="`我想在项目「${projectName}」中创建一个新迭代（Sprint），请引导我完成设置，包括迭代名称、目标、起止时间。`"
+                    />
+                    <vort-button variant="primary" @click="handleAddIteration">
+                        <Plus :size="14" class="mr-1" /> 新增迭代
+                    </vort-button>
+                </div>
             </div>
             <div class="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4">
                 <div class="flex items-center gap-2 w-full sm:w-auto">

@@ -1,18 +1,14 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
-import { useRouter } from "vue-router";
+import { ref, computed, watch } from "vue";
 import { z } from "zod";
 import { useCrudPage, useDirtyCheck } from "@/hooks";
 import { useVortFlowStore } from "@/stores";
 import {
     getVortflowMilestones, createVortflowMilestone,
     updateVortflowMilestone, deleteVortflowMilestone, completeVortflowMilestone,
-    generateVortflowDescriptionPrompt,
 } from "@/api";
-import { message } from "@/components/vort";
-import { Check, Clock, Milestone, Plus, Bot } from "lucide-vue-next";
+import { Check, Clock, Milestone, Plus } from "lucide-vue-next";
 
-const router = useRouter();
 const vortFlowStore = useVortFlowStore();
 
 interface MilestoneItem {
@@ -113,24 +109,6 @@ const handleSave = async () => {
     } finally { formLoading.value = false; }
 };
 
-// AI 生成描述
-async function handleAiGenerateDescription() {
-    if (!currentRow.value.name?.trim()) {
-        message.warning("请先输入里程碑名称");
-        return;
-    }
-    const projectName = vortFlowStore.projects.find(p => p.id === currentRow.value.project_id)?.name || "";
-    try {
-        const res: any = await generateVortflowDescriptionPrompt("milestone", projectName, currentRow.value.name);
-        if (res?.prompt) {
-            drawerVisible.value = false;
-            router.push({ name: "chat", query: { prompt: res.prompt } });
-        }
-    } catch (e: any) {
-        message.error(e?.response?.data?.detail || "生成失败");
-    }
-}
-
 const handleDelete = async (item: MilestoneItem) => {
     await deleteVortflowMilestone(item.id);
     loadData();
@@ -144,7 +122,11 @@ const handleComplete = async (item: MilestoneItem) => {
     }
 };
 
-const projectName = (id: string) => vortFlowStore.projects.find(p => p.id === id)?.name || '-';
+const getProjectName = (id: string) => vortFlowStore.projects.find(p => p.id === id)?.name || '-';
+
+const projectName = computed(() =>
+    vortFlowStore.projects.find(p => p.id === vortFlowStore.selectedProjectId)?.name || ""
+);
 
 loadData();
 </script>
@@ -154,9 +136,14 @@ loadData();
         <div class="bg-white rounded-xl p-6">
             <div class="flex items-center justify-between mb-4">
                 <h3 class="text-base font-medium text-gray-800">里程碑</h3>
-                <vort-button variant="primary" @click="handleAdd">
-                    <Plus :size="14" class="mr-1" /> 新增里程碑
-                </vort-button>
+                <div class="flex items-center gap-2">
+                    <AiAssistButton
+                        :prompt="`我想在项目「${projectName}」中创建一个里程碑，请引导我设置名称、到期日期和关联需求。`"
+                    />
+                    <vort-button variant="primary" @click="handleAdd">
+                        <Plus :size="14" class="mr-1" /> 新增里程碑
+                    </vort-button>
+                </div>
             </div>
             <div class="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4 mb-4">
                 <div class="flex items-center gap-2 w-full sm:w-auto">
@@ -190,7 +177,7 @@ loadData();
                             <div>
                                 <h4 class="font-medium text-gray-800">{{ item.name }}</h4>
                                 <div class="flex items-center gap-2 mt-0.5">
-                                    <span class="text-xs text-gray-400">{{ projectName(item.project_id) }}</span>
+                                    <span class="text-xs text-gray-400">{{ getProjectName(item.project_id) }}</span>
                                     <span class="text-xs text-gray-300">·</span>
                                     <span class="text-xs text-gray-400">创建于 {{ item.created_at ? item.created_at.split('T')[0] : '-' }}</span>
                                 </div>
@@ -233,7 +220,7 @@ loadData();
                     </div>
                     <div>
                         <span class="text-sm text-gray-400">项目</span>
-                        <div class="text-sm text-gray-800 mt-1">{{ projectName(currentRow.project_id!) }}</div>
+                        <div class="text-sm text-gray-800 mt-1">{{ getProjectName(currentRow.project_id!) }}</div>
                     </div>
                     <div>
                         <span class="text-sm text-gray-400">状态</span>
@@ -278,14 +265,7 @@ loadData();
                         <vort-date-picker v-model="currentRow.due_date" value-format="YYYY-MM-DD" placeholder="请选择截止日期" class="w-full" />
                     </vort-form-item>
                     <vort-form-item label="描述" name="description">
-                        <div class="space-y-2">
-                            <VortEditor v-model="currentRow.description" placeholder="请输入描述" min-height="160px" />
-                            <div class="flex justify-end">
-                                <vort-button size="small" @click="handleAiGenerateDescription">
-                                    <Bot :size="12" class="mr-1" /> AI 助手创建
-                                </vort-button>
-                            </div>
-                        </div>
+                        <VortEditor v-model="currentRow.description" placeholder="请输入描述" min-height="160px" />
                     </vort-form-item>
                 </vort-form>
                 <div class="flex justify-end gap-3 mt-6">

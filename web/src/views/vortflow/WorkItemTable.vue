@@ -28,6 +28,7 @@ import { useVortFlowStore } from "@/stores";
 import type { CustomView } from "@/stores/modules/vortflow";
 import { useVortFlowViews, SYSTEM_VIEWS } from "./composables/useVortFlowViews";
 import { useWorkItemCommon } from "./work-item/useWorkItemCommon";
+import { useWorkItemInlineEdit } from "./work-item/useWorkItemInlineEdit";
 import {
     getVortflowStory, getVortflowStories, getVortflowTask, getVortflowTasks, getVortflowBug, getVortflowBugs,
     getVortflowProjects, createVortflowStory, createVortflowTask, createVortflowBug,
@@ -88,14 +89,15 @@ const { views: mergedViews } = currentWorkItemType.value
     : { views: computed(() => SYSTEM_VIEWS) };
 
 const handleCreateViewFromDialog = async (data: { name: string; scope: "personal" | "shared" }) => {
+    const { filters, cols } = collectCurrentViewState();
     const maxOrder = vortFlowStore.customViews.reduce((max, v) => Math.max(max, v.order), -1);
     await vortFlowStore.addCustomView({
         name: data.name,
         work_item_type: props.type || "缺陷",
         scope: data.scope,
         visible: true,
-        filters: {},
-        columns: [],
+        filters,
+        columns: cols,
         order: maxOrder + 1,
     });
     viewCreateOpen.value = false;
@@ -133,15 +135,6 @@ const keyword = ref("");
 const owner = ref("");
 const type = ref<WorkItemType | "">(props.type ?? "");
 const status = ref("");
-const openPlanTimeFor = ref<string | null>(null);
-const planTimePickerOpen = ref(false);
-const planTimePrevValue = ref<DateRange>([]);
-const planTimeCommitted = ref(false);
-const priorityPickerOpenMap = reactive<Record<string, boolean>>({});
-const tagPickerOpenMap = reactive<Record<string, boolean>>({});
-const statusPickerOpenMap = reactive<Record<string, boolean>>({});
-const ownerPickerOpenMap = reactive<Record<string, boolean>>({});
-const collaboratorsPickerOpenMap = reactive<Record<string, boolean>>({});
 const totalCount = ref(0);
 const createBugDrawerOpen = computed({
     get: () => {
@@ -171,23 +164,11 @@ const createWorkItemRef = ref<{
 const createBugAttachments = ref<CreateBugAttachment[]>([]);
 const createAttachmentInputRef = ref<HTMLInputElement | null>(null);
 
-const getInteractiveCellKey = (record: RowItem) =>
-    String(record.workNo || record.backendId || "");
+const currentProjectName = computed(() => {
+    if (!props.projectId) return "";
+    return apiProjects.value.find(p => p.id === props.projectId)?.name || "";
+});
 
-const isCellBackgroundClick = (event: Event) => {
-    const target = event.target as HTMLElement | null;
-    const currentTarget = event.currentTarget as HTMLElement | null;
-    return !!target && !!currentTarget && target === currentTarget;
-};
-
-const openCellPickerOnBackgroundClick = (
-    record: RowItem,
-    event: Event,
-    openMap: Record<string, boolean>
-) => {
-    if (!isCellBackgroundClick(event)) return;
-    openMap[getInteractiveCellKey(record)] = true;
-};
 
 const defaultDescriptionTemplate = [
     "环境：请填写",
@@ -329,6 +310,21 @@ const collaboratorsFilterConfig = computed<ColumnFilterConfig>(() => ({
     sortLabels: ["A → Z", "Z → A"] as [string, string],
 }));
 
+const iterationFilterConfig = computed<ColumnFilterConfig>(() => ({
+    type: "enum",
+    options: dynamicIterationOptions.value.map(o => ({ label: o.name, value: o.name })),
+}));
+
+const versionFilterConfig = computed<ColumnFilterConfig>(() => ({
+    type: "enum",
+    options: dynamicVersionOptions.value.map(o => ({ label: o.name, value: o.name })),
+}));
+
+const milestoneFilterConfig = computed<ColumnFilterConfig>(() => ({
+    type: "enum",
+    options: dynamicMilestoneOptions.value.map(o => ({ label: o.name, value: o.name })),
+}));
+
 const handleColumnSort = (field: string, order: "ascend" | "descend" | null) => {
     columnSortField.value = order ? field : "";
     columnSortOrder.value = order;
@@ -394,11 +390,6 @@ const priorityModel = reactive<Record<string, Priority>>({});
 const tagsModel = reactive<Record<string, string[]>>({});
 const baseTagOptions = ["客户需求", "演示站", "运营需求", "待开会确认", "已发布", "高优先", "稳定性", "UI优化", "S1", "S2", "S3", "S4", "develop", "test"];
 const dynamicTagOptions = ref<string[]>([]);
-const newTagDialogOpen = ref(false);
-const newTagName = ref("");
-const newTagColor = ref<string>("");
-const newTagTargetRecord = ref<RowItem | null>(null);
-const newTagTargetText = ref<string[] | undefined>(undefined);
 const planTimeModel = reactive<Record<string, any>>({});
 const collaboratorsModel = reactive<Record<string, string[]>>({});
 
@@ -430,6 +421,24 @@ const collectTagOptions = (rows: RowItem[]) => {
     dynamicTagOptions.value = [...set];
 };
 
+const dynamicIterationOptions = ref<Array<{ id: string; name: string }>>([]);
+const dynamicVersionOptions = ref<Array<{ id: string; name: string }>>([]);
+const dynamicMilestoneOptions = ref<Array<{ id: string; name: string }>>([]);
+
+const collectEnumOptions = (rows: RowItem[]) => {
+    const iterMap = new Map<string, string>();
+    const verMap = new Map<string, string>();
+    const msMap = new Map<string, string>();
+    for (const row of rows) {
+        if (row.iterationId && row.iteration) iterMap.set(row.iterationId, row.iteration);
+        if (row.versionId && row.version) verMap.set(row.versionId, row.version);
+        if (row.milestoneId && row.milestone) msMap.set(row.milestoneId, row.milestone);
+    }
+    dynamicIterationOptions.value = [...iterMap.entries()].map(([id, name]) => ({ id, name }));
+    dynamicVersionOptions.value = [...verMap.entries()].map(([id, name]) => ({ id, name }));
+    dynamicMilestoneOptions.value = [...msMap.entries()].map(([id, name]) => ({ id, name }));
+};
+
 const detailCurrentUser = "当前用户";
 const formatFileSize = (size: number): string => {
     if (size < 1024) return `${size} B`;
@@ -451,18 +460,18 @@ const ALL_COLUMN_DEFS: Array<ProTableColumn<RowItem> & { key: string }> = [
     { key: "type", title: "工作项类型", dataIndex: "type", width: 120, sorter: true, align: "left", slot: "type" },
     { key: "planTime", title: "计划时间", dataIndex: "planTime", width: 260, sorter: true, align: "left", slot: "planTime" },
     { key: "creator", title: "创建人", dataIndex: "creator", width: 160, sorter: true, align: "left", slot: "creator" },
-    { key: "updatedAt", title: "更新时间", dataIndex: "updatedAt", width: 150, sorter: true, align: "left" },
-    { key: "iteration", title: "迭代", dataIndex: "iteration", width: 140, align: "left" },
-    { key: "version", title: "版本", dataIndex: "version", width: 120, align: "left" },
-    { key: "estimateHours", title: "预估工时", dataIndex: "estimateHours", width: 100, align: "left" },
-    { key: "repo", title: "关联仓库", dataIndex: "repo", width: 140, align: "left" },
-    { key: "milestone", title: "关联里程碑", dataIndex: "milestone", width: 140, align: "left" },
-    { key: "branch", title: "关联分支", dataIndex: "branch", width: 140, align: "left" },
-    { key: "project", title: "关联项目", dataIndex: "projectName", width: 140, align: "left" },
-    { key: "startAt", title: "实际开始时间", dataIndex: "startAt", width: 150, align: "left" },
-    { key: "endAt", title: "实际结束时间", dataIndex: "endAt", width: 150, align: "left" },
-    { key: "loggedHours", title: "登记工时", dataIndex: "loggedHours", width: 100, align: "left" },
-    { key: "remainHours", title: "剩余工时", dataIndex: "remainHours", width: 100, align: "left" },
+    { key: "updatedAt", title: "更新时间", dataIndex: "updatedAt", width: 150, sorter: true, align: "left", slot: "updatedAt" },
+    { key: "iteration", title: "迭代", dataIndex: "iteration", width: 140, sorter: true, align: "left", slot: "iteration" },
+    { key: "version", title: "版本", dataIndex: "version", width: 120, sorter: true, align: "left", slot: "version" },
+    { key: "estimateHours", title: "预估工时", dataIndex: "estimateHours", width: 100, sorter: true, align: "left", slot: "estimateHours" },
+    { key: "repo", title: "关联仓库", dataIndex: "repo", width: 140, align: "left", slot: "repo" },
+    { key: "milestone", title: "关联里程碑", dataIndex: "milestone", width: 140, align: "left", slot: "milestone" },
+    { key: "branch", title: "关联分支", dataIndex: "branch", width: 140, align: "left", slot: "branch" },
+    { key: "project", title: "关联项目", dataIndex: "projectName", width: 140, sorter: true, align: "left", slot: "project" },
+    { key: "startAt", title: "实际开始时间", dataIndex: "startAt", width: 150, sorter: true, align: "left", slot: "startAt" },
+    { key: "endAt", title: "实际结束时间", dataIndex: "endAt", width: 150, sorter: true, align: "left", slot: "endAt" },
+    { key: "loggedHours", title: "登记工时", dataIndex: "loggedHours", width: 100, sorter: true, align: "left", slot: "loggedHours" },
+    { key: "remainHours", title: "剩余工时", dataIndex: "remainHours", width: 100, sorter: true, align: "left", slot: "remainHours" },
 ];
 
 const DEFAULT_VISIBLE_KEYS = new Set([
@@ -669,6 +678,8 @@ const collectCurrentViewState = () => {
     return { filters, cols };
 };
 
+const currentViewStateForCreate = computed(() => collectCurrentViewState());
+
 const handleUpdateCurrentView = async () => {
     saveViewDropdownOpen.value = false;
     const cv = currentCustomView.value;
@@ -808,6 +819,61 @@ const syncRecordStatusToApi = async (record: RowItem, displayStatus: Status) => 
     await syncRecordUpdateToApi(record, { state: targetStates[0] });
 };
 
+const {
+    priorityPickerOpenMap,
+    tagPickerOpenMap,
+    statusPickerOpenMap,
+    ownerPickerOpenMap,
+    collaboratorsPickerOpenMap,
+    getInteractiveCellKey,
+    isCellBackgroundClick,
+    openCellPickerOnBackgroundClick,
+    getRowPriority,
+    selectPriority,
+    getRowStatus,
+    selectRowStatus,
+    getRowOwner,
+    selectRowOwner,
+    getRowCollaborators,
+    setRowCollaborators,
+    getRowTags,
+    setRowTags,
+    rowTagOptions,
+    getRowPlanTimeText,
+    onPlanTimeChange,
+    onPlanTimeOpenChange,
+    getRowPlanTime,
+    togglePlanTimeMenu,
+    getTagColor,
+    tagColorPalette,
+    openCreateTagDialog,
+    handleCancelCreateTag,
+    handleConfirmCreateTag,
+    newTagName,
+    newTagColor,
+    newTagDialogOpen,
+    openPlanTimeFor,
+    planTimePickerOpen,
+    planTimePrevValue,
+    planTimeCommitted,
+} = useWorkItemInlineEdit({
+    useApi: computed(() => props.useApi),
+    syncRecordUpdateToApi,
+    syncRecordStatusToApi,
+    getMemberIdByName,
+    mapBackendPriority,
+    toBackendPriorityLevel,
+    toTaskEstimateHours,
+    getBackendStatesByDisplayStatus,
+    dynamicTagOptions,
+    baseTagOptions,
+    priorityModel,
+    tagsModel,
+    collaboratorsModel,
+    planTimeModel,
+    normalizeDateValue,
+});
+
 const prependPinnedRow = (typeValue: WorkItemType, row: RowItem) => {
     const list = pinnedRowsByType[typeValue] || [];
     const rowId = row.backendId || row.workNo;
@@ -904,8 +970,14 @@ const mapBackendItemToRow = (item: any, typeValue: WorkItemType, index: number):
     const updated = item?.updated_at ? new Date(item.updated_at) : null;
     const updatedAt = updated ? formatCnTime(updated) : "";
     const estimateHours = item?.estimate_hours != null ? item.estimate_hours : undefined;
+    const loggedHours = item?.actual_hours != null ? item.actual_hours : undefined;
+    const remainHours = (estimateHours != null && loggedHours != null)
+        ? Math.max(0, Number(estimateHours) - Number(loggedHours))
+        : undefined;
     const iterationId = item?.iteration_id ? String(item.iteration_id) : "";
     const versionId = item?.version_id ? String(item.version_id) : "";
+    const startAt = item?.start_at ? String(item.start_at).split("T")[0] : "";
+    const endAt = item?.end_at ? String(item.end_at).split("T")[0] : "";
     return {
         backendId,
         workNo,
@@ -933,6 +1005,15 @@ const mapBackendItemToRow = (item: any, typeValue: WorkItemType, index: number):
         versionId,
         version: item?.version_name ? String(item.version_name) : "",
         estimateHours,
+        loggedHours,
+        remainHours,
+        milestoneId: item?.milestone_id ? String(item.milestone_id) : "",
+        milestone: item?.milestone_name ? String(item.milestone_name) : "",
+        repoId: item?.repo_id ? String(item.repo_id) : "",
+        repo: "",
+        branch: item?.branch ? String(item.branch) : "",
+        startAt,
+        endAt,
         _prevIteration: iterationId,
         _prevVersion: versionId,
     };
@@ -1020,8 +1101,24 @@ const applyColumnFilters = (rows: RowItem[]): RowItem[] => {
                     const rowTags: string[] = row.tags || [];
                     if (!vals.some(v => rowTags.includes(v))) return false;
                 }
-            } else if (field === "createdAt" || field === "planTime") {
-                const rowVal = field === "createdAt" ? row.createdAt : (row.planStartDate || row.planEndDate || "");
+            } else if (field === "iteration") {
+                const vals = fv.value as string[];
+                if (vals?.length && !vals.includes(row.iteration || "")) return false;
+            } else if (field === "version") {
+                const vals = fv.value as string[];
+                if (vals?.length && !vals.includes(row.version || "")) return false;
+            } else if (field === "milestone") {
+                const vals = fv.value as string[];
+                if (vals?.length && !vals.includes(row.milestone || "")) return false;
+            } else if (field === "createdAt" || field === "planTime" || field === "updatedAt" || field === "startAt" || field === "endAt") {
+                const dateFieldMap: Record<string, string> = {
+                    createdAt: row.createdAt,
+                    planTime: row.planStartDate || row.planEndDate || "",
+                    updatedAt: row.updatedAt || "",
+                    startAt: row.startAt || "",
+                    endAt: row.endAt || "",
+                };
+                const rowVal = dateFieldMap[field] || "";
                 if (!rowVal) return false;
                 const rowDate = new Date(rowVal).getTime();
                 if (isNaN(rowDate)) return false;
@@ -1068,6 +1165,24 @@ const applyColumnSort = (rows: RowItem[]): RowItem[] => {
         } else if (field === "planTime") {
             va = a.planStartDate || a.planEndDate || "";
             vb = b.planStartDate || b.planEndDate || "";
+        } else if (field === "updatedAt") {
+            va = a.updatedAt || "";
+            vb = b.updatedAt || "";
+        } else if (field === "iteration") {
+            va = a.iteration || "";
+            vb = b.iteration || "";
+        } else if (field === "version") {
+            va = a.version || "";
+            vb = b.version || "";
+        } else if (field === "milestone") {
+            va = a.milestone || "";
+            vb = b.milestone || "";
+        } else if (field === "startAt") {
+            va = a.startAt || "";
+            vb = b.startAt || "";
+        } else if (field === "endAt") {
+            va = a.endAt || "";
+            vb = b.endAt || "";
         } else {
             return 0;
         }
@@ -1229,7 +1344,9 @@ const request = async (params: ProTableRequestParams): Promise<ProTableResponse<
         rows = applyColumnFilters(rows);
         rows = applyColumnSort(rows);
         totalFromApi = rows.length;
-        collectTagOptions(workType === "需求" || workType === "任务" ? getVisibleChildRows(rows, ownerValue, statusValue) : rows);
+        const optionRows = workType === "需求" || workType === "任务" ? getVisibleChildRows(rows, ownerValue, statusValue) : rows;
+        collectTagOptions(optionRows);
+        collectEnumOptions(optionRows);
         totalCount.value = totalFromApi;
         return { data: rows, total: totalFromApi, current, pageSize };
     }
@@ -1698,226 +1815,6 @@ const saveDetailDescEditor = async () => {
     message.success("描述已保存");
 };
 
-const getRowPriority = (record: RowItem, text?: Priority): Priority => {
-    return priorityModel[record.workNo] || text || record.priority;
-};
-
-const selectPriority = async (record: RowItem, value: Priority) => {
-    const workNo = record.workNo;
-    const prev = getRowPriority(record, record.priority);
-    priorityModel[workNo] = value;
-    record.priority = value;
-    try {
-        if (record.type === "缺陷") {
-            await syncRecordUpdateToApi(record, { severity: toBackendPriorityLevel(value) });
-        } else if (record.type === "任务") {
-            await syncRecordUpdateToApi(record, { estimate_hours: toTaskEstimateHours(value) });
-        } else {
-            await syncRecordUpdateToApi(record, { priority: toBackendPriorityLevel(value) });
-        }
-    } catch (error: any) {
-        priorityModel[workNo] = prev;
-        record.priority = prev;
-        message.error(error?.message || "优先级同步失败");
-        return;
-    }
-};
-
-const getRowStatus = (record: RowItem, text?: Status): Status => {
-    return text || record.status;
-};
-
-const selectRowStatus = async (record: RowItem, value: Status) => {
-    const prev = record.status;
-    record.status = value;
-    if (prev !== value) {
-        try {
-            await syncRecordStatusToApi(record, value);
-        } catch (error: any) {
-            record.status = prev;
-            message.error(error?.message || "状态同步失败");
-            return;
-        }
-    }
-};
-
-const getRowOwner = (record: RowItem, text?: string): string => {
-    return text || record.owner || "未指派";
-};
-
-const selectRowOwner = async (record: RowItem, value: string) => {
-    const prev = record.owner;
-    const nextOwner = value || "未指派";
-    record.owner = nextOwner;
-    if (prev !== nextOwner) {
-        const memberId = value ? getMemberIdByName(value) : "";
-        if (value && !memberId) {
-            record.owner = prev;
-            message.error("未找到负责人对应的成员ID，无法同步");
-            return;
-        }
-        try {
-            if (record.type === "需求") {
-                await syncRecordUpdateToApi(record, { pm_id: memberId || null });
-            } else {
-                await syncRecordUpdateToApi(record, { assignee_id: memberId || null });
-            }
-        } catch (error: any) {
-            record.owner = prev;
-            message.error(error?.message || "负责人同步失败");
-            return;
-        }
-    }
-};
-
-const getRowCollaborators = (record: RowItem, text?: string[]): string[] => {
-    return collaboratorsModel[record.workNo] || text || record.collaborators || [];
-};
-
-const setRowCollaborators = async (record: RowItem, nextCollaborators: string[]) => {
-    const prev = [...getRowCollaborators(record, record.collaborators)];
-    collaboratorsModel[record.workNo] = [...nextCollaborators];
-    record.collaborators = [...nextCollaborators];
-    try {
-        await syncRecordUpdateToApi(record, { collaborators: nextCollaborators });
-    } catch (error: any) {
-        collaboratorsModel[record.workNo] = prev;
-        record.collaborators = prev;
-        message.error(error?.message || "协作者同步失败");
-    }
-};
-
-const tagColorPalette = ["#ef4444", "#d946ef", "#eab308", "#22c55e", "#3b82f6", "#f97316", "#14b8a6", "#8b5cf6"];
-const tagColorOverrides = reactive<Record<string, string>>({});
-
-const getTagColor = (name: string): string => {
-    if (tagColorOverrides[name]) return tagColorOverrides[name]!;
-    let hash = 0;
-    for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
-    return tagColorPalette[hash % tagColorPalette.length]!;
-};
-
-const getRowTags = (record: RowItem, text?: string[]): string[] => {
-    return tagsModel[record.workNo] || text || [];
-};
-
-const rowTagOptions = computed(() => dynamicTagOptions.value.length ? dynamicTagOptions.value : baseTagOptions);
-
-const setRowTags = async (record: RowItem, nextTags: string[]) => {
-    const prev = [...getRowTags(record, record.tags)];
-    tagsModel[record.workNo] = [...nextTags];
-    record.tags = [...nextTags];
-    try {
-        await syncRecordUpdateToApi(record, { tags: nextTags });
-    } catch (error: any) {
-        tagsModel[record.workNo] = prev;
-        record.tags = prev;
-        message.error(error?.message || "标签同步失败");
-    }
-};
-
-const openCreateTagDialog = (record?: RowItem | null, text?: string[]) => {
-    newTagName.value = "";
-    newTagColor.value = tagColorPalette[0] || "#3b82f6";
-    newTagTargetRecord.value = record || null;
-    newTagTargetText.value = text;
-    newTagDialogOpen.value = true;
-};
-
-const handleCancelCreateTag = () => {
-    newTagDialogOpen.value = false;
-};
-
-const handleConfirmCreateTag = async () => {
-    const name = newTagName.value.trim();
-    if (!name) {
-        message.error("请输入标签名称");
-        return;
-    }
-    const existing = new Set<string>([...baseTagOptions, ...dynamicTagOptions.value]);
-    if (existing.has(name)) {
-        message.error("该标签已存在");
-        return;
-    }
-    dynamicTagOptions.value = [...dynamicTagOptions.value, name];
-    if (newTagColor.value) {
-        tagColorOverrides[name] = newTagColor.value;
-    }
-    if (newTagTargetRecord.value) {
-        const currentTags = getRowTags(newTagTargetRecord.value, newTagTargetText.value);
-        if (!currentTags.includes(name)) {
-            await setRowTags(newTagTargetRecord.value, [...currentTags, name]);
-        }
-    }
-    newTagDialogOpen.value = false;
-};
-
-const onPlanTimeChange = async (record: RowItem, value?: any) => {
-    const workNo = record.workNo;
-    if (!value || value.length !== 2) return;
-    const start = normalizeDateValue(value[0]);
-    const end = normalizeDateValue(value[1]);
-    if (!start || !end) return;
-    planTimeCommitted.value = true;
-    const prev = [...planTimePrevValue.value] as DateRange;
-    planTimeModel[workNo] = [start, end];
-    record.planTime = [start, end];
-    openPlanTimeFor.value = null;
-    try {
-        if (record.type === "缺陷") {
-            message.warning("缺陷暂不支持计划时间同步到后端");
-        } else {
-            await syncRecordUpdateToApi(record, { deadline: end });
-        }
-    } catch (error: any) {
-        planTimeModel[workNo] = prev;
-        record.planTime = prev;
-        message.error(error?.message || "计划时间同步失败");
-    }
-};
-
-const onPlanTimeOpenChange = (record: RowItem, open: boolean) => {
-    if (!open && openPlanTimeFor.value === record.workNo && !planTimeCommitted.value) {
-        const workNo = record.workNo;
-        planTimeModel[workNo] = [...planTimePrevValue.value];
-        record.planTime = [...planTimePrevValue.value];
-        openPlanTimeFor.value = null;
-    }
-};
-
-const getRowPlanTime = (record: RowItem, text?: DateRange): DateRange => {
-    return planTimeModel[record.workNo] || text || record.planTime;
-};
-
-const getRowPlanTimeText = (record: RowItem, text?: DateRange): string => {
-    const value = getRowPlanTime(record, text);
-    const start = normalizeDateValue(value[0]) || "-";
-    const end = normalizeDateValue(value[1]) || "-";
-    return `${start} ~ ${end}`;
-};
-
-const togglePlanTimeMenu = (workNo: string, record?: RowItem, text?: DateRange) => {
-    const willOpen = openPlanTimeFor.value !== workNo;
-    if (willOpen) {
-        const value = record ? getRowPlanTime(record, text) : undefined;
-        const start = normalizeDateValue(value?.[0]);
-        const end = normalizeDateValue(value?.[1]);
-        if (start && end) {
-            planTimeModel[workNo] = [start, end];
-        }
-        planTimePrevValue.value = planTimeModel[workNo] ? [...planTimeModel[workNo]] : [];
-        planTimeCommitted.value = false;
-        planTimePickerOpen.value = false;
-        openPlanTimeFor.value = workNo;
-        nextTick(() => {
-            planTimePickerOpen.value = true;
-        });
-    } else {
-        planTimePickerOpen.value = false;
-        openPlanTimeFor.value = null;
-    }
-};
-
 const getCollapsedTags = (tags: string[], resolvedWidth?: string | number): { visible: string[]; hidden: number } => {
     const width = typeof resolvedWidth === "number"
         ? resolvedWidth
@@ -2086,6 +1983,9 @@ onMounted(async () => {
                 </div>
             </template>
             <template #extra-actions>
+                <AiAssistButton
+                    :prompt="`我想在项目「${currentProjectName}」中创建一个${resolveActiveType()}，请引导我完成。`"
+                />
                 <MoreActionsDropdown
                     @import="importDialogOpen = true"
                     @import-records="importRecordDialogOpen = true"
@@ -2199,6 +2099,84 @@ onMounted(async () => {
                         :filter-value="columnFilters['collaborators']"
                         @sort="(o) => handleColumnSort('collaborators', o)"
                         @filter="(v) => handleColumnFilter('collaborators', v)"
+                    />
+                </template>
+
+                <template #header-updatedAt="{ column }">
+                    <span>{{ column.title }}</span>
+                    <ColumnFilterPopover
+                        field="updatedAt"
+                        :title="column.title || ''"
+                        :config="dateFilterConfig"
+                        :sort-order="columnSortField === 'updatedAt' ? columnSortOrder : null"
+                        :filter-value="columnFilters['updatedAt']"
+                        @sort="(o) => handleColumnSort('updatedAt', o)"
+                        @filter="(v) => handleColumnFilter('updatedAt', v)"
+                    />
+                </template>
+
+                <template #header-iteration="{ column }">
+                    <span>{{ column.title }}</span>
+                    <ColumnFilterPopover
+                        field="iteration"
+                        :title="column.title || ''"
+                        :config="iterationFilterConfig"
+                        :sort-order="columnSortField === 'iteration' ? columnSortOrder : null"
+                        :filter-value="columnFilters['iteration']"
+                        @sort="(o) => handleColumnSort('iteration', o)"
+                        @filter="(v) => handleColumnFilter('iteration', v)"
+                    />
+                </template>
+
+                <template #header-version="{ column }">
+                    <span>{{ column.title }}</span>
+                    <ColumnFilterPopover
+                        field="version"
+                        :title="column.title || ''"
+                        :config="versionFilterConfig"
+                        :sort-order="columnSortField === 'version' ? columnSortOrder : null"
+                        :filter-value="columnFilters['version']"
+                        @sort="(o) => handleColumnSort('version', o)"
+                        @filter="(v) => handleColumnFilter('version', v)"
+                    />
+                </template>
+
+                <template #header-startAt="{ column }">
+                    <span>{{ column.title }}</span>
+                    <ColumnFilterPopover
+                        field="startAt"
+                        :title="column.title || ''"
+                        :config="dateFilterConfig"
+                        :sort-order="columnSortField === 'startAt' ? columnSortOrder : null"
+                        :filter-value="columnFilters['startAt']"
+                        @sort="(o) => handleColumnSort('startAt', o)"
+                        @filter="(v) => handleColumnFilter('startAt', v)"
+                    />
+                </template>
+
+                <template #header-endAt="{ column }">
+                    <span>{{ column.title }}</span>
+                    <ColumnFilterPopover
+                        field="endAt"
+                        :title="column.title || ''"
+                        :config="dateFilterConfig"
+                        :sort-order="columnSortField === 'endAt' ? columnSortOrder : null"
+                        :filter-value="columnFilters['endAt']"
+                        @sort="(o) => handleColumnSort('endAt', o)"
+                        @filter="(v) => handleColumnFilter('endAt', v)"
+                    />
+                </template>
+
+                <template #header-milestone="{ column }">
+                    <span>{{ column.title }}</span>
+                    <ColumnFilterPopover
+                        field="milestone"
+                        :title="column.title || ''"
+                        :config="milestoneFilterConfig"
+                        :sort-order="columnSortField === 'milestone' ? columnSortOrder : null"
+                        :filter-value="columnFilters['milestone']"
+                        @sort="(o) => handleColumnSort('milestone', o)"
+                        @filter="(v) => handleColumnFilter('milestone', v)"
                     />
                 </template>
 
@@ -2416,6 +2394,89 @@ onMounted(async () => {
                         <span class="text-sm text-gray-700">{{ text }}</span>
                     </TableCell>
                 </template>
+
+                <template #updatedAt="{ text }">
+                    <TableCell>
+                        <span class="text-sm text-gray-500">{{ text }}</span>
+                    </TableCell>
+                </template>
+
+                <template #iteration="{ text, record }">
+                    <TableCell>
+                        <span v-if="text" class="text-sm text-gray-700">{{ text }}</span>
+                        <span v-else class="text-sm text-gray-300">-</span>
+                    </TableCell>
+                </template>
+
+                <template #version="{ text, record }">
+                    <TableCell>
+                        <span v-if="text" class="text-sm text-blue-600">{{ text }}</span>
+                        <span v-else class="text-sm text-gray-300">-</span>
+                    </TableCell>
+                </template>
+
+                <template #estimateHours="{ text }">
+                    <TableCell>
+                        <span v-if="text != null && text !== ''" class="text-sm text-gray-700">{{ text }}h</span>
+                        <span v-else class="text-sm text-gray-300">-</span>
+                    </TableCell>
+                </template>
+
+                <template #loggedHours="{ text }">
+                    <TableCell>
+                        <span v-if="text != null && text !== ''" class="text-sm text-gray-700">{{ text }}h</span>
+                        <span v-else class="text-sm text-gray-300">-</span>
+                    </TableCell>
+                </template>
+
+                <template #remainHours="{ text }">
+                    <TableCell>
+                        <span v-if="text != null && text !== ''" class="text-sm text-gray-700">{{ text }}h</span>
+                        <span v-else class="text-sm text-gray-300">-</span>
+                    </TableCell>
+                </template>
+
+                <template #milestone="{ text }">
+                    <TableCell>
+                        <span v-if="text" class="text-sm text-gray-700">{{ text }}</span>
+                        <span v-else class="text-sm text-gray-300">-</span>
+                    </TableCell>
+                </template>
+
+                <template #project="{ text }">
+                    <TableCell>
+                        <span v-if="text" class="text-sm text-gray-700">{{ text }}</span>
+                        <span v-else class="text-sm text-gray-300">-</span>
+                    </TableCell>
+                </template>
+
+                <template #startAt="{ text }">
+                    <TableCell>
+                        <span v-if="text" class="text-sm text-gray-700">{{ text }}</span>
+                        <span v-else class="text-sm text-gray-300">-</span>
+                    </TableCell>
+                </template>
+
+                <template #endAt="{ text }">
+                    <TableCell>
+                        <span v-if="text" class="text-sm text-gray-700">{{ text }}</span>
+                        <span v-else class="text-sm text-gray-300">-</span>
+                    </TableCell>
+                </template>
+
+                <template #repo="{ text }">
+                    <TableCell>
+                        <span v-if="text" class="text-sm text-gray-700">{{ text }}</span>
+                        <span v-else class="text-sm text-gray-300">-</span>
+                    </TableCell>
+                </template>
+
+                <template #branch="{ text }">
+                    <TableCell>
+                        <span v-if="text" class="text-sm text-gray-700 font-mono text-xs">{{ text }}</span>
+                        <span v-else class="text-sm text-gray-300">-</span>
+                    </TableCell>
+                </template>
             </ProTable>
         </div>
 
@@ -2495,7 +2556,7 @@ onMounted(async () => {
             </template>
         </VortDialog>
 
-        <ImportDialog v-model:open="importDialogOpen" @done="tableRef?.refresh?.()" />
+        <ImportDialog v-model:open="importDialogOpen" :project-id="props.projectId" @done="tableRef?.refresh?.()" />
         <ImportRecordDialog v-model:open="importRecordDialogOpen" />
         <BatchPropertyEditor
             v-model:open="batchPropertyEditorOpen"
@@ -2504,7 +2565,12 @@ onMounted(async () => {
             :status-options="currentStatusFilterOptions"
             @done="() => { clearSelection(); tableRef?.refresh?.(); }"
         />
-        <ViewManageDialog v-model:open="viewManageOpen" :work-item-type="type" />
+        <ViewManageDialog
+            v-model:open="viewManageOpen"
+            :work-item-type="type"
+            :current-filters="currentViewStateForCreate.filters"
+            :current-columns="currentViewStateForCreate.cols"
+        />
         <ViewCreateDialog v-model:open="viewCreateOpen" @create="handleCreateViewFromDialog" />
         <ViewCreateDialog v-model:open="saveViewDialogOpen" @create="handleSaveAsNewView" />
         <ColumnSettingsDialog

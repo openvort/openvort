@@ -10,7 +10,10 @@ import type { RowItem, WorkItemType, StatusOption } from "@/components/vort-biz/
 import { useWorkItemCommon } from "../work-item/useWorkItemCommon";
 import {
     updateVortflowStory, updateVortflowTask, updateVortflowBug,
+    getVortflowIterations, getVortflowVersions, getVortflowStories,
+    getVortgitRepos,
 } from "@/api";
+import { useVortFlowStore } from "@/stores";
 
 interface Props {
     selectedRows: RowItem[];
@@ -42,7 +45,40 @@ const {
     getBackendStatesByDisplayStatus, getMemberIdByName,
 } = useWorkItemCommon();
 
+const vortFlowStore = useVortFlowStore();
+
 const submitting = ref(false);
+
+const repoOptions = ref<{ label: string; value: string }[]>([]);
+const iterationOptions = ref<{ label: string; value: string }[]>([]);
+const versionOptions = ref<{ label: string; value: string }[]>([]);
+const storyOptions = ref<{ label: string; value: string }[]>([]);
+
+const loadDynamicOptions = async () => {
+    const projectId = vortFlowStore.selectedProjectId || undefined;
+    const [repoRes, iterRes, verRes, storyRes] = await Promise.allSettled([
+        getVortgitRepos({ project_id: projectId, page_size: 200 }),
+        getVortflowIterations({ project_id: projectId, page_size: 200 }),
+        getVortflowVersions({ project_id: projectId, page_size: 200 }),
+        getVortflowStories({ project_id: projectId, page_size: 200 }),
+    ]);
+    if (repoRes.status === "fulfilled") {
+        const items = (repoRes.value as any)?.items || [];
+        repoOptions.value = items.map((r: any) => ({ label: r.name || r.full_name, value: r.id }));
+    }
+    if (iterRes.status === "fulfilled") {
+        const items = (iterRes.value as any)?.items || [];
+        iterationOptions.value = items.map((i: any) => ({ label: i.name, value: i.id }));
+    }
+    if (verRes.status === "fulfilled") {
+        const items = (verRes.value as any)?.items || [];
+        versionOptions.value = items.map((v: any) => ({ label: v.name, value: v.id }));
+    }
+    if (storyRes.status === "fulfilled") {
+        const items = (storyRes.value as any)?.items || [];
+        storyOptions.value = items.map((s: any) => ({ label: s.title, value: s.id }));
+    }
+};
 
 const allTagOptions = computed(() => {
     const set = new Set<string>();
@@ -60,6 +96,7 @@ watch(open, (v) => {
     if (v) {
         nextId.value = 1;
         changeRows.value = [{ id: 0, property: "priority", operator: "set", value: null }];
+        loadDynamicOptions();
     }
 });
 
@@ -154,13 +191,36 @@ const buildPatch = (change: PropertyChange, row: RowItem): Record<string, any> =
         case "estimateHours":
             patch.estimate_hours = val ? Number(val) : 0;
             break;
+        case "startAt":
+            patch.start_at = val;
+            break;
+        case "endAt":
+            patch.end_at = val;
+            break;
+        case "repo":
+            patch.repo_id = val;
+            break;
+        case "parentId":
+            patch.parent_id = val;
+            break;
+        case "version":
+        case "iteration":
+            break;
     }
     return patch;
 };
 
 const handleSubmit = async () => {
+    const unsupported = changeRows.value.filter(
+        r => (r.property === "version" || r.property === "iteration") && r.operator === "set",
+    );
+    if (unsupported.length > 0) {
+        message.warning("批量设置迭代/版本暂不支持，请在工作项详情中单独操作");
+        return;
+    }
     const changes: PropertyChange[] = changeRows.value
         .filter(r => r.operator === "clear" || r.value != null)
+        .filter(r => r.property !== "version" && r.property !== "iteration")
         .map(r => ({ property: r.property, operator: r.operator, value: r.value }));
     if (changes.length === 0) {
         message.warning("请至少选择一个要修改的属性");
@@ -213,7 +273,7 @@ const handleCancel = () => {
 
             <div class="change-rows">
                 <div v-for="row in changeRows" :key="row.id" class="change-row">
-                    <Select v-model="row.property" size="small" class="prop-select">
+                    <Select v-model="row.property" size="small">
                         <SelectOption
                             v-for="opt in availableProperties(row.property)"
                             :key="opt.value"
@@ -221,7 +281,7 @@ const handleCancel = () => {
                         >{{ opt.label }}</SelectOption>
                     </Select>
 
-                    <Select v-model="row.operator" size="small" class="op-select">
+                    <Select v-model="row.operator" size="small">
                         <SelectOption value="set">修改为</SelectOption>
                         <SelectOption value="clear">清空</SelectOption>
                     </Select>
@@ -261,6 +321,7 @@ const handleCancel = () => {
                         <vort-range-picker
                             v-else-if="row.property === 'planTime'"
                             :model-value="row.value || []"
+                            size="small"
                             value-format="YYYY-MM-DD"
                             :placeholder="['开始日期', '结束日期']"
                             allow-clear
@@ -270,6 +331,7 @@ const handleCancel = () => {
                         <vort-date-picker
                             v-else-if="row.property === 'startAt' || row.property === 'endAt'"
                             :model-value="row.value || ''"
+                            size="small"
                             value-format="YYYY-MM-DD"
                             placeholder="选择日期"
                             allow-clear
@@ -283,15 +345,44 @@ const handleCancel = () => {
                             type="number"
                             placeholder="小时数"
                         />
-                        <vort-select
-                            v-else-if="row.property === 'repo' || row.property === 'version' || row.property === 'iteration' || row.property === 'parentId'"
+                        <Select
+                            v-else-if="row.property === 'repo'"
                             v-model="row.value"
                             size="small"
-                            placeholder="请选择"
+                            placeholder="请选择仓库"
                             allow-clear
                         >
-                            <vort-select-option value="">请选择</vort-select-option>
-                        </vort-select>
+                            <SelectOption v-for="o in repoOptions" :key="o.value" :value="o.value">{{ o.label }}</SelectOption>
+                        </Select>
+                        <Select
+                            v-else-if="row.property === 'iteration'"
+                            v-model="row.value"
+                            size="small"
+                            placeholder="请选择迭代"
+                            allow-clear
+                        >
+                            <SelectOption v-for="o in iterationOptions" :key="o.value" :value="o.value">{{ o.label }}</SelectOption>
+                        </Select>
+                        <Select
+                            v-else-if="row.property === 'version'"
+                            v-model="row.value"
+                            size="small"
+                            placeholder="请选择版本"
+                            allow-clear
+                        >
+                            <SelectOption v-for="o in versionOptions" :key="o.value" :value="o.value">{{ o.label }}</SelectOption>
+                        </Select>
+                        <Select
+                            v-else-if="row.property === 'parentId'"
+                            v-model="row.value"
+                            size="small"
+                            placeholder="请选择父工作项"
+                            allow-clear
+                            show-search
+                            :filter-option="(input: string, option: any) => (option?.label || '').toLowerCase().includes(input.toLowerCase())"
+                        >
+                            <SelectOption v-for="o in storyOptions" :key="o.value" :value="o.value" :label="o.label">{{ o.label }}</SelectOption>
+                        </Select>
                         <Input v-else v-model="row.value" size="small" placeholder="请输入" />
                     </div>
                     <div v-else class="value-placeholder">将清空该字段</div>
@@ -358,27 +449,29 @@ const handleCancel = () => {
 .change-rows {
     display: flex;
     flex-direction: column;
-    gap: 8px;
 }
 .change-row {
-    display: flex;
-    align-items: center;
+    display: grid;
+    grid-template-columns: 150px 110px 1fr 32px;
     gap: 8px;
+    align-items: center;
+    min-height: 44px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--vort-border-color, #f0f0f0);
 }
-.prop-select {
-    width: 130px;
-    flex-shrink: 0;
-}
-.op-select {
-    width: 100px;
-    flex-shrink: 0;
+.change-row:last-child {
+    border-bottom: none;
 }
 .value-editor {
-    flex: 1;
     min-width: 0;
 }
+.value-editor :deep(.vort-select),
+.value-editor :deep(.vort-input),
+.value-editor :deep(.vort-date-picker),
+.value-editor :deep(.vort-range-picker) {
+    width: 100%;
+}
 .value-placeholder {
-    flex: 1;
     font-size: 12px;
     color: #999;
     padding: 4px 8px;
@@ -394,7 +487,6 @@ const handleCancel = () => {
     background: transparent;
     color: #ff4d4f;
     cursor: pointer;
-    flex-shrink: 0;
     transition: background 0.2s;
 }
 .remove-row-btn:hover {

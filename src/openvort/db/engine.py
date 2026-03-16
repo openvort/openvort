@@ -331,6 +331,42 @@ async def init_db(database_url: str) -> None:
             "CREATE INDEX IF NOT EXISTS ix_flow_column_settings_member_id ON flow_column_settings(member_id)"
         ))
 
+    # VortFlow: new columns for stories/tasks/bugs + comments table
+    async with _engine.begin() as conn:
+        for tbl in ("flow_stories", "flow_tasks", "flow_bugs"):
+            await conn.execute(text(f"ALTER TABLE IF EXISTS {tbl} ADD COLUMN IF NOT EXISTS start_at TIMESTAMP"))
+            await conn.execute(text(f"ALTER TABLE IF EXISTS {tbl} ADD COLUMN IF NOT EXISTS end_at TIMESTAMP"))
+            await conn.execute(text(f"ALTER TABLE IF EXISTS {tbl} ADD COLUMN IF NOT EXISTS repo_id VARCHAR(32)"))
+            await conn.execute(text(f"ALTER TABLE IF EXISTS {tbl} ADD COLUMN IF NOT EXISTS branch VARCHAR(200) DEFAULT ''"))
+        await conn.execute(text(
+            "ALTER TABLE IF EXISTS flow_bugs ADD COLUMN IF NOT EXISTS estimate_hours FLOAT"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE IF EXISTS flow_bugs ADD COLUMN IF NOT EXISTS actual_hours FLOAT"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE IF EXISTS flow_bugs ADD COLUMN IF NOT EXISTS deadline TIMESTAMP"
+        ))
+
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS flow_comments (
+                id BIGSERIAL PRIMARY KEY,
+                entity_type VARCHAR(32) NOT NULL,
+                entity_id VARCHAR(32) NOT NULL,
+                author_id VARCHAR(32) NOT NULL,
+                content TEXT DEFAULT '',
+                mentions_json TEXT DEFAULT '[]',
+                created_at TIMESTAMP DEFAULT now(),
+                updated_at TIMESTAMP DEFAULT now()
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_flow_comments_entity ON flow_comments(entity_type, entity_id)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_flow_comments_author ON flow_comments(author_id)"
+        ))
+
     # Group chat table (group-project binding)
     async with _engine.begin() as conn:
         await conn.execute(text("""
@@ -524,6 +560,23 @@ async def init_db(database_url: str) -> None:
         # chat_sessions: add unread_count column
         await conn.execute(text(
             "ALTER TABLE IF EXISTS chat_sessions ADD COLUMN IF NOT EXISTS unread_count INTEGER DEFAULT 0"
+        ))
+
+        # chat_sessions: context reset support (archived_messages + context_reset_at)
+        await conn.execute(text(
+            "ALTER TABLE IF EXISTS chat_sessions ADD COLUMN IF NOT EXISTS archived_messages TEXT"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE IF EXISTS chat_sessions ADD COLUMN IF NOT EXISTS context_reset_at TIMESTAMP"
+        ))
+
+    # Report module: template description + rule workdays_only
+    async with _engine.begin() as conn:
+        await conn.execute(text(
+            "ALTER TABLE IF EXISTS report_templates ADD COLUMN IF NOT EXISTS description VARCHAR(512) DEFAULT ''"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE IF EXISTS report_rules ADD COLUMN IF NOT EXISTS workdays_only BOOLEAN DEFAULT TRUE"
         ))
 
     log.info(f"数据库已初始化: {database_url.split('://')[0]}")

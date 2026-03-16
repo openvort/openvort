@@ -57,6 +57,13 @@ function dispatchMessage(data: any) {
         if (data.member_id) {
             notificationStore.setTaskStatus(data.member_id, "idle");
         }
+    } else if (msgType === "vortflow_notification") {
+        notificationStore.incrementVortflowUnread();
+        notification.info({
+            message: data.title || "VortFlow",
+            description: (data.message || "").slice(0, 120),
+            duration: 5000,
+        });
     }
 
     if (msgType === "schedule_result" || msgType === "message" || msgType === "task_completed" || msgType === "task_failed") {

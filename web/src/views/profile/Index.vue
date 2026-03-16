@@ -111,6 +111,7 @@ const notifyTypes = [
     { key: "system", title: "系统消息", desc: "系统公告、版本更新等通知" },
     { key: "task", title: "任务提醒", desc: "任务状态变更、到期提醒" },
     { key: "team", title: "团队动态", desc: "团队成员变更、协作通知" },
+    { key: "vortflow", title: "VortFlow 通知", desc: "工作项创建、状态变更、任务分配等" },
 ];
 
 // 通知偏好: { system: { web: true, wecom: false }, task: { web: true }, ... }
