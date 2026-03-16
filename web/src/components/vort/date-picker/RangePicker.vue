@@ -11,7 +11,6 @@ const attrs = useAttrs();
 
 // 使用 z-index 上下文，在 Dialog/Drawer 内时自动获得更高的层级
 const zIndex = useZIndex("popup");
-const popupContainer = computed(() => getVortPopupContainer());
 
 /** Vort RangePicker - 日期范围选择器组件 */
 
@@ -66,6 +65,8 @@ interface Props {
     status?: DatePickerStatus;
     /** 控制弹层显示 */
     open?: boolean;
+    /** 菜单渲染父节点。默认渲染到 body 上，如果你遇到菜单滚动定位问题，试试修改为滚动的区域，并相对其定位 */
+    getPopupContainer?: () => HTMLElement;
     /** 自定义类名 */
     class?: string;
     /** 分隔符 */
@@ -97,6 +98,8 @@ const props = withDefaults(defineProps<Props>(), {
     showTime: false,
     showNow: true
 });
+
+const popupContainer = computed(() => props.getPopupContainer?.() ?? getVortPopupContainer());
 
 const emit = defineEmits<{
     "update:modelValue": [value: RangeValue];
