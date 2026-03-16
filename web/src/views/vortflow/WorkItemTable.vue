@@ -217,6 +217,8 @@ const branchOptionsMap = reactive<Record<string, Array<{ name: string }>>>({});
 const branchLoadingMap = reactive<Record<string, boolean>>({});
 const estimateEditingFor = ref<string | null>(null);
 const estimateDraftMap = reactive<Record<string, number | null>>({});
+const estimateInputRef = ref<any>(null);
+const projectPickerOpenMap = reactive<Record<string, boolean>>({});
 const repoPickerOpenMap = reactive<Record<string, boolean>>({});
 const branchPickerOpenMap = reactive<Record<string, boolean>>({});
 const startAtPickerOpenMap = reactive<Record<string, boolean>>({});
@@ -534,8 +536,6 @@ const ALL_COLUMN_DEFS: Array<ProTableColumn<RowItem> & { key: string }> = [
     { key: "project", title: "关联项目", dataIndex: "projectName", width: 140, sorter: true, align: "left", slot: "project" },
     { key: "startAt", title: "实际开始时间", dataIndex: "startAt", width: 150, sorter: true, align: "left", slot: "startAt" },
     { key: "endAt", title: "实际结束时间", dataIndex: "endAt", width: 150, sorter: true, align: "left", slot: "endAt" },
-    { key: "loggedHours", title: "登记工时", dataIndex: "loggedHours", width: 100, sorter: true, align: "left", slot: "loggedHours" },
-    { key: "remainHours", title: "剩余工时", dataIndex: "remainHours", width: 100, sorter: true, align: "left", slot: "remainHours" },
 ];
 
 const DEFAULT_VISIBLE_KEYS = new Set([
@@ -971,11 +971,6 @@ const openRepoPicker = async (record: RowItem, event: Event) => {
 };
 
 const selectRowEstimateHours = async (record: RowItem, value?: number | null) => {
-    if (record.type === "需求") {
-        message.warning("需求暂不支持预估工时");
-        estimateEditingFor.value = null;
-        return;
-    }
     const key = getInteractiveCellKey(record);
     const prevEstimate = record.estimateHours;
     const prevRemain = record.remainHours;
@@ -1003,6 +998,25 @@ const openEstimateEditor = (record: RowItem) => {
         ? null
         : Number(record.estimateHours);
     estimateEditingFor.value = key;
+    nextTick(() => estimateInputRef.value?.focus());
+};
+
+const selectRowProject = async (record: RowItem, projectId?: string) => {
+    const key = getInteractiveCellKey(record);
+    const prevProjectId = record.projectId || "";
+    const prevProjectName = record.projectName || "";
+    const nextProjectId = String(projectId || "");
+    const nextProjectName = apiProjects.value.find(p => p.id === nextProjectId)?.name || "";
+    record.projectId = nextProjectId;
+    record.projectName = nextProjectName;
+    projectPickerOpenMap[key] = false;
+    try {
+        await syncRecordUpdateToApi(record, { project_id: nextProjectId || null });
+    } catch (error: any) {
+        record.projectId = prevProjectId;
+        record.projectName = prevProjectName;
+        message.error(error?.message || "项目同步失败");
+    }
 };
 
 const selectRowRepo = async (record: RowItem, repoId?: string) => {
@@ -2637,47 +2651,31 @@ onMounted(async () => {
                 </template>
 
                 <template #estimateHours="{ text, record }">
-                    <TableCell @click.stop="record.type !== '需求' && openEstimateEditor(record)">
-                        <div class="min-h-8 flex items-center" @click.stop>
+                    <TableCell @click.stop="openEstimateEditor(record)">
+                        <div class="min-h-8 flex items-center">
                             <vort-input-number
                                 v-if="estimateEditingFor === getInteractiveCellKey(record)"
+                                ref="estimateInputRef"
                                 v-model="estimateDraftMap[getInteractiveCellKey(record)]"
                                 :min="0"
                                 :step="0.5"
                                 size="small"
-                                class="w-[88px]"
+                                style="width:88px"
+                                @click.stop
                                 @blur="selectRowEstimateHours(record, estimateDraftMap[getInteractiveCellKey(record)])"
                                 @keyup.enter="selectRowEstimateHours(record, estimateDraftMap[getInteractiveCellKey(record)])"
                             />
                             <span
                                 v-else-if="text != null && text !== ''"
-                                :class="record.type === '需求' ? 'text-sm text-gray-700' : 'text-sm text-blue-600 cursor-pointer'"
+                                class="text-sm text-blue-600 cursor-pointer"
                             >
                                 {{ text }}h
                             </span>
-                            <span
-                                v-else
-                                :class="record.type === '需求' ? 'text-sm text-gray-300' : 'text-sm text-blue-400 cursor-pointer'"
-                            >
-                                -
-                            </span>
+                            <span v-else class="text-sm text-blue-400 cursor-pointer">-</span>
                         </div>
                     </TableCell>
                 </template>
 
-                <template #loggedHours="{ text }">
-                    <TableCell>
-                        <span v-if="text != null && text !== ''" class="text-sm text-gray-700">{{ text }}h</span>
-                        <span v-else class="text-sm text-gray-300">-</span>
-                    </TableCell>
-                </template>
-
-                <template #remainHours="{ text }">
-                    <TableCell>
-                        <span v-if="text != null && text !== ''" class="text-sm text-gray-700">{{ text }}h</span>
-                        <span v-else class="text-sm text-gray-300">-</span>
-                    </TableCell>
-                </template>
 
                 <template #milestone="{ text }">
                     <TableCell>
@@ -2686,10 +2684,21 @@ onMounted(async () => {
                     </TableCell>
                 </template>
 
-                <template #project="{ text }">
-                    <TableCell>
-                        <span v-if="text" class="text-sm text-gray-700">{{ text }}</span>
-                        <span v-else class="text-sm text-gray-300">-</span>
+                <template #project="{ text, record }">
+                    <TableCell @click.stop="record.type === '需求' && (projectPickerOpenMap[getInteractiveCellKey(record)] = true)">
+                        <vort-select
+                            :model-value="record.projectId || undefined"
+                            :open="projectPickerOpenMap[getInteractiveCellKey(record)]"
+                            placeholder="-"
+                            allow-clear
+                            size="small"
+                            :bordered="false"
+                            class="w-full"
+                            @update:open="projectPickerOpenMap[getInteractiveCellKey(record)] = $event"
+                            @change="(val: string) => selectRowProject(record, val)"
+                        >
+                            <vort-select-option v-for="p in apiProjects" :key="p.id" :value="p.id">{{ p.name }}</vort-select-option>
+                        </vort-select>
                     </TableCell>
                 </template>
 

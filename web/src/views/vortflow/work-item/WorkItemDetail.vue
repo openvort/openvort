@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, reactive, onMounted, watch } from "vue";
+import { ref, computed, reactive, onMounted, watch, nextTick } from "vue";
 import { message } from "@/components/vort";
 import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMemberPicker.vue";
 import WorkItemStatus from "@/components/vort-biz/work-item/WorkItemStatus.vue";
@@ -442,25 +442,27 @@ const detailBranch = computed({
     },
 });
 
-const detailStartAt = computed({
-    get: () => record.value?.startAt || "",
-    set: (val: string) => {
-        if (!record.value) return;
-        const next = normalizeDateValue(val);
-        record.value.startAt = next;
-        emit("update", { startAt: next });
-        appendDetailLog(`修改实际开始时间为"${next || "未设置"}"`);
+const detailActualTimeModel = computed<any>({
+    get: () => {
+        if (!record.value) return undefined;
+        const s = record.value.startAt || "";
+        const e = record.value.endAt || "";
+        return s || e ? [s, e] as DateRange : undefined;
     },
-});
-
-const detailEndAt = computed({
-    get: () => record.value?.endAt || "",
-    set: (val: string) => {
+    set: (value) => {
         if (!record.value) return;
-        const next = normalizeDateValue(val);
-        record.value.endAt = next;
-        emit("update", { endAt: next });
-        appendDetailLog(`修改实际结束时间为"${next || "未设置"}"`);
+        if (Array.isArray(value) && value.length === 2) {
+            const startAt = normalizeDateValue(String(value[0] || ""));
+            const endAt = normalizeDateValue(String(value[1] || ""));
+            record.value.startAt = startAt;
+            record.value.endAt = endAt;
+            emit("update", { startAt, endAt });
+        } else {
+            record.value.startAt = "";
+            record.value.endAt = "";
+            emit("update", { startAt: "", endAt: "" });
+        }
+        appendDetailLog("修改了实际时间");
     },
 });
 
@@ -509,8 +511,7 @@ type EditableField =
     | "estimateHours"
     | "repo"
     | "branch"
-    | "startAt"
-    | "endAt";
+    | "actualTime";
 const editingField = ref<EditableField | null>(null);
 const startEditing = (field: EditableField) => {
     editingField.value = field;
@@ -522,7 +523,13 @@ const isEditing = (field: EditableField) => editingField.value === field;
 const canEditProject = computed(() => record.value?.type === "需求");
 const canEditIteration = computed(() => record.value?.type === "需求" || record.value?.type === "任务");
 const canEditVersion = computed(() => record.value?.type === "需求");
-const canEditEstimateHours = computed(() => record.value?.type === "任务" || record.value?.type === "缺陷");
+const canEditEstimateHours = computed(() => !!record.value);
+const detailEstimateRef = ref<any>(null);
+const startEditingEstimate = () => {
+    if (!canEditEstimateHours.value) return;
+    startEditing("estimateHours");
+    nextTick(() => detailEstimateRef.value?.focus());
+};
 
 onMounted(async () => {
     await loadMemberOptions();
@@ -716,9 +723,10 @@ watch(() => props.initialData, (value) => {
                             <div
                                 class="detail-field-shell"
                                 :class="{ 'is-editing': isEditing('estimateHours') }"
-                                @mousedown.capture="canEditEstimateHours && startEditing('estimateHours')"
+                                @mousedown.capture="startEditingEstimate"
                             >
                                 <vort-input-number
+                                    ref="detailEstimateRef"
                                     v-model="detailEstimateHours"
                                     placeholder="未设置"
                                     :disabled="!canEditEstimateHours"
@@ -731,21 +739,21 @@ watch(() => props.initialData, (value) => {
                             </div>
                         </div>
                         <div class="bug-detail-info-item bug-detail-info-item-row">
-                            <label>实际开始时间</label>
+                            <label>实际时间</label>
                             <div
                                 class="detail-field-shell"
-                                :class="{ 'is-editing': isEditing('startAt') }"
-                                @mousedown.capture="startEditing('startAt')"
+                                :class="{ 'is-editing': isEditing('actualTime') }"
+                                @mousedown.capture="startEditing('actualTime')"
                             >
-                                <vort-date-picker
-                                    v-model="detailStartAt"
+                                <vort-range-picker
+                                    v-model="detailActualTimeModel"
                                     value-format="YYYY-MM-DD"
                                     format="YYYY-MM-DD"
-                                    allow-clear
-                                    placeholder="未设置"
-                                    class="detail-field-date"
+                                    separator="~"
+                                    :placeholder="['未设置', '未设置']"
+                                    class="detail-field-picker"
                                     @change="stopEditing"
-                                    @update:open="(open: boolean) => { if (!open) stopEditing() }"
+                                    @open-change="(v: boolean) => { if (!v) stopEditing() }"
                                 />
                             </div>
                         </div>
@@ -850,25 +858,6 @@ watch(() => props.initialData, (value) => {
                                 >
                                     <vort-select-option v-for="item in apiBranches" :key="item.name" :value="item.name">{{ item.name }}</vort-select-option>
                                 </vort-select>
-                            </div>
-                        </div>
-                        <div class="bug-detail-info-item bug-detail-info-item-row">
-                            <label>实际结束时间</label>
-                            <div
-                                class="detail-field-shell"
-                                :class="{ 'is-editing': isEditing('endAt') }"
-                                @mousedown.capture="startEditing('endAt')"
-                            >
-                                <vort-date-picker
-                                    v-model="detailEndAt"
-                                    value-format="YYYY-MM-DD"
-                                    format="YYYY-MM-DD"
-                                    allow-clear
-                                    placeholder="未设置"
-                                    class="detail-field-date"
-                                    @change="stopEditing"
-                                    @update:open="(open: boolean) => { if (!open) stopEditing() }"
-                                />
                             </div>
                         </div>
                     </div>
@@ -1084,7 +1073,7 @@ watch(() => props.initialData, (value) => {
 
 .bug-detail-no {
     font-size: 14px;
-    color: #64748b;
+    color: var(--vort-text-secondary);
     font-weight: 500;
 }
 
@@ -1096,15 +1085,15 @@ watch(() => props.initialData, (value) => {
     border: none;
     border-radius: 4px;
     background: transparent;
-    color: #64748b;
+    color: var(--vort-text-secondary);
     font-size: 12px;
     cursor: pointer;
     transition: background 0.15s, color 0.15s;
 }
 
 .detail-copy-link-btn:hover {
-    background: #f1f5f9;
-    color: #334155;
+    background: var(--vort-primary-bg);
+    color: var(--vort-text);
 }
 
 .detail-status-trigger {
@@ -1127,7 +1116,7 @@ watch(() => props.initialData, (value) => {
 
 .detail-status-text {
     font-size: 14px;
-    color: #334155;
+    color: var(--vort-text);
 }
 
 .status-arrow-simple {
@@ -1136,7 +1125,7 @@ watch(() => props.initialData, (value) => {
     height: 0;
     border-left: 4px solid transparent;
     border-right: 4px solid transparent;
-    border-top: 4px solid #94a3b8;
+    border-top: 4px solid var(--vort-text-tertiary);
     transition: transform 0.2s;
 }
 
@@ -1147,14 +1136,14 @@ watch(() => props.initialData, (value) => {
 .bug-detail-title {
     font-size: 20px;
     font-weight: 600;
-    color: #1e293b;
+    color: var(--vort-text);
     margin: 0 0 8px 0;
     line-height: 1.4;
 }
 
 .bug-detail-sub {
     font-size: 13px;
-    color: #64748b;
+    color: var(--vort-text-secondary);
     margin: 0 0 20px 0;
 }
 
@@ -1166,14 +1155,14 @@ watch(() => props.initialData, (value) => {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    color: #64748b;
+    color: var(--vort-text-secondary);
     cursor: pointer;
     font-size: 14px;
     transition: color 0.2s;
 }
 
 .story-parent-node:hover {
-    color: #3b82f6;
+    color: var(--vort-primary);
 }
 
 .work-type-icon-small {
@@ -1205,8 +1194,8 @@ watch(() => props.initialData, (value) => {
 .tree-line {
     width: 16px;
     height: 20px;
-    border-left: 1.5px solid #cbd5e1;
-    border-bottom: 1.5px solid #cbd5e1;
+    border-left: 1.5px solid var(--vort-border);
+    border-bottom: 1.5px solid var(--vort-border);
     border-bottom-left-radius: 6px;
     margin-left: 7px;
     margin-right: 8px;
@@ -1217,7 +1206,7 @@ watch(() => props.initialData, (value) => {
 .bug-detail-tabs {
     display: flex;
     gap: 4px;
-    border-bottom: 1px solid #e2e8f0;
+    border-bottom: 1px solid var(--vort-border-secondary);
     margin-bottom: 20px;
 }
 
@@ -1226,19 +1215,19 @@ watch(() => props.initialData, (value) => {
     background: none;
     border: none;
     border-bottom: 2px solid transparent;
-    color: #64748b;
+    color: var(--vort-text-secondary);
     font-size: 14px;
     cursor: pointer;
     transition: all 0.2s;
 }
 
 .bug-detail-tabs button:hover {
-    color: #334155;
+    color: var(--vort-text);
 }
 
 .bug-detail-tabs button.active {
-    color: #3b82f6;
-    border-bottom-color: #3b82f6;
+    color: var(--vort-primary);
+    border-bottom-color: var(--vort-primary);
 }
 
 .bug-detail-top-grid {
@@ -1263,13 +1252,13 @@ watch(() => props.initialData, (value) => {
 
 .bug-detail-info-item label {
     font-size: 13px;
-    color: #64748b;
+    color: var(--vort-text-secondary);
     font-weight: 400;
 }
 
 .bug-detail-info-item > div {
     font-size: 14px;
-    color: #1e293b;
+    color: var(--vort-text);
 }
 
 .bug-detail-info-item-row {
@@ -1303,13 +1292,13 @@ watch(() => props.initialData, (value) => {
 .bug-detail-sub-items-head h4 {
     font-size: 14px;
     font-weight: 600;
-    color: #334155;
+    color: var(--vort-text);
     margin: 0;
 }
 
 .bug-detail-sub-items-head .count {
-    background: #f1f5f9;
-    color: #64748b;
+    background: var(--vort-border-secondary);
+    color: var(--vort-text-secondary);
     padding: 2px 8px;
     border-radius: 12px;
     font-size: 12px;
@@ -1317,14 +1306,14 @@ watch(() => props.initialData, (value) => {
 }
 
 .add-sub-item-btn {
-    color: #3b82f6 !important;
+    color: var(--vort-primary) !important;
     font-size: 13px !important;
     padding: 4px 8px !important;
     height: auto !important;
 }
 
 .add-sub-item-btn:hover {
-    background: #eff6ff !important;
+    background: var(--vort-primary-bg) !important;
 }
 
 .add-sub-item-btn .icon {
@@ -1338,13 +1327,13 @@ watch(() => props.initialData, (value) => {
     align-items: center;
     justify-content: center;
     padding: 24px 0;
-    background: rgba(248, 250, 252, 0.5);
-    border: 1px dashed #e2e8f0;
+    background: var(--vort-border-secondary);
+    border: 1px dashed var(--vort-border);
     border-radius: 8px;
 }
 
 .bug-detail-sub-items-empty .empty-text {
-    color: #94a3b8;
+    color: var(--vort-text-tertiary);
     font-size: 13px;
 }
 
@@ -1359,15 +1348,15 @@ watch(() => props.initialData, (value) => {
     align-items: center;
     justify-content: space-between;
     padding: 10px 12px;
-    background: #ffffff;
-    border: 1px solid #f1f5f9;
+    background: var(--vort-bg);
+    border: 1px solid var(--vort-border-secondary);
     border-radius: 8px;
     cursor: pointer;
     transition: all 0.2s ease;
 }
 
 .bug-detail-sub-item:hover {
-    border-color: #bfdbfe;
+    border-color: var(--vort-primary-bg-hover);
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
 }
 
@@ -1381,13 +1370,13 @@ watch(() => props.initialData, (value) => {
 .sub-item-no {
     font-size: 12px;
     font-weight: 500;
-    color: #94a3b8;
+    color: var(--vort-text-tertiary);
     flex-shrink: 0;
 }
 
 .sub-item-title {
     font-size: 13px;
-    color: #334155;
+    color: var(--vort-text);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1410,7 +1399,7 @@ watch(() => props.initialData, (value) => {
 
 .sub-item-owner .owner-name {
     font-size: 12px;
-    color: #64748b;
+    color: var(--vort-text-secondary);
 }
 
 .sub-item-status {
@@ -1418,8 +1407,8 @@ watch(() => props.initialData, (value) => {
     align-items: center;
     gap: 6px;
     padding: 4px 8px;
-    background: #f8fafc;
-    border: 1px solid #f1f5f9;
+    background: var(--vort-bg-elevated);
+    border: 1px solid var(--vort-border-secondary);
     border-radius: 4px;
     min-width: 72px;
     justify-content: center;
@@ -1432,7 +1421,7 @@ watch(() => props.initialData, (value) => {
 
 .sub-item-status .status-text {
     font-size: 12px;
-    color: #475569;
+    color: var(--vort-text-secondary);
 }
 
 .detail-assignee-trigger {
@@ -1446,8 +1435,8 @@ watch(() => props.initialData, (value) => {
 
 .detail-assignee-trigger:hover,
 .detail-assignee-trigger.active {
-    background: #f8fafc;
-    border-color: #e2e8f0;
+    background: var(--vort-bg-elevated);
+    border-color: var(--vort-border-secondary);
 }
 
 .detail-assignee-split {
@@ -1476,11 +1465,11 @@ watch(() => props.initialData, (value) => {
 
 .detail-assignee-owner-name {
     font-size: 13px;
-    color: #334155;
+    color: var(--vort-text);
 }
 
 .detail-assignee-separator {
-    color: #cbd5e1;
+    color: var(--vort-border);
     font-size: 15px;
     margin: 0 6px;
 }
@@ -1492,10 +1481,10 @@ watch(() => props.initialData, (value) => {
 }
 
 .detail-assignee-add {
-    background: #f1f5f9 !important;
-    color: #94a3b8 !important;
+    background: var(--vort-border-secondary) !important;
+    color: var(--vort-text-tertiary) !important;
     font-size: 14px !important;
-    border: 1px dashed #cbd5e1;
+    border: 1px dashed var(--vort-border);
 }
 
 .detail-assignee-dropdown {
@@ -1512,7 +1501,7 @@ watch(() => props.initialData, (value) => {
 }
 
 .detail-assignee-row:hover {
-    background: #f8fafc;
+    background: var(--vort-bg-elevated);
 }
 
 .detail-assignee-row-left {
@@ -1529,12 +1518,12 @@ watch(() => props.initialData, (value) => {
 .detail-role-btn {
     font-size: 12px !important;
     padding: 4px 8px !important;
-    color: #64748b;
+    color: var(--vort-text-secondary);
 }
 
 .detail-role-btn.active {
-    color: #3b82f6;
-    background: #eff6ff;
+    color: var(--vort-primary);
+    background: var(--vort-primary-bg);
 }
 
 .detail-role-btn.collab.active {
@@ -1556,7 +1545,7 @@ watch(() => props.initialData, (value) => {
 .bug-detail-desc-head h4 {
     font-size: 14px;
     font-weight: 600;
-    color: #334155;
+    color: var(--vort-text);
     margin: 0;
 }
 
@@ -1571,10 +1560,10 @@ watch(() => props.initialData, (value) => {
 
 .bug-detail-desc-content {
     font-size: 14px;
-    color: #475569;
+    color: var(--vort-text-secondary);
     line-height: 1.6;
     padding: 12px;
-    background: #f8fafc;
+    background: var(--vort-bg-elevated);
     border-radius: 8px;
     min-height: 60px;
 }
@@ -1586,7 +1575,7 @@ watch(() => props.initialData, (value) => {
 }
 
 .bug-detail-bottom-panel {
-    border-top: 1px solid #e2e8f0;
+    border-top: 1px solid var(--vort-border-secondary);
     padding-top: 20px;
 }
 
@@ -1601,7 +1590,7 @@ watch(() => props.initialData, (value) => {
     background: none;
     border: none;
     border-radius: 6px;
-    color: #64748b;
+    color: var(--vort-text-secondary);
     font-size: 13px;
     cursor: pointer;
     display: flex;
@@ -1610,29 +1599,29 @@ watch(() => props.initialData, (value) => {
 }
 
 .bug-detail-bottom-tabs button:hover {
-    background: #f1f5f9;
+    background: var(--vort-border-secondary);
 }
 
 .bug-detail-bottom-tabs button.active {
-    background: #eff6ff;
-    color: #3b82f6;
+    background: var(--vort-primary-bg);
+    color: var(--vort-primary);
 }
 
 .bug-detail-bottom-tabs .count {
-    background: #e2e8f0;
+    background: var(--vort-border-secondary);
     padding: 2px 6px;
     border-radius: 10px;
     font-size: 11px;
 }
 
 .bug-detail-bottom-tabs button.active .count {
-    background: #dbeafe;
+    background: var(--vort-primary-bg-hover);
 }
 
 .bug-detail-empty {
     text-align: center;
     padding: 40px;
-    color: #94a3b8;
+    color: var(--vort-text-tertiary);
     font-size: 14px;
 }
 
@@ -1649,24 +1638,24 @@ watch(() => props.initialData, (value) => {
     gap: 12px;
     width: 100%;
     padding: 12px 14px;
-    border: 1px solid #e5e7eb;
+    border: 1px solid var(--vort-border-secondary);
     border-radius: 10px;
-    background: #fff;
+    background: var(--vort-bg);
     text-align: left;
 }
 
 .story-children-item:hover {
-    border-color: #c7d2fe;
-    background: #f8faff;
+    border-color: var(--vort-primary-bg-hover);
+    background: var(--vort-primary-bg);
 }
 
 .story-children-title {
-    color: #111827;
+    color: var(--vort-text);
     font-size: 14px;
 }
 
 .story-children-status {
-    color: #6b7280;
+    color: var(--vort-text-secondary);
     font-size: 12px;
     white-space: nowrap;
 }
@@ -1711,22 +1700,22 @@ watch(() => props.initialData, (value) => {
 .bug-detail-comment-meta .author {
     font-size: 13px;
     font-weight: 500;
-    color: #334155;
+    color: var(--vort-text);
 }
 
 .bug-detail-comment-meta .time {
     font-size: 12px;
-    color: #94a3b8;
+    color: var(--vort-text-tertiary);
 }
 
 .bug-detail-comment-content {
     font-size: 14px;
-    color: #475569;
+    color: var(--vort-text-secondary);
     line-height: 1.5;
 }
 
 .bug-detail-comment-editor {
-    border-top: 1px solid #e2e8f0;
+    border-top: 1px solid var(--vort-border-secondary);
     padding-top: 16px;
 }
 
@@ -1747,21 +1736,21 @@ watch(() => props.initialData, (value) => {
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: #cbd5e1;
+    background: var(--vort-border);
     flex-shrink: 0;
 }
 
 .bug-detail-log-item .actor {
     font-weight: 500;
-    color: #334155;
+    color: var(--vort-text);
 }
 
 .bug-detail-log-item .action {
-    color: #64748b;
+    color: var(--vort-text-secondary);
 }
 
 .bug-detail-log-item .time {
-    color: #94a3b8;
+    color: var(--vort-text-tertiary);
     margin-left: auto;
 }
 
@@ -1774,7 +1763,7 @@ watch(() => props.initialData, (value) => {
 }
 
 .detail-field-shell:not(.is-editing):hover {
-    background: #f1f5f9;
+    background: var(--vort-border-secondary);
 }
 
 .detail-field-shell :deep(.vort-select-selector) {
@@ -1803,7 +1792,7 @@ watch(() => props.initialData, (value) => {
  .detail-field-shell:not(.is-editing) :deep(.vort-rangepicker-input-placeholder),
  .detail-field-shell:not(.is-editing) :deep(.vort-date-picker-input::placeholder),
  .detail-field-shell:not(.is-editing) :deep(.vort-input-number-input::placeholder) {
-    color: #94a3b8 !important;
+    color: var(--vort-text-tertiary) !important;
 }
 
 .detail-field-shell :deep(.vort-rangepicker-selector) {
