@@ -405,22 +405,30 @@ async function switchSession(sessionId: string) {
 const HISTORY_PAGE_SIZE = 20;
 
 async function loadHistory() {
-    if (!currentSessionId.value) return;
-    contextResetAt.value = 0;
+    if (!currentSessionId.value) return false;
     hasMoreHistory.value = false;
     historyOffset.value = 0;
     try {
         const res: any = await getChatHistory(currentSessionId.value, HISTORY_PAGE_SIZE, 0);
-        if (res?.context_reset_at) {
-            contextResetAt.value = res.context_reset_at;
-        }
+        console.log("[Chat/Index/loadHistory]", {
+            sessionId: currentSessionId.value,
+            pageSize: HISTORY_PAGE_SIZE,
+            offset: 0,
+            contextResetAt: res?.context_reset_at || 0,
+            messageCount: res?.messages?.length || 0,
+            hasMore: !!res?.has_more,
+        });
+        contextResetAt.value = res?.context_reset_at || 0;
         if (res?.messages) {
             messages.value = parseHistoryMessages(res.messages);
             historyOffset.value = messages.value.length;
             hasMoreHistory.value = res.has_more || false;
             scrollToBottom();
         }
-    } catch { /* 首次无历史 */ }
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 async function loadMoreHistory() {
@@ -435,6 +443,13 @@ async function loadMoreHistory() {
 
     try {
         const res: any = await getChatHistory(currentSessionId.value, HISTORY_PAGE_SIZE, historyOffset.value);
+        console.log("[Chat/Index/loadMoreHistory]", {
+            sessionId: currentSessionId.value,
+            pageSize: HISTORY_PAGE_SIZE,
+            offset: historyOffset.value,
+            messageCount: res?.messages?.length || 0,
+            hasMore: !!res?.has_more,
+        });
         if (res?.messages?.length) {
             const older = parseHistoryMessages(res.messages);
             messages.value = [...older, ...messages.value];
@@ -894,6 +909,11 @@ async function handleReset() {
     if (!currentSessionId.value) return;
     try {
         const res: any = await resetChatSession(currentSessionId.value);
+        console.log("[Chat/Index/handleReset]", {
+            sessionId: currentSessionId.value,
+            contextResetAt: res?.context_reset_at || 0,
+            beforeCount: messages.value.length,
+        });
         messages.value = [];
         sessionTokens.value = { input: 0, output: 0, messages: 0, cacheCreation: 0, cacheRead: 0 };
         contextResetAt.value = res?.context_reset_at || Date.now() / 1000;
@@ -906,12 +926,23 @@ async function handleReset() {
 async function handleReloadHistory() {
     if (!currentSessionId.value || loadingMore.value) return;
     loadingMore.value = true;
+    const prevResetAt = contextResetAt.value;
     try {
-        await restoreChatContext(currentSessionId.value);
-        contextResetAt.value = 0;
-        await loadHistory();
+        const restoreRes: any = await restoreChatContext(currentSessionId.value);
+        console.log("[Chat/Index/handleReloadHistory]", {
+            sessionId: currentSessionId.value,
+            prevResetAt,
+            restoredCount: restoreRes?.restored_count || 0,
+        });
+        const ok = await loadHistory();
+        if (!ok) {
+            contextResetAt.value = prevResetAt;
+            message.error("加载历史记录失败");
+            return;
+        }
         await loadSessionInfo();
     } catch {
+        contextResetAt.value = prevResetAt;
         message.error("加载历史记录失败");
     } finally {
         loadingMore.value = false;
@@ -1838,9 +1869,9 @@ onUnmounted(() => {
             </div>
 
             <!-- 重置后：重新加载会话记录按钮 -->
-            <div v-if="contextResetAt > 0 && currentSessionId" class="flex justify-center py-2 border-b border-gray-100">
+            <div v-if="contextResetAt > 0 && currentSessionId" class="flex justify-center py-2 ">
                 <button
-                    class="text-sm text-blue-500 hover:text-blue-600 cursor-pointer transition-colors flex items-center gap-1"
+                    class="text-xs text-blue-500 hover:text-blue-600 cursor-pointer transition-colors flex items-center gap-1"
                     :disabled="loadingMore"
                     @click="handleReloadHistory"
                 >

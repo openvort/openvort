@@ -458,6 +458,13 @@ async def chat_history(request: Request, limit: int = 20, offset: int = 0, sessi
     page = merged[start_idx:end_idx] if end_idx > 0 else []
     has_more = start_idx > 0
 
+    log.info(
+        f"[chat/history] member_id={member_id} session_id={session_id} "
+        f"raw_messages={len(messages)} merged_messages={len(merged)} "
+        f"limit={limit} offset={offset} page_count={len(page)} has_more={has_more} "
+        f"context_reset_at={bool(context_reset_at)}"
+    )
+
     resp: dict = {"messages": page, "has_more": has_more}
     if context_reset_at:
         resp["context_reset_at"] = context_reset_at
@@ -593,6 +600,10 @@ async def reset_session(req: ResetRequest, request: Request):
 
     session_store = get_session_store()
     reset_ts = await session_store.reset_context("web", member_id, req.session_id)
+    log.info(
+        f"[chat/reset] member_id={member_id} session_id={req.session_id} "
+        f"context_reset_at={reset_ts}"
+    )
 
     return {"success": True, "context_reset_at": reset_ts}
 
@@ -609,6 +620,10 @@ async def restore_context(req: RestoreContextRequest, request: Request):
 
     session_store = get_session_store()
     count = await session_store.restore_context("web", member_id, req.session_id)
+    log.info(
+        f"[chat/restore-context] member_id={member_id} session_id={req.session_id} "
+        f"restored_count={count}"
+    )
 
     return {"success": True, "restored_count": count}
 

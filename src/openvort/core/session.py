@@ -122,13 +122,23 @@ class SessionStore:
         now = time.time()
 
         session = self._sessions.get(key)
+        active_messages = list(session.messages) if session else []
+        if not active_messages:
+            active_messages = await self.get_messages(channel, user_id, session_id)
+            session = self._sessions.get(key)
+
         if session:
             session.messages = []
             session.updated_at = now
             session.context_reset_at = now
 
         if self._session_factory:
-            await self._reset_context_in_db(channel, user_id, session_id, now)
+            await self._reset_context_in_db(channel, user_id, session_id, now, active_messages)
+
+        log.info(
+            f"[SessionStore/reset_context] channel={channel} user_id={user_id} "
+            f"session_id={session_id} active_messages={len(active_messages)} reset_ts={now}"
+        )
 
         return now
 
@@ -201,6 +211,11 @@ class SessionStore:
                 row.archived_messages = None
                 row.context_reset_at = None
                 await db.commit()
+
+            log.info(
+                f"[SessionStore/restore_context] channel={channel} user_id={user_id} "
+                f"session_id={session_id} restored={len(archived)} current={len(current)} merged={len(merged)}"
+            )
 
             key = f"{channel}:{user_id}:{session_id}"
             session = self._sessions.get(key)
@@ -743,10 +758,17 @@ class SessionStore:
         except Exception as e:
             log.warning(f"保存 Session 到 DB 失败 ({channel}:{user_id}:{session_id}): {e}")
 
-    async def _reset_context_in_db(self, channel: str, user_id: str, session_id: str, reset_ts: float) -> None:
+    async def _reset_context_in_db(
+        self,
+        channel: str,
+        user_id: str,
+        session_id: str,
+        reset_ts: float,
+        active_messages: list[dict] | None = None,
+    ) -> None:
         """Archive current messages and clear active context in DB."""
         try:
-            from datetime import datetime, timezone
+            from datetime import datetime
             from sqlalchemy import select
             from openvort.db.models import ChatSession
 
@@ -759,16 +781,29 @@ class SessionStore:
                 result = await db.execute(stmt)
                 row = result.scalar_one_or_none()
 
-                if not row:
-                    return
+                current_msgs = list(active_messages or [])
+                if row and not current_msgs:
+                    current_msgs = json.loads(row.messages) if row.messages else []
 
-                current_msgs = json.loads(row.messages) if row.messages else []
-                existing_archived = json.loads(row.archived_messages) if row.archived_messages else []
+                if row:
+                    existing_archived = json.loads(row.archived_messages) if row.archived_messages else []
+                else:
+                    existing_archived = []
                 merged_archived = existing_archived + current_msgs
 
-                row.archived_messages = json.dumps(merged_archived, ensure_ascii=False) if merged_archived else None
-                row.messages = "[]"
-                row.context_reset_at = datetime.fromtimestamp(reset_ts, tz=timezone.utc)
+                if row:
+                    row.archived_messages = json.dumps(merged_archived, ensure_ascii=False) if merged_archived else None
+                    row.messages = "[]"
+                    row.context_reset_at = datetime.fromtimestamp(reset_ts)
+                else:
+                    db.add(ChatSession(
+                        channel=channel,
+                        user_id=user_id,
+                        session_id=session_id,
+                        messages="[]",
+                        archived_messages=json.dumps(merged_archived, ensure_ascii=False) if merged_archived else None,
+                        context_reset_at=datetime.fromtimestamp(reset_ts),
+                    ))
                 await db.commit()
                 log.info(f"上下文已重置 ({channel}:{user_id}:{session_id})，归档 {len(current_msgs)} 条消息")
         except Exception as e:
