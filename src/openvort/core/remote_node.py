@@ -155,6 +155,272 @@ class RemoteNodeService:
                 for m in members
             ]
 
+    # ---- Docker container lifecycle ----
+
+    async def create_docker_node(
+        self,
+        *,
+        name: str,
+        image: str = "python:3.11-slim",
+        memory_limit: str = "2g",
+        cpu_limit: float = 2.0,
+        network_mode: str = "host",
+        env_vars: dict | None = None,
+        volumes: list[str] | None = None,
+        description: str = "",
+    ) -> dict:
+        """Create a DB record and start a Docker container for a work node."""
+        from openvort.core.docker_executor import DockerExecutor
+
+        async with self._sf() as db:
+            node = RemoteNode(
+                name=name,
+                node_type="docker",
+                description=description,
+                gateway_url="",
+                gateway_token="",
+                config=json.dumps({
+                    "image": image,
+                    "memory_limit": memory_limit,
+                    "cpu_limit": cpu_limit,
+                    "network_mode": network_mode,
+                    "env_vars": env_vars or {},
+                    "volumes": volumes or [],
+                }, ensure_ascii=False),
+                status="creating",
+            )
+            db.add(node)
+            await db.commit()
+            await db.refresh(node)
+            node_id = node.id
+
+        container_name = f"openvort-worker-{node_id[:8]}"
+        workspace_vol = f"openvort-workspace-{node_id[:8]}"
+
+        is_openclaw = "openclaw" in image.lower()
+        merged_env = dict(env_vars or {})
+        gateway_token = ""
+        if is_openclaw:
+            import secrets
+            gateway_token = secrets.token_urlsafe(32)
+            merged_env["GATEWAY_TOKEN"] = gateway_token
+
+        executor = DockerExecutor()
+        result = await executor.create_container({
+            "image": image,
+            "container_name": container_name,
+            "memory_limit": memory_limit,
+            "cpu_limit": cpu_limit,
+            "network_mode": network_mode,
+            "env_vars": merged_env,
+            "volumes": volumes or [],
+            "workspace_volume": workspace_vol,
+            "use_entrypoint": is_openclaw,
+        })
+
+        if result.get("ok"):
+            cid = result["container_id"]
+            node_config = {
+                "image": image,
+                "memory_limit": memory_limit,
+                "cpu_limit": cpu_limit,
+                "network_mode": network_mode,
+                "env_vars": env_vars or {},
+                "volumes": volumes or [],
+                "container_id": cid,
+                "container_name": container_name,
+                "workspace_volume": workspace_vol,
+            }
+
+            if is_openclaw:
+                gw_url = "ws://127.0.0.1:18789"
+                node_config["openclaw_bridge"] = True
+                async with self._sf() as db:
+                    node = await db.get(RemoteNode, node_id)
+                    if node:
+                        node.gateway_url = gw_url
+                        node.gateway_token = _encrypt(gateway_token)
+                        await db.commit()
+
+            await self.update_node(node_id, config=node_config)
+            await self._update_status(node_id, "running")
+            await self._update_machine_info(node_id, {"os": "Linux", "image": image})
+        else:
+            await self._update_status(node_id, "error")
+
+        node_dict = await self.get_node(node_id)
+        if node_dict:
+            node_dict["_create_result"] = result
+        return node_dict or {"id": node_id, "_create_result": result}
+
+    async def start_docker_container(self, node_id: str) -> dict:
+        cid = await self._get_container_id(node_id)
+        if not cid:
+            return {"ok": False, "message": "容器 ID 不存在"}
+        from openvort.core.docker_executor import DockerExecutor
+        result = await DockerExecutor().start_container(cid)
+        if result.get("ok"):
+            await self._update_status(node_id, "running")
+        return result
+
+    async def stop_docker_container(self, node_id: str) -> dict:
+        cid = await self._get_container_id(node_id)
+        if not cid:
+            return {"ok": False, "message": "容器 ID 不存在"}
+        from openvort.core.docker_executor import DockerExecutor
+        result = await DockerExecutor().stop_container(cid)
+        if result.get("ok"):
+            await self._update_status(node_id, "stopped")
+        return result
+
+    async def restart_docker_container(self, node_id: str) -> dict:
+        cid = await self._get_container_id(node_id)
+        if not cid:
+            return {"ok": False, "message": "容器 ID 不存在"}
+        from openvort.core.docker_executor import DockerExecutor
+        result = await DockerExecutor().restart_container(cid)
+        if result.get("ok"):
+            await self._update_status(node_id, "running")
+        return result
+
+    async def remove_docker_container(self, node_id: str) -> dict:
+        cid = await self._get_container_id(node_id)
+        if not cid:
+            return {"ok": False, "message": "容器 ID 不存在"}
+        from openvort.core.docker_executor import DockerExecutor
+        result = await DockerExecutor().remove_container(cid)
+        if result.get("ok"):
+            await self._update_status(node_id, "stopped")
+        return result
+
+    async def get_docker_status(self, node_id: str) -> dict:
+        cid = await self._get_container_id(node_id)
+        if not cid:
+            return {"status": "unknown"}
+        from openvort.core.docker_executor import DockerExecutor
+        return await DockerExecutor().get_container_status(cid)
+
+    async def get_docker_stats(self, node_id: str) -> dict:
+        cid = await self._get_container_id(node_id)
+        if not cid:
+            return {}
+        from openvort.core.docker_executor import DockerExecutor
+        return await DockerExecutor().get_container_stats(cid)
+
+    async def get_docker_logs(self, node_id: str, *, tail: int = 100) -> str:
+        cid = await self._get_container_id(node_id)
+        if not cid:
+            return ""
+        from openvort.core.docker_executor import DockerExecutor
+        return await DockerExecutor().get_container_logs(cid, tail=tail)
+
+    async def get_all_docker_stats(self) -> dict:
+        """Get resource stats for all running Docker nodes."""
+        nodes = await self.list_nodes()
+        docker_nodes = [n for n in nodes if n["node_type"] == "docker" and n["status"] == "running"]
+        cid_map: dict[str, str] = {}
+        for n in docker_nodes:
+            cid = (n.get("config") or {}).get("container_id", "")
+            if cid:
+                cid_map[cid] = n["id"]
+
+        if not cid_map:
+            return {}
+
+        from openvort.core.docker_executor import DockerExecutor
+        raw = await DockerExecutor().batch_stats(list(cid_map.keys()))
+        result = {}
+        for cid, stats in raw.items():
+            nid = cid_map.get(cid)
+            if nid:
+                result[nid] = stats
+        return result
+
+    async def check_docker_health(self) -> None:
+        """Check all Docker nodes: update status, detect exits, memory alerts."""
+        nodes = await self.list_nodes()
+        docker_nodes = [n for n in nodes if n["node_type"] == "docker"]
+        if not docker_nodes:
+            return
+
+        from openvort.core.docker_executor import DockerExecutor
+        executor = DockerExecutor()
+
+        running_cids: list[str] = []
+        cid_node_map: dict[str, dict] = {}
+
+        for node in docker_nodes:
+            cid = (node.get("config") or {}).get("container_id", "")
+            if not cid:
+                continue
+
+            status_info = await executor.get_container_status(cid)
+            container_status = status_info.get("status", "unknown")
+
+            if container_status == "running":
+                if node["status"] != "running":
+                    await self._update_status(node["id"], "running")
+                running_cids.append(cid)
+                cid_node_map[cid] = node
+            elif container_status == "exited" and node["status"] == "running":
+                await self._update_status(node["id"], "error")
+                try:
+                    from openvort.web.ws import manager as _ws
+                    await _ws.broadcast({
+                        "type": "docker_alert",
+                        "node_id": node["id"],
+                        "node_name": node["name"],
+                        "alert": "container_exited",
+                        "message": f"容器「{node['name']}」异常退出",
+                    })
+                except Exception:
+                    pass
+            elif container_status not in ("running", "exited", "unknown") and node["status"] not in ("stopped", "error", "unknown"):
+                await self._update_status(node["id"], "stopped")
+
+        # Memory threshold alerts for running containers
+        if running_cids:
+            stats = await executor.batch_stats(running_cids)
+            for cid, st in stats.items():
+                node = cid_node_map.get(cid)
+                if not node:
+                    continue
+                mem_perc_str = st.get("mem_perc", "0%").rstrip("%")
+                try:
+                    mem_perc = float(mem_perc_str)
+                except (ValueError, TypeError):
+                    continue
+                if mem_perc >= 90:
+                    try:
+                        from openvort.web.ws import manager as _ws
+                        await _ws.broadcast({
+                            "type": "docker_alert",
+                            "node_id": node["id"],
+                            "node_name": node["name"],
+                            "alert": "memory_high",
+                            "message": f"容器「{node['name']}」内存使用率 {mem_perc:.0f}%，已超过 90% 阈值",
+                            "mem_perc": mem_perc,
+                        })
+                    except Exception:
+                        pass
+
+    async def _get_container_id(self, node_id: str) -> str:
+        node = await self.get_node(node_id)
+        if not node:
+            return ""
+        config = node.get("config") or {}
+        return config.get("container_id", "")
+
+    async def _update_machine_info(self, node_id: str, info: dict) -> None:
+        try:
+            async with self._sf() as db:
+                node = await db.get(RemoteNode, node_id)
+                if node:
+                    node.machine_info = json.dumps(info, ensure_ascii=False)
+                    await db.commit()
+        except Exception:
+            pass
+
     # ---- Connection / Instruction (dispatched via executor) ----
 
     async def test_connection(self, node_id: str) -> dict:
@@ -167,15 +433,25 @@ class RemoteNodeService:
         if not executor:
             return {"ok": False, "message": f"不支持的节点类型: {node.node_type}"}
 
-        token = _decrypt(node.gateway_token)
-        masked = ("****" + token[-4:]) if len(token) > 4 else "****"
-        log.info(f"Testing connection to node {node.name}: url={node.gateway_url}, token={masked}, len={len(token)}")
-        result = await executor.test_connection(node.gateway_url, token)
-
-        if result.get("ok"):
-            await self._update_status(node_id, "online")
+        if node.node_type == "docker":
+            config = {}
+            try:
+                config = json.loads(node.config) if node.config else {}
+            except Exception:
+                pass
+            cid = config.get("container_id", "")
+            result = await executor.test_connection(cid, "")
+            status = "running" if result.get("ok") else "stopped"
+            await self._update_status(node_id, status)
         else:
-            await self._update_status(node_id, "offline")
+            token = _decrypt(node.gateway_token)
+            masked = ("****" + token[-4:]) if len(token) > 4 else "****"
+            log.info(f"Testing connection to node {node.name}: url={node.gateway_url}, token={masked}, len={len(token)}")
+            result = await executor.test_connection(node.gateway_url, token)
+            if result.get("ok"):
+                await self._update_status(node_id, "online")
+            else:
+                await self._update_status(node_id, "offline")
 
         return result
 
@@ -193,19 +469,46 @@ class RemoteNodeService:
         if not executor:
             return {"ok": False, "error": "unsupported_type", "message": f"不支持的节点类型: {node.node_type}"}
 
-        token = _decrypt(node.gateway_token)
-        if not node.gateway_url or not token:
-            return {"ok": False, "error": "node_not_configured", "message": "节点未配置"}
+        if node.node_type == "docker":
+            config = {}
+            try:
+                config = json.loads(node.config) if node.config else {}
+            except Exception:
+                pass
 
-        masked = ("****" + token[-4:]) if len(token) > 4 else "****"
-        log.info(f"Sending instruction to node {node.name}: url={node.gateway_url}, token={masked}, len={len(token)}")
-        result = await executor.send_instruction(
-            node.gateway_url, token, instruction, context=context, timeout=timeout,
-            on_text=on_text,
-        )
+            if config.get("openclaw_bridge") and node.gateway_url:
+                token = _decrypt(node.gateway_token)
+                if not token:
+                    return {"ok": False, "error": "node_not_configured", "message": "OpenClaw Gateway Token 未设置"}
+                openclaw_exec = get_executor("openclaw")
+                if not openclaw_exec:
+                    return {"ok": False, "error": "unsupported_type", "message": "OpenClaw executor 未注册"}
+                log.info(f"Sending instruction to OpenClaw Docker node {node.name}: {node.gateway_url}")
+                result = await openclaw_exec.send_instruction(
+                    node.gateway_url, token, instruction, context=context, timeout=timeout, on_text=on_text,
+                )
+            else:
+                cid = config.get("container_id", "")
+                if not cid:
+                    return {"ok": False, "error": "node_not_configured", "message": "Docker 容器 ID 未设置"}
+                log.info(f"Sending instruction to Docker node {node.name}: container={cid[:12]}")
+                result = await executor.send_instruction(
+                    cid, "", instruction, context=context, timeout=timeout, on_text=on_text,
+                )
+        else:
+            token = _decrypt(node.gateway_token)
+            if not node.gateway_url or not token:
+                return {"ok": False, "error": "node_not_configured", "message": "节点未配置"}
+            masked = ("****" + token[-4:]) if len(token) > 4 else "****"
+            log.info(f"Sending instruction to node {node.name}: url={node.gateway_url}, token={masked}, len={len(token)}")
+            result = await executor.send_instruction(
+                node.gateway_url, token, instruction, context=context, timeout=timeout,
+                on_text=on_text,
+            )
 
         if result.get("ok"):
-            await self._update_status(node_id, "online")
+            status = "running" if node.node_type == "docker" else "online"
+            await self._update_status(node_id, status)
         elif result.get("error") == "connect_error":
             await self._update_status(node_id, "offline")
 
@@ -221,7 +524,7 @@ class RemoteNodeService:
                 if node:
                     old_status = node.status
                     node.status = status
-                    if status == "online":
+                    if status in ("online", "running"):
                         node.last_heartbeat_at = datetime.now()
                     await db.commit()
         except Exception:
@@ -257,6 +560,15 @@ class RemoteNodeService:
                 config = json.loads(node.config)
             except Exception:
                 config = {}
+
+        if config.get("env_vars"):
+            masked_env = {}
+            for k, v in config["env_vars"].items():
+                if any(secret in k.upper() for secret in ("KEY", "TOKEN", "SECRET", "PASSWORD")):
+                    masked_env[k] = ("****" + v[-4:]) if len(v) > 4 else "****"
+                else:
+                    masked_env[k] = v
+            config["env_vars"] = masked_env
 
         return {
             "id": node.id,

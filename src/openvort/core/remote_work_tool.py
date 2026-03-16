@@ -37,9 +37,9 @@ class RemoteWorkTool(BaseTool):
 
     name = "remote_work"
     description = (
-        "在 AI 员工绑定的远程电脑上执行工作任务。"
-        "通过远程工作节点向远程机器发送指令，适用于编码、文件操作、命令执行等场景。"
-        "需要 AI 员工已绑定远程工作节点。"
+        "在 AI 员工绑定的工作节点上执行工作任务。"
+        "通过工作节点（Docker 容器或远程机器）发送指令，适用于编码、文件操作、命令执行等场景。"
+        "需要 AI 员工已绑定工作节点。"
     )
 
     def input_schema(self) -> dict:
@@ -73,8 +73,8 @@ class RemoteWorkTool(BaseTool):
         log.info(f"remote_work called: target_member_id={target_member_id!r}")
         if not target_member_id:
             return (
-                "当前不在 AI 员工聊天上下文中，无法使用远程工作节点。\n"
-                "请先与一个已绑定远程工作节点的 AI 员工对话。"
+                "当前不在 AI 员工聊天上下文中，无法使用工作节点。\n"
+                "请先与一个已绑定工作节点的 AI 员工对话。"
             )
 
         from sqlalchemy import select
@@ -94,14 +94,14 @@ class RemoteWorkTool(BaseTool):
         log.info(f"remote_work lookup: member={member_name!r}, node_id={node_id!r}")
         if not node_id:
             return (
-                "该 AI 员工未配置远程工作节点，无法执行远程任务。\n"
-                "请管理员在后台「远程工作节点」中添加节点，"
+                "该 AI 员工未配置工作节点，无法执行任务。\n"
+                "请管理员在后台「工作节点」中添加节点，"
                 "并在「AI 员工」页面为该员工绑定节点。"
             )
 
         node = await _service.get_node(node_id)
         if not node:
-            return f"绑定的远程工作节点（{node_id[:8]}...）不存在，请管理员重新配置。"
+            return f"绑定的工作节点（{node_id[:8]}...）不存在，请管理员重新配置。"
 
         context = {
             "employee_name": member_name,

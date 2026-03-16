@@ -1261,6 +1261,23 @@ export function getVortflowBugTransitions(id: string) {
     return request.get(`/vortflow/bugs/${id}/transitions`);
 }
 
+// -- 关联工作项 --
+
+/** VortFlow 获取工作项关联列表 */
+export function getVortflowWorkItemLinks(params: { entity_type: string; entity_id: string }) {
+    return request.get("/vortflow/work-item-links", { params });
+}
+
+/** VortFlow 创建工作项关联 */
+export function createVortflowWorkItemLink(data: { source_type: string; source_id: string; target_type: string; target_id: string }) {
+    return request.post("/vortflow/work-item-links", data);
+}
+
+/** VortFlow 删除工作项关联 */
+export function deleteVortflowWorkItemLink(linkId: string) {
+    return request.delete(`/vortflow/work-item-links/${linkId}`);
+}
+
 // -- 里程碑 --
 
 /** VortFlow 里程碑列表 */
@@ -1922,34 +1939,88 @@ export function updateWorkAssignmentStatus(assignmentId: number, status: string)
     return request.post(`/work-assignments/${assignmentId}/update_status`, null, { params: { status } });
 }
 
-// ---- 远程工作节点管理 ----
+// ---- 工作节点管理 ----
 
 /** 远程节点列表 */
 export function getRemoteNodes() {
     return request.get("/admin/remote-nodes");
 }
 
-/** 创建远程节点 */
-export function createRemoteNode(data: { name: string; gateway_url: string; gateway_token: string; description?: string; node_type?: string }) {
+/** 创建工作节点 (OpenClaw / Docker) */
+export function createRemoteNode(data: {
+    name: string; node_type?: string;
+    gateway_url?: string; gateway_token?: string;
+    image?: string; memory_limit?: string; cpu_limit?: number;
+    network_mode?: string; env_vars?: Record<string, string>;
+    description?: string;
+}) {
     return request.post("/admin/remote-nodes", data);
 }
 
-/** 更新远程节点 */
-export function updateRemoteNode(nodeId: string, data: { name?: string; gateway_url?: string; gateway_token?: string; description?: string; node_type?: string }) {
+/** 更新工作节点 */
+export function updateRemoteNode(nodeId: string, data: {
+    name?: string; gateway_url?: string; gateway_token?: string;
+    description?: string; node_type?: string; config?: Record<string, any>;
+}) {
     return request.put(`/admin/remote-nodes/${nodeId}`, data);
 }
 
-/** 删除远程节点 */
+/** 删除工作节点 */
 export function deleteRemoteNode(nodeId: string) {
     return request.delete(`/admin/remote-nodes/${nodeId}`);
 }
 
-/** 测试远程节点连接 */
+/** 测试节点连接 / 检查 Docker 容器状态 */
 export function testRemoteNode(nodeId: string) {
     return request.post(`/admin/remote-nodes/${nodeId}/test`);
 }
 
-/** 获取远程节点绑定的 AI 员工 */
+/** 获取节点绑定的 AI 员工 */
 export function getRemoteNodeMembers(nodeId: string) {
     return request.get(`/admin/remote-nodes/${nodeId}/members`);
+}
+
+/** Docker: 启动容器 */
+export function startDockerContainer(nodeId: string) {
+    return request.post(`/admin/remote-nodes/${nodeId}/start`);
+}
+
+/** Docker: 停止容器 */
+export function stopDockerContainer(nodeId: string) {
+    return request.post(`/admin/remote-nodes/${nodeId}/stop`);
+}
+
+/** Docker: 重启容器 */
+export function restartDockerContainer(nodeId: string) {
+    return request.post(`/admin/remote-nodes/${nodeId}/restart`);
+}
+
+/** Docker: 容器实时状态 */
+export function getContainerStatus(nodeId: string) {
+    return request.get(`/admin/remote-nodes/${nodeId}/container-status`);
+}
+
+/** Docker: 容器资源统计 */
+export function getContainerStats(nodeId: string) {
+    return request.get(`/admin/remote-nodes/${nodeId}/container-stats`);
+}
+
+/** Docker: 容器日志 */
+export function getContainerLogs(nodeId: string, tail: number = 100) {
+    return request.get(`/admin/remote-nodes/${nodeId}/logs`, { params: { tail } });
+}
+
+/** Docker: 列出本地镜像 */
+export function listDockerImages() {
+    return request.get("/admin/remote-nodes/docker/images");
+}
+
+/** Docker: 拉取镜像 */
+export function pullDockerImage(image: string) {
+    return request.post("/admin/remote-nodes/docker/pull-image", { image });
+}
+
+/** Docker: 所有 Docker 节点资源统计 */
+export function getAllDockerStats() {
+    return request.get("/admin/remote-nodes/docker/stats");
 }

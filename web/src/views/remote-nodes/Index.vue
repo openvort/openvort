@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, computed, onMounted, onBeforeUnmount } from "vue";
 import {
     getRemoteNodes,
     createRemoteNode,
@@ -7,9 +7,20 @@ import {
     deleteRemoteNode,
     testRemoteNode,
     getRemoteNodeMembers,
+    startDockerContainer,
+    stopDockerContainer,
+    restartDockerContainer,
+    getContainerLogs,
+    getAllDockerStats,
 } from "@/api";
 import { message } from "@/components/vort";
-import { Plus, CheckCircle, XCircle, HelpCircle, Wifi } from "lucide-vue-next";
+import {
+    Plus, CheckCircle, XCircle, HelpCircle, Wifi, Play, Square,
+    RotateCw, Container, Terminal, Monitor, FileText, Cpu, MemoryStick,
+    Trash2,
+} from "lucide-vue-next";
+import DockerTerminal from "@/components/DockerTerminal.vue";
+import BrowserPreview from "@/components/BrowserPreview.vue";
 
 interface RemoteNodeItem {
     id: string;
@@ -34,7 +45,17 @@ interface BoundMember {
 }
 
 const NODE_TYPE_OPTIONS = [
-    { value: "openclaw", label: "OpenClaw" },
+    { value: "openclaw", label: "OpenClaw 远程节点" },
+    { value: "docker", label: "Docker 容器" },
+];
+
+const IMAGE_PRESETS = [
+    { value: "openvort/coding-sandbox:latest", label: "编码沙箱 (Python + Node + Claude Code + Aider)" },
+    { value: "openvort/openclaw-worker:latest", label: "OpenClaw Worker (内置 Agent 能力)" },
+    { value: "openvort/browser-sandbox:latest", label: "浏览器沙箱 (Chromium + noVNC 可视化)" },
+    { value: "python:3.11-slim", label: "Python 3.11 (轻量)" },
+    { value: "node:22-slim", label: "Node.js 22 (轻量)" },
+    { value: "ubuntu:24.04", label: "Ubuntu 24.04 (通用)" },
 ];
 
 const loading = ref(false);
@@ -49,11 +70,18 @@ const maskedGatewayToken = ref("");
 
 const form = ref({
     name: "",
+    node_type: "openclaw",
     gateway_url: "",
     gateway_token: "",
+    image: "python:3.11-slim",
+    customImage: "",
+    memory_limit: "2g",
+    cpu_limit: 2,
+    network_mode: "host",
+    env_vars: [] as { key: string; value: string }[],
     description: "",
-    node_type: "openclaw",
 });
+const useCustomImage = ref(false);
 
 const testing = ref<Record<string, boolean>>({});
 const testResults = ref<Record<string, { ok: boolean; message: string }>>({});
@@ -63,20 +91,51 @@ const membersNodeName = ref("");
 const boundMembers = ref<BoundMember[]>([]);
 const membersLoading = ref(false);
 
+const logsDialogOpen = ref(false);
+const logsNodeName = ref("");
+const logsContent = ref("");
+const logsLoading = ref(false);
+
+const terminalOpen = ref(false);
+const terminalNodeId = ref("");
+const terminalNodeName = ref("");
+
+const browserPreviewOpen = ref(false);
+const browserNodeId = ref("");
+const browserNodeName = ref("");
+
+const dockerStats = ref<Record<string, any>>({});
+let statsTimer: ReturnType<typeof setInterval> | null = null;
+
+const dockerNodeCount = computed(() => nodes.value.filter(n => n.node_type === "docker").length);
+const runningCount = computed(() => nodes.value.filter(n => n.node_type === "docker" && n.status === "running").length);
+
 async function loadData() {
     loading.value = true;
     try {
         const res: any = await getRemoteNodes();
         nodes.value = res.nodes || [];
-    } catch {
-        /* ignore */
-    } finally {
+    } catch { /* ignore */ } finally {
         loading.value = false;
     }
 }
 
+async function loadDockerStats() {
+    try {
+        const res: any = await getAllDockerStats();
+        dockerStats.value = res.stats || {};
+    } catch { /* ignore */ }
+}
+
 function handleAdd() {
-    form.value = { name: "", gateway_url: "", gateway_token: "", description: "", node_type: "openclaw" };
+    form.value = {
+        name: "", node_type: "openclaw",
+        gateway_url: "", gateway_token: "",
+        image: "python:3.11-slim", customImage: "",
+        memory_limit: "2g", cpu_limit: 2, network_mode: "host",
+        env_vars: [], description: "",
+    };
+    useCustomImage.value = false;
     editing.value = false;
     editingId.value = "";
     gatewayTokenEditing.value = true;
@@ -85,13 +144,21 @@ function handleAdd() {
 }
 
 function handleEdit(row: RemoteNodeItem) {
+    const cfg = row.config || {};
     form.value = {
         name: row.name,
+        node_type: row.node_type || "openclaw",
         gateway_url: row.gateway_url,
         gateway_token: "",
+        image: cfg.image || "python:3.11-slim",
+        customImage: "",
+        memory_limit: cfg.memory_limit || "2g",
+        cpu_limit: cfg.cpu_limit || 2,
+        network_mode: cfg.network_mode || "host",
+        env_vars: Object.entries(cfg.env_vars || {}).map(([key, value]) => ({ key, value: String(value) })),
         description: row.description,
-        node_type: row.node_type || "openclaw",
     };
+    useCustomImage.value = false;
     editing.value = true;
     editingId.value = row.id;
     gatewayTokenEditing.value = false;
@@ -100,34 +167,49 @@ function handleEdit(row: RemoteNodeItem) {
 }
 
 async function handleSave() {
-    if (!form.value.name.trim()) {
-        message.error("节点名称不能为空");
-        return;
+    if (!form.value.name.trim()) { message.error("节点名称不能为空"); return; }
+
+    if (form.value.node_type === "docker") {
+        const finalImage = useCustomImage.value ? form.value.customImage.trim() : form.value.image;
+        if (!editing.value && !finalImage) { message.error("请选择或输入 Docker 镜像"); return; }
+    } else {
+        if (!editing.value && (!form.value.gateway_url.trim() || !form.value.gateway_token.trim())) {
+            message.error("Gateway 地址和 Token 不能为空"); return;
+        }
     }
-    if (!editing.value && (!form.value.gateway_url.trim() || !form.value.gateway_token.trim())) {
-        message.error("Gateway 地址和 Gateway Token 不能为空");
-        return;
-    }
+
     saving.value = true;
     try {
         if (editing.value) {
-            const data: any = {
-                name: form.value.name,
-                description: form.value.description,
-                node_type: form.value.node_type,
-            };
-            if (form.value.gateway_url) data.gateway_url = form.value.gateway_url;
-            if (form.value.gateway_token) data.gateway_token = form.value.gateway_token;
+            const data: any = { name: form.value.name, description: form.value.description };
+            if (form.value.node_type !== "docker") {
+                if (form.value.gateway_url) data.gateway_url = form.value.gateway_url;
+                if (form.value.gateway_token) data.gateway_token = form.value.gateway_token;
+            }
             await updateRemoteNode(editingId.value, data);
             message.success("更新成功");
         } else {
-            await createRemoteNode({
+            const envObj: Record<string, string> = {};
+            for (const item of form.value.env_vars) {
+                if (item.key.trim()) envObj[item.key.trim()] = item.value;
+            }
+            const finalImage = useCustomImage.value ? form.value.customImage.trim() : form.value.image;
+            const res: any = await createRemoteNode({
                 name: form.value.name,
+                node_type: form.value.node_type,
                 gateway_url: form.value.gateway_url,
                 gateway_token: form.value.gateway_token,
+                image: finalImage,
+                memory_limit: form.value.memory_limit,
+                cpu_limit: form.value.cpu_limit,
+                network_mode: form.value.network_mode,
+                env_vars: envObj,
                 description: form.value.description,
-                node_type: form.value.node_type,
             });
+            if (res.success === false) {
+                message.error(res.error || "创建失败");
+                return;
+            }
             message.success("创建成功");
         }
         dialogOpen.value = false;
@@ -145,18 +227,29 @@ async function handleTest(nodeId: string) {
     try {
         const res: any = await testRemoteNode(nodeId);
         testResults.value[nodeId] = { ok: res.ok, message: res.message };
-        if (res.ok) {
-            message.success(res.message);
-            await loadData();
-        } else {
-            message.error(res.message);
-        }
+        if (res.ok) { message.success(res.message); await loadData(); }
+        else message.error(res.message);
     } catch {
         testResults.value[nodeId] = { ok: false, message: "请求失败" };
-        message.error("测试连接失败");
+        message.error("测试失败");
     } finally {
         testing.value[nodeId] = false;
     }
+}
+
+const dockerActionLoading = ref<Record<string, boolean>>({});
+
+async function handleDockerAction(nodeId: string, action: "start" | "stop" | "restart") {
+    if (dockerActionLoading.value[nodeId]) return;
+    dockerActionLoading.value[nodeId] = true;
+    const fn = action === "start" ? startDockerContainer : action === "stop" ? stopDockerContainer : restartDockerContainer;
+    const label = action === "start" ? "启动" : action === "stop" ? "停止" : "重启";
+    try {
+        const res: any = await fn(nodeId);
+        if (res.ok) { message.success(`${label}成功`); await loadData(); }
+        else message.error(res.message || `${label}失败`);
+    } catch { message.error(`${label}失败`); }
+    finally { dockerActionLoading.value[nodeId] = false; }
 }
 
 async function handleViewMembers(node: RemoteNodeItem) {
@@ -166,50 +259,118 @@ async function handleViewMembers(node: RemoteNodeItem) {
     try {
         const res: any = await getRemoteNodeMembers(node.id);
         boundMembers.value = res.members || [];
-    } catch {
-        boundMembers.value = [];
-    } finally {
-        membersLoading.value = false;
-    }
+    } catch { boundMembers.value = []; } finally { membersLoading.value = false; }
 }
 
-function nodeTypeLabel(nodeType: string) {
-    const opt = NODE_TYPE_OPTIONS.find(o => o.value === nodeType);
-    return opt ? opt.label : nodeType;
+async function handleViewLogs(node: RemoteNodeItem) {
+    logsNodeName.value = node.name;
+    logsDialogOpen.value = true;
+    logsLoading.value = true;
+    try {
+        const res: any = await getContainerLogs(node.id, 200);
+        logsContent.value = res.logs || "(无日志)";
+    } catch { logsContent.value = "获取日志失败"; } finally { logsLoading.value = false; }
 }
 
-function statusIcon(status: string) {
-    if (status === "online") return CheckCircle;
-    if (status === "offline") return XCircle;
+function handleOpenTerminal(node: RemoteNodeItem) {
+    terminalNodeId.value = node.id;
+    terminalNodeName.value = node.name;
+    terminalOpen.value = true;
+}
+
+function handleOpenBrowser(node: RemoteNodeItem) {
+    browserNodeId.value = node.id;
+    browserNodeName.value = node.name;
+    browserPreviewOpen.value = true;
+}
+
+function addEnvVar() {
+    form.value.env_vars.push({ key: "", value: "" });
+}
+function removeEnvVar(idx: number) {
+    form.value.env_vars.splice(idx, 1);
+}
+
+function nodeTypeLabel(t: string) {
+    const opt = NODE_TYPE_OPTIONS.find(o => o.value === t);
+    return opt ? opt.label : t;
+}
+
+function statusIcon(s: string) {
+    if (s === "online" || s === "running") return CheckCircle;
+    if (s === "offline" || s === "stopped" || s === "error") return XCircle;
+    if (s === "creating") return RotateCw;
     return HelpCircle;
 }
-
-function statusColor(status: string) {
-    if (status === "online") return "text-green-500";
-    if (status === "offline") return "text-red-500";
+function statusColor(s: string) {
+    if (s === "online" || s === "running") return "text-green-500";
+    if (s === "offline" || s === "stopped" || s === "error") return "text-red-500";
+    if (s === "creating") return "text-blue-500";
     return "text-gray-400";
 }
-
-function statusLabel(status: string) {
-    if (status === "online") return "在线";
-    if (status === "offline") return "离线";
-    return "未知";
+function statusLabel(s: string) {
+    const m: Record<string, string> = { online: "在线", offline: "离线", running: "运行中", stopped: "已停止", creating: "创建中", error: "错误", unknown: "未知" };
+    return m[s] || s;
 }
 
-onMounted(loadData);
+function infoCol(row: RemoteNodeItem) {
+    if (row.node_type === "docker") return (row.config || {}).image || "—";
+    return row.gateway_url || "—";
+}
+function infoLabel(row: RemoteNodeItem) {
+    return row.node_type === "docker" ? "镜像" : "Gateway";
+}
+
+onMounted(async () => {
+    await loadData();
+    await loadDockerStats();
+    statsTimer = setInterval(loadDockerStats, 15000);
+});
+onBeforeUnmount(() => { if (statsTimer) clearInterval(statsTimer); });
 </script>
 
 <template>
     <div class="space-y-4">
+        <!-- Resource overview cards -->
+        <div v-if="dockerNodeCount > 0" class="grid grid-cols-3 gap-4">
+            <div class="bg-white rounded-xl p-4 flex items-center gap-3">
+                <div class="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center">
+                    <Container :size="20" class="text-blue-500" />
+                </div>
+                <div>
+                    <div class="text-2xl font-semibold text-gray-800">{{ dockerNodeCount }}</div>
+                    <div class="text-xs text-gray-500">Docker 容器</div>
+                </div>
+            </div>
+            <div class="bg-white rounded-xl p-4 flex items-center gap-3">
+                <div class="w-10 h-10 rounded-lg bg-green-50 flex items-center justify-center">
+                    <Play :size="20" class="text-green-500" />
+                </div>
+                <div>
+                    <div class="text-2xl font-semibold text-gray-800">{{ runningCount }}</div>
+                    <div class="text-xs text-gray-500">运行中</div>
+                </div>
+            </div>
+            <div class="bg-white rounded-xl p-4 flex items-center gap-3">
+                <div class="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center">
+                    <Cpu :size="20" class="text-purple-500" />
+                </div>
+                <div>
+                    <div class="text-2xl font-semibold text-gray-800">{{ nodes.filter(n => n.node_type !== 'docker').length }}</div>
+                    <div class="text-xs text-gray-500">远程节点</div>
+                </div>
+            </div>
+        </div>
+
         <div class="bg-white rounded-xl p-6">
             <div class="flex items-center justify-between mb-4">
-                <h3 class="text-base font-medium text-gray-800">远程工作节点</h3>
+                <h3 class="text-base font-medium text-gray-800">工作节点</h3>
                 <VortButton variant="primary" @click="handleAdd">
                     <Plus :size="14" class="mr-1" /> 添加节点
                 </VortButton>
             </div>
             <p class="text-sm text-gray-500 mb-4">
-                管理远程工作执行环境。AI 员工可绑定节点，通过对应协议在远程机器上执行工作任务。
+                管理 AI 员工的工作执行环境。支持 Docker 容器（本地）和 OpenClaw 远程节点。
             </p>
 
             <VortTable :data-source="nodes" :loading="loading" row-key="id" :pagination="false">
@@ -218,14 +379,22 @@ onMounted(loadData);
                         <span class="font-medium">{{ row.name }}</span>
                     </template>
                 </VortTableColumn>
-                <VortTableColumn label="类型" :width="100">
+                <VortTableColumn label="类型" :width="140">
                     <template #default="{ row }">
-                        <VortTag color="blue">{{ nodeTypeLabel(row.node_type) }}</VortTag>
+                        <VortTag :color="row.node_type === 'docker' ? 'purple' : 'blue'">{{ nodeTypeLabel(row.node_type) }}</VortTag>
                     </template>
                 </VortTableColumn>
-                <VortTableColumn label="Gateway 地址" prop="gateway_url" :width="260">
+                <VortTableColumn label="信息" :min-width="220">
                     <template #default="{ row }">
-                        <span class="text-gray-600 text-sm font-mono">{{ row.gateway_url }}</span>
+                        <div class="text-sm">
+                            <span class="text-gray-400 mr-1">{{ infoLabel(row) }}:</span>
+                            <span class="text-gray-600 font-mono">{{ infoCol(row) }}</span>
+                        </div>
+                        <!-- Docker resource stats inline -->
+                        <div v-if="row.node_type === 'docker' && dockerStats[row.id]" class="flex items-center gap-3 mt-1 text-xs text-gray-400">
+                            <span class="inline-flex items-center gap-0.5"><Cpu :size="11" /> {{ dockerStats[row.id].cpu }}</span>
+                            <span class="inline-flex items-center gap-0.5"><MemoryStick :size="11" /> {{ dockerStats[row.id].mem }}</span>
+                        </div>
                     </template>
                 </VortTableColumn>
                 <VortTableColumn label="状态" :width="100">
@@ -238,34 +407,41 @@ onMounted(loadData);
                 </VortTableColumn>
                 <VortTableColumn label="绑定员工" :width="100">
                     <template #default="{ row }">
-                        <a
-                            v-if="row.bound_member_count > 0"
-                            class="text-blue-600 cursor-pointer hover:underline text-sm"
-                            @click="handleViewMembers(row)"
-                        >
-                            {{ row.bound_member_count }} 人
-                        </a>
+                        <a v-if="row.bound_member_count > 0" class="text-blue-600 cursor-pointer hover:underline text-sm" @click="handleViewMembers(row)">{{ row.bound_member_count }} 人</a>
                         <span v-else class="text-gray-400 text-sm">未绑定</span>
                     </template>
                 </VortTableColumn>
-                <VortTableColumn label="描述" prop="description" :min-width="150">
+                <VortTableColumn label="操作" :width="300" fixed="right">
                     <template #default="{ row }">
-                        <span class="text-gray-500 text-sm">{{ row.description || "—" }}</span>
-                    </template>
-                </VortTableColumn>
-                <VortTableColumn label="操作" :width="220" fixed="right">
-                    <template #default="{ row }">
-                        <div class="flex items-center gap-2">
-                            <VortButton size="small" @click="handleTest(row.id)" :loading="testing[row.id]">
-                                <Wifi :size="12" class="mr-1" /> 测试
-                            </VortButton>
+                        <div class="flex items-center gap-1.5 flex-wrap">
+                            <template v-if="row.node_type === 'docker'">
+                                <VortButton v-if="row.status !== 'running'" size="small" :loading="dockerActionLoading[row.id]" @click="handleDockerAction(row.id, 'start')">
+                                    <Play :size="12" class="mr-0.5" /> 启动
+                                </VortButton>
+                                <VortButton v-if="row.status === 'running'" size="small" :loading="dockerActionLoading[row.id]" @click="handleDockerAction(row.id, 'stop')">
+                                    <Square :size="12" class="mr-0.5" /> 停止
+                                </VortButton>
+                                <VortButton v-if="row.status === 'running'" size="small" :loading="dockerActionLoading[row.id]" @click="handleDockerAction(row.id, 'restart')">
+                                    <RotateCw :size="12" class="mr-0.5" /> 重启
+                                </VortButton>
+                                <VortButton v-if="row.status === 'running'" size="small" @click="handleOpenTerminal(row)">
+                                    <Terminal :size="12" class="mr-0.5" /> 终端
+                                </VortButton>
+                                <VortButton v-if="row.status === 'running' && (row.config || {}).image?.includes('browser')" size="small" @click="handleOpenBrowser(row)">
+                                    <Monitor :size="12" class="mr-0.5" /> 浏览器
+                                </VortButton>
+                                <VortButton size="small" @click="handleViewLogs(row)">
+                                    <FileText :size="12" class="mr-0.5" /> 日志
+                                </VortButton>
+                            </template>
+                            <template v-else>
+                                <VortButton size="small" @click="handleTest(row.id)" :loading="testing[row.id]">
+                                    <Wifi :size="12" class="mr-0.5" /> 测试
+                                </VortButton>
+                            </template>
                             <VortButton size="small" @click="handleEdit(row)">编辑</VortButton>
                             <TableActions>
-                                <DeleteRecord
-                                    :request-api="() => deleteRemoteNode(row.id)"
-                                    :params="{}"
-                                    @after-delete="loadData"
-                                >
+                                <DeleteRecord :request-api="() => deleteRemoteNode(row.id)" :params="{}" @after-delete="loadData">
                                     <TableActionsItem danger>删除</TableActionsItem>
                                 </DeleteRecord>
                             </TableActions>
@@ -275,48 +451,89 @@ onMounted(loadData);
             </VortTable>
         </div>
 
-        <!-- 新增/编辑弹窗 -->
-        <VortDialog :open="dialogOpen" :title="editing ? '编辑节点' : '添加远程工作节点'" @update:open="dialogOpen = $event">
+        <!-- Create/Edit dialog -->
+        <VortDialog :open="dialogOpen" :title="editing ? '编辑节点' : '添加工作节点'" @update:open="dialogOpen = $event" :width="560">
             <VortForm label-width="130px" class="mt-2">
                 <VortFormItem label="节点名称" required>
-                    <VortInput v-model="form.name" placeholder="如：开发机-A" />
+                    <VortInput v-model="form.name" placeholder="如：编码助手-A" />
                 </VortFormItem>
-                <VortFormItem label="节点类型">
+                <VortFormItem v-if="!editing" label="节点类型">
                     <VortSelect v-model="form.node_type" :options="NODE_TYPE_OPTIONS" />
                 </VortFormItem>
-                <VortFormItem label="Gateway 地址" :required="!editing">
-                    <VortInput v-model="form.gateway_url" placeholder="http://192.168.1.100:18789" />
-                    <span v-if="editing" class="text-xs text-gray-400 mt-1">留空则不修改</span>
-                </VortFormItem>
-                <VortFormItem label="Gateway Token" :required="!editing">
-                    <template v-if="editing && !gatewayTokenEditing">
-                        <div class="flex items-center gap-3 min-h-[32px]">
-                            <span class="text-base text-gray-700">{{ maskedGatewayToken || "未配置" }}</span>
-                            <a class="text-sm text-blue-600 cursor-pointer" @click="gatewayTokenEditing = true">编辑</a>
+
+                <!-- OpenClaw fields -->
+                <template v-if="form.node_type === 'openclaw'">
+                    <VortFormItem label="Gateway 地址" :required="!editing">
+                        <VortInput v-model="form.gateway_url" placeholder="http://192.168.1.100:18789" />
+                        <span v-if="editing" class="text-xs text-gray-400 mt-1">留空则不修改</span>
+                    </VortFormItem>
+                    <VortFormItem label="Gateway Token" :required="!editing">
+                        <template v-if="editing && !gatewayTokenEditing">
+                            <div class="flex items-center gap-3 min-h-[32px]">
+                                <span class="text-base text-gray-700">{{ maskedGatewayToken || "未配置" }}</span>
+                                <a class="text-sm text-blue-600 cursor-pointer" @click="gatewayTokenEditing = true">编辑</a>
+                            </div>
+                        </template>
+                        <template v-else>
+                            <div class="flex items-center gap-3">
+                                <VortInput v-model="form.gateway_token" type="password" :placeholder="editing ? '输入新 Token' : 'Gateway Token'" />
+                                <a v-if="editing" class="text-sm text-gray-500 cursor-pointer whitespace-nowrap" @click="gatewayTokenEditing = false; form.gateway_token = ''">取消</a>
+                            </div>
+                        </template>
+                    </VortFormItem>
+                </template>
+
+                <!-- Docker fields -->
+                <template v-if="form.node_type === 'docker' && !editing">
+                    <VortFormItem label="Docker 镜像" required>
+                        <template v-if="!useCustomImage">
+                            <VortSelect v-model="form.image" placeholder="选择镜像">
+                                <VortSelectOption v-for="img in IMAGE_PRESETS" :key="img.value" :value="img.value">{{ img.label }}</VortSelectOption>
+                            </VortSelect>
+                            <a class="text-xs text-blue-600 cursor-pointer mt-1 inline-block" @click="useCustomImage = true">使用自定义镜像</a>
+                        </template>
+                        <template v-else>
+                            <VortInput v-model="form.customImage" placeholder="输入完整镜像名，如 myrepo/myimage:tag" />
+                            <a class="text-xs text-blue-600 cursor-pointer mt-1 inline-block" @click="useCustomImage = false; form.customImage = ''">选择预设镜像</a>
+                        </template>
+                    </VortFormItem>
+                    <VortFormItem label="内存限制">
+                        <VortSelect v-model="form.memory_limit">
+                            <VortSelectOption value="512m">512 MB</VortSelectOption>
+                            <VortSelectOption value="1g">1 GB</VortSelectOption>
+                            <VortSelectOption value="2g">2 GB</VortSelectOption>
+                            <VortSelectOption value="4g">4 GB</VortSelectOption>
+                            <VortSelectOption value="8g">8 GB</VortSelectOption>
+                        </VortSelect>
+                    </VortFormItem>
+                    <VortFormItem label="CPU 限制">
+                        <VortSelect v-model="form.cpu_limit">
+                            <VortSelectOption :value="0.5">0.5 核</VortSelectOption>
+                            <VortSelectOption :value="1">1 核</VortSelectOption>
+                            <VortSelectOption :value="2">2 核</VortSelectOption>
+                            <VortSelectOption :value="4">4 核</VortSelectOption>
+                        </VortSelect>
+                    </VortFormItem>
+                    <VortFormItem label="网络模式">
+                        <VortSelect v-model="form.network_mode">
+                            <VortSelectOption value="host">Host (共享主机网络)</VortSelectOption>
+                            <VortSelectOption value="bridge">Bridge (隔离网络)</VortSelectOption>
+                            <VortSelectOption value="none">None (无网络)</VortSelectOption>
+                        </VortSelect>
+                    </VortFormItem>
+                    <VortFormItem label="环境变量">
+                        <div class="space-y-2 w-full">
+                            <div v-for="(item, idx) in form.env_vars" :key="idx" class="flex items-center gap-2">
+                                <VortInput v-model="item.key" placeholder="KEY" class="flex-1" />
+                                <span class="text-gray-400">=</span>
+                                <VortInput v-model="item.value" placeholder="VALUE" class="flex-1" />
+                                <button class="text-red-400 hover:text-red-600" @click="removeEnvVar(idx)"><Trash2 :size="14" /></button>
+                            </div>
+                            <a class="text-sm text-blue-600 cursor-pointer" @click="addEnvVar">+ 添加环境变量</a>
                         </div>
-                        <span class="text-xs text-gray-400 mt-1">点击编辑后输入新 Token 覆盖旧值</span>
-                    </template>
-                    <template v-else>
-                        <div class="flex items-center gap-3">
-                            <VortInput
-                                v-model="form.gateway_token"
-                                type="password"
-                                :placeholder="editing ? '输入新的 Gateway 认证 Token' : 'Gateway 认证 Token'"
-                            />
-                            <a
-                                v-if="editing"
-                                class="text-sm text-gray-500 cursor-pointer whitespace-nowrap"
-                                @click="
-                                    gatewayTokenEditing = false;
-                                    form.gateway_token = '';
-                                "
-                            >
-                                取消
-                            </a>
-                        </div>
-                        <span v-if="editing" class="text-xs text-gray-400 mt-1">仅在需要更换 Token 时输入</span>
-                    </template>
-                </VortFormItem>
+                    </VortFormItem>
+                </template>
+
                 <VortFormItem label="描述">
                     <VortTextarea v-model="form.description" placeholder="节点描述（可选）" :auto-size="{ minRows: 2, maxRows: 4 }" />
                 </VortFormItem>
@@ -329,21 +546,34 @@ onMounted(loadData);
             </template>
         </VortDialog>
 
-        <!-- 绑定员工列表弹窗 -->
+        <!-- Bound members dialog -->
         <VortDialog :open="membersDialogOpen" :title="`节点「${membersNodeName}」绑定的 AI 员工`" @update:open="membersDialogOpen = $event">
             <VortSpin :spinning="membersLoading">
-                <div v-if="boundMembers.length === 0" class="text-center text-gray-400 py-6">
-                    暂无绑定的 AI 员工
-                </div>
+                <div v-if="boundMembers.length === 0" class="text-center text-gray-400 py-6">暂无绑定的 AI 员工</div>
                 <div v-else class="space-y-2">
                     <div v-for="m in boundMembers" :key="m.id" class="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                        <div>
-                            <span class="font-medium text-gray-800">{{ m.name }}</span>
-                            <VortTag v-if="m.post" color="blue" class="ml-2">{{ m.post }}</VortTag>
-                        </div>
+                        <span class="font-medium text-gray-800">{{ m.name }}</span>
+                        <VortTag v-if="m.post" color="blue">{{ m.post }}</VortTag>
                     </div>
                 </div>
             </VortSpin>
+        </VortDialog>
+
+        <!-- Container logs dialog -->
+        <VortDialog :open="logsDialogOpen" :title="`容器日志 — ${logsNodeName}`" @update:open="logsDialogOpen = $event" :width="720">
+            <VortSpin :spinning="logsLoading">
+                <pre class="bg-gray-900 text-green-400 text-xs font-mono px-4 py-3 rounded-lg overflow-auto max-h-[500px] whitespace-pre-wrap">{{ logsContent }}</pre>
+            </VortSpin>
+        </VortDialog>
+
+        <!-- Terminal dialog (P4) -->
+        <VortDialog :open="terminalOpen" :title="`终端 — ${terminalNodeName}`" @update:open="terminalOpen = $event" :width="900">
+            <DockerTerminal v-if="terminalOpen" :node-id="terminalNodeId" />
+        </VortDialog>
+
+        <!-- Browser preview dialog (P5) -->
+        <VortDialog :open="browserPreviewOpen" :title="`浏览器预览 — ${browserNodeName}`" @update:open="browserPreviewOpen = $event" :width="1000">
+            <BrowserPreview v-if="browserPreviewOpen" :node-id="browserNodeId" />
         </VortDialog>
     </div>
 </template>

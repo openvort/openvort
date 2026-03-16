@@ -5,5 +5,6 @@ Skill 系统
 """
 
 from openvort.skill.loader import Skill, SkillLoader
+from openvort.skill.tools import SkillUseTool
 
-__all__ = ["Skill", "SkillLoader"]
+__all__ = ["Skill", "SkillLoader", "SkillUseTool"]

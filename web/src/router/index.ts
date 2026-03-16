@@ -61,7 +61,7 @@ const routes: RouteRecordRaw[] = [
             { path: "upgrade", name: "upgrade", component: () => import("@/views/upgrade/Index.vue"), meta: { title: "系统升级", requiredRole: "admin" } },
             { path: "ai-employees", name: "ai-employees", component: () => import("@/views/ai-employees/Index.vue"), meta: { title: "AI 员工", requiredRole: "admin" } },
             { path: "admin/posts", redirect: "/ai-employees" },
-            { path: "remote-nodes", name: "remote-nodes", component: () => import("@/views/remote-nodes/Index.vue"), meta: { title: "远程工作节点", requiredRole: "admin" } },
+            { path: "remote-nodes", name: "remote-nodes", component: () => import("@/views/remote-nodes/Index.vue"), meta: { title: "工作节点", requiredRole: "admin" } },
             { path: "openclaw-nodes", redirect: "/remote-nodes" },
             { path: "models", redirect: "/ai-config" },
             { path: "settings", redirect: "/ai-config" },

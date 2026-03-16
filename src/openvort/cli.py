@@ -243,7 +243,9 @@ async def _start_service(web_flag: bool | None):
         from openvort.core.remote_work_tool import set_remote_work_runtime
         from openvort.core.remote_executor import register_executor
         from openvort.core.openclaw_executor import OpenClawExecutor
+        from openvort.core.docker_executor import DockerExecutor
         register_executor("openclaw", OpenClawExecutor())
+        register_executor("docker", DockerExecutor())
         remote_node_service = RemoteNodeService(session_factory)
         set_remote_work_runtime(remote_node_service, session_factory)
     except Exception as e:

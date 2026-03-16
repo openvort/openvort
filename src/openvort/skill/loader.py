@@ -176,6 +176,9 @@ class SkillLoader:
 
         log.info(f"已加载 {enabled_count} 个全局 Skill")
 
+        from openvort.skill.tools import SkillUseTool
+        self.registry.register_tool(SkillUseTool())
+
     async def _migrate_schema(self) -> None:
         """自动迁移数据库结构"""
         from sqlalchemy import text

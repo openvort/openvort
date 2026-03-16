@@ -1727,9 +1727,9 @@ onUnmounted(() => {
                             <h2 class="text-base font-medium text-gray-800">{{ activeContact?.name }}</h2>
                             <span v-if="activeContact?.position" class="ml-2 text-xs text-gray-400">{{ activeContact.position }}</span>
                             <AiEmployeeBadge v-if="activeContact?.is_virtual" class="ml-1.5 flex-shrink-0" />
-                            <VortTooltip v-if="activeContact?.remote_node_id" :title="activeContact.remote_node_status === 'online' ? '远程节点在线' : activeContact.remote_node_status === 'offline' ? '远程节点离线' : '远程节点状态未知'">
+                            <VortTooltip v-if="activeContact?.remote_node_id" :title="['online', 'running'].includes(activeContact.remote_node_status) ? '工作节点在线' : ['offline', 'stopped', 'error'].includes(activeContact.remote_node_status) ? '工作节点离线' : '工作节点状态未知'">
                                 <span class="inline-block w-2 h-2 rounded-full ml-1.5 flex-shrink-0"
-                                    :class="activeContact.remote_node_status === 'online' ? 'bg-green-500' : activeContact.remote_node_status === 'offline' ? 'bg-red-400' : 'bg-gray-300'" />
+                                    :class="['online', 'running'].includes(activeContact.remote_node_status) ? 'bg-green-500' : ['offline', 'stopped', 'error'].includes(activeContact.remote_node_status) ? 'bg-red-400' : 'bg-gray-300'" />
                             </VortTooltip>
                         </div>
                     </template>

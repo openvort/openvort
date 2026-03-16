@@ -290,6 +290,23 @@ class FlowColumnSetting(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
+class FlowWorkItemLink(Base):
+    """Work item relation (generic many-to-many between story/task/bug)"""
+
+    __tablename__ = "flow_work_item_links"
+    __table_args__ = (
+        UniqueConstraint("source_type", "source_id", "target_type", "target_id", name="uq_work_item_link"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    source_type: Mapped[str] = mapped_column(String(16), index=True)  # story/task/bug
+    source_id: Mapped[str] = mapped_column(String(32), index=True)
+    target_type: Mapped[str] = mapped_column(String(16), index=True)  # story/task/bug
+    target_id: Mapped[str] = mapped_column(String(32), index=True)
+    created_by: Mapped[str | None] = mapped_column(String(32), ForeignKey("members.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class FlowComment(Base):
     """Work item comment"""
 

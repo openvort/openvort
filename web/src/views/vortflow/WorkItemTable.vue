@@ -1960,6 +1960,18 @@ const handleOpenBugDetail = async (record: RowItem) => {
     router.replace({ query: { ...route.query, action: "detail", id: record.backendId || record.workNo } });
 };
 
+const handleOpenRelated = async (partial: any) => {
+    if (partial?.workNo) {
+        handleOpenBugDetail(partial as RowItem);
+        return;
+    }
+    const id = partial?.backendId || partial?.id;
+    const itemType = partial?.type as WorkItemType;
+    if (!id || !itemType) return;
+    const full = await loadItemById(id, itemType);
+    if (full) handleOpenBugDetail(full);
+};
+
 const detailCurrentRecord = computed<RowItem | null>(() => {
     if (!detailSelectedWorkNo.value) return null;
     if (detailRecordSnapshot.value?.workNo === detailSelectedWorkNo.value) {
@@ -2804,7 +2816,7 @@ onMounted(async () => {
                     :child-records="detailChildRecords"
                     @close="handleCancelCreateBug"
                     @update="handleDetailUpdate"
-                    @open-related="handleOpenBugDetail"
+                    @open-related="handleOpenRelated"
                     @create-child="handleCreateChild"
                 />
             </template>
