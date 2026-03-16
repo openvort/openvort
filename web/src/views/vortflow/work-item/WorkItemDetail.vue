@@ -7,7 +7,7 @@ import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
 import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
 import { Copy, Pencil } from "lucide-vue-next";
 import { useWorkItemCommon } from "./useWorkItemCommon";
-import { getVortflowProjects, getVortflowIterations, getVortflowVersions } from "@/api";
+import { getVortflowProjects, getVortflowIterations, getVortflowVersions, getVortgitRepos, getVortgitRepoBranches } from "@/api";
 import type { WorkItemType, Status, DateRange, RowItem, DetailComment, DetailLog } from "@/components/vort-biz/work-item/WorkItemTable.types";
 
 interface Props {
@@ -34,7 +34,6 @@ const {
     getAvatarBg,
     getAvatarLabel,
     getMemberAvatarUrl,
-    getMemberIdByName,
     loadMemberOptions,
     getWorkItemTypeIconClass,
     getWorkItemTypeIconSymbol,
@@ -246,13 +245,54 @@ const submitDetailComment = () => {
 const apiProjects = ref<Array<{ id: string; name: string }>>([]);
 const apiIterations = ref<Array<{ id: string; name: string }>>([]);
 const apiVersions = ref<Array<{ id: string; name: string }>>([]);
+const apiRepos = ref<Array<{ id: string; name: string }>>([]);
+const apiBranches = ref<Array<{ name: string }>>([]);
+const branchLoading = ref(false);
+
+const formatDate = (value: Date) => {
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, "0");
+    const d = String(value.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+};
+
+const normalizeDateValue = (value: unknown): string => {
+    if (value instanceof Date) return formatDate(value);
+    if (typeof value === "string") {
+        const direct = value.trim();
+        if (!direct) return "";
+        if (/^\d{4}-\d{2}-\d{2}$/.test(direct)) return direct;
+        const parsed = new Date(direct);
+        if (!Number.isNaN(parsed.getTime())) return formatDate(parsed);
+    }
+    return "";
+};
+
+const loadBranchOptions = async (repoId?: string) => {
+    if (!repoId) {
+        apiBranches.value = [];
+        return;
+    }
+    branchLoading.value = true;
+    try {
+        const res: any = await getVortgitRepoBranches(repoId);
+        apiBranches.value = ((res?.items || []) as any[])
+            .map((item) => ({ name: String(item.name || "") }))
+            .filter((item) => item.name);
+    } catch {
+        apiBranches.value = [];
+    } finally {
+        branchLoading.value = false;
+    }
+};
 
 const loadFieldOptions = async () => {
     const projectId = record.value?.projectId || "";
-    const [projRes, iterRes, verRes] = await Promise.allSettled([
+    const [projRes, iterRes, verRes, repoRes] = await Promise.allSettled([
         getVortflowProjects(),
         projectId ? getVortflowIterations({ project_id: projectId, page: 1, page_size: 100 }) : Promise.resolve({ items: [] }),
         projectId ? getVortflowVersions({ project_id: projectId, page: 1, page_size: 100 }) : Promise.resolve({ items: [] }),
+        projectId ? getVortgitRepos({ project_id: projectId, page: 1, page_size: 100 }) : Promise.resolve({ items: [] }),
     ]);
     if (projRes.status === "fulfilled") {
         apiProjects.value = ((projRes.value as any)?.items || []).map((p: any) => ({ id: String(p.id), name: String(p.name || p.id) }));
@@ -263,10 +303,18 @@ const loadFieldOptions = async () => {
     if (verRes.status === "fulfilled") {
         apiVersions.value = ((verRes.value as any)?.items || []).map((p: any) => ({ id: String(p.id), name: String(p.name || p.id) }));
     }
+    if (repoRes.status === "fulfilled") {
+        apiRepos.value = ((repoRes.value as any)?.items || []).map((item: any) => ({
+            id: String(item.id || ""),
+            name: String(item.name || item.full_name || item.id || ""),
+        })).filter((item: { id: string; name: string }) => item.id && item.name);
+    }
     syncDetailLinkedLabels();
+    syncDetailRepoLabel();
+    await loadBranchOptions(record.value?.repoId || "");
 };
 
-const detailPlanTimeModel = computed<DateRange | undefined>({
+const detailPlanTimeModel = computed<any>({
     get: () => {
         if (!record.value) return undefined;
         const pt = record.value.planTime;
@@ -335,6 +383,87 @@ const syncDetailLinkedLabels = () => {
     }
 };
 
+const syncDetailRepoLabel = () => {
+    if (!record.value) return;
+    if (record.value.repoId) {
+        record.value.repo = apiRepos.value.find((item) => item.id === record.value?.repoId)?.name || record.value.repo || "";
+    }
+};
+
+const detailEstimateHours = computed<number | undefined>({
+    get: () => {
+        if (!record.value?.estimateHours && record.value?.estimateHours !== 0) return undefined;
+        return Number(record.value.estimateHours);
+    },
+    set: (value) => {
+        if (!record.value) return;
+        const next = value == null ? undefined : Number(value);
+        record.value.estimateHours = next;
+        if (record.value.loggedHours != null && next != null) {
+            record.value.remainHours = Math.max(0, next - Number(record.value.loggedHours || 0));
+        } else if (next == null) {
+            record.value.remainHours = undefined;
+        }
+        emit("update", { estimateHours: next });
+        appendDetailLog(`修改预估工时为"${next ?? "未设置"}h"`);
+    },
+});
+
+const detailRepoId = computed({
+    get: () => record.value?.repoId || "",
+    set: (val: string) => {
+        if (!record.value) return;
+        const nextId = String(val || "");
+        const nextRepo = apiRepos.value.find((item) => item.id === nextId)?.name || "";
+        const repoChanged = nextId !== (record.value.repoId || "");
+        record.value.repoId = nextId;
+        record.value.repo = nextRepo;
+        if (repoChanged) {
+            record.value.branch = "";
+        }
+        emit("update", {
+            repoId: nextId,
+            repo: nextRepo,
+            branch: repoChanged ? "" : record.value.branch || "",
+        });
+        appendDetailLog(`修改关联仓库为"${nextRepo || "未设置"}"`);
+        loadBranchOptions(nextId);
+    },
+});
+
+const detailBranch = computed({
+    get: () => record.value?.branch || "",
+    set: (val: string) => {
+        if (!record.value) return;
+        const nextBranch = String(val || "");
+        record.value.branch = nextBranch;
+        emit("update", { branch: nextBranch });
+        appendDetailLog(`修改关联分支为"${nextBranch || "未设置"}"`);
+    },
+});
+
+const detailStartAt = computed({
+    get: () => record.value?.startAt || "",
+    set: (val: string) => {
+        if (!record.value) return;
+        const next = normalizeDateValue(val);
+        record.value.startAt = next;
+        emit("update", { startAt: next });
+        appendDetailLog(`修改实际开始时间为"${next || "未设置"}"`);
+    },
+});
+
+const detailEndAt = computed({
+    get: () => record.value?.endAt || "",
+    set: (val: string) => {
+        if (!record.value) return;
+        const next = normalizeDateValue(val);
+        record.value.endAt = next;
+        emit("update", { endAt: next });
+        appendDetailLog(`修改实际结束时间为"${next || "未设置"}"`);
+    },
+});
+
 const detailType = computed({
     get: () => record.value?.type || "缺陷",
     set: (val: string) => {
@@ -348,9 +477,10 @@ const detailType = computed({
 const loadProjectLinkedOptions = async (projectId?: string) => {
     const pid = projectId || record.value?.projectId || "";
     if (!pid) return;
-    const [iterRes, verRes] = await Promise.allSettled([
+    const [iterRes, verRes, repoRes] = await Promise.allSettled([
         getVortflowIterations({ project_id: pid, page: 1, page_size: 100 }),
         getVortflowVersions({ project_id: pid, page: 1, page_size: 100 }),
+        getVortgitRepos({ project_id: pid, page: 1, page_size: 100 }),
     ]);
     if (iterRes.status === "fulfilled") {
         apiIterations.value = ((iterRes.value as any)?.items || []).map((p: any) => ({ id: String(p.id), name: String(p.name || p.id) }));
@@ -358,11 +488,29 @@ const loadProjectLinkedOptions = async (projectId?: string) => {
     if (verRes.status === "fulfilled") {
         apiVersions.value = ((verRes.value as any)?.items || []).map((p: any) => ({ id: String(p.id), name: String(p.name || p.id) }));
     }
+    if (repoRes.status === "fulfilled") {
+        apiRepos.value = ((repoRes.value as any)?.items || []).map((item: any) => ({
+            id: String(item.id || ""),
+            name: String(item.name || item.full_name || item.id || ""),
+        })).filter((item: { id: string; name: string }) => item.id && item.name);
+    }
     syncDetailLinkedLabels();
+    syncDetailRepoLabel();
+    await loadBranchOptions(record.value?.repoId || "");
 };
 
 // ---- Inline edit: click-to-edit pattern ----
-type EditableField = "planTime" | "iteration" | "type" | "project" | "version";
+type EditableField =
+    | "planTime"
+    | "iteration"
+    | "type"
+    | "project"
+    | "version"
+    | "estimateHours"
+    | "repo"
+    | "branch"
+    | "startAt"
+    | "endAt";
 const editingField = ref<EditableField | null>(null);
 const startEditing = (field: EditableField) => {
     editingField.value = field;
@@ -371,6 +519,10 @@ const stopEditing = () => {
     editingField.value = null;
 };
 const isEditing = (field: EditableField) => editingField.value === field;
+const canEditProject = computed(() => record.value?.type === "需求");
+const canEditIteration = computed(() => record.value?.type === "需求" || record.value?.type === "任务");
+const canEditVersion = computed(() => record.value?.type === "需求");
+const canEditEstimateHours = computed(() => record.value?.type === "任务" || record.value?.type === "缺陷");
 
 onMounted(async () => {
     await loadMemberOptions();
@@ -543,12 +695,13 @@ watch(() => props.initialData, (value) => {
                             <div
                                 class="detail-field-shell"
                                 :class="{ 'is-editing': isEditing('iteration') }"
-                                @mousedown.capture="startEditing('iteration')"
+                                @mousedown.capture="canEditIteration && startEditing('iteration')"
                             >
                                 <vort-select
                                     v-model="detailIteration"
                                     placeholder="未设置"
                                     allow-clear
+                                    :disabled="!canEditIteration"
                                     :bordered="isEditing('iteration')"
                                     class="detail-field-select"
                                     @change="stopEditing"
@@ -556,6 +709,44 @@ watch(() => props.initialData, (value) => {
                                 >
                                     <vort-select-option v-for="item in apiIterations" :key="item.id" :value="item.id">{{ item.name }}</vort-select-option>
                                 </vort-select>
+                            </div>
+                        </div>
+                        <div class="bug-detail-info-item bug-detail-info-item-row">
+                            <label>预估工时</label>
+                            <div
+                                class="detail-field-shell"
+                                :class="{ 'is-editing': isEditing('estimateHours') }"
+                                @mousedown.capture="canEditEstimateHours && startEditing('estimateHours')"
+                            >
+                                <vort-input-number
+                                    v-model="detailEstimateHours"
+                                    placeholder="未设置"
+                                    :disabled="!canEditEstimateHours"
+                                    :min="0"
+                                    :step="0.5"
+                                    :bordered="isEditing('estimateHours')"
+                                    class="detail-field-number"
+                                    @blur="stopEditing"
+                                />
+                            </div>
+                        </div>
+                        <div class="bug-detail-info-item bug-detail-info-item-row">
+                            <label>实际开始时间</label>
+                            <div
+                                class="detail-field-shell"
+                                :class="{ 'is-editing': isEditing('startAt') }"
+                                @mousedown.capture="startEditing('startAt')"
+                            >
+                                <vort-date-picker
+                                    v-model="detailStartAt"
+                                    value-format="YYYY-MM-DD"
+                                    format="YYYY-MM-DD"
+                                    allow-clear
+                                    placeholder="未设置"
+                                    class="detail-field-date"
+                                    @change="stopEditing"
+                                    @update:open="(open: boolean) => { if (!open) stopEditing() }"
+                                />
                             </div>
                         </div>
                     </div>
@@ -585,10 +776,11 @@ watch(() => props.initialData, (value) => {
                             <div
                                 class="detail-field-shell"
                                 :class="{ 'is-editing': isEditing('project') }"
-                                @mousedown.capture="startEditing('project')"
+                                @mousedown.capture="canEditProject && startEditing('project')"
                             >
                                 <vort-select
                                     v-model="detailProjectName"
+                                    :disabled="!canEditProject"
                                     :bordered="isEditing('project')"
                                     class="detail-field-select"
                                     @change="stopEditing"
@@ -603,12 +795,13 @@ watch(() => props.initialData, (value) => {
                             <div
                                 class="detail-field-shell"
                                 :class="{ 'is-editing': isEditing('version') }"
-                                @mousedown.capture="startEditing('version')"
+                                @mousedown.capture="canEditVersion && startEditing('version')"
                             >
                                 <vort-select
                                     v-model="detailVersion"
                                     placeholder="未设置"
                                     allow-clear
+                                    :disabled="!canEditVersion"
                                     :bordered="isEditing('version')"
                                     class="detail-field-select"
                                     @change="stopEditing"
@@ -616,6 +809,66 @@ watch(() => props.initialData, (value) => {
                                 >
                                     <vort-select-option v-for="item in apiVersions" :key="item.id" :value="item.id">{{ item.name }}</vort-select-option>
                                 </vort-select>
+                            </div>
+                        </div>
+                        <div class="bug-detail-info-item bug-detail-info-item-row">
+                            <label>关联仓库</label>
+                            <div
+                                class="detail-field-shell"
+                                :class="{ 'is-editing': isEditing('repo') }"
+                                @mousedown.capture="startEditing('repo')"
+                            >
+                                <vort-select
+                                    v-model="detailRepoId"
+                                    placeholder="未设置"
+                                    allow-clear
+                                    :bordered="isEditing('repo')"
+                                    class="detail-field-select"
+                                    @change="stopEditing"
+                                    @blur="stopEditing"
+                                >
+                                    <vort-select-option v-for="item in apiRepos" :key="item.id" :value="item.id">{{ item.name }}</vort-select-option>
+                                </vort-select>
+                            </div>
+                        </div>
+                        <div class="bug-detail-info-item bug-detail-info-item-row">
+                            <label>关联分支</label>
+                            <div
+                                class="detail-field-shell"
+                                :class="{ 'is-editing': isEditing('branch') }"
+                                @mousedown.capture="record.repoId && startEditing('branch')"
+                            >
+                                <vort-select
+                                    v-model="detailBranch"
+                                    :placeholder="record.repoId ? (branchLoading ? '分支加载中' : '未设置') : '请先选择仓库'"
+                                    allow-clear
+                                    :disabled="!record.repoId"
+                                    :bordered="isEditing('branch')"
+                                    class="detail-field-select"
+                                    @change="stopEditing"
+                                    @blur="stopEditing"
+                                >
+                                    <vort-select-option v-for="item in apiBranches" :key="item.name" :value="item.name">{{ item.name }}</vort-select-option>
+                                </vort-select>
+                            </div>
+                        </div>
+                        <div class="bug-detail-info-item bug-detail-info-item-row">
+                            <label>实际结束时间</label>
+                            <div
+                                class="detail-field-shell"
+                                :class="{ 'is-editing': isEditing('endAt') }"
+                                @mousedown.capture="startEditing('endAt')"
+                            >
+                                <vort-date-picker
+                                    v-model="detailEndAt"
+                                    value-format="YYYY-MM-DD"
+                                    format="YYYY-MM-DD"
+                                    allow-clear
+                                    placeholder="未设置"
+                                    class="detail-field-date"
+                                    @change="stopEditing"
+                                    @update:open="(open: boolean) => { if (!open) stopEditing() }"
+                                />
                             </div>
                         </div>
                     </div>
@@ -1538,13 +1791,18 @@ watch(() => props.initialData, (value) => {
 .detail-field-shell:not(.is-editing) :deep(.vort-select-arrow-wrapper),
 .detail-field-shell:not(.is-editing) :deep(.vort-select-clear),
 .detail-field-shell:not(.is-editing) :deep(.vort-rangepicker-prefix),
-.detail-field-shell:not(.is-editing) :deep(.vort-rangepicker-suffix) {
+ .detail-field-shell:not(.is-editing) :deep(.vort-rangepicker-suffix),
+ .detail-field-shell:not(.is-editing) :deep(.vort-date-picker-prefix),
+ .detail-field-shell:not(.is-editing) :deep(.vort-date-picker-suffix),
+ .detail-field-shell:not(.is-editing) :deep(.vort-input-number-handler-wrap) {
     display: none !important;
 }
 
 .detail-field-shell:not(.is-editing) :deep(.vort-select-placeholder),
 .detail-field-shell:not(.is-editing) :deep(.vort-rangepicker-placeholder),
-.detail-field-shell:not(.is-editing) :deep(.vort-rangepicker-input-placeholder) {
+ .detail-field-shell:not(.is-editing) :deep(.vort-rangepicker-input-placeholder),
+ .detail-field-shell:not(.is-editing) :deep(.vort-date-picker-input::placeholder),
+ .detail-field-shell:not(.is-editing) :deep(.vort-input-number-input::placeholder) {
     color: #94a3b8 !important;
 }
 
@@ -1569,5 +1827,32 @@ watch(() => props.initialData, (value) => {
 
 .detail-field-picker :deep(.vort-rangepicker-input) {
     font-size: 14px;
+}
+
+.detail-field-shell :deep(.vort-date-picker) {
+    width: auto;
+}
+
+.detail-field-shell:not(.is-editing) :deep(.vort-date-picker) {
+    border-color: transparent !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    padding: 4px 8px !important;
+}
+
+.detail-field-shell :deep(.vort-input-number) {
+    width: 120px;
+}
+
+.detail-field-shell:not(.is-editing) :deep(.vort-input-number) {
+    border-color: transparent !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+.detail-field-shell:not(.is-editing) :deep(.vort-input-number-input) {
+    padding-left: 8px !important;
+    padding-right: 8px !important;
+    background: transparent !important;
 }
 </style>

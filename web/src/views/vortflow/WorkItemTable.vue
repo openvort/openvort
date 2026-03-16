@@ -37,6 +37,7 @@ import {
     addVortflowIterationStory, addVortflowIterationTask,
     removeVortflowIterationStory, removeVortflowIterationTask,
     addVortflowVersionStory, removeVortflowVersionStory,
+    getVortgitRepos, getVortgitRepoBranches,
 } from "@/api";
 import type {
     WorkItemType,
@@ -210,7 +211,16 @@ const createInitialBugForm = (): NewBugForm => ({
 });
 const createBugForm = reactive<NewBugForm>(createInitialBugForm());
 const apiProjects = ref<Array<{ id: string; name: string }>>([]);
+const apiRepos = ref<Array<{ id: string; name: string }>>([]);
 const apiStories = ref<Array<{ id: string; title: string }>>([]);
+const branchOptionsMap = reactive<Record<string, Array<{ name: string }>>>({});
+const branchLoadingMap = reactive<Record<string, boolean>>({});
+const estimateEditingFor = ref<string | null>(null);
+const estimateDraftMap = reactive<Record<string, number | null>>({});
+const repoPickerOpenMap = reactive<Record<string, boolean>>({});
+const branchPickerOpenMap = reactive<Record<string, boolean>>({});
+const startAtPickerOpenMap = reactive<Record<string, boolean>>({});
+const endAtPickerOpenMap = reactive<Record<string, boolean>>({});
 const itemRowsById = reactive<Record<string, RowItem>>({});
 const itemChildrenMap = reactive<Record<string, RowItem[]>>({});
 const expandedItemIds = reactive<Record<string, boolean>>({});
@@ -409,6 +419,60 @@ const normalizeDateValue = (value: unknown): string => {
         if (!Number.isNaN(parsed.getTime())) return formatDate(parsed);
     }
     return "";
+};
+
+const getActiveProjectId = (): string => {
+    return props.projectId || vortFlowStore.selectedProjectId || "";
+};
+
+const getRepoNameById = (repoId?: string): string => {
+    if (!repoId) return "";
+    return apiRepos.value.find((item) => item.id === repoId)?.name || "";
+};
+
+const getBranchOptions = (repoId?: string) => {
+    if (!repoId) return [];
+    return branchOptionsMap[repoId] || [];
+};
+
+const loadRepoOptions = async () => {
+    if (!props.useApi) return;
+    const projectId = getActiveProjectId();
+    if (!projectId) {
+        apiRepos.value = [];
+        return;
+    }
+    try {
+        const res: any = await getVortgitRepos({
+            project_id: projectId,
+            page: 1,
+            page_size: 100,
+        });
+        apiRepos.value = ((res?.items || []) as any[])
+            .map((item) => ({
+                id: String(item.id || ""),
+                name: String(item.name || item.full_name || item.id || ""),
+            }))
+            .filter((item) => item.id && item.name);
+    } catch {
+        apiRepos.value = [];
+    }
+};
+
+const loadBranchOptions = async (repoId?: string) => {
+    if (!props.useApi || !repoId) return;
+    if (branchOptionsMap[repoId]?.length) return;
+    branchLoadingMap[repoId] = true;
+    try {
+        const res: any = await getVortgitRepoBranches(repoId);
+        branchOptionsMap[repoId] = ((res?.items || []) as any[])
+            .map((item) => ({ name: String(item.name || "") }))
+            .filter((item) => item.name);
+    } catch {
+        branchOptionsMap[repoId] = [];
+    } finally {
+        branchLoadingMap[repoId] = false;
+    }
 };
 
 const collectTagOptions = (rows: RowItem[]) => {
@@ -768,6 +832,12 @@ const syncRecordUpdateToApi = async (
         collaborators?: string[];
         deadline?: string;
         pm_id?: string | null;
+        project_id?: string | null;
+        actual_hours?: number;
+        start_at?: string;
+        end_at?: string;
+        repo_id?: string | null;
+        branch?: string;
     }
 ) => {
     if (!props.useApi) return;
@@ -783,6 +853,11 @@ const syncRecordUpdateToApi = async (
             collaborators: patch.collaborators,
             deadline: patch.deadline,
             pm_id: patch.pm_id,
+            project_id: patch.project_id,
+            start_at: patch.start_at,
+            end_at: patch.end_at,
+            repo_id: patch.repo_id,
+            branch: patch.branch,
         });
         return;
     }
@@ -796,6 +871,11 @@ const syncRecordUpdateToApi = async (
             tags: patch.tags,
             collaborators: patch.collaborators,
             deadline: patch.deadline,
+            actual_hours: patch.actual_hours,
+            start_at: patch.start_at,
+            end_at: patch.end_at,
+            repo_id: patch.repo_id,
+            branch: patch.branch,
         });
         return;
     }
@@ -805,8 +885,15 @@ const syncRecordUpdateToApi = async (
         severity: patch.severity,
         state: patch.state,
         assignee_id: patch.assignee_id === undefined ? undefined : (patch.assignee_id || undefined),
+        estimate_hours: patch.estimate_hours,
+        actual_hours: patch.actual_hours,
         tags: patch.tags,
         collaborators: patch.collaborators,
+        deadline: patch.deadline,
+        start_at: patch.start_at,
+        end_at: patch.end_at,
+        repo_id: patch.repo_id,
+        branch: patch.branch,
     });
 };
 
@@ -864,7 +951,8 @@ const {
     mapBackendPriority,
     toBackendPriorityLevel,
     toTaskEstimateHours,
-    getBackendStatesByDisplayStatus,
+    getBackendStatesByDisplayStatus: (typeValue, statusValue) =>
+        getBackendStatesByDisplayStatus(typeValue as WorkItemType, statusValue) || [],
     dynamicTagOptions,
     baseTagOptions,
     priorityModel,
@@ -873,6 +961,119 @@ const {
     planTimeModel,
     normalizeDateValue,
 });
+
+const openRepoPicker = async (record: RowItem, event: Event) => {
+    const shouldOpen = isCellBackgroundClick(event);
+    openCellPickerOnBackgroundClick(record, event, repoPickerOpenMap);
+    if (shouldOpen) {
+        await loadRepoOptions();
+    }
+};
+
+const selectRowEstimateHours = async (record: RowItem, value?: number | null) => {
+    if (record.type === "需求") {
+        message.warning("需求暂不支持预估工时");
+        estimateEditingFor.value = null;
+        return;
+    }
+    const key = getInteractiveCellKey(record);
+    const prevEstimate = record.estimateHours;
+    const prevRemain = record.remainHours;
+    const nextValue = value == null || value === undefined ? undefined : Number(value);
+    record.estimateHours = nextValue;
+    if (record.loggedHours != null && nextValue != null) {
+        record.remainHours = Math.max(0, Number(nextValue) - Number(record.loggedHours || 0));
+    } else if (nextValue == null) {
+        record.remainHours = undefined;
+    }
+    estimateEditingFor.value = null;
+    try {
+        await syncRecordUpdateToApi(record, { estimate_hours: nextValue });
+    } catch (error: any) {
+        record.estimateHours = prevEstimate;
+        record.remainHours = prevRemain;
+        estimateDraftMap[key] = prevEstimate == null ? null : Number(prevEstimate);
+        message.error(error?.message || "预估工时同步失败");
+    }
+};
+
+const openEstimateEditor = (record: RowItem) => {
+    const key = getInteractiveCellKey(record);
+    estimateDraftMap[key] = record.estimateHours == null || record.estimateHours === ""
+        ? null
+        : Number(record.estimateHours);
+    estimateEditingFor.value = key;
+};
+
+const selectRowRepo = async (record: RowItem, repoId?: string) => {
+    const prevRepoId = record.repoId || "";
+    const prevRepo = record.repo || "";
+    const prevBranch = record.branch || "";
+    const nextRepoId = String(repoId || "");
+    const nextRepo = getRepoNameById(nextRepoId);
+    record.repoId = nextRepoId;
+    record.repo = nextRepo;
+    if (prevRepoId !== nextRepoId) {
+        record.branch = "";
+    }
+    repoPickerOpenMap[getInteractiveCellKey(record)] = false;
+    try {
+        await syncRecordUpdateToApi(record, {
+            repo_id: nextRepoId || null,
+            branch: prevRepoId !== nextRepoId ? "" : record.branch || "",
+        });
+        if (nextRepoId) {
+            await loadBranchOptions(nextRepoId);
+        }
+    } catch (error: any) {
+        record.repoId = prevRepoId;
+        record.repo = prevRepo;
+        record.branch = prevBranch;
+        message.error(error?.message || "关联仓库同步失败");
+    }
+};
+
+const openBranchPicker = async (record: RowItem, event: Event) => {
+    if (!record.repoId) {
+        message.warning("请先选择关联仓库");
+        return;
+    }
+    const shouldOpen = isCellBackgroundClick(event);
+    openCellPickerOnBackgroundClick(record, event, branchPickerOpenMap);
+    if (shouldOpen) {
+        await loadBranchOptions(record.repoId);
+    }
+};
+
+const selectRowBranch = async (record: RowItem, branch?: string) => {
+    const prevBranch = record.branch || "";
+    const nextBranch = String(branch || "");
+    record.branch = nextBranch;
+    branchPickerOpenMap[getInteractiveCellKey(record)] = false;
+    try {
+        await syncRecordUpdateToApi(record, { branch: nextBranch });
+    } catch (error: any) {
+        record.branch = prevBranch;
+        message.error(error?.message || "关联分支同步失败");
+    }
+};
+
+const selectRowDateField = async (record: RowItem, field: "startAt" | "endAt", value?: string) => {
+    const prev = record[field] || "";
+    const next = normalizeDateValue(value || "");
+    record[field] = next;
+    const cellKey = getInteractiveCellKey(record);
+    if (field === "startAt") startAtPickerOpenMap[cellKey] = false;
+    else endAtPickerOpenMap[cellKey] = false;
+    try {
+        await syncRecordUpdateToApi(record, {
+            [field === "startAt" ? "start_at" : "end_at"]: next || "",
+        });
+    } catch (error: any) {
+        record[field] = prev;
+        message.error(error?.message || `${field === "startAt" ? "实际开始时间" : "实际结束时间"}同步失败`);
+    }
+};
 
 const prependPinnedRow = (typeValue: WorkItemType, row: RowItem) => {
     const list = pinnedRowsByType[typeValue] || [];
@@ -1373,6 +1574,7 @@ const onReset = () => {
 };
 
 watch(() => props.projectId, () => {
+    loadRepoOptions();
     tableRef.value?.refresh?.();
 });
 
@@ -1485,6 +1687,30 @@ const handleDetailUpdate = async (data: Partial<RowItem>) => {
         const deadline = (pt && pt[1]) ? pt[1] : undefined;
         await syncRecordUpdateToApi(rec, { deadline: deadline || undefined });
     }
+    if (data.estimateHours !== undefined) {
+        const value = data.estimateHours === "" || data.estimateHours == null
+            ? undefined
+            : Number(data.estimateHours);
+        await syncRecordUpdateToApi(rec, { estimate_hours: value });
+    }
+    if (data.startAt !== undefined) {
+        await syncRecordUpdateToApi(rec, { start_at: data.startAt || "" });
+    }
+    if (data.endAt !== undefined) {
+        await syncRecordUpdateToApi(rec, { end_at: data.endAt || "" });
+    }
+    if (data.repoId !== undefined || data.branch !== undefined) {
+        await syncRecordUpdateToApi(rec, {
+            repo_id: (data.repoId ?? rec.repoId ?? "") || null,
+            branch: data.branch ?? rec.branch ?? "",
+        });
+    }
+    if (data.projectName !== undefined && data.projectId !== undefined) {
+        const itemId = getRecordBackendId(rec);
+        if (itemId && rec.type === "需求") {
+            await syncRecordUpdateToApi(rec, { project_id: data.projectId || null });
+        }
+    }
     if (data.iterationId !== undefined || data.iteration !== undefined) {
         const itemId = getRecordBackendId(rec);
         if (itemId) {
@@ -1513,12 +1739,6 @@ const handleDetailUpdate = async (data: Partial<RowItem>) => {
                 await addVortflowVersionStory(nextVer, { story_id: itemId }).catch(() => {});
             }
             rec._prevVersion = nextVer;
-        }
-    }
-    if (data.projectName !== undefined && data.projectId !== undefined) {
-        const itemId = getRecordBackendId(rec);
-        if (itemId && rec.type === "需求") {
-            await updateVortflowStory(itemId, { project_id: data.projectId || undefined } as any);
         }
     }
 };
@@ -1891,6 +2111,7 @@ onMounted(async () => {
     await loadMemberOptions();
     await Promise.all([
         loadApiMetadata(false),
+        loadRepoOptions(),
         vortFlowStore.loadColumnSettings(props.type || ""),
         vortFlowStore.loadViews(props.type || ""),
     ]);
@@ -2402,23 +2623,45 @@ onMounted(async () => {
                 </template>
 
                 <template #iteration="{ text, record }">
-                    <TableCell>
-                        <span v-if="text" class="text-sm text-gray-700">{{ text }}</span>
+                    <TableCell @click="handleOpenBugDetail(record)">
+                        <span v-if="text" class="text-sm text-blue-600 cursor-pointer">{{ text }}</span>
                         <span v-else class="text-sm text-gray-300">-</span>
                     </TableCell>
                 </template>
 
                 <template #version="{ text, record }">
-                    <TableCell>
-                        <span v-if="text" class="text-sm text-blue-600">{{ text }}</span>
+                    <TableCell @click="handleOpenBugDetail(record)">
+                        <span v-if="text" class="text-sm text-blue-600 cursor-pointer">{{ text }}</span>
                         <span v-else class="text-sm text-gray-300">-</span>
                     </TableCell>
                 </template>
 
-                <template #estimateHours="{ text }">
-                    <TableCell>
-                        <span v-if="text != null && text !== ''" class="text-sm text-gray-700">{{ text }}h</span>
-                        <span v-else class="text-sm text-gray-300">-</span>
+                <template #estimateHours="{ text, record }">
+                    <TableCell @click.stop="record.type !== '需求' && openEstimateEditor(record)">
+                        <div class="min-h-8 flex items-center" @click.stop>
+                            <vort-input-number
+                                v-if="estimateEditingFor === getInteractiveCellKey(record)"
+                                v-model="estimateDraftMap[getInteractiveCellKey(record)]"
+                                :min="0"
+                                :step="0.5"
+                                size="small"
+                                class="w-[88px]"
+                                @blur="selectRowEstimateHours(record, estimateDraftMap[getInteractiveCellKey(record)])"
+                                @keyup.enter="selectRowEstimateHours(record, estimateDraftMap[getInteractiveCellKey(record)])"
+                            />
+                            <span
+                                v-else-if="text != null && text !== ''"
+                                :class="record.type === '需求' ? 'text-sm text-gray-700' : 'text-sm text-blue-600 cursor-pointer'"
+                            >
+                                {{ text }}h
+                            </span>
+                            <span
+                                v-else
+                                :class="record.type === '需求' ? 'text-sm text-gray-300' : 'text-sm text-blue-400 cursor-pointer'"
+                            >
+                                -
+                            </span>
+                        </div>
                     </TableCell>
                 </template>
 
@@ -2450,31 +2693,88 @@ onMounted(async () => {
                     </TableCell>
                 </template>
 
-                <template #startAt="{ text }">
-                    <TableCell>
-                        <span v-if="text" class="text-sm text-gray-700">{{ text }}</span>
-                        <span v-else class="text-sm text-gray-300">-</span>
+                <template #startAt="{ text, record }">
+                    <TableCell @click.stop="startAtPickerOpenMap[getInteractiveCellKey(record)] = true">
+                        <div class="relative inline-block min-w-[120px]" @click.stop>
+                            <span
+                                v-if="!startAtPickerOpenMap[getInteractiveCellKey(record)]"
+                                class="text-sm text-blue-600 cursor-pointer"
+                            >
+                                {{ text || "-" }}
+                            </span>
+                            <vort-date-picker
+                                v-else
+                                v-model="record.startAt"
+                                v-model:open="startAtPickerOpenMap[getInteractiveCellKey(record)]"
+                                value-format="YYYY-MM-DD"
+                                format="YYYY-MM-DD"
+                                allow-clear
+                                size="small"
+                                class="w-[128px]"
+                                @change="(value: any) => selectRowDateField(record, 'startAt', value || '')"
+                            />
+                        </div>
                     </TableCell>
                 </template>
 
-                <template #endAt="{ text }">
-                    <TableCell>
-                        <span v-if="text" class="text-sm text-gray-700">{{ text }}</span>
-                        <span v-else class="text-sm text-gray-300">-</span>
+                <template #endAt="{ text, record }">
+                    <TableCell @click.stop="endAtPickerOpenMap[getInteractiveCellKey(record)] = true">
+                        <div class="relative inline-block min-w-[120px]" @click.stop>
+                            <span
+                                v-if="!endAtPickerOpenMap[getInteractiveCellKey(record)]"
+                                class="text-sm text-blue-600 cursor-pointer"
+                            >
+                                {{ text || "-" }}
+                            </span>
+                            <vort-date-picker
+                                v-else
+                                v-model="record.endAt"
+                                v-model:open="endAtPickerOpenMap[getInteractiveCellKey(record)]"
+                                value-format="YYYY-MM-DD"
+                                format="YYYY-MM-DD"
+                                allow-clear
+                                size="small"
+                                class="w-[128px]"
+                                @change="(value: any) => selectRowDateField(record, 'endAt', value || '')"
+                            />
+                        </div>
                     </TableCell>
                 </template>
 
-                <template #repo="{ text }">
-                    <TableCell>
-                        <span v-if="text" class="text-sm text-gray-700">{{ text }}</span>
-                        <span v-else class="text-sm text-gray-300">-</span>
+                <template #repo="{ text, record }">
+                    <TableCell @click="openRepoPicker(record, $event)">
+                        <vort-select
+                            :model-value="record.repoId || ''"
+                            :open="repoPickerOpenMap[getInteractiveCellKey(record)]"
+                            placeholder="未设置"
+                            allow-clear
+                            :bordered="false"
+                            size="small"
+                            class="w-full min-w-0"
+                            @update:open="(open: boolean) => { repoPickerOpenMap[getInteractiveCellKey(record)] = open; if (open) loadRepoOptions(); }"
+                            @change="(value: string | number | (string | number)[] | undefined) => selectRowRepo(record, String(value || ''))"
+                        >
+                            <vort-select-option v-for="item in apiRepos" :key="item.id" :value="item.id">{{ item.name }}</vort-select-option>
+                        </vort-select>
                     </TableCell>
                 </template>
 
-                <template #branch="{ text }">
-                    <TableCell>
-                        <span v-if="text" class="text-sm text-gray-700 font-mono text-xs">{{ text }}</span>
-                        <span v-else class="text-sm text-gray-300">-</span>
+                <template #branch="{ text, record }">
+                    <TableCell @click="openBranchPicker(record, $event)">
+                        <vort-select
+                            :model-value="record.branch || ''"
+                            :open="branchPickerOpenMap[getInteractiveCellKey(record)]"
+                            :placeholder="record.repoId ? (branchLoadingMap[record.repoId] ? '分支加载中' : '未设置') : '请先选择仓库'"
+                            allow-clear
+                            :disabled="!record.repoId"
+                            :bordered="false"
+                            size="small"
+                            class="w-full min-w-0"
+                            @update:open="(open: boolean) => { branchPickerOpenMap[getInteractiveCellKey(record)] = open; if (open) loadBranchOptions(record.repoId); }"
+                            @change="(value: string | number | (string | number)[] | undefined) => selectRowBranch(record, String(value || ''))"
+                        >
+                            <vort-select-option v-for="item in getBranchOptions(record.repoId)" :key="item.name" :value="item.name">{{ item.name }}</vort-select-option>
+                        </vort-select>
                     </TableCell>
                 </template>
             </ProTable>

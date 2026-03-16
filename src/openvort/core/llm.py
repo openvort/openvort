@@ -297,28 +297,13 @@ class OpenAICompatibleProvider(LLMProvider):
 
     @staticmethod
     def _supports_vision(model: str) -> bool:
-        """按模型名推断是否支持视觉输入。"""
+        """默认认为模型支持视觉输入，仅排除明确不支持的推理模型。
+
+        不再靠白名单猜测，而是让 API 自己报错——用户能看到真实错误信息。
+        """
         model_lower = model.lower()
-
-        # 明确不支持视觉的常见推理模型
-        no_vision_markers = ("reasoner", "r1", "o1", "o3")
-        if any(marker in model_lower for marker in no_vision_markers):
-            return False
-
-        # 常见视觉模型命名
-        vision_markers = (
-            "gpt-4o",
-            "gpt-4.1",
-            "gpt-4",
-            "gpt-5",
-            "claude",
-            "vision",
-            "qwen-vl",
-            "vl-",
-            "glm-4v",
-            "gemini",
-        )
-        return any(marker in model_lower for marker in vision_markers)
+        no_vision_markers = ("reasoner",)
+        return not any(marker in model_lower for marker in no_vision_markers)
 
     @staticmethod
     def _anthropic_image_to_data_url(block: dict) -> str | None:
@@ -369,13 +354,13 @@ class OpenAICompatibleProvider(LLMProvider):
                     log.info(f"OpenAI-compatible 多模态已保留图片: model={model}, parts={len(multimodal_parts)}")
                 return multimodal_parts
 
-        # 不支持视觉或转换失败时，退化为文本并明确标记图片被省略
+        # 推理模型不支持图片时，退化为文本并告知用户
         text_parts = [b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"]
         text = "\n".join(text_parts).strip()
         if image_count > 0:
-            suffix = f"\n\n[附带图片 {image_count} 张，当前模型按文本模式处理]"
+            suffix = f"\n\n[用户发送了 {image_count} 张图片，但当前模型 {model} 是推理模型，不支持图片输入，请提示用户切换到支持视觉的模型]"
             text = (text + suffix).strip() if text else suffix.strip()
-            log.warning(f"OpenAI-compatible 多模态降级为文本: model={model}, images={image_count}")
+            log.warning(f"OpenAI-compatible 推理模型不支持图片，降级为文本: model={model}, images={image_count}")
         return text or str(content)
 
     def _convert_messages(self, system: str, messages: list[dict], model: str) -> list[dict]:

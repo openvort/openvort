@@ -1123,7 +1123,22 @@ export function createVortflowStory(data: { project_id: string; title: string; d
 }
 
 /** VortFlow 更新需求 */
-export function updateVortflowStory(id: string, data: { title?: string; description?: string; state?: string; priority?: number; parent_id?: string | null; tags?: string[]; collaborators?: string[]; deadline?: string; pm_id?: string | null }) {
+export function updateVortflowStory(id: string, data: {
+    title?: string;
+    description?: string;
+    state?: string;
+    priority?: number;
+    parent_id?: string | null;
+    tags?: string[];
+    collaborators?: string[];
+    deadline?: string;
+    pm_id?: string | null;
+    project_id?: string | null;
+    start_at?: string;
+    end_at?: string;
+    repo_id?: string | null;
+    branch?: string;
+}) {
     return request.put(`/vortflow/stories/${id}`, data);
 }
 
@@ -1160,7 +1175,22 @@ export function createVortflowTask(data: { story_id?: string; parent_id?: string
 }
 
 /** VortFlow 更新任务 */
-export function updateVortflowTask(id: string, data: { title?: string; description?: string; task_type?: string; state?: string; assignee_id?: string; tags?: string[]; collaborators?: string[]; estimate_hours?: number; actual_hours?: number; deadline?: string }) {
+export function updateVortflowTask(id: string, data: {
+    title?: string;
+    description?: string;
+    task_type?: string;
+    state?: string;
+    assignee_id?: string;
+    tags?: string[];
+    collaborators?: string[];
+    estimate_hours?: number;
+    actual_hours?: number;
+    deadline?: string;
+    start_at?: string;
+    end_at?: string;
+    repo_id?: string | null;
+    branch?: string;
+}) {
     return request.put(`/vortflow/tasks/${id}`, data);
 }
 
@@ -1197,7 +1227,22 @@ export function createVortflowBug(data: { story_id?: string; task_id?: string; t
 }
 
 /** VortFlow 更新缺陷 */
-export function updateVortflowBug(id: string, data: { title?: string; description?: string; severity?: number; state?: string; assignee_id?: string; tags?: string[]; collaborators?: string[] }) {
+export function updateVortflowBug(id: string, data: {
+    title?: string;
+    description?: string;
+    severity?: number;
+    state?: string;
+    assignee_id?: string;
+    tags?: string[];
+    collaborators?: string[];
+    estimate_hours?: number;
+    actual_hours?: number;
+    deadline?: string;
+    start_at?: string;
+    end_at?: string;
+    repo_id?: string | null;
+    branch?: string;
+}) {
     return request.put(`/vortflow/bugs/${id}`, data);
 }
 
