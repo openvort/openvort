@@ -5,6 +5,7 @@
 - 创建/更新/删除工作安排
 """
 
+import json
 from datetime import datetime
 
 from fastapi import APIRouter, Request
@@ -44,6 +45,7 @@ class UpdateAssignmentRequest(BaseModel):
     title: str | None = None
     summary: str | None = None
     plan: str | None = None
+    source_detail: str | None = None
     status: str | None = None
     priority: str | None = None
     due_date: str | None = None
@@ -206,7 +208,7 @@ async def update_assignment(
 ):
     """更新工作安排（仅 owner 可以更新）"""
     from sqlalchemy import select
-    from openvort.db.models import WorkAssignment
+    from openvort.db.models import ScheduleJob, WorkAssignment
 
     from openvort.web.deps import get_db_session_factory
 
@@ -235,6 +237,8 @@ async def update_assignment(
             assignment.summary = req.summary
         if req.plan is not None:
             assignment.plan = req.plan
+        if req.source_detail is not None:
+            assignment.source_detail = req.source_detail
         if req.status is not None:
             assignment.status = req.status
             # 状态变更时更新 last_action_at
@@ -246,6 +250,24 @@ async def update_assignment(
                 datetime.fromisoformat(req.due_date) if req.due_date else None
             )
 
+        if req.source_detail is not None and assignment.related_schedule_id:
+            schedule_stmt = select(ScheduleJob).where(
+                ScheduleJob.id == assignment.related_schedule_id
+            )
+            schedule_result = await db.execute(schedule_stmt)
+            schedule_job = schedule_result.scalar_one_or_none()
+            if schedule_job:
+                try:
+                    action_config = (
+                        json.loads(schedule_job.action_config)
+                        if schedule_job.action_config
+                        else {}
+                    )
+                except json.JSONDecodeError:
+                    action_config = {}
+                action_config["prompt"] = req.source_detail
+                schedule_job.action_config = json.dumps(action_config)
+
         await db.commit()
         await db.refresh(assignment)
 
@@ -256,6 +278,7 @@ async def update_assignment(
             "title": assignment.title,
             "summary": assignment.summary,
             "plan": assignment.plan,
+            "source_detail": assignment.source_detail,
             "status": assignment.status,
             "priority": assignment.priority,
             "due_date": assignment.due_date.isoformat() if assignment.due_date else None,

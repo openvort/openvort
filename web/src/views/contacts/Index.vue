@@ -1459,8 +1459,13 @@ onMounted(() => {
                                                 class="inline-flex items-center justify-center w-7 h-7 rounded-full text-white text-xs font-medium flex-shrink-0"
                                                 :class="getAvatarColor(row.name)"
                                             >{{ getInitial(row.name) }}</span>
-                                            <div class="flex items-center gap-1">
-                                                <span class="text-blue-600 cursor-pointer hover:underline" @click="openMemberDrawer(row.id)">{{ row.name }}</span>
+                                            <div class="min-w-0">
+                                                <div class="flex items-center gap-1">
+                                                    <span class="text-blue-600 cursor-pointer hover:underline" @click="openMemberDrawer(row.id)">{{ row.name }}</span>
+                                                </div>
+                                                <div v-if="row.departments?.length" class="text-xs text-gray-400 mt-0.5 truncate">
+                                                    {{ row.departments.join("、") }}
+                                                </div>
                                             </div>
                                         </div>
                                     </template>
@@ -1468,12 +1473,6 @@ onMounted(() => {
                                 <VortTableColumn label="职务" prop="position" :width="140">
                                     <template #default="{ row }">
                                         <span class="text-sm text-gray-600">{{ row.position || '-' }}</span>
-                                    </template>
-                                </VortTableColumn>
-                                <VortTableColumn label="部门" :width="180">
-                                    <template #default="{ row }">
-                                        <span v-if="row.departments?.length" class="text-sm text-gray-600">{{ row.departments.join('、') }}</span>
-                                        <span v-else class="text-sm text-gray-400">-</span>
                                     </template>
                                 </VortTableColumn>
                                 <VortTableColumn label="角色" prop="roles" :width="160">

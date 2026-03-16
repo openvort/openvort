@@ -5,7 +5,7 @@ import {
     getMemberSkills, createPersonalSkill, updatePersonalSkill, deletePersonalSkill,
     getPublicSkills, subscribeMemberSkill, unsubscribeMemberSkill,
     updateMemberBio, generateMemberBioPrompt,
-    getWorkAssignments, updateWorkAssignmentStatus, deleteWorkAssignment,
+    getWorkAssignments, updateWorkAssignment, updateWorkAssignmentStatus, deleteWorkAssignment,
 } from "@/api";
 import { message, dialog } from "@/components/vort";
 import { Bot, Plus, Trash2, Save, User, Globe, BookOpen, ClipboardList, Clock, Pause, Play, Square } from "lucide-vue-next";
@@ -272,11 +272,50 @@ async function handleDelete(assignment: any) {
 // ---- Schedule execution detail dialog ----
 const execDetailOpen = ref(false);
 const execDetailAssignment = ref<any>(null);
+const instructionEditing = ref(false);
+const instructionDraft = ref("");
+const instructionSaving = ref(false);
 
 function handleAssignmentClick(assignment: any) {
     if (assignment.source_type === "schedule" && assignment.schedule_info) {
         execDetailAssignment.value = assignment;
+        instructionEditing.value = false;
+        instructionDraft.value = assignment.source_detail || "";
         execDetailOpen.value = true;
+    }
+}
+
+function handleEditInstruction() {
+    instructionDraft.value = execDetailAssignment.value?.source_detail || "";
+    instructionEditing.value = true;
+}
+
+function handleCancelEditInstruction() {
+    instructionDraft.value = execDetailAssignment.value?.source_detail || "";
+    instructionEditing.value = false;
+}
+
+async function handleSaveInstruction() {
+    const assignment = execDetailAssignment.value;
+    if (!assignment) return;
+
+    instructionSaving.value = true;
+    try {
+        await updateWorkAssignment(assignment.id, { source_detail: instructionDraft.value });
+        assignment.source_detail = instructionDraft.value;
+
+        const target = workAssignments.value.find((item: any) => item.id === assignment.id);
+        if (target) {
+            target.source_detail = instructionDraft.value;
+        }
+
+        instructionEditing.value = false;
+        message.success("任务指令已保存");
+        emit("assignments-changed");
+    } catch (e: any) {
+        message.error(e?.response?.data?.detail || e?.response?.data?.error || "保存失败");
+    } finally {
+        instructionSaving.value = false;
     }
 }
 
@@ -522,7 +561,7 @@ const sourceTypeLabels: Record<string, string> = {
         </div>
 
         <!-- Schedule execution detail dialog (nested) -->
-        <VortDialog :open="execDetailOpen" title="执行详情" :width="520" @update:open="execDetailOpen = $event">
+        <VortDialog :open="execDetailOpen" title="执行详情" :width="520" :footer="false" @update:open="execDetailOpen = $event">
             <template v-if="execDetailAssignment">
                 <div class="space-y-4">
                     <div class="grid grid-cols-2 gap-3">
@@ -591,9 +630,44 @@ const sourceTypeLabels: Record<string, string> = {
                         </div>
                     </template>
 
-                    <div v-if="execDetailAssignment.source_detail" class="border-t border-gray-100 pt-3">
-                        <span class="text-xs text-gray-400">任务指令</span>
-                        <div class="mt-1 p-3 bg-gray-50 rounded-lg text-xs text-gray-700 whitespace-pre-wrap">{{ execDetailAssignment.source_detail }}</div>
+                    <div class="border-t border-gray-100 pt-3">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-xs text-gray-400">任务指令</span>
+                            <div class="flex items-center gap-2">
+                                <VortButton
+                                    v-if="instructionEditing"
+                                    size="small"
+                                    :disabled="instructionSaving"
+                                    @click="handleCancelEditInstruction"
+                                >
+                                    取消
+                                </VortButton>
+                                <VortButton
+                                    v-if="instructionEditing"
+                                    size="small"
+                                    variant="primary"
+                                    :loading="instructionSaving"
+                                    @click="handleSaveInstruction"
+                                >
+                                    保存
+                                </VortButton>
+                                <VortButton
+                                    v-else
+                                    size="small"
+                                    @click="handleEditInstruction"
+                                >
+                                    编辑
+                                </VortButton>
+                            </div>
+                        </div>
+                        <div v-if="instructionEditing" class="mt-2">
+                            <VortTextarea
+                                v-model="instructionDraft"
+                                placeholder="请输入任务指令内容"
+                                :rows="6"
+                            />
+                        </div>
+                        <div v-else class="mt-1 p-3 bg-gray-50 rounded-lg text-xs text-gray-700 whitespace-pre-wrap min-h-[96px]">{{ execDetailAssignment.source_detail || "暂无任务指令" }}</div>
                     </div>
                 </div>
             </template>

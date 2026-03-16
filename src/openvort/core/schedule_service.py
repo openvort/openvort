@@ -396,9 +396,34 @@ class ScheduleService:
         except Exception:
             pass
 
+        tool_messages = None
         try:
             if self._agent and job.action_type == "agent_chat":
                 result_text = await self._agent.process(ctx, sched_context)
+                # Extract tool_use/tool_result from scheduler session for screenshot passthrough
+                try:
+                    sched_msgs = await self._agent._sessions.get_messages("scheduler", ctx.user_id)
+                    all_tool_uses = []
+                    all_tool_results = []
+                    for msg in sched_msgs:
+                        content = msg.get("content", [])
+                        if not isinstance(content, list):
+                            continue
+                        for block in content:
+                            if not isinstance(block, dict):
+                                continue
+                            if block.get("type") == "tool_use":
+                                all_tool_uses.append({
+                                    "type": "tool_use",
+                                    "name": block.get("name", ""),
+                                    "id": block.get("id", ""),
+                                })
+                            elif block.get("type") == "tool_result":
+                                all_tool_results.append(block)
+                    if all_tool_uses:
+                        tool_messages = {"tool_uses": all_tool_uses, "tool_results": all_tool_results}
+                except Exception as e:
+                    log.debug(f"提取工具调用信息失败: {e}")
             else:
                 result_text = "Agent 未初始化或不支持的 action_type"
                 status = "failed"
@@ -455,6 +480,7 @@ class ScheduleService:
                     executor_member=ctx.member,
                     job_id=job.job_id,
                     status=status,
+                    tool_messages=tool_messages,
                 )
             except Exception as e:
                 log.error(f"通知任务结果失败: {e}")

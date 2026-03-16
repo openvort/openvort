@@ -1904,6 +1904,7 @@ export function updateWorkAssignment(assignmentId: number, data: {
     title?: string;
     summary?: string;
     plan?: string;
+    source_detail?: string;
     status?: string;
     priority?: string;
     due_date?: string;

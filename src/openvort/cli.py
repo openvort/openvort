@@ -680,6 +680,7 @@ async def _start_service(web_flag: bool | None):
         executor_member=None,
         job_id: str = "",
         status: str = "success",
+        tool_messages: dict | None = None,
     ):
         """Push scheduled task result to the job owner via WebSocket and IM channels."""
         from openvort.plugin.base import Message as _Msg
@@ -731,6 +732,23 @@ async def _start_service(web_flag: bool | None):
                         await _s.flush()
 
                     target_session_id = session_obj.session_id
+
+                    # Build metadata_json with tool_calls for screenshot persistence
+                    meta = {}
+                    if tool_messages and tool_messages.get("tool_uses"):
+                        result_map: dict[str, str] = {}
+                        for tr in tool_messages.get("tool_results", []):
+                            result_map[tr.get("tool_use_id", "")] = tr.get("content", "")
+                        meta["tool_calls"] = [
+                            {
+                                "name": tu.get("name", ""),
+                                "id": tu.get("id", ""),
+                                "status": "done",
+                                "output": result_map.get(tu.get("id", ""), ""),
+                            }
+                            for tu in tool_messages["tool_uses"]
+                        ]
+
                     await write_chat_message(
                         _s,
                         session_id=target_session_id,
@@ -738,6 +756,7 @@ async def _start_service(web_flag: bool | None):
                         sender_type="assistant",
                         sender_id=executor_member.id,
                         content=full_message,
+                        metadata_json=__import__("json").dumps(meta, ensure_ascii=False) if meta else "{}",
                         source="schedule",
                         is_read=False,
                         increment_unread=True,
@@ -750,7 +769,16 @@ async def _start_service(web_flag: bool | None):
         if target_session_id and is_ai_employee:
             try:
                 msgs = await session_store.get_messages("web", owner_id, target_session_id)
-                msgs.append({"role": "assistant", "content": full_message})
+                if tool_messages and tool_messages.get("tool_uses"):
+                    # Inject structured assistant message (tool_use blocks + text)
+                    # so /chat/history can parse tool_calls and screenshots
+                    content_blocks = list(tool_messages["tool_uses"])
+                    content_blocks.append({"type": "text", "text": full_message})
+                    msgs.append({"role": "assistant", "content": content_blocks})
+                    if tool_messages.get("tool_results"):
+                        msgs.append({"role": "user", "content": list(tool_messages["tool_results"])})
+                else:
+                    msgs.append({"role": "assistant", "content": full_message})
                 await session_store.save_messages("web", owner_id, msgs, target_session_id)
             except Exception as e:
                 log.debug(f"注入 SessionStore 失败: {e}")
