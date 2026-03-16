@@ -40,6 +40,17 @@ def _save_chat_image(data_b64: str, media_type: str) -> str:
 
 router = APIRouter()
 
+
+async def _make_quick_title(session_store, member_id: str, session_id: str, content: str) -> dict | None:
+    """Generate a quick title from user text and persist to DB. Returns an SSE event dict or None."""
+    if not content.strip() or session_id == "default":
+        return None
+    title = await session_store.quick_title("web", member_id, session_id, content)
+    if not title:
+        return None
+    return {"event": "title_updated", "data": json.dumps({"session_id": session_id, "title": title}, ensure_ascii=False)}
+
+
 # 内存中暂存待处理的消息
 _pending_messages: dict[str, dict] = {}
 
@@ -251,24 +262,13 @@ async def stream_response(message_id: str, request: Request):
                         break
                     evt_type = event.get("type", "")
                     data = event.get("data", "")
-                    yield {"event": evt_type, "data": data}
                     if evt_type == "done":
+                        title_event = await _make_quick_title(session_store, member_id, session_id, msg["content"])
+                        if title_event:
+                            yield title_event
+                        yield {"event": evt_type, "data": data}
                         break
-
-                if msg["content"].strip() and session_id != "default":
-                    messages = await session_store.get_messages("web", member_id, session_id)
-                    user_text_count = sum(
-                        1 for m in messages
-                        if m.get("role") == "user" and isinstance(m.get("content"), str)
-                    )
-                    if user_text_count <= 5:
-                        try:
-                            title = await session_store.auto_title(
-                                "web", member_id, session_id, llm_client=agent._llm,
-                            )
-                            yield {"event": "title_updated", "data": json.dumps({"session_id": session_id, "title": title}, ensure_ascii=False)}
-                        except Exception as e:
-                            log.warning(f"自动标题生成失败: {e}")
+                    yield {"event": evt_type, "data": data}
             except Exception as e:
                 log.error(f"Task stream error: {e}")
                 yield {"event": "server_error", "data": str(e)}
@@ -309,21 +309,9 @@ async def stream_response(message_id: str, request: Request):
                     yield {"event": "interrupted", "data": "aborted"}
                 return
 
-            if msg["content"].strip() and session_id != "default":
-                messages = await session_store.get_messages("web", member_id, session_id)
-                user_text_count = sum(
-                    1 for m in messages
-                    if m.get("role") == "user" and isinstance(m.get("content"), str)
-                )
-                if user_text_count <= 5:
-                    try:
-                        title = await session_store.auto_title(
-                            "web", member_id, session_id, llm_client=agent._llm,
-                        )
-                        yield {"event": "title_updated", "data": json.dumps({"session_id": session_id, "title": title}, ensure_ascii=False)}
-                    except Exception as e:
-                        log.warning(f"自动标题生成失败: {e}")
-
+            title_event = await _make_quick_title(session_store, member_id, session_id, msg["content"])
+            if title_event:
+                yield title_event
             yield {"event": "done", "data": "ok"}
         except asyncio.CancelledError:
             if running.cancel_event.is_set() and not disconnected:
@@ -457,13 +445,6 @@ async def chat_history(request: Request, limit: int = 20, offset: int = 0, sessi
     start_idx = max(0, end_idx - limit)
     page = merged[start_idx:end_idx] if end_idx > 0 else []
     has_more = start_idx > 0
-
-    log.info(
-        f"[chat/history] member_id={member_id} session_id={session_id} "
-        f"raw_messages={len(messages)} merged_messages={len(merged)} "
-        f"limit={limit} offset={offset} page_count={len(page)} has_more={has_more} "
-        f"context_reset_at={bool(context_reset_at)}"
-    )
 
     resp: dict = {"messages": page, "has_more": has_more}
     if context_reset_at:
@@ -600,10 +581,6 @@ async def reset_session(req: ResetRequest, request: Request):
 
     session_store = get_session_store()
     reset_ts = await session_store.reset_context("web", member_id, req.session_id)
-    log.info(
-        f"[chat/reset] member_id={member_id} session_id={req.session_id} "
-        f"context_reset_at={reset_ts}"
-    )
 
     return {"success": True, "context_reset_at": reset_ts}
 
@@ -620,10 +597,6 @@ async def restore_context(req: RestoreContextRequest, request: Request):
 
     session_store = get_session_store()
     count = await session_store.restore_context("web", member_id, req.session_id)
-    log.info(
-        f"[chat/restore-context] member_id={member_id} session_id={req.session_id} "
-        f"restored_count={count}"
-    )
 
     return {"success": True, "restored_count": count}
 

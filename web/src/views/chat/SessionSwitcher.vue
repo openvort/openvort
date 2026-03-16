@@ -36,6 +36,36 @@ const selectedSessionIds = ref<string[]>([]);
 const renamingSessionId = ref("");
 const renameText = ref("");
 
+function cloneSessions(list: ChatSession[]): ChatSession[] {
+    return list.map(session => ({ ...session }));
+}
+
+function emitSessionsLoaded() {
+    emit("sessions-loaded", cloneSessions(sessions.value));
+}
+
+function syncSessions(nextSessions: ChatSession[]) {
+    sessions.value = cloneSessions(nextSessions);
+}
+
+function upsertSession(session: ChatSession) {
+    const index = sessions.value.findIndex(item => item.session_id === session.session_id);
+    if (index >= 0) {
+        sessions.value[index] = { ...sessions.value[index], ...session };
+    } else {
+        sessions.value.unshift({ ...session });
+        total.value += 1;
+    }
+    emitSessionsLoaded();
+}
+
+function updateSessionTitle(sessionId: string, title: string) {
+    const session = sessions.value.find(item => item.session_id === sessionId);
+    if (!session || session.title === title) return;
+    session.title = title;
+    emitSessionsLoaded();
+}
+
 const hasMore = computed(() => sessions.value.length < total.value);
 
 const filteredSessions = computed(() => {
@@ -52,9 +82,9 @@ async function loadSessions() {
     sessionsLoading.value = true;
     try {
         const res: any = await getChatSessions("ai", PAGE_SIZE, 0);
-        sessions.value = res?.sessions || [];
+        sessions.value = cloneSessions(res?.sessions || []);
         total.value = res?.total ?? sessions.value.length;
-        emit("sessions-loaded", sessions.value);
+        emitSessionsLoaded();
     } catch {
         sessions.value = [];
         total.value = 0;
@@ -114,7 +144,10 @@ async function confirmRename() {
     try {
         await renameChatSession(sid, title);
         const s = sessions.value.find(s => s.session_id === sid);
-        if (s) s.title = title;
+        if (s) {
+            s.title = title;
+            emitSessionsLoaded();
+        }
     } catch {
         message.error("重命名失败");
     }
@@ -131,7 +164,7 @@ async function handleDelete(sessionId: string) {
                 await deleteChatSession(sessionId);
                 sessions.value = sessions.value.filter(s => s.session_id !== sessionId);
                 total.value = Math.max(0, total.value - 1);
-                emit("sessions-loaded", sessions.value);
+                emitSessionsLoaded();
                 if (props.currentSessionId === sessionId) {
                     if (sessions.value.length > 0) {
                         emit("switch", sessions.value[0].session_id);
@@ -176,7 +209,7 @@ async function handleBatchDelete() {
                 const count = deleted.size;
                 sessions.value = sessions.value.filter(s => !deleted.has(s.session_id));
                 total.value = Math.max(0, total.value - count);
-                emit("sessions-loaded", sessions.value);
+                emitSessionsLoaded();
                 if (deleted.has(props.currentSessionId)) {
                     if (sessions.value.length > 0) emit("switch", sessions.value[0].session_id);
                     else emit("new-session");
@@ -207,11 +240,19 @@ watch(dropdownOpen, (open) => {
     }
 });
 
+watch(
+    () => [props.currentSessionId, props.currentTitle] as const,
+    ([sessionId, title]) => {
+        if (!sessionId || !title) return;
+        updateSessionTitle(sessionId, title);
+    }
+);
+
 onMounted(() => {
     loadSessions();
 });
 
-defineExpose({ loadSessions, sessions });
+defineExpose({ loadSessions, sessions, syncSessions, upsertSession, updateSessionTitle });
 </script>
 
 <template>

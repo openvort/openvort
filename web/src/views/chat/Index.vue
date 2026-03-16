@@ -329,7 +329,7 @@ async function handleContactSelect(contact: Contact) {
 }
 
 function handleSessionsLoaded(loadedSessions: ChatSession[]) {
-    sessions.value = loadedSessions;
+    sessions.value = loadedSessions.map(session => ({ ...session }));
 }
 
 function handleNewSession() {
@@ -410,14 +410,6 @@ async function loadHistory() {
     historyOffset.value = 0;
     try {
         const res: any = await getChatHistory(currentSessionId.value, HISTORY_PAGE_SIZE, 0);
-        console.log("[Chat/Index/loadHistory]", {
-            sessionId: currentSessionId.value,
-            pageSize: HISTORY_PAGE_SIZE,
-            offset: 0,
-            contextResetAt: res?.context_reset_at || 0,
-            messageCount: res?.messages?.length || 0,
-            hasMore: !!res?.has_more,
-        });
         contextResetAt.value = res?.context_reset_at || 0;
         if (res?.messages) {
             messages.value = parseHistoryMessages(res.messages);
@@ -443,13 +435,6 @@ async function loadMoreHistory() {
 
     try {
         const res: any = await getChatHistory(currentSessionId.value, HISTORY_PAGE_SIZE, historyOffset.value);
-        console.log("[Chat/Index/loadMoreHistory]", {
-            sessionId: currentSessionId.value,
-            pageSize: HISTORY_PAGE_SIZE,
-            offset: historyOffset.value,
-            messageCount: res?.messages?.length || 0,
-            hasMore: !!res?.has_more,
-        });
         if (res?.messages?.length) {
             const older = parseHistoryMessages(res.messages);
             messages.value = [...older, ...messages.value];
@@ -480,7 +465,8 @@ async function handleSend() {
                 created_at: Date.now() / 1000,
                 updated_at: Date.now() / 1000,
             };
-            sessions.value.unshift(newSession);
+            sessions.value = [newSession, ...sessions.value];
+            sessionSwitcherRef.value?.upsertSession(newSession);
             // 迁移草稿 key：从 "" 到真实 session ID
             const emptyDraft = drafts.get("");
             if (emptyDraft) { drafts.delete(""); }
@@ -683,8 +669,16 @@ async function handleSend() {
         eventSource.addEventListener("title_updated", (e: MessageEvent) => {
             try {
                 const data = JSON.parse(e.data);
-                const s = sessions.value.find(s => s.session_id === data.session_id);
-                if (s) s.title = data.title;
+                let updated = false;
+                sessions.value = sessions.value.map((session) => {
+                    if (session.session_id !== data.session_id) return session;
+                    if (session.title === data.title) return session;
+                    updated = true;
+                    return { ...session, title: data.title };
+                });
+                if (updated) {
+                    sessionSwitcherRef.value?.updateSessionTitle(data.session_id, data.title);
+                }
             } catch { /* ignore */ }
         });
 
@@ -909,11 +903,6 @@ async function handleReset() {
     if (!currentSessionId.value) return;
     try {
         const res: any = await resetChatSession(currentSessionId.value);
-        console.log("[Chat/Index/handleReset]", {
-            sessionId: currentSessionId.value,
-            contextResetAt: res?.context_reset_at || 0,
-            beforeCount: messages.value.length,
-        });
         messages.value = [];
         sessionTokens.value = { input: 0, output: 0, messages: 0, cacheCreation: 0, cacheRead: 0 };
         contextResetAt.value = res?.context_reset_at || Date.now() / 1000;
@@ -928,12 +917,7 @@ async function handleReloadHistory() {
     loadingMore.value = true;
     const prevResetAt = contextResetAt.value;
     try {
-        const restoreRes: any = await restoreChatContext(currentSessionId.value);
-        console.log("[Chat/Index/handleReloadHistory]", {
-            sessionId: currentSessionId.value,
-            prevResetAt,
-            restoredCount: restoreRes?.restored_count || 0,
-        });
+        await restoreChatContext(currentSessionId.value);
         const ok = await loadHistory();
         if (!ok) {
             contextResetAt.value = prevResetAt;
