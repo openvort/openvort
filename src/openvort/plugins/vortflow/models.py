@@ -307,6 +307,89 @@ class FlowWorkItemLink(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
+class FlowTag(Base):
+    """Work item tag definition"""
+
+    __tablename__ = "flow_tags"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(100), unique=True)
+    color: Mapped[str] = mapped_column(String(20), default="#3b82f6")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class FlowStatus(Base):
+    """Work item status definition"""
+
+    __tablename__ = "flow_statuses"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(100), unique=True)
+    icon: Mapped[str] = mapped_column(String(10), default="○")
+    icon_color: Mapped[str] = mapped_column(String(20), default="#3b82f6")
+    command: Mapped[str] = mapped_column(String(200), default="")
+    work_item_types_json: Mapped[str] = mapped_column(Text, default="[]")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class FlowTestModule(Base):
+    """Test case module (tree structure for organizing test cases)"""
+
+    __tablename__ = "flow_test_modules"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    project_id: Mapped[str] = mapped_column(String(32), ForeignKey("flow_projects.id"), index=True)
+    parent_id: Mapped[str | None] = mapped_column(
+        String(32), ForeignKey("flow_test_modules.id"), nullable=True, index=True
+    )
+    name: Mapped[str] = mapped_column(String(200))
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class FlowTestCase(Base):
+    """Test case"""
+
+    __tablename__ = "flow_test_cases"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    project_id: Mapped[str] = mapped_column(String(32), ForeignKey("flow_projects.id"), index=True)
+    module_id: Mapped[str | None] = mapped_column(
+        String(32), ForeignKey("flow_test_modules.id"), nullable=True, index=True
+    )
+    title: Mapped[str] = mapped_column(String(500))
+    precondition: Mapped[str] = mapped_column(Text, default="")
+    notes: Mapped[str] = mapped_column(Text, default="")
+    case_type: Mapped[str] = mapped_column(String(32), default="functional")  # functional/performance/api/ui/security
+    priority: Mapped[int] = mapped_column(Integer, default=2)  # 0=P0 1=P1 2=P2 3=P3
+    maintainer_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("members.id"), nullable=True)
+    review_result: Mapped[str] = mapped_column(String(32), default="pending")  # pending/passed/rejected
+    steps_json: Mapped[str] = mapped_column(Text, default="[]")  # [{order, description, expected_result}]
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class FlowTestCaseWorkItem(Base):
+    """Test case - work item association"""
+
+    __tablename__ = "flow_test_case_work_items"
+    __table_args__ = (
+        UniqueConstraint("test_case_id", "entity_type", "entity_id", name="uq_testcase_workitem"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    test_case_id: Mapped[str] = mapped_column(String(32), ForeignKey("flow_test_cases.id"), index=True)
+    entity_type: Mapped[str] = mapped_column(String(16), index=True)  # story/task/bug
+    entity_id: Mapped[str] = mapped_column(String(32), index=True)
+    created_by: Mapped[str | None] = mapped_column(String(32), ForeignKey("members.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class FlowComment(Base):
     """Work item comment"""
 

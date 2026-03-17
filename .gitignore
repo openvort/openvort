@@ -7,7 +7,7 @@ dist/
 build/
 *.egg
 
-# 虚拟环境
+# Virtual environment
 .venv/
 venv/
 env/
@@ -15,17 +15,20 @@ env/
 # IDE
 .idea/
 .vscode/
+.cursor/
 *.swp
 *.swo
 
-# 环境变量
+# Environment variables
 .env
+.env.local
+.env.*.local
 
-# 数据库
+# Database
 *.db
 *.sqlite
 
-# 日志
+# Logs
 *.log
 /logs/
 
@@ -33,7 +36,15 @@ env/
 .DS_Store
 Thumbs.db
 
-# 测试
+# Certificates & keys
+*.pem
+*.key
+
+# Temp files
+*.bak
+*.tmp
+
+# Test
 .pytest_cache/
 .coverage
 htmlcov/
@@ -44,6 +55,12 @@ htmlcov/
 # mypy
 .mypy_cache/
 
-# Web 前端
+# Web frontend
 web/node_modules/
 web/dist/
+
+# Docs (internal)
+docs/
+
+# Root-level test scripts
+/test_*.py

@@ -1,7 +1,7 @@
 """
 Remote node executor protocol and registry.
 
-Defines the interface that each node type (openclaw, etc.) must implement,
+Defines the interface that each node type (docker, etc.) must implement,
 and provides a registry for dispatching operations by node_type.
 """
 

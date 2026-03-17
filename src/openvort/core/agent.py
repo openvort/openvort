@@ -61,7 +61,9 @@ SYSTEM_PROMPT = """你是 OpenVort 助手，一个智能研发工作流引擎。
 
 | 用户意图 | 应使用的工具 |
 |---------|------------|
-| 写代码、改文件、建文件、修 Bug、加功能 | `git_code_task` |
+| 在工作电脑上执行命令、运行脚本、安装软件 | `node_shell` |
+| 在工作电脑上读取文件内容 | `node_file_read` |
+| 在工作电脑上创建或修改文件 | `node_file_write` |
 | 查看有哪些仓库 | `git_list_repos` |
 | 查看仓库详情、分支、最近提交 | `git_repo_info` |
 | 查某人/某仓库的提交记录 | `git_query_commits` |
@@ -90,12 +92,15 @@ SYSTEM_PROMPT = """你是 OpenVort 助手，一个智能研发工作流引擎。
 # Built-in tools that overlap with remote node capabilities.
 # When a node is online, these are removed from the tool list to prevent
 # the LLM from bypassing the node and using them directly.
+# git_code_task uses a temporary coding-sandbox; when the AI employee has
+# their own workstation they should code there via node_shell/node_file_write.
 _NODE_SUPERSEDED_TOOLS = frozenset({
     "browser_navigate",
     "browser_snapshot",
     "browser_screenshot",
     "browser_click",
     "browser_type",
+    "git_code_task",
 })
 
 
@@ -183,6 +188,7 @@ class AgentRuntime:
                 remote_node_prompt = self._build_remote_node_prompt_section(node_info)
                 if node_info.get("status") in ("online", "running"):
                     blocked_tools |= _NODE_SUPERSEDED_TOOLS
+            blocked_tools.add("git_code_task")
 
         # 3. 获取可用工具（按权限和渠道过滤）
         tools = self._registry.to_claude_tools(
@@ -453,6 +459,7 @@ class AgentRuntime:
                 remote_node_prompt = self._build_remote_node_prompt_section(node_info)
                 if node_info.get("status") in ("online", "running"):
                     blocked_tools |= _NODE_SUPERSEDED_TOOLS
+            blocked_tools.add("git_code_task")
 
         tools = self._registry.to_claude_tools(
             permissions=ctx.permissions if ctx.permissions else None,
@@ -694,6 +701,10 @@ class AgentRuntime:
             node_info = await self._get_remote_node_info_by_id(target_id)
             if node_info and node_info.get("status") in ("online", "running"):
                 blocked_tools |= _NODE_SUPERSEDED_TOOLS
+            # AI employees should code on their own workstation, not via
+            # the temporary coding-sandbox. Block git_code_task regardless
+            # of node status; without a node the user gets guided to create one.
+            blocked_tools.add("git_code_task")
 
         # Build system prompt: member proxy chats use a standalone persona prompt
         if target_type == "member" and target_id:
@@ -710,6 +721,32 @@ class AgentRuntime:
         if onboarding_hints:
             system += "\n\n# 插件引导（优先处理）\n\n" + "\n\n".join(onboarding_hints)
 
+        is_first_conversation = target_type == "member" and target_id and len(messages) <= 1
+        _has_node = bool(node_info) if target_type == "member" and target_id else True
+        if is_first_conversation:
+            if _has_node:
+                system += """
+
+## 首次对话引导
+
+这是你和这位同事的第一次对话。请主动：
+1. 简短自我介绍（一句话，不要列举能力清单）
+2. 提一句"有什么需要帮忙的尽管说"
+不要太正式，像同事间第一天打招呼。"""
+            else:
+                system += """
+
+## 首次对话引导
+
+这是你和这位同事的第一次对话。请主动：
+1. 简短自我介绍（一句话）
+2. 告知同事你目前还没有工作电脑，不能像 AI 助手那样直接通过 API 执行代码操作，
+   需要先配一台工作电脑才能帮忙实际跑脚本、写代码、操作文件等。
+3. 主动调用 node_manage(action=list_available) 查看有无现成可用的空闲工作电脑，
+   然后根据结果向同事推荐方案（复用已有空闲节点 or 新建，推荐一个合理的名称和镜像）。
+4. 等同事确认后再调用 node_manage(action=create_and_bind 或 bind_existing) 完成配置。
+不要太正式，像同事间第一天打招呼。"""
+
         tools = self._registry.to_claude_tools(permissions=ctx.permissions if ctx.permissions else {"*"})
         if blocked_tools:
             tools = [t for t in tools if t["name"] not in blocked_tools]
@@ -722,11 +759,25 @@ class AgentRuntime:
         interrupted = False
         any_tool_called = False
         correction_injected = False
+        _auto_compacted = False
         try:
             for _ in range(max_rounds):
                 if cancel_event and cancel_event.is_set():
                     interrupted = True
                     break
+
+                if not _auto_compacted:
+                    est_tokens = self._estimate_context_tokens(system, messages, tools)
+                    if est_tokens > 70000:
+                        log.info(f"[web] 上下文 token 估算 {est_tokens} 超过阈值，触发自动 compact")
+                        try:
+                            await self._sessions.compact(ctx.channel, ctx.user_id, self._llm, keep_recent=6, session_id=session_id)
+                            messages = await self._sessions.get_messages(ctx.channel, ctx.user_id, session_id)
+                            messages.append({"role": "user", "content": user_content})
+                        except Exception as exc:
+                            log.warning(f"[web] 自动 compact 失败: {exc}")
+                        _auto_compacted = True
+
                 try:
                     collected_content = []
                     async with self._llm.stream(
@@ -742,7 +793,13 @@ class AgentRuntime:
                                 if getattr(block, "type", None) == "text":
                                     pass
                                 elif getattr(block, "type", None) == "tool_use":
-                                    yield {"type": "tool_use", "name": block.name, "id": block.id}
+                                    tool_input_summary = {}
+                                    if hasattr(block, "input") and isinstance(block.input, dict):
+                                        tool_input_summary = {
+                                            k: v for k, v in block.input.items()
+                                            if not str(k).startswith("_")
+                                        }
+                                    yield {"type": "tool_use", "name": block.name, "id": block.id, "input": tool_input_summary}
                             elif event.type == "content_block_delta":
                                 delta = event.delta
                                 if getattr(delta, "type", None) == "text_delta":
@@ -893,8 +950,7 @@ class AgentRuntime:
 
                         log.info(f"[web] 工具结果: {result[:500] if len(result) > 500 else result}")
                         yield {"type": "tool_result", "name": block.name, "result": result}
-                        # Persist full CLI conversation in chat history: prefer accumulated live output,
-                        # fall back to the final result string if no live output was produced.
+
                         full_output = "\n".join(accumulated_output).strip()
                         persisted_content = full_output or result
                         tool_results.append({
@@ -909,13 +965,66 @@ class AgentRuntime:
 
             if interrupted:
                 saved_text = f"{current_text}..." if current_text else ""
-                if saved_text and (not messages or messages[-1].get("role") != "assistant"):
+
+                # Fix: assistant message with tool_use blocks needs matching
+                # tool_result entries, otherwise the saved history is invalid
+                # and subsequent LLM calls will fail with 400.
+                if messages and messages[-1].get("role") == "assistant":
+                    last_content = messages[-1].get("content", [])
+                    pending_tool_ids = [
+                        b["id"] for b in last_content
+                        if isinstance(b, dict) and b.get("type") == "tool_use"
+                    ]
+                    if pending_tool_ids:
+                        collected_ids: set[str] = set()
+                        try:
+                            collected_ids = {tr["tool_use_id"] for tr in tool_results}
+                        except (NameError, UnboundLocalError):
+                            tool_results = []
+                        final_results = list(tool_results)
+                        for tid in pending_tool_ids:
+                            if tid not in collected_ids:
+                                final_results.append({
+                                    "type": "tool_result",
+                                    "tool_use_id": tid,
+                                    "content": "[已中止]",
+                                })
+                        messages.append({"role": "user", "content": final_results})
+                        if saved_text:
+                            for block in last_content:
+                                if isinstance(block, dict) and block.get("type") == "text":
+                                    block["text"] = saved_text
+                                    break
+                    elif saved_text:
+                        for block in last_content:
+                            if isinstance(block, dict) and block.get("type") == "text":
+                                block["text"] = saved_text
+                                break
+                elif saved_text:
                     messages.append({"role": "assistant", "content": [{"type": "text", "text": saved_text}]})
-                elif saved_text and messages and messages[-1].get("role") == "assistant":
-                    for block in messages[-1].get("content", []):
-                        if isinstance(block, dict) and block.get("type") == "text":
-                            block["text"] = saved_text
-                            break
+
+                summary = ""
+                if any_tool_called:
+                    messages.append({
+                        "role": "user",
+                        "content": "[系统] 用户请求中止当前操作。请用一两句话总结你已完成的进度和未完成的部分，不要继续执行任何工具。",
+                    })
+                    try:
+                        summary_resp = await self._llm.create(
+                            system=system, messages=messages,
+                            tools=None,
+                        )
+                        for blk in summary_resp.content:
+                            if getattr(blk, "type", None) == "text":
+                                summary += blk.text
+                        if summary:
+                            messages.append({"role": "assistant", "content": [{"type": "text", "text": summary}]})
+                    except Exception as exc:
+                        log.warning(f"[web] 中断总结生成失败: {exc}")
+
+                await self._sessions.save_messages(ctx.channel, ctx.user_id, messages, session_id)
+                if summary:
+                    yield {"type": "text", "text": summary}
                 return
 
             # Save and yield usage on normal completion
@@ -1190,6 +1299,23 @@ class AgentRuntime:
         budget = budget_map.get(level, 5120)
         return {"type": "enabled", "budget_tokens": budget}
 
+    @staticmethod
+    def _estimate_context_tokens(system: str, messages: list, tools: list | None) -> int:
+        """Rough token estimate (1 token ~ 3 chars for mixed CJK/English)."""
+        total_chars = len(system)
+        for msg in messages:
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                total_chars += len(content)
+            elif isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict):
+                        total_chars += len(str(block.get("text", "")))
+                        total_chars += len(str(block.get("content", "")))
+        if tools:
+            total_chars += len(str(tools))
+        return total_chars // 3
+
     async def _build_member_chat_context(self, target_id: str) -> str:
         """Build a complete standalone system prompt for member proxy chat.
 
@@ -1237,12 +1363,29 @@ class AgentRuntime:
                 node = await db.get(RemoteNode, node_id)
                 if not node:
                     return None
-                return {
+                info = {
                     "name": node.name,
                     "gateway_url": node.gateway_url,
                     "status": node.status,
                     "node_type": node.node_type,
                 }
+                config = {}
+                try:
+                    config = json.loads(node.config) if node.config else {}
+                except Exception:
+                    pass
+                cid = config.get("container_id", "")
+                if cid and node.status in ("online", "running"):
+                    try:
+                        from openvort.core.docker_executor import DockerExecutor
+                        ws_result = await DockerExecutor._exec_streaming(
+                            cid, "cat /workspace/.workspace_state.json 2>/dev/null", timeout=3,
+                        )
+                        if ws_result["exit_code"] == 0 and ws_result["stdout"].strip():
+                            info["workspace_state"] = json.loads(ws_result["stdout"])
+                    except Exception:
+                        pass
+                return info
         except Exception:
             return None
 
@@ -1339,8 +1482,8 @@ class AgentRuntime:
 
     @staticmethod
     def _build_remote_node_prompt_section(info: dict) -> str:
-        """Build system prompt section describing remote work capability."""
-        node_name = info.get("name", "远程节点")
+        """Build system prompt section describing the AI employee's work computer."""
+        node_name = info.get("name", "工作电脑")
         status = info.get("status", "unknown")
         node_type = info.get("node_type", "")
         is_available = status in ("online", "running")
@@ -1350,39 +1493,47 @@ class AgentRuntime:
             if node_type == "docker":
                 env_hint = "这是一台 Docker 容器，你拥有 root 权限，可以自由安装任何需要的软件。"
 
-            return f"""
+            prompt = f"""
 ## 你的工作电脑
 
-你有一台工作电脑「{node_name}」，当前在线可用。{env_hint}
-使用 `remote_work` 工具就像你亲自坐在电脑前操作一样。
+你正坐在工作电脑「{node_name}」前，可以直接操作。{env_hint}
 
-### 什么时候用你的电脑
+### 可用操作
+- `node_shell` — 你的终端，执行任何命令（安装软件、运行脚本、git 操作等）
+- `node_file_read` — 读取文件内容（支持指定行范围）
+- `node_file_write` — 创建或修改文件
+- `node_browse` — 浏览器操作（导航、截图、点击、输入、提取文字）
 
-所有需要"动手"的任务都在你的电脑上完成：
-- 编码、改文件、运行命令
-- 浏览网页、截图、页面交互
-- 部署、调试、安装依赖
+### 工作习惯
+- 每次操作是一个具体动作（一条命令、一个文件），不是一段描述
+- 读代码用 node_file_read（支持指定行范围），跑命令用 node_shell
+- 多个连续终端命令尽量用 && 串联在一条 node_shell 中执行，减少来回次数
+- 多个互不依赖的文件可以同时读取（一次响应多个 node_file_read）
+- 缺少工具时用 node_shell 安装（apt-get / pip / npm）
+- 小工具直接装不用问，大软件（>300MB）先跟同事确认
+- 文件默认在 /workspace 目录下
 
-以下任务直接使用内置工具，不需要经过电脑：
-- 发 IM 消息、管理工作项、管理定时任务、查 Git 记录、纯知识问答
-
-### 怎么用
-
-调用 `remote_work` 时，在 `instruction` 中用自然语言描述你想做的事。把意图说清楚，不要只是透传同事的原话。
-
-### 操作连续性
-
-在电脑上开始做一件事后，后续相关操作继续在电脑上做，不要中途切回内置工具。
-
-### 缺少工具时
-
-你的电脑可以自己安装软件。如果电脑反馈缺少某个工具：
-- 小工具：直接发一条安装指令，装完继续原任务
-- 大软件（浏览器等 300MB+）：告知同事需要安装什么、大约多久，确认后再装
+### 内置工具与工作电脑的分工
+- 在工作电脑上做"动手"的事：写代码、跑命令、读文件
+- 用内置工具做"打电话"的事：git push/PR（git_commit_push/git_create_pr）、管任务（vortflow_*）、发消息、查 Git 记录
 
 ### 登录与认证
 
-如果电脑反馈需要登录网站或授权，告知同事需要在「{node_name}」上完成登录，等确认后继续。"""
+如果需要登录网站或授权，告知同事需要在「{node_name}」上完成登录，等确认后继续。"""
+
+            ws = info.get("workspace_state")
+            if ws:
+                ws_lines = []
+                for r in (ws.get("repos") or [])[:5]:
+                    ws_lines.append(f"- {r.get('path', '?')} ({r.get('remote', '')})")
+                tools_list = (ws.get("installed_tools") or [])[:10]
+                if ws_lines or tools_list:
+                    prompt += "\n\n### 工作空间现状"
+                    if ws_lines:
+                        prompt += "\n" + "\n".join(ws_lines)
+                    if tools_list:
+                        prompt += f"\n- 已安装: {', '.join(tools_list)}"
+            return prompt
 
         return f"""
 ## 你的工作电脑（当前离线）
@@ -1393,7 +1544,7 @@ class AgentRuntime:
 
 1. **首次遇到**：简短告知同事电脑暂时离线，然后直接用内置工具完成任务
 2. **后续**：不要反复提，直接用内置工具即可
-3. **恢复后**：如果 `remote_work` 调用成功了，说明电脑恢复了，后续切回电脑"""
+3. **恢复后**：如果节点工具调用成功了，说明电脑恢复了，后续切回电脑"""
 
     @staticmethod
     def _build_async_task_prompt() -> str:

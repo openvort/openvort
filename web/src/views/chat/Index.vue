@@ -27,7 +27,8 @@ import ContactList from "./ContactList.vue";
 import SessionSwitcher from "./SessionSwitcher.vue";
 import MemberProfile from "./MemberProfile.vue";
 import AiEmployeeBadge from "./AiEmployeeBadge.vue";
-import type { ChatMessage, ChatSession, PendingImage, Contact, MentionMember, SlashCommand, Draft, HashTagCategory, HashTagItem, ToolCall } from "./types";
+import WorkspaceViewer from "./WorkspaceViewer.vue";
+import type { ChatMessage, ChatSession, PendingImage, Contact, MentionMember, SlashCommand, Draft, HashTagCategory, HashTagItem, ToolCall, ActionButton } from "./types";
 import { shouldShowTimestamp, formatTimeDivider } from "./utils";
 
 const route = useRoute();
@@ -175,7 +176,8 @@ interface ActiveStream {
     targetText: string;
     done: boolean;
     twTimer: ReturnType<typeof setInterval> | null;
-    messagesRef: ChatMessage[]; // 该会话的消息快照
+    messagesRef: ChatMessage[];
+    phase: "thinking" | "generating" | "tool_running" | "idle";
 }
 const activeStreams = new Map<string, ActiveStream>();
 
@@ -192,9 +194,15 @@ const emojis = [
     '🙌','🤝','🙏','❤️','🔥','💯','✨','🎉','😺','😸',
 ];
 
-// --- 节流 scrollToBottom ---
+// --- Smart auto-scroll ---
+// When user manually scrolls away from the bottom, pause auto-scroll.
+// Re-activate when user scrolls back near the bottom or performs an action (send, switch session, etc.).
+const SCROLL_BOTTOM_THRESHOLD = 80;
+let autoScrollEnabled = true;
 let scrollRAF: number | null = null;
-function scrollToBottom() {
+function scrollToBottom(force = false) {
+    if (!force && !autoScrollEnabled) return;
+    if (force) autoScrollEnabled = true;
     if (scrollRAF) return;
     scrollRAF = requestAnimationFrame(() => {
         scrollRAF = null;
@@ -214,7 +222,8 @@ function mergeToolCalls(tools: ToolCall[]): ToolCall[] {
     const merged: ToolCall[] = [];
     for (const t of tools) {
         const last = merged[merged.length - 1];
-        if (last && last.name === t.name && last.status === "done" && t.status === "done") {
+        const isNodeTool = t.name.startsWith("node_");
+        if (!isNodeTool && last && last.name === t.name && last.status === "done" && t.status === "done") {
             last.count = (last.count || 1) + 1;
             if (t.output) {
                 last.output = last.output ? last.output + "\n" + t.output : t.output;
@@ -235,6 +244,40 @@ function toggleToolCollapsed(tool: ToolCall) {
 
 function toggleToolsExpanded(msg: ChatMessage) {
     msg.toolsExpanded = !msg.toolsExpanded;
+}
+
+function getOutputLineCount(output: string): number {
+    return output.split('\n').length;
+}
+
+function getLastLines(output: string, n: number): string {
+    const lines = output.split('\n');
+    return lines.slice(-n).join('\n');
+}
+
+function getStreamPhase(msg: ChatMessage): string {
+    if (!msg.streaming) return "idle";
+    const sessionId = currentSessionId.value;
+    const stream = activeStreams.get(sessionId);
+    return stream?.phase || "thinking";
+}
+
+function getAccumulatedOutput(msg: ChatMessage): string {
+    if (!msg.toolCalls) return "";
+    return msg.toolCalls
+        .filter(t => t.name.startsWith("node_") && t.output)
+        .map(t => {
+            const prefix = t.input?.command ? `$ ${t.input.command}\n` : "";
+            return prefix + (t.output || "");
+        })
+        .join("\n");
+}
+
+function getRecentFileChanges(msg: ChatMessage): string[] {
+    if (!msg.toolCalls) return [];
+    return msg.toolCalls
+        .filter(t => t.name === "node_file_write" && t.input?.path)
+        .map(t => t.input!.path as string);
 }
 
 // --- 流式 Markdown 渲染 ---
@@ -387,7 +430,7 @@ async function switchSession(sessionId: string) {
             existingStream.assistantMsg = lastMsg;
             lastMsg.content = existingStream.targetText;
             loading.value = true;
-            scrollToBottom();
+            scrollToBottom(true);
         }
         restoreDraft(sessionId);
         await loadSessionInfo();
@@ -415,7 +458,7 @@ async function loadHistory() {
             messages.value = parseHistoryMessages(res.messages);
             historyOffset.value = messages.value.length;
             hasMoreHistory.value = res.has_more || false;
-            scrollToBottom();
+            scrollToBottom(true);
         }
         return true;
     } catch {
@@ -490,7 +533,7 @@ async function handleSend() {
     inputText.value = "";
     pendingImages.value = [];
     drafts.delete(sendSessionId);
-    scrollToBottom();
+    scrollToBottom(true);
 
     const rawAssistantMsg: ChatMessage = {
         id: String(++messageCounter),
@@ -532,6 +575,7 @@ async function handleSend() {
             done: false,
             twTimer: null,
             messagesRef: messages.value,
+            phase: "thinking" as const,
         };
         activeStreams.set(sendSessionId, streamState);
 
@@ -561,7 +605,8 @@ async function handleSend() {
             stopTypewriter();
             let finalText = streamState.targetText;
             if (options?.interrupted) {
-                finalText = finalText ? `${finalText}...` : "";
+                if (!finalText) finalText = "";
+                streamState.assistantMsg.interrupted = true;
             }
             streamState.assistantMsg.content = finalText;
             streamState.assistantMsg.streaming = false;
@@ -587,6 +632,7 @@ async function handleSend() {
 
         eventSource.addEventListener("text", (e: MessageEvent) => {
             streamState.targetText = e.data;
+            streamState.phase = "generating";
             startTypewriter();
         });
 
@@ -595,15 +641,17 @@ async function handleSend() {
         eventSource.addEventListener("tool_use", (e: MessageEvent) => {
             try {
                 const data = JSON.parse(e.data);
+                streamState.phase = "tool_running";
                 if (!streamState.assistantMsg.toolCalls) streamState.assistantMsg.toolCalls = [];
                 const calls = streamState.assistantMsg.toolCalls;
                 const last = calls[calls.length - 1];
-                if (last && last.name === data.name && last.status === "done") {
+                const isNodeTool = data.name.startsWith("node_");
+                if (!isNodeTool && last && last.name === data.name && last.status === "done") {
                     last.count = (last.count || 1) + 1;
                     last.status = "running";
                     last.elapsed = undefined;
                 } else {
-                    calls.push({ name: data.name, status: "running", count: 1 });
+                    calls.push({ name: data.name, status: "running", count: 1, id: data.id, input: data.input });
                 }
                 if (currentSessionId.value === sendSessionId) scrollToBottom();
             } catch { /* ignore */ }
@@ -634,6 +682,7 @@ async function handleSend() {
         eventSource.addEventListener("tool_result", (e: MessageEvent) => {
             try {
                 const data = JSON.parse(e.data);
+                streamState.phase = "thinking";
                 const calls = streamState.assistantMsg.toolCalls;
                 const call = calls && [...calls].reverse().find(t => t.name === data.name && t.status === "running");
                 if (call) {
@@ -682,6 +731,19 @@ async function handleSend() {
             } catch { /* ignore */ }
         });
 
+        eventSource.addEventListener("action_button", (e: MessageEvent) => {
+            try {
+                const data = JSON.parse(e.data);
+                if (!streamState.assistantMsg.actionButtons) streamState.assistantMsg.actionButtons = [];
+                streamState.assistantMsg.actionButtons.push({
+                    action: data.action,
+                    label: data.label,
+                    params: data.params,
+                });
+                if (currentSessionId.value === sendSessionId) scrollToBottom();
+            } catch { /* ignore */ }
+        });
+
         eventSource.addEventListener("usage", (e: MessageEvent) => {
             try {
                 const data = JSON.parse(e.data);
@@ -696,11 +758,13 @@ async function handleSend() {
         });
 
         eventSource.addEventListener("done", (_e: MessageEvent) => {
+            streamState.phase = "idle";
             eventSource.close();
             flushAndFinish();
         });
 
-        eventSource.addEventListener("interrupted", (_e: MessageEvent) => {
+        eventSource.addEventListener("interrupted", (e: MessageEvent) => {
+            streamState.phase = "idle";
             eventSource.close();
             flushAndFinish({ interrupted: true });
         });
@@ -810,7 +874,7 @@ async function handleAbortCurrentStream() {
             streamState.assistantMsg.streaming = false;
             activeStreams.delete(sessionId);
             loading.value = false;
-            scrollToBottom();
+            scrollToBottom(true);
             loadSessionInfo();
         }
         aborting.value = false;
@@ -908,8 +972,18 @@ async function handleReset() {
         contextResetAt.value = res?.context_reset_at || Date.now() / 1000;
         hasMoreHistory.value = false;
         historyOffset.value = 0;
-        message.success("会话已重置");
+        message.success("上下文已重置");
     } catch { message.error("重置失败"); }
+}
+
+function handleHistoryCleared(contact: Contact) {
+    if (activeContact.value?.id === contact.id) {
+        messages.value = [];
+        sessionTokens.value = { input: 0, output: 0, messages: 0, cacheCreation: 0, cacheRead: 0 };
+        contextResetAt.value = 0;
+        hasMoreHistory.value = false;
+        historyOffset.value = 0;
+    }
 }
 
 async function handleReloadHistory() {
@@ -1021,9 +1095,37 @@ function resendMessage(msg: ChatMessage) {
     nextTick(() => handleSend());
 }
 
+async function handleActionButton(_msg: ChatMessage, btn: ActionButton) {
+    if (btn.clicked || btn.loading) return;
+    btn.loading = true;
+    try {
+        if (btn.action === "create_node") {
+            const { createRemoteNode } = await import("@/api/index");
+            const memberId = btn.params?.member_id || "";
+            const image = btn.params?.image || "python:3.11-slim";
+            const result = await createRemoteNode({
+                name: `work-${memberId.substring(0, 8)}`,
+                node_type: "docker",
+                image,
+            });
+            const nodeId = result?.data?.id;
+            if (nodeId && memberId) {
+                const { updateMember } = await import("@/api/index");
+                await updateMember(memberId, { remote_node_id: nodeId });
+            }
+            btn.clicked = true;
+            message.success("工作电脑配置成功");
+        }
+    } catch (e: any) {
+        message.error(e?.response?.data?.detail || "操作失败");
+    } finally {
+        btn.loading = false;
+    }
+}
+
 // ---- @mention、/command、#tag 提示 ----
 const slashCommands: SlashCommand[] = [
-    { name: "/new", label: "/new", description: "重置会话" },
+    { name: "/new", label: "/new", description: "重置上下文" },
     { name: "/status", label: "/status", description: "查看会话状态" },
     { name: "/compact", label: "/compact", description: "压缩上下文" },
     { name: "/think", label: "/think", description: "设置思考级别 (off|low|medium|high)" },
@@ -1604,53 +1706,82 @@ onMounted(async () => {
         }
     });
 
-    // Restore last active contact from localStorage
-    let restoredContact: { type: string; id: string; name?: string; avatar_url?: string; session_id?: string; position?: string } | null = null;
-    try {
-        const saved = localStorage.getItem('chat-last-contact');
-        if (saved) restoredContact = JSON.parse(saved);
-    } catch { /* ignore */ }
+    // Route query params take priority (e.g., from AI employee "对话" button)
+    const querySession = route.query.session as string | undefined;
+    const queryContact = route.query.contact as string | undefined;
+    const queryType = route.query.type as string | undefined;
 
-    if (restoredContact?.type === "member" && restoredContact.id) {
-        const latestContact = await fetchLatestMemberContact(restoredContact.id);
+    if (queryType === "member" && queryContact) {
+        router.replace({ name: "chat", query: {} });
+        const latestContact = await fetchLatestMemberContact(queryContact);
         activeContact.value = {
             type: "member",
-            id: restoredContact.id,
-            name: latestContact?.name || restoredContact.name || "",
-            avatar_url: latestContact?.avatar_url || restoredContact.avatar_url || "",
-            position: latestContact?.position || restoredContact.position || "",
+            id: queryContact,
+            name: latestContact?.name || "",
+            avatar_url: latestContact?.avatar_url || "",
+            position: latestContact?.position || "",
             last_message: "",
             last_message_time: 0,
             unread: 0,
-            session_id: latestContact?.session_id || restoredContact.session_id || "",
+            session_id: querySession || latestContact?.session_id || "",
             pinned: latestContact?.pinned,
             is_virtual: latestContact?.is_virtual,
             remote_node_id: latestContact?.remote_node_id || "",
             remote_node_status: latestContact?.remote_node_status || "",
         };
-        if (restoredContact.session_id) {
-            await switchSession(latestContact?.session_id || restoredContact.session_id);
-        } else {
-            try {
-                const res: any = await startMemberChat(restoredContact.id);
-                if (res?.session_id) {
-                    activeContact.value.session_id = res.session_id;
-                    await switchSession(res.session_id);
-                }
-            } catch { /* fallback to empty state */ }
+        const targetSessionId = querySession || latestContact?.session_id;
+        if (targetSessionId) {
+            await switchSession(targetSessionId);
         }
     } else {
-        activeContact.value = {
-            type: "ai", id: "ai", name: "AI 助手",
-            avatar_url: "", last_message: "", last_message_time: 0, unread: 0, pinned: true,
-        };
-        await sessionSwitcherRef.value?.loadSessions();
+        // Restore last active contact from localStorage
+        let restoredContact: { type: string; id: string; name?: string; avatar_url?: string; session_id?: string; position?: string } | null = null;
+        try {
+            const saved = localStorage.getItem('chat-last-contact');
+            if (saved) restoredContact = JSON.parse(saved);
+        } catch { /* ignore */ }
 
-        const lastSessionId = localStorage.getItem('chat-last-session-id');
-        if (lastSessionId && sessions.value.some(s => s.session_id === lastSessionId)) {
-            await switchSession(lastSessionId);
-        } else if (sessions.value.length > 0) {
-            await switchSession(sessions.value[0].session_id);
+        if (restoredContact?.type === "member" && restoredContact.id) {
+            const latestContact = await fetchLatestMemberContact(restoredContact.id);
+            activeContact.value = {
+                type: "member",
+                id: restoredContact.id,
+                name: latestContact?.name || restoredContact.name || "",
+                avatar_url: latestContact?.avatar_url || restoredContact.avatar_url || "",
+                position: latestContact?.position || restoredContact.position || "",
+                last_message: "",
+                last_message_time: 0,
+                unread: 0,
+                session_id: latestContact?.session_id || restoredContact.session_id || "",
+                pinned: latestContact?.pinned,
+                is_virtual: latestContact?.is_virtual,
+                remote_node_id: latestContact?.remote_node_id || "",
+                remote_node_status: latestContact?.remote_node_status || "",
+            };
+            if (restoredContact.session_id) {
+                await switchSession(latestContact?.session_id || restoredContact.session_id);
+            } else {
+                try {
+                    const res: any = await startMemberChat(restoredContact.id);
+                    if (res?.session_id) {
+                        activeContact.value.session_id = res.session_id;
+                        await switchSession(res.session_id);
+                    }
+                } catch { /* fallback to empty state */ }
+            }
+        } else {
+            activeContact.value = {
+                type: "ai", id: "ai", name: "AI 助手",
+                avatar_url: "", last_message: "", last_message_time: 0, unread: 0, pinned: true,
+            };
+            await sessionSwitcherRef.value?.loadSessions();
+
+            const lastSessionId = localStorage.getItem('chat-last-session-id');
+            if (lastSessionId && sessions.value.some(s => s.session_id === lastSessionId)) {
+                await switchSession(lastSessionId);
+            } else if (sessions.value.length > 0) {
+                await switchSession(sessions.value[0].session_id);
+            }
         }
     }
 
@@ -1667,7 +1798,9 @@ onMounted(async () => {
 
 function onChatScroll() {
     const wrap = chatScrollbar.value?.wrapRef;
-    if (!wrap || !hasMoreHistory.value || loadingMore.value) return;
+    if (!wrap) return;
+    autoScrollEnabled = wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight < SCROLL_BOTTOM_THRESHOLD;
+    if (!hasMoreHistory.value || loadingMore.value) return;
     if (wrap.scrollTop < 60) {
         loadMoreHistory();
     }
@@ -1696,6 +1829,7 @@ onUnmounted(() => {
                 ref="contactListRef"
                 :active-contact-id="activeContact?.id || 'ai'"
                 @select="handleContactSelect"
+                @history-cleared="handleHistoryCleared"
             />
         </div>
 
@@ -1804,7 +1938,7 @@ onUnmounted(() => {
                             <PackageMinus :size="16" :class="compacting ? 'animate-pulse' : ''" />
                         </button>
                     </VortTooltip>
-                    <VortTooltip title="重置会话">
+                    <VortTooltip title="重置上下文">
                         <button class="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer"
                             @click="handleReset">
                             <RotateCcw :size="16" />
@@ -1900,7 +2034,7 @@ onUnmounted(() => {
                         <span class="text-xs text-gray-400 px-3 py-0.5 rounded-full select-none">{{ formatTimeDivider(msg.timestamp) }}</span>
                     </div>
                     <div class="flex group" :class="msg.role === 'user' ? 'justify-end' : 'justify-start'">
-                        <div class="flex max-w-[80%]" :class="msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'">
+                            <div class="flex min-w-0" :class="[msg.role === 'user' ? 'flex-row-reverse max-w-[80%]' : 'flex-row max-w-[min(80%,640px)]']">
                             <div class="flex-shrink-0 relative" :class="msg.role === 'user' ? 'ml-3' : 'mr-3'">
                                 <!-- 用户消息头像 -->
                                 <div v-if="msg.role === 'user'" class="w-8 h-8 rounded-full flex items-center justify-center bg-blue-600">
@@ -1928,12 +2062,21 @@ onUnmounted(() => {
                                     </template>
                                 </div>
                             </div>
-                            <div>
+                            <div class="min-w-0 overflow-hidden">
                                 <div v-if="msg.role === 'user' && msg.images?.length" class="flex flex-wrap gap-2 mb-2 justify-end">
                                     <VortImage v-for="(src, i) in msg.images" :key="i" :src="src"
                                         width="80" height="80" fit="cover"
                                         class="rounded-lg border border-white/30" />
                                 </div>
+                            <!-- 桌面视角面板 -->
+                            <WorkspaceViewer
+                                v-if="msg.toolCalls?.some(t => t.name.startsWith('node_'))"
+                                :node-id="activeContact?.remote_node_id"
+                                :is-working="msg.streaming && getStreamPhase(msg) === 'tool_running'"
+                                :terminal-output="getAccumulatedOutput(msg)"
+                                :recent-files="getRecentFileChanges(msg)"
+                                :has-browser="msg.toolCalls?.some(t => t.name === 'node_browse')"
+                            />
                             <!-- 流式进行中：所有工具调用显示在气泡上方 -->
                             <div v-if="msg.streaming && msg.toolCalls?.length" class="mb-2 space-y-1">
                                 <div v-for="(tool, i) in msg.toolCalls" :key="'live-' + i" class="block">
@@ -1943,6 +2086,8 @@ onUnmounted(() => {
                                         <component :is="tool.collapsed ? ChevronRight : ChevronDown" v-if="tool.output && !tool.hasLiveOutput" :size="12" class="mr-0.5 flex-shrink-0" />
                                         <Wrench :size="12" class="mr-1 flex-shrink-0" />
                                         {{ tool.name }}
+                                        <span v-if="tool.input?.command" class="ml-1 opacity-60 font-mono truncate max-w-xs">$ {{ tool.input.command.substring(0, 80) }}{{ tool.input.command.length > 80 ? '...' : '' }}</span>
+                                        <span v-else-if="tool.input?.path" class="ml-1 opacity-60 font-mono truncate max-w-xs">{{ tool.input.path }}</span>
                                         <span v-if="(tool.count || 1) > 1" class="ml-1 opacity-70">&times;{{ tool.count }}</span>
                                         <template v-if="tool.status === 'running'">
                                             <Loader2 :size="12" class="ml-1 animate-spin" />
@@ -1964,6 +2109,11 @@ onUnmounted(() => {
                                     </div>
                                 </div>
                             </div>
+                            <!-- "正在思考..."指示器: tool_result 后等待下一轮 LLM -->
+                            <div v-if="msg.streaming && getStreamPhase(msg) === 'thinking' && msg.toolCalls?.length && !msg.content" class="flex items-center gap-1.5 px-2 py-1.5 text-xs text-gray-400 mb-1">
+                                <Loader2 :size="12" class="animate-spin" />
+                                正在思考...
+                            </div>
                             <!-- 已完成的工具调用（历史加载时，显示在气泡上方可展开）-->
                             <div v-if="!msg.streaming && msg.toolCalls?.length" class="mb-2">
                                 <button
@@ -1980,10 +2130,17 @@ onUnmounted(() => {
                                             <component :is="tool.collapsed ? ChevronRight : ChevronDown" v-if="tool.output" :size="12" class="mr-0.5 flex-shrink-0" />
                                             <Wrench :size="12" class="mr-1 flex-shrink-0" />
                                             {{ tool.name }}
+                                            <span v-if="tool.input?.command" class="ml-1 opacity-60 font-mono truncate max-w-xs">$ {{ tool.input.command.substring(0, 80) }}{{ tool.input.command.length > 80 ? '...' : '' }}</span>
+                                            <span v-else-if="tool.input?.path" class="ml-1 opacity-60 font-mono truncate max-w-xs">{{ tool.input.path }}</span>
                                             <span v-if="(tool.count || 1) > 1" class="ml-1 opacity-70">&times;{{ tool.count }}</span>
                                         </div>
-                                        <div v-if="tool.output && !tool.collapsed"
-                                            class="mt-1 ml-1 max-h-60 overflow-y-auto rounded-lg bg-gray-900 text-green-400 text-xs font-mono px-3 py-2 whitespace-pre-wrap break-words leading-5 border border-gray-700/50 shadow-inner">{{ tool.output }}</div>
+                                        <div v-if="tool.output && !tool.collapsed" class="mt-1 ml-1 rounded-lg bg-gray-900 text-green-400 text-xs font-mono px-3 py-2 border border-gray-700/50 shadow-inner">
+                                            <template v-if="getOutputLineCount(tool.output) > 30 && !tool.outputExpanded">
+                                                <div class="text-gray-500 text-center py-1 cursor-pointer hover:text-gray-300" @click="tool.outputExpanded = true">... 共 {{ getOutputLineCount(tool.output) }} 行，点击展开全部 ...</div>
+                                                <pre class="whitespace-pre-wrap max-h-40 overflow-y-auto break-words leading-5">{{ getLastLines(tool.output, 20) }}</pre>
+                                            </template>
+                                            <pre v-else class="whitespace-pre-wrap max-h-60 overflow-y-auto break-words leading-5">{{ tool.output }}</pre>
+                                        </div>
                                         <!-- 工具截图 -->
                                         <div v-if="tool.screenshots?.length" class="mt-2 ml-1 flex flex-wrap gap-2">
                                             <VortImage v-for="(screenshot, idx) in tool.screenshots" :key="idx"
@@ -2005,6 +2162,7 @@ onUnmounted(() => {
                                     class="prose prose-sm max-w-none prose-p:my-1 prose-pre:my-2">
                                     <div v-html="renderMarkdown(msg.content)" />
                                     <span v-if="msg.streaming" class="streaming-cursor" />
+                                    <span v-if="msg.interrupted" class="text-xs text-gray-400 ml-2">[已中止]</span>
                                 </div>
                                 <span v-else-if="msg.role === 'assistant' && !msg.content && loading" class="flex items-center">
                                     <span class="flex space-x-1">
@@ -2014,6 +2172,17 @@ onUnmounted(() => {
                                     </span>
                                 </span>
                                 <template v-else>{{ msg.content }}</template>
+                            </div>
+                            <!-- Action buttons (e.g. "一键配置工作电脑") -->
+                            <div v-if="msg.actionButtons?.length" class="mt-2 flex flex-wrap gap-2">
+                                <button v-for="(btn, bi) in msg.actionButtons" :key="bi"
+                                    :disabled="btn.clicked || btn.loading"
+                                    @click="handleActionButton(msg, btn)"
+                                    class="inline-flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border transition-colors cursor-pointer"
+                                    :class="btn.clicked ? 'border-gray-200 text-gray-400 bg-gray-50' : 'border-blue-200 text-blue-600 hover:bg-blue-50'">
+                                    <Loader2 v-if="btn.loading" :size="12" class="animate-spin" />
+                                    {{ btn.clicked ? '已完成' : btn.label }}
+                                </button>
                             </div>
                             <!-- Message action buttons -->
                             <div v-if="!msg.streaming && msg.content"
@@ -2330,6 +2499,7 @@ onUnmounted(() => {
             :member-id="activeContact.id"
             :member-name="activeContact.name"
             :member-avatar-url="activeContact.avatar_url"
+            :is-virtual="activeContact.is_virtual"
             @assignments-changed="loadActiveAssignments"
         />
     </div>

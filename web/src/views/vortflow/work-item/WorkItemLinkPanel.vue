@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
-import { Plus, X, Search, Link2 } from "lucide-vue-next";
+import { Plus, X, Search, ChevronDown, Check } from "lucide-vue-next";
 import { message } from "@/components/vort";
 import {
     getVortflowStories,
@@ -72,6 +72,7 @@ const searchType = ref<WorkItemType>("缺陷");
 const searchResults = ref<SearchResultItem[]>([]);
 const searchLoading = ref(false);
 const showDropdown = ref(false);
+const typeDropdownOpen = ref(false);
 const linkedIdSet = computed(() => new Set(linkedItems.value.map((i) => `${i.link_type}:${i.id}`)));
 
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
@@ -220,12 +221,24 @@ const cancelAdding = () => {
     showDropdown.value = false;
 };
 
-const onTypeChange = () => {
+const toggleTypeDropdown = () => {
+    typeDropdownOpen.value = !typeDropdownOpen.value;
+};
+
+const selectType = (t: WorkItemType) => {
+    searchType.value = t;
+    typeDropdownOpen.value = false;
     searchResults.value = [];
     showDropdown.value = false;
     if (searchKeyword.value.trim()) {
         doSearch();
     }
+};
+
+const onTypeBlur = () => {
+    setTimeout(() => {
+        typeDropdownOpen.value = false;
+    }, 150);
 };
 
 const onSearchBlur = () => {
@@ -248,13 +261,31 @@ watch(
     <div class="wi-link-panel">
         <div v-if="adding" class="wi-link-add-row">
             <div class="wi-link-search-bar">
-                <select
-                    v-model="searchType"
-                    class="wi-link-type-select"
-                    @change="onTypeChange"
-                >
-                    <option v-for="t in TYPE_OPTIONS" :key="t" :value="t">{{ t }}</option>
-                </select>
+                <div class="wi-link-type-picker" tabindex="0" @blur="onTypeBlur">
+                    <button type="button" class="wi-link-type-btn" @click="toggleTypeDropdown">
+                        <span :class="['wi-link-type-badge', getWorkItemTypeIconClass(searchType)]">
+                            {{ getWorkItemTypeIconSymbol(searchType) }}
+                        </span>
+                        <span class="wi-link-type-label">{{ searchType }}</span>
+                        <ChevronDown class="wi-link-type-chevron" :size="12" />
+                    </button>
+                    <div v-if="typeDropdownOpen" class="wi-link-type-dropdown">
+                        <button
+                            v-for="t in TYPE_OPTIONS"
+                            :key="t"
+                            type="button"
+                            class="wi-link-type-option"
+                            :class="{ selected: searchType === t }"
+                            @mousedown.prevent="selectType(t)"
+                        >
+                            <span :class="['wi-link-type-badge', getWorkItemTypeIconClass(t)]">
+                                {{ getWorkItemTypeIconSymbol(t) }}
+                            </span>
+                            <span class="wi-link-type-option-label">{{ t }}</span>
+                            <Check v-if="searchType === t" class="wi-link-type-check" :size="14" />
+                        </button>
+                    </div>
+                </div>
                 <div class="wi-link-search-wrap">
                     <Search class="wi-link-search-icon" :size="14" />
                     <input
@@ -375,20 +406,89 @@ watch(
     border: 1px solid var(--vort-border);
     border-radius: 6px;
     background: var(--vort-bg);
-    overflow: hidden;
 }
 
-.wi-link-type-select {
+.wi-link-type-picker {
+    position: relative;
     flex-shrink: 0;
-    padding: 6px 8px;
+    outline: none;
+}
+
+.wi-link-type-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 100%;
+    padding: 6px 8px 6px 10px;
     font-size: 13px;
     color: var(--vort-text);
     background: var(--vort-bg-secondary, #f5f5f5);
     border: none;
     border-right: 1px solid var(--vort-border);
-    outline: none;
+    border-radius: 6px 0 0 6px;
     cursor: pointer;
-    appearance: auto;
+    white-space: nowrap;
+    transition: background 0.15s;
+}
+
+.wi-link-type-btn:hover {
+    background: var(--vort-bg-hover, #efefef);
+}
+
+.wi-link-type-label {
+    font-size: 13px;
+}
+
+.wi-link-type-chevron {
+    color: var(--vort-text-tertiary);
+    flex-shrink: 0;
+}
+
+.wi-link-type-dropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    z-index: 110;
+    min-width: 130px;
+    background: var(--vort-bg);
+    border: 1px solid var(--vort-border);
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    padding: 4px;
+}
+
+.wi-link-type-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 7px 10px;
+    font-size: 13px;
+    color: var(--vort-text);
+    background: none;
+    border: none;
+    border-radius: 5px;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.1s;
+}
+
+.wi-link-type-option:hover {
+    background: var(--vort-primary-bg, #eff6ff);
+}
+
+.wi-link-type-option.selected {
+    color: var(--vort-primary);
+    font-weight: 500;
+}
+
+.wi-link-type-option-label {
+    flex: 1;
+}
+
+.wi-link-type-check {
+    color: var(--vort-primary);
+    flex-shrink: 0;
 }
 
 .wi-link-search-wrap {
@@ -396,6 +496,7 @@ watch(
     display: flex;
     align-items: center;
     flex: 1;
+    min-width: 0;
 }
 
 .wi-link-search-icon {

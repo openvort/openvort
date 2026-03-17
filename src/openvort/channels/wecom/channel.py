@@ -913,13 +913,8 @@ class WeComChannel(BaseChannel):
                     visible_text += event.get("text", "")
                 elif etype == "text":
                     visible_text = event.get("text", "")
-                elif etype == "tool_use":
-                    tool_name = event.get("name", "unknown")
-                    visible_text += f"\n\n🔧 正在执行 {tool_name}..."
-                    await send_stream_frame()
+                elif etype in ("tool_use", "tool_result", "tool_output", "tool_progress"):
                     continue
-                elif etype == "tool_result":
-                    visible_text += " ✅"
                     await send_stream_frame()
                     continue
 

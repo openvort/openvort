@@ -128,6 +128,7 @@ class AgentTaskRunner:
 
         self._emit(rt, {"type": "thinking", "data": "start"})
 
+        cancel_notified = False
         async for event in agent.process_stream_web(
             content,
             member_id=owner_id,
@@ -138,19 +139,24 @@ class AgentTaskRunner:
             target_id=target_id,
         ):
             if cancel.is_set():
-                self._emit(rt, {"type": "interrupted", "data": "aborted"})
-                await self._mark_completed(rt, "cancelled")
-                return
+                if not cancel_notified:
+                    self._emit(rt, {"type": "interrupted", "data": "aborted"})
+                    cancel_notified = True
+                event_type = event.get("type", "")
+                if event_type == "text":
+                    self._emit(rt, {"type": "text", "data": event["text"]})
+                continue
 
             event_type = event.get("type", "")
             if event_type == "text":
                 self._emit(rt, {"type": "text", "data": event["text"]})
-            elif event_type in ("tool_use", "tool_output", "tool_progress", "tool_result", "usage"):
+            elif event_type in ("tool_use", "tool_output", "tool_progress", "tool_result", "usage", "action_button"):
                 import json
                 self._emit(rt, {"type": event_type, "data": json.dumps(event, ensure_ascii=False)})
 
         if cancel.is_set():
-            self._emit(rt, {"type": "interrupted", "data": "aborted"})
+            if not cancel_notified:
+                self._emit(rt, {"type": "interrupted", "data": "aborted"})
             await self._mark_completed(rt, "cancelled")
             return
 

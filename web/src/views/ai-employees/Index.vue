@@ -84,6 +84,15 @@ const filteredEmployees = computed(() => {
     return employees.value.filter(e => (e.post || e.virtual_role) === activeCategory.value);
 });
 
+const postCounts = computed(() => {
+    const map: Record<string, number> = {};
+    for (const e of employees.value) {
+        const key = e.post || e.virtual_role || "";
+        if (key) map[key] = (map[key] || 0) + 1;
+    }
+    return map;
+});
+
 // ---- State: stats ----
 
 const stats = ref<Record<string, { total_sessions: number; today_sessions: number; last_active_at: string }>>({});
@@ -541,6 +550,10 @@ async function loadRemoteNodes() {
                         @click="activeCategory = 'all'"
                     >
                         全部
+                        <span
+                            class="ml-1 text-xs px-1.5 py-0.5 rounded-full"
+                            :class="activeCategory === 'all' ? 'bg-blue-500/30 text-white' : 'bg-gray-100 text-gray-500'"
+                        >{{ employees.length }}</span>
                     </button>
                     <button
                         v-for="post in posts"
@@ -552,6 +565,11 @@ async function loadRemoteNodes() {
                         @click="activeCategory = post.key"
                     >
                         {{ post.name }}
+                        <span
+                            v-if="postCounts[post.key]"
+                            class="ml-1 text-xs px-1.5 py-0.5 rounded-full"
+                            :class="activeCategory === post.key ? 'bg-blue-500/30 text-white' : 'bg-gray-100 text-gray-500'"
+                        >{{ postCounts[post.key] }}</span>
                     </button>
                 </div>
 

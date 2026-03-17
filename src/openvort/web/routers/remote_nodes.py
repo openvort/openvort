@@ -29,13 +29,13 @@ def _get_service():
 
 class CreateNodeRequest(BaseModel):
     name: str
-    node_type: str = "openclaw"
+    node_type: str = "docker"
     gateway_url: str = ""
     gateway_token: str = ""
     image: str = ""
     memory_limit: str = "2g"
     cpu_limit: float = 2.0
-    network_mode: str = "host"
+    network_mode: str = "bridge"
     env_vars: dict[str, str] = {}
     description: str = ""
 
@@ -76,6 +76,57 @@ async def all_docker_stats():
     service = _get_service()
     stats = await service.get_all_docker_stats()
     return {"stats": stats}
+
+
+@router.get("/docker/image-status")
+async def check_image_status(images: str = ""):
+    """Check which preset images are available locally."""
+    image_list = [i.strip() for i in images.split(",") if i.strip()]
+    if not image_list:
+        return {"images": {}}
+    from openvort.core.docker_executor import DockerExecutor, BUILTIN_IMAGES
+    executor = DockerExecutor()
+    result = {}
+    for img in image_list:
+        exists = await executor.check_image_exists(img)
+        result[img] = {
+            "available": exists,
+            "buildable": img in BUILTIN_IMAGES,
+        }
+    return {"images": result}
+
+
+@router.post("/docker/install-image")
+async def install_image_sse(body: dict, token: str = ""):
+    """Install (build or pull) a Docker image with SSE progress stream."""
+    import json as _json
+
+    from fastapi.responses import StreamingResponse
+
+    from openvort.web.auth import verify_token
+
+    payload = verify_token(token) if token else None
+    if not payload or "admin" not in payload.get("roles", []):
+        return {"ok": False, "message": "未授权"}
+
+    image = body.get("image", "").strip()
+    if not image:
+        return {"ok": False, "message": "请指定镜像名"}
+
+    from openvort.core.docker_executor import DockerExecutor
+
+    async def _stream():
+        executor = DockerExecutor()
+        yield f"data: {_json.dumps({'type': 'start', 'image': image})}\n\n"
+        try:
+            async for line in executor.install_image_streaming(image):
+                yield f"data: {_json.dumps({'type': 'output', 'text': line})}\n\n"
+            success = await executor.check_image_exists(image)
+            yield f"data: {_json.dumps({'type': 'done', 'success': success})}\n\n"
+        except Exception as e:
+            yield f"data: {_json.dumps({'type': 'error', 'text': str(e)})}\n\n"
+
+    return StreamingResponse(_stream(), media_type="text/event-stream")
 
 
 # ---- Shared CRUD endpoints ----
@@ -127,7 +178,41 @@ async def create_node(req: CreateNodeRequest):
             description=req.description,
             node_type=req.node_type,
         )
-        return {"success": True, "node": node}
+    return {"success": True, "node": node}
+
+
+class QuickCreateRequest(BaseModel):
+    member_id: str
+    image: str = "python:3.11-slim"
+
+
+@router.post("/quick-create")
+async def quick_create_node(req: QuickCreateRequest):
+    """Create a Docker node and bind it to an AI employee in one step."""
+    service = _get_service()
+
+    node = await service.create_docker_node(
+        name=f"work-{req.member_id[:8]}",
+        image=req.image,
+    )
+    create_result = node.pop("_create_result", {})
+    if not create_result.get("ok"):
+        return {"success": False, "error": create_result.get("message", "创建容器失败")}
+
+    from openvort.web.deps import get_db_session_factory
+    from openvort.contacts.models import Member
+
+    try:
+        sf = get_db_session_factory()
+        async with sf() as db:
+            m = await db.get(Member, req.member_id)
+            if m:
+                m.remote_node_id = node["id"]
+                await db.commit()
+    except Exception:
+        pass
+
+    return {"success": True, "node": node}
 
 
 # ---- Parameterized node routes ----
@@ -233,6 +318,146 @@ async def container_logs(node_id: str, tail: int = Query(100, ge=1, le=1000)):
     """Get recent Docker container logs."""
     logs = await _get_service().get_docker_logs(node_id, tail=tail)
     return {"logs": logs}
+
+
+# ---- WebSocket screencast proxy ----
+
+_SCREENCAST_SCRIPT = r'''
+import subprocess, io, base64, struct, sys, time
+from PIL import Image
+
+def xwd_to_jpeg(data, quality=55, max_w=1280):
+    fields = struct.unpack(">13I", data[:52])
+    header_size, width, height = fields[0], fields[4], fields[5]
+    bpp, bpl = fields[11], fields[12]
+    ncolors = struct.unpack(">I", data[76:80])[0]
+    pixels = data[header_size + ncolors * 12:]
+    if bpp == 32:
+        img = Image.frombytes("RGBX", (width, height), pixels, "raw", "BGRX", bpl)
+    elif bpp == 24:
+        img = Image.frombytes("RGB", (width, height), pixels, "raw", "BGR", bpl)
+    else:
+        return None
+    img = img.convert("RGB")
+    if width > max_w:
+        ratio = max_w / width
+        img = img.resize((max_w, int(height * ratio)), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=quality)
+    return base64.b64encode(buf.getvalue()).decode()
+
+try:
+    while True:
+        r = subprocess.run(
+            ["xwd", "-root", "-display", ":99", "-silent"],
+            capture_output=True, timeout=5,
+        )
+        if r.returncode == 0 and len(r.stdout) > 100:
+            b64 = xwd_to_jpeg(r.stdout)
+            if b64:
+                sys.stdout.write("FRAME:" + b64 + "\n")
+                sys.stdout.flush()
+        time.sleep(0.5)
+except KeyboardInterrupt:
+    pass
+'''
+
+
+@router.websocket("/{node_id}/screencast")
+async def screencast_proxy(ws: WebSocket, node_id: str, token: str = ""):
+    """WebSocket proxy for CDP Page.startScreencast.
+
+    Runs a script inside the container via `docker exec` to capture
+    screencast frames, bypassing host-to-container network restrictions.
+    """
+    import base64
+    import json as _json
+
+    from openvort.web.auth import verify_token
+
+    payload = verify_token(token) if token else None
+    if not payload or "admin" not in payload.get("roles", []):
+        await ws.close(code=4003, reason="未授权")
+        return
+
+    await ws.accept()
+
+    service = _get_service()
+    node = await service.get_node(node_id)
+    if not node or node.get("node_type") != "docker":
+        await ws.close(code=4000, reason="节点不存在或不是 Docker 类型")
+        return
+    cid = (node.get("config") or {}).get("container_id", "")
+    if not cid:
+        await ws.close(code=4001, reason="容器 ID 不存在")
+        return
+
+    proc = None
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "exec", "-i", cid, "python3", "-u", "-",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        proc.stdin.write(_SCREENCAST_SCRIPT.encode())
+        await proc.stdin.drain()
+        proc.stdin.close()
+
+        async def _forward_stderr():
+            try:
+                async for raw_line in proc.stderr:
+                    line = raw_line.decode(errors="replace").rstrip()
+                    if line:
+                        await ws.send_text(_json.dumps({"error": line}))
+            except Exception:
+                pass
+
+        stderr_task = asyncio.create_task(_forward_stderr())
+
+        async def _forward_frames():
+            try:
+                async for raw_line in proc.stdout:
+                    line = raw_line.decode(errors="replace").rstrip()
+                    if line.startswith("FRAME:"):
+                        frame_b64 = line[6:]
+                        frame_bytes = base64.b64decode(frame_b64)
+                        await ws.send_bytes(frame_bytes)
+                    elif line.startswith("ERROR:"):
+                        await ws.send_text(_json.dumps({"error": line[6:]}))
+                        break
+            except Exception:
+                pass
+            finally:
+                stderr_task.cancel()
+
+        async def _read_client():
+            try:
+                while True:
+                    msg = await ws.receive()
+                    if msg["type"] == "websocket.disconnect":
+                        break
+            except WebSocketDisconnect:
+                pass
+            except Exception:
+                pass
+
+        forward_task = asyncio.create_task(_forward_frames())
+        client_task = asyncio.create_task(_read_client())
+
+        await asyncio.wait(
+            [forward_task, client_task], return_when=asyncio.FIRST_COMPLETED,
+        )
+    finally:
+        if proc and proc.returncode is None:
+            try:
+                proc.kill()
+                await proc.wait()
+            except Exception:
+                pass
+        try:
+            await ws.close()
+        except Exception:
+            pass
 
 
 # ---- WebSocket terminal proxy ----

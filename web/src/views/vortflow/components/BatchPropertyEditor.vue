@@ -5,7 +5,7 @@ import WorkItemPriority from "@/components/vort-biz/work-item/WorkItemPriority.v
 import WorkItemStatus from "@/components/vort-biz/work-item/WorkItemStatus.vue";
 import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMemberPicker.vue";
 import WorkItemTagPicker from "@/components/vort-biz/work-item/WorkItemTagPicker.vue";
-import { Minus, Plus } from "lucide-vue-next";
+import { CircleMinus, Plus } from "lucide-vue-next";
 import type { RowItem, WorkItemType, StatusOption } from "@/components/vort-biz/work-item/WorkItemTable.types";
 import { useWorkItemCommon } from "../work-item/useWorkItemCommon";
 import {
@@ -388,7 +388,7 @@ const handleCancel = () => {
                     <div v-else class="value-placeholder">将清空该字段</div>
 
                     <button type="button" class="remove-row-btn" @click="removeRow(row.id)">
-                        <Minus :size="14" />
+                        <CircleMinus :size="18" />
                     </button>
                 </div>
             </div>
@@ -449,64 +449,80 @@ const handleCancel = () => {
 .change-rows {
     display: flex;
     flex-direction: column;
+    gap: 12px;
 }
 .change-row {
     display: grid;
     grid-template-columns: 150px 110px 1fr 32px;
     gap: 8px;
     align-items: center;
-    min-height: 44px;
-    padding: 6px 0;
-    border-bottom: 1px solid var(--vort-border-color, #f0f0f0);
-}
-.change-row:last-child {
-    border-bottom: none;
 }
 .value-editor {
     min-width: 0;
+    border: 1px solid var(--vort-border, #d9d9d9);
+    border-radius: var(--vort-border-radius-sm, 4px);
+    overflow: hidden;
+    transition: border-color 0.2s;
 }
-.value-editor :deep(.vort-select),
-.value-editor :deep(.vort-input),
+.value-editor:hover {
+    border-color: var(--vort-primary);
+}
+.value-editor :deep(.vort-select) {
+    width: 100%;
+}
+.value-editor :deep(.vort-select .vort-select-selector) {
+    border: none !important;
+    box-shadow: none !important;
+}
+.value-editor :deep(.vort-input) {
+    width: 100%;
+    border: none !important;
+    box-shadow: none !important;
+}
+.value-editor :deep(.vort-picker),
 .value-editor :deep(.vort-date-picker),
 .value-editor :deep(.vort-range-picker) {
     width: 100%;
+    border: none !important;
+    box-shadow: none !important;
 }
 .value-placeholder {
-    font-size: 12px;
-    color: #999;
-    padding: 4px 8px;
+    font-size: 13px;
+    color: var(--vort-text-tertiary, rgba(0, 0, 0, 0.45));
+    padding: 5px 11px;
+    border: 1px solid var(--vort-border, #d9d9d9);
+    border-radius: var(--vort-border-radius-sm, 4px);
 }
 .remove-row-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 28px;
+    width: 32px;
+    height: 32px;
     border: none;
-    border-radius: 50%;
     background: transparent;
-    color: #ff4d4f;
+    color: var(--vort-error, #ff4d4f);
     cursor: pointer;
-    transition: background 0.2s;
+    opacity: 0.6;
+    transition: opacity 0.15s;
+    flex-shrink: 0;
 }
 .remove-row-btn:hover {
-    background: rgba(255, 77, 79, 0.08);
+    opacity: 1;
 }
 .add-row-btn {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    padding: 6px 12px;
+    padding: 8px 0;
     border: none;
     background: transparent;
-    color: #4096ff;
+    color: var(--vort-primary);
     cursor: pointer;
     font-size: 13px;
-    border-radius: 4px;
-    margin-top: 8px;
-    transition: background 0.2s;
+    transition: opacity 0.2s;
 }
 .add-row-btn:hover {
-    background: rgba(64, 150, 255, 0.08);
+    opacity: 0.8;
 }
 </style>

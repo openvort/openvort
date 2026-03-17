@@ -164,7 +164,7 @@ class RemoteNodeService:
         image: str = "python:3.11-slim",
         memory_limit: str = "2g",
         cpu_limit: float = 2.0,
-        network_mode: str = "host",
+        network_mode: str = "bridge",
         env_vars: dict | None = None,
         volumes: list[str] | None = None,
         description: str = "",
@@ -197,27 +197,9 @@ class RemoteNodeService:
         container_name = f"openvort-worker-{node_id[:8]}"
         workspace_vol = f"openvort-workspace-{node_id[:8]}"
 
-        is_openclaw = "openclaw" in image.lower()
         merged_env = dict(env_vars or {})
-        gateway_token = ""
-        if is_openclaw:
-            import secrets
-            gateway_token = secrets.token_urlsafe(32)
-            merged_env["GATEWAY_TOKEN"] = gateway_token
 
-            # Inject OpenVort's LLM config so the agent reuses the same provider
-            try:
-                from openvort.web.deps import get_config_service
-                cs = get_config_service()
-                chain = await cs.get_effective_llm_chain()
-                if chain:
-                    primary = chain[0]
-                    merged_env.setdefault("OPENVORT_LLM_PROVIDER", primary.get("provider", ""))
-                    merged_env.setdefault("OPENVORT_LLM_API_KEY", primary.get("api_key", ""))
-                    merged_env.setdefault("OPENVORT_LLM_API_BASE", primary.get("api_base", ""))
-                    merged_env.setdefault("OPENVORT_LLM_MODEL", primary.get("model", ""))
-            except Exception as exc:
-                log.warning(f"Failed to inject LLM config into container: {exc}")
+        from openvort.core.docker_executor import image_needs_entrypoint
 
         executor = DockerExecutor()
         result = await executor.create_container({
@@ -229,7 +211,7 @@ class RemoteNodeService:
             "env_vars": merged_env,
             "volumes": volumes or [],
             "workspace_volume": workspace_vol,
-            "use_entrypoint": is_openclaw,
+            "use_entrypoint": image_needs_entrypoint(image),
         })
 
         if result.get("ok"):
@@ -245,16 +227,6 @@ class RemoteNodeService:
                 "container_name": container_name,
                 "workspace_volume": workspace_vol,
             }
-
-            if is_openclaw:
-                gw_url = "ws://127.0.0.1:18789"
-                node_config["openclaw_bridge"] = True
-                async with self._sf() as db:
-                    node = await db.get(RemoteNode, node_id)
-                    if node:
-                        node.gateway_url = gw_url
-                        node.gateway_token = _encrypt(gateway_token)
-                        await db.commit()
 
             await self.update_node(node_id, config=node_config)
             await self._update_status(node_id, "running")
@@ -491,29 +463,14 @@ class RemoteNodeService:
             except Exception:
                 pass
 
-            if config.get("openclaw_bridge") and node.gateway_url:
-                token = _decrypt(node.gateway_token)
-                if not token:
-                    return {"ok": False, "error": "node_not_configured", "message": "OpenClaw Gateway Token 未设置"}
-                openclaw_exec = get_executor("openclaw")
-                if not openclaw_exec:
-                    return {"ok": False, "error": "unsupported_type", "message": "OpenClaw executor 未注册"}
-                cid = config.get("container_id", "")
-                log.info(f"Sending instruction to OpenClaw Docker node {node.name}: container={cid[:12]}")
-                result = await openclaw_exec.send_instruction(
-                    node.gateway_url, token, instruction,
-                    container_id=cid, context=context, timeout=timeout, on_text=on_text,
-                    extra_system_prompt=extra_system_prompt,
-                )
-            else:
-                cid = config.get("container_id", "")
-                if not cid:
-                    return {"ok": False, "error": "node_not_configured", "message": "Docker 容器 ID 未设置"}
-                log.info(f"Sending instruction to Docker node {node.name}: container={cid[:12]}")
-                result = await executor.send_instruction(
-                    cid, "", instruction, context=context, timeout=timeout, on_text=on_text,
-                    extra_system_prompt=extra_system_prompt,
-                )
+            cid = config.get("container_id", "")
+            if not cid:
+                return {"ok": False, "error": "node_not_configured", "message": "Docker 容器 ID 未设置"}
+            log.info(f"Sending instruction to Docker node {node.name}: container={cid[:12]}")
+            result = await executor.send_instruction(
+                cid, "", instruction, context=context, timeout=timeout, on_text=on_text,
+                extra_system_prompt=extra_system_prompt,
+            )
         else:
             token = _decrypt(node.gateway_token)
             if not node.gateway_url or not token:
@@ -603,7 +560,3 @@ class RemoteNodeService:
             "created_at": node.created_at.isoformat() if node.created_at else "",
             "updated_at": node.updated_at.isoformat() if node.updated_at else "",
         }
-
-
-# Backward compatibility alias
-OpenClawNodeService = RemoteNodeService

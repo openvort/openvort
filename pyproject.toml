@@ -5,12 +5,12 @@ build-backend = "hatchling.build"
 [project]
 name = "openvort"
 version = "0.1.0"
-description = "开源 AI 研发工作流引擎 — 通过 IM 与 AI 交互，自动化项目管理、代码仓库、团队协作"
+description = "Open-source AI-powered R&D workflow engine — interact with AI agents via IM or Web to automate project management, code repositories, and team collaboration"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
 requires-python = ">=3.11"
 authors = [
-    { name = "Yang Qiang" },
+    { name = "Yang Qiang", email = "openvort@openvort.com" },
 ]
 keywords = ["ai", "workflow", "devops", "wecom", "agent"]
 classifiers = [
@@ -83,6 +83,8 @@ knowledge = "openvort.plugins.knowledge:KnowledgePlugin"
 Homepage = "https://github.com/openvort/openvort"
 Repository = "https://github.com/openvort/openvort"
 Issues = "https://github.com/openvort/openvort/issues"
+Documentation = "https://github.com/openvort/openvort#readme"
+Changelog = "https://github.com/openvort/openvort/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/openvort"]

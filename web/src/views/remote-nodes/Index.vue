@@ -12,12 +12,15 @@ import {
     restartDockerContainer,
     getContainerLogs,
     getAllDockerStats,
+    checkImageStatus,
+    getInstallImageUrl,
 } from "@/api";
+import { useUserStore } from "@/stores/modules/user";
 import { message } from "@/components/vort";
 import {
-    Plus, CheckCircle, XCircle, HelpCircle, Wifi, Play, Square,
-    RotateCw, Container, Terminal, Monitor, FileText, Cpu, MemoryStick,
-    Trash2,
+    Plus, CheckCircle, XCircle, HelpCircle, Play,
+    RotateCw, Container, Cpu, MemoryStick,
+    Trash2, Download, Loader2, AlertTriangle,
 } from "lucide-vue-next";
 import DockerTerminal from "@/components/DockerTerminal.vue";
 import BrowserPreview from "@/components/BrowserPreview.vue";
@@ -45,13 +48,12 @@ interface BoundMember {
 }
 
 const NODE_TYPE_OPTIONS = [
-    { value: "openclaw", label: "OpenClaw 远程节点" },
     { value: "docker", label: "Docker 容器" },
 ];
 
 const IMAGE_PRESETS = [
+    { value: "openvort/worker-sandbox:latest", label: "工作沙箱 (Python + Node + Claude Code + Aider)" },
     { value: "openvort/coding-sandbox:latest", label: "编码沙箱 (Python + Node + Claude Code + Aider)" },
-    { value: "openvort/openclaw-worker:latest", label: "OpenClaw Worker (内置 Agent 能力)" },
     { value: "openvort/browser-sandbox:latest", label: "浏览器沙箱 (Chromium + noVNC 可视化)" },
     { value: "python:3.11-slim", label: "Python 3.11 (轻量)" },
     { value: "node:22-slim", label: "Node.js 22 (轻量)" },
@@ -82,6 +84,91 @@ const form = ref({
     description: "",
 });
 const useCustomImage = ref(false);
+const userStore = useUserStore();
+
+const imageStatusMap = ref<Record<string, { available: boolean; buildable?: boolean }>>({});
+const imageStatusLoading = ref(false);
+const installingImage = ref(false);
+const installOutput = ref<string[]>([]);
+const installSuccess = ref<boolean | null>(null);
+
+const selectedImageStatus = computed(() => {
+    if (useCustomImage.value) return null;
+    return imageStatusMap.value[form.value.image] || null;
+});
+
+async function loadImageStatus() {
+    const images = IMAGE_PRESETS.map(p => p.value);
+    imageStatusLoading.value = true;
+    try {
+        const res: any = await checkImageStatus(images);
+        imageStatusMap.value = res.images || {};
+    } catch { /* ignore */ }
+    finally { imageStatusLoading.value = false; }
+}
+
+async function handleInstallImage() {
+    const image = form.value.image;
+    if (!image || installingImage.value) return;
+    installingImage.value = true;
+    installOutput.value = [];
+    installSuccess.value = null;
+
+    const url = getInstallImageUrl(userStore.token);
+    try {
+        const resp = await fetch(url, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${userStore.token}`,
+            },
+            body: JSON.stringify({ image }),
+        });
+        if (!resp.ok || !resp.body) {
+            message.error("安装请求失败");
+            installingImage.value = false;
+            return;
+        }
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+            for (const line of lines) {
+                if (!line.startsWith("data: ")) continue;
+                try {
+                    const evt = JSON.parse(line.slice(6));
+                    if (evt.type === "output") {
+                        installOutput.value.push(evt.text);
+                        if (installOutput.value.length > 200) {
+                            installOutput.value = installOutput.value.slice(-100);
+                        }
+                    } else if (evt.type === "done") {
+                        installSuccess.value = evt.success;
+                        if (evt.success) {
+                            message.success("镜像安装成功");
+                            imageStatusMap.value[image] = { available: true };
+                        } else {
+                            message.error("镜像安装失败");
+                        }
+                    } else if (evt.type === "error") {
+                        installSuccess.value = false;
+                        message.error(evt.text || "安装出错");
+                    }
+                } catch { /* ignore parse errors */ }
+            }
+        }
+    } catch {
+        message.error("安装请求异常");
+        installSuccess.value = false;
+    } finally {
+        installingImage.value = false;
+    }
+}
 
 const testing = ref<Record<string, boolean>>({});
 const testResults = ref<Record<string, { ok: boolean; message: string }>>({});
@@ -140,7 +227,10 @@ function handleAdd() {
     editingId.value = "";
     gatewayTokenEditing.value = true;
     maskedGatewayToken.value = "";
+    installOutput.value = [];
+    installSuccess.value = null;
     dialogOpen.value = true;
+    loadImageStatus();
 }
 
 function handleEdit(row: RemoteNodeItem) {
@@ -411,41 +501,29 @@ onBeforeUnmount(() => { if (statsTimer) clearInterval(statsTimer); });
                         <span v-else class="text-gray-400 text-sm">未绑定</span>
                     </template>
                 </VortTableColumn>
-                <VortTableColumn label="操作" :width="300" fixed="right">
+                <VortTableColumn label="操作" :width="200" fixed="right">
                     <template #default="{ row }">
-                        <div class="flex items-center gap-1.5 flex-wrap">
+                        <TableActions>
                             <template v-if="row.node_type === 'docker'">
-                                <VortButton v-if="row.status !== 'running'" size="small" :loading="dockerActionLoading[row.id]" @click="handleDockerAction(row.id, 'start')">
-                                    <Play :size="12" class="mr-0.5" /> 启动
-                                </VortButton>
-                                <VortButton v-if="row.status === 'running'" size="small" :loading="dockerActionLoading[row.id]" @click="handleDockerAction(row.id, 'stop')">
-                                    <Square :size="12" class="mr-0.5" /> 停止
-                                </VortButton>
-                                <VortButton v-if="row.status === 'running'" size="small" :loading="dockerActionLoading[row.id]" @click="handleDockerAction(row.id, 'restart')">
-                                    <RotateCw :size="12" class="mr-0.5" /> 重启
-                                </VortButton>
-                                <VortButton v-if="row.status === 'running'" size="small" @click="handleOpenTerminal(row)">
-                                    <Terminal :size="12" class="mr-0.5" /> 终端
-                                </VortButton>
-                                <VortButton v-if="row.status === 'running' && (row.config || {}).image?.includes('browser')" size="small" @click="handleOpenBrowser(row)">
-                                    <Monitor :size="12" class="mr-0.5" /> 浏览器
-                                </VortButton>
-                                <VortButton size="small" @click="handleViewLogs(row)">
-                                    <FileText :size="12" class="mr-0.5" /> 日志
-                                </VortButton>
+                                <TableActionsItem v-if="row.status !== 'running'" @click="handleDockerAction(row.id, 'start')">启动</TableActionsItem>
+                                <TableActionsItem v-if="row.status === 'running'" @click="handleDockerAction(row.id, 'stop')">停止</TableActionsItem>
+                                <TableActionsItem v-if="row.status === 'running'" @click="handleDockerAction(row.id, 'restart')">重启</TableActionsItem>
                             </template>
                             <template v-else>
-                                <VortButton size="small" @click="handleTest(row.id)" :loading="testing[row.id]">
-                                    <Wifi :size="12" class="mr-0.5" /> 测试
-                                </VortButton>
+                                <TableActionsItem @click="handleTest(row.id)">测试</TableActionsItem>
                             </template>
-                            <VortButton size="small" @click="handleEdit(row)">编辑</VortButton>
-                            <TableActions>
+                            <TableActionsItem @click="handleEdit(row)">编辑</TableActionsItem>
+                            <template #more>
+                                <template v-if="row.node_type === 'docker' && row.status === 'running'">
+                                    <TableActionsMoreItem @click="handleOpenTerminal(row)">终端</TableActionsMoreItem>
+                                    <TableActionsMoreItem v-if="(row.config || {}).image?.includes('browser')" @click="handleOpenBrowser(row)">浏览器</TableActionsMoreItem>
+                                </template>
+                                <TableActionsMoreItem v-if="row.node_type === 'docker'" @click="handleViewLogs(row)">日志</TableActionsMoreItem>
                                 <DeleteRecord :request-api="() => deleteRemoteNode(row.id)" :params="{}" @after-delete="loadData">
-                                    <TableActionsItem danger>删除</TableActionsItem>
+                                    <TableActionsMoreItem danger>删除</TableActionsMoreItem>
                                 </DeleteRecord>
-                            </TableActions>
-                        </div>
+                            </template>
+                        </TableActions>
                     </template>
                 </VortTableColumn>
             </VortTable>
@@ -488,7 +566,13 @@ onBeforeUnmount(() => { if (statsTimer) clearInterval(statsTimer); });
                     <VortFormItem label="Docker 镜像" required>
                         <template v-if="!useCustomImage">
                             <VortSelect v-model="form.image" placeholder="选择镜像">
-                                <VortSelectOption v-for="img in IMAGE_PRESETS" :key="img.value" :value="img.value">{{ img.label }}</VortSelectOption>
+                                <VortSelectOption v-for="img in IMAGE_PRESETS" :key="img.value" :value="img.value">
+                                    <span class="flex items-center justify-between w-full">
+                                        <span>{{ img.label }}</span>
+                                        <span v-if="imageStatusMap[img.value]?.available" class="text-green-500 text-xs ml-2">已安装</span>
+                                        <span v-else-if="imageStatusMap[img.value] && !imageStatusMap[img.value].available" class="text-gray-400 text-xs ml-2">未安装</span>
+                                    </span>
+                                </VortSelectOption>
                             </VortSelect>
                             <a class="text-xs text-blue-600 cursor-pointer mt-1 inline-block" @click="useCustomImage = true">使用自定义镜像</a>
                         </template>
@@ -496,6 +580,37 @@ onBeforeUnmount(() => { if (statsTimer) clearInterval(statsTimer); });
                             <VortInput v-model="form.customImage" placeholder="输入完整镜像名，如 myrepo/myimage:tag" />
                             <a class="text-xs text-blue-600 cursor-pointer mt-1 inline-block" @click="useCustomImage = false; form.customImage = ''">选择预设镜像</a>
                         </template>
+
+                        <!-- Image status hint -->
+                        <div v-if="!useCustomImage && selectedImageStatus && !selectedImageStatus.available && !installingImage && installSuccess !== true" class="mt-2 flex items-center gap-2 text-xs">
+                            <AlertTriangle :size="14" class="text-amber-500 flex-shrink-0" />
+                            <span class="text-amber-600">该镜像本地未安装，需要先安装才能创建节点</span>
+                            <button
+                                class="ml-1 inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-blue-500 text-white hover:bg-blue-600 transition-colors"
+                                @click="handleInstallImage"
+                            >
+                                <Download :size="12" /> 安装镜像
+                            </button>
+                        </div>
+                        <div v-if="!useCustomImage && selectedImageStatus?.available && !installingImage" class="mt-1.5 flex items-center gap-1 text-xs text-green-600">
+                            <CheckCircle :size="12" /> 镜像已就绪
+                        </div>
+
+                        <!-- Install progress -->
+                        <div v-if="installingImage || (installOutput.length > 0 && installSuccess !== true)" class="mt-2 rounded-lg border border-gray-200 overflow-hidden">
+                            <div class="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 text-xs text-gray-500">
+                                <Loader2 v-if="installingImage" :size="12" class="animate-spin" />
+                                <CheckCircle v-else-if="installSuccess" :size="12" class="text-green-500" />
+                                <XCircle v-else :size="12" class="text-red-500" />
+                                {{ installingImage ? '正在安装镜像...' : installSuccess ? '安装完成' : '安装失败' }}
+                            </div>
+                            <div class="max-h-48 overflow-y-auto bg-gray-900 text-gray-300 text-[11px] font-mono px-3 py-2 leading-5">
+                                <div v-for="(line, i) in installOutput.slice(-50)" :key="i" class="whitespace-pre-wrap break-all">{{ line }}</div>
+                            </div>
+                        </div>
+                        <div v-if="installSuccess === true && !installingImage" class="mt-1.5 flex items-center gap-1 text-xs text-green-600">
+                            <CheckCircle :size="12" /> 安装完成，可以创建节点了
+                        </div>
                     </VortFormItem>
                     <VortFormItem label="内存限制">
                         <VortSelect v-model="form.memory_limit">
@@ -540,7 +655,13 @@ onBeforeUnmount(() => { if (statsTimer) clearInterval(statsTimer); });
             </VortForm>
             <template #footer>
                 <VortButton @click="dialogOpen = false">取消</VortButton>
-                <VortButton variant="primary" :loading="saving" @click="handleSave" class="ml-3">
+                <VortButton
+                    variant="primary"
+                    :loading="saving"
+                    :disabled="!editing && form.node_type === 'docker' && !useCustomImage && selectedImageStatus !== null && !selectedImageStatus.available"
+                    @click="handleSave"
+                    class="ml-3"
+                >
                     {{ editing ? "保存" : "创建" }}
                 </VortButton>
             </template>
@@ -567,12 +688,12 @@ onBeforeUnmount(() => { if (statsTimer) clearInterval(statsTimer); });
         </VortDialog>
 
         <!-- Terminal dialog (P4) -->
-        <VortDialog :open="terminalOpen" :title="`终端 — ${terminalNodeName}`" @update:open="terminalOpen = $event" :width="900">
+        <VortDialog :open="terminalOpen" :title="`终端 — ${terminalNodeName}`" @update:open="terminalOpen = $event" :width="900" :footer="false">
             <DockerTerminal v-if="terminalOpen" :node-id="terminalNodeId" />
         </VortDialog>
 
         <!-- Browser preview dialog (P5) -->
-        <VortDialog :open="browserPreviewOpen" :title="`浏览器预览 — ${browserNodeName}`" @update:open="browserPreviewOpen = $event" :width="1000">
+        <VortDialog :open="browserPreviewOpen" :title="`浏览器预览 — ${browserNodeName}`" @update:open="browserPreviewOpen = $event" :width="1000" :footer="false">
             <BrowserPreview v-if="browserPreviewOpen" :node-id="browserNodeId" />
         </VortDialog>
     </div>

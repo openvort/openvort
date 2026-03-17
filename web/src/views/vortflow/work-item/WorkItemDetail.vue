@@ -8,6 +8,7 @@ import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
 import { Copy, Pencil } from "lucide-vue-next";
 import { useWorkItemCommon } from "./useWorkItemCommon";
 import WorkItemLinkPanel from "./WorkItemLinkPanel.vue";
+import TestCaseLinkPanel from "./TestCaseLinkPanel.vue";
 import { getVortflowProjects, getVortflowIterations, getVortflowVersions, getVortgitRepos, getVortgitRepoBranches } from "@/api";
 import type { WorkItemType, Status, DateRange, RowItem, DetailComment, DetailLog } from "@/components/vort-biz/work-item/WorkItemTable.types";
 
@@ -1014,7 +1015,12 @@ watch(() => props.initialData, (value) => {
                 <p v-else class="bug-detail-empty">暂无关联工作项</p>
             </div>
             <div class="bug-detail-panel" v-else-if="detailActiveTab === 'test'">
-                <p class="bug-detail-empty">暂无关联测试用例</p>
+                <TestCaseLinkPanel
+                    v-if="record?.backendId"
+                    :entity-type="linkEntityType"
+                    :entity-id="record.backendId"
+                />
+                <p v-else class="bug-detail-empty">暂无关联测试用例</p>
             </div>
             <div class="bug-detail-panel" v-else>
                 <p class="bug-detail-empty">暂无关联文档</p>

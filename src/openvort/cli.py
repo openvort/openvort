@@ -240,14 +240,12 @@ async def _start_service(web_flag: bool | None):
     # Initialize remote work node service and register executors
     try:
         from openvort.core.remote_node import RemoteNodeService
-        from openvort.core.remote_work_tool import set_remote_work_runtime
         from openvort.core.remote_executor import register_executor
-        from openvort.core.openclaw_executor import OpenClawExecutor
         from openvort.core.docker_executor import DockerExecutor
-        register_executor("openclaw", OpenClawExecutor())
+        from openvort.core.node_tools import set_node_tools_runtime
         register_executor("docker", DockerExecutor())
         remote_node_service = RemoteNodeService(session_factory)
-        set_remote_work_runtime(remote_node_service, session_factory)
+        set_node_tools_runtime(remote_node_service, session_factory)
     except Exception as e:
         log.warning(f"远程工作节点服务初始化失败: {e}")
 

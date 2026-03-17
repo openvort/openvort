@@ -1,4 +1,4 @@
-import { computed, nextTick, reactive, ref, type Ref } from "vue";
+import { computed, nextTick, reactive, ref, unref, type Ref } from "vue";
 import { message } from "@/components/vort";
 import type {
     Priority,
@@ -17,7 +17,8 @@ export interface UseWorkItemInlineEditOptions {
     toTaskEstimateHours: (p: Priority) => number;
     getBackendStatesByDisplayStatus: (type: string, status: Status) => string[];
     dynamicTagOptions: Ref<string[]>;
-    baseTagOptions: string[];
+    baseTagOptions: Ref<string[]> | string[];
+    tagDefinitions?: Ref<Array<{ name: string; color: string }>>;
     priorityModel: Record<string, Priority>;
     tagsModel: Record<string, string[]>;
     collaboratorsModel: Record<string, string[]>;
@@ -179,6 +180,11 @@ export function useWorkItemInlineEdit(options: UseWorkItemInlineEditOptions) {
 
     const getTagColor = (name: string): string => {
         if (tagColorOverrides[name]) return tagColorOverrides[name]!;
+        const defs = options.tagDefinitions?.value;
+        if (defs) {
+            const match = defs.find(t => t.name === name);
+            if (match) return match.color;
+        }
         let hash = 0;
         for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
         return tagColorPalette[hash % tagColorPalette.length]!;
@@ -188,7 +194,7 @@ export function useWorkItemInlineEdit(options: UseWorkItemInlineEditOptions) {
         return tagsModel[record.workNo] || text || [];
     };
 
-    const rowTagOptions = computed(() => dynamicTagOptions.value.length ? dynamicTagOptions.value : baseTagOptions);
+    const rowTagOptions = computed(() => dynamicTagOptions.value.length ? dynamicTagOptions.value : unref(baseTagOptions));
 
     const setRowTags = async (record: RowItem, nextTags: string[]) => {
         const prev = [...getRowTags(record, record.tags)];
@@ -221,7 +227,7 @@ export function useWorkItemInlineEdit(options: UseWorkItemInlineEditOptions) {
             message.error("请输入标签名称");
             return;
         }
-        const existing = new Set<string>([...baseTagOptions, ...dynamicTagOptions.value]);
+        const existing = new Set<string>([...unref(baseTagOptions), ...dynamicTagOptions.value]);
         if (existing.has(name)) {
             message.error("该标签已存在");
             return;

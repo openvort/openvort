@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, nextTick } from "vue";
 import { Bot, Plus, Search, Loader2, Pin } from "lucide-vue-next";
-import { getChatContacts, getChatMembers, startMemberChat, togglePinContact, hideChatContact, resetChatSession, markChatRead } from "@/api";
+import { getChatContacts, getChatMembers, startMemberChat, togglePinContact, hideChatContact, clearChatHistory, markChatRead } from "@/api";
 import { message, dialog, Popover as VortPopover } from "@/components/vort";
 import { useNotificationStore } from "@/stores/modules/notification";
 import { pinyin } from "pinyin-pro";
@@ -14,6 +14,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
     (e: "select", contact: Contact): void;
+    (e: "historyCleared", contact: Contact): void;
 }>();
 
 const contacts = ref<Contact[]>([]);
@@ -138,19 +139,16 @@ async function handleMarkUnread(contact: Contact) {
 }
 
 async function handleClearHistory(contact: Contact) {
-    const sessionId = contact.type === "ai" ? undefined : contact.session_id;
-    if (!sessionId && contact.type !== "ai") return;
+    const sessionId = contact.session_id;
+    if (!sessionId) return;
     dialog.confirm({
         title: "确认清空聊天记录？",
-        content: "清空后不可恢复",
+        content: "聊天记录将被永久删除且不可恢复",
         onOk: async () => {
             try {
-                if (contact.type === "ai") {
-                    message.info("请在 AI 对话中使用重置功能");
-                    return;
-                }
-                await resetChatSession(sessionId!);
+                await clearChatHistory(sessionId);
                 contact.last_message = "";
+                emit("historyCleared", contact);
                 message.success("聊天记录已清空");
             } catch {
                 message.error("清空失败");

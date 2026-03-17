@@ -6,15 +6,17 @@ import {
     getPublicSkills, subscribeMemberSkill, unsubscribeMemberSkill,
     updateMemberBio, generateMemberBioPrompt,
     getWorkAssignments, updateWorkAssignment, updateWorkAssignmentStatus, deleteWorkAssignment,
+    getRemoteNodes, updateMember, getMember,
 } from "@/api";
 import { message, dialog } from "@/components/vort";
-import { Bot, Plus, Trash2, Save, User, Globe, BookOpen, ClipboardList, Clock, Pause, Play, Square } from "lucide-vue-next";
+import { Bot, Plus, Trash2, Save, User, Globe, BookOpen, ClipboardList, Clock, Pause, Play, Square, Cpu } from "lucide-vue-next";
 
 const props = defineProps<{
     open: boolean;
     memberId: string;
     memberName: string;
     memberAvatarUrl?: string;
+    isVirtual?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -29,6 +31,45 @@ const personalSkills = ref<any[]>([]);
 const disabledSkillIds = ref<Set<string>>(new Set());
 const publicSkills = ref<any[]>([]);
 const savingBio = ref(false);
+
+// 工作节点
+interface RemoteNodeOption {
+    id: string;
+    name: string;
+    node_type: string;
+    gateway_url: string;
+    status: string;
+}
+const remoteNodes = ref<RemoteNodeOption[]>([]);
+const boundNodeId = ref("");
+const savingNodeBinding = ref(false);
+
+async function loadRemoteNodes() {
+    try {
+        const res: any = await getRemoteNodes();
+        remoteNodes.value = (res?.nodes || []).map((n: any) => ({
+            id: n.id, name: n.name, node_type: n.node_type || "openclaw",
+            gateway_url: n.gateway_url, status: n.status,
+        }));
+    } catch { /* ignore */ }
+}
+
+async function handleBindRemoteNode(nodeId: string) {
+    savingNodeBinding.value = true;
+    try {
+        const res: any = await updateMember(props.memberId, { remote_node_id: nodeId } as any);
+        if (res?.success) {
+            boundNodeId.value = nodeId;
+            message.success(nodeId ? "节点已绑定" : "已解除绑定");
+        } else {
+            message.error("绑定失败");
+        }
+    } catch {
+        message.error("绑定失败");
+    } finally {
+        savingNodeBinding.value = false;
+    }
+}
 
 // 工作安排
 const activeTab = ref<"profile" | "work">("work");
@@ -72,10 +113,15 @@ async function loadData() {
     if (!props.memberId) return;
     loading.value = true;
     try {
-        const [memberRes, publicRes]: any[] = await Promise.all([
+        const promises: Promise<any>[] = [
             getMemberSkills(props.memberId),
             getPublicSkills(),
-        ]);
+        ];
+        if (props.isVirtual) {
+            promises.push(getMember(props.memberId));
+            promises.push(loadRemoteNodes());
+        }
+        const [memberRes, publicRes, memberDetail]: any[] = await Promise.all(promises);
         personalSkills.value = memberRes?.personal || [];
         bio.value = memberRes?.bio || "";
         publicSkills.value = publicRes?.skills || [];
@@ -85,6 +131,10 @@ async function loadData() {
             disabled.add(id);
         }
         disabledSkillIds.value = disabled;
+
+        if (props.isVirtual && memberDetail) {
+            boundNodeId.value = memberDetail.remote_node_id || "";
+        }
     } catch { /* ignore */ }
     finally { loading.value = false; }
 }
@@ -459,6 +509,47 @@ const sourceTypeLabels: Record<string, string> = {
                             </div>
                             <VortSwitch :checked="!disabledSkillIds.has(skill.id)" size="small" @change="toggleSubscribe(skill)" />
                         </div>
+                    </div>
+                </div>
+
+                <!-- Remote work node (AI employees only) -->
+                <div v-if="isVirtual" class="rounded-lg border border-gray-100 bg-white">
+                    <div class="flex items-center gap-2 px-3 py-2.5 border-b border-gray-100 bg-gray-50/60 rounded-t-lg">
+                        <Cpu :size="14" class="text-gray-400" />
+                        <h4 class="text-sm font-medium text-gray-600">工作节点（Outbound）</h4>
+                    </div>
+                    <div class="px-3 py-3">
+                        <div class="text-xs text-gray-400 mb-2">
+                            绑定远程节点后，AI 员工可在远程电脑上执行编码、运行命令、操作文件等实际工作任务。
+                        </div>
+                        <VortSpin :spinning="savingNodeBinding">
+                            <VortSelect
+                                :model-value="boundNodeId"
+                                placeholder="未绑定（选择节点后可远程执行任务）"
+                                allow-clear
+                                style="width: 100%"
+                                @update:model-value="(val: string) => handleBindRemoteNode(val || '')"
+                            >
+                                <VortSelectOption v-for="node in remoteNodes" :key="node.id" :value="node.id">
+                                    <div class="flex items-center gap-2">
+                                        <span
+                                            class="w-2 h-2 rounded-full flex-shrink-0"
+                                            :class="['online', 'running'].includes(node.status) ? 'bg-green-500' : ['offline', 'stopped', 'error'].includes(node.status) ? 'bg-red-400' : 'bg-gray-300'"
+                                        />
+                                        <span>{{ node.name }}</span>
+                                        <span class="text-xs px-1 py-0.5 rounded" :class="node.node_type === 'docker' ? 'bg-purple-50 text-purple-600' : 'bg-blue-50 text-blue-600'">
+                                            {{ node.node_type === 'docker' ? 'Docker' : 'OpenClaw' }}
+                                        </span>
+                                        <span class="text-xs text-gray-400">
+                                            {{ node.node_type === 'docker' ? (['running', 'stopped'].includes(node.status) ? (node.status === 'running' ? '运行中' : '已停止') : node.status) : node.gateway_url }}
+                                        </span>
+                                    </div>
+                                </VortSelectOption>
+                            </VortSelect>
+                            <div class="mt-1.5 text-xs">
+                                <router-link to="/remote-nodes" class="text-blue-600 hover:underline">管理节点</router-link>
+                            </div>
+                        </VortSpin>
                     </div>
                 </div>
             </div>

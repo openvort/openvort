@@ -1,8 +1,19 @@
 {
   "name": "openvort-web",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
+  "description": "OpenVort Web Management Panel",
+  "author": "Yang Qiang",
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/openvort/openvort.git",
+    "directory": "web"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",

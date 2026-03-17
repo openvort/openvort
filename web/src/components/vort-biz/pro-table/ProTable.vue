@@ -1298,7 +1298,7 @@ defineExpose({
   }
 
   &:hover::after {
-    background: #4096ff;
+    background: var(--vort-primary);
   }
 }
 
@@ -1335,7 +1335,7 @@ defineExpose({
   }
 
   &.active {
-    color: #4096ff;
+    color: var(--vort-primary);
   }
 }
 

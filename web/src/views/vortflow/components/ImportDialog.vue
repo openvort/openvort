@@ -212,7 +212,7 @@ const handleUpload = async () => {
     color: #333;
 }
 .template-link {
-    color: #4096ff;
+    color: var(--vort-primary);
     text-decoration: none;
     cursor: pointer;
 }
@@ -232,10 +232,10 @@ const handleUpload = async () => {
     transition: border-color 0.2s;
 }
 .upload-area:hover {
-    border-color: #4096ff;
+    border-color: var(--vort-primary);
 }
 .upload-text {
     font-size: 13px;
-    color: #4096ff;
+    color: var(--vort-primary);
 }
 </style>

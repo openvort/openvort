@@ -153,12 +153,12 @@ const systemViews = computed(() => props.views);
     border: none;
     border-radius: 4px;
     background: transparent;
-    color: #4096ff;
+    color: var(--vort-primary);
     cursor: pointer;
     transition: background 0.2s;
 }
 .sidebar-pin-btn:hover {
-    background: rgba(64, 150, 255, 0.08);
+    background: var(--vort-primary-bg);
 }
 .sidebar-section {
     margin-bottom: 4px;
@@ -195,8 +195,8 @@ const systemViews = computed(() => props.views);
     transition: all 0.15s;
 }
 .section-action-btn:hover {
-    color: #4096ff;
-    background: rgba(64, 150, 255, 0.08);
+    color: var(--vort-primary);
+    background: var(--vort-primary-bg);
 }
 .section-arrow {
     color: #999;
@@ -224,8 +224,8 @@ const systemViews = computed(() => props.views);
     background: rgba(0, 0, 0, 0.04);
 }
 .view-item.active {
-    color: #4096ff;
-    background: rgba(64, 150, 255, 0.06);
+    color: var(--vort-primary);
+    background: var(--vort-primary-bg);
     font-weight: 500;
 }
 </style>

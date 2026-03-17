@@ -72,9 +72,9 @@ class CommandHandler:
     # ---- 命令实现 ----
 
     async def _cmd_new(self, channel: str, user_id: str, arg: str) -> str:
-        """重置会话"""
+        """重置上下文"""
         await self._sessions.clear(channel, user_id)
-        return "✅ 会话已重置"
+        return "✅ 上下文已重置"
 
     async def _cmd_status(self, channel: str, user_id: str, arg: str) -> str:
         """显示会话状态"""
@@ -124,7 +124,7 @@ class CommandHandler:
         """显示帮助"""
         return (
             "📋 可用命令:\n"
-            "/new — 重置会话\n"
+            "/new — 重置上下文\n"
             "/status — 查看会话状态\n"
             "/compact — 压缩上下文\n"
             "/think <off|low|medium|high> — 设置思考级别\n"

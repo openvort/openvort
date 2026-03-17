@@ -585,6 +585,55 @@ async def reset_session(req: ResetRequest, request: Request):
     return {"success": True, "context_reset_at": reset_ts}
 
 
+class ClearHistoryRequest(BaseModel):
+    session_id: str = "default"
+
+
+@router.post("/clear-history")
+async def clear_history(req: ClearHistoryRequest, request: Request):
+    """Permanently delete all chat messages (active + archived) and reset context.
+
+    Keeps the ChatSession row so the contact remains in the sidebar.
+    """
+    payload = require_auth(request)
+    member_id = payload.get("sub", "")
+
+    from sqlalchemy import select, delete as sa_delete
+    from openvort.db.models import ChatSession, ChatMessage
+    from openvort.web.deps import get_db_session_factory
+
+    session_store = get_session_store()
+    key = f"web:{member_id}:{req.session_id}"
+    session = session_store._sessions.get(key)
+    if session:
+        session.messages = []
+        session.context_reset_at = 0
+
+    sf = get_db_session_factory()
+    async with sf() as db:
+        row = (await db.execute(
+            select(ChatSession).where(
+                ChatSession.channel == "web",
+                ChatSession.user_id == member_id,
+                ChatSession.session_id == req.session_id,
+            )
+        )).scalar_one_or_none()
+        if row:
+            row.messages = "[]"
+            row.archived_messages = None
+            row.context_reset_at = None
+
+        await db.execute(
+            sa_delete(ChatMessage).where(
+                ChatMessage.owner_id == member_id,
+                ChatMessage.session_id == req.session_id,
+            )
+        )
+        await db.commit()
+
+    return {"success": True}
+
+
 class RestoreContextRequest(BaseModel):
     session_id: str = "default"
 

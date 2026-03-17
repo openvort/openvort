@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import pathlib
 import shutil
+from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING
 
 from openvort.utils.logging import get_logger
@@ -19,6 +22,28 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 log = get_logger("core.docker_executor")
+
+BUILTIN_IMAGES: dict[str, dict] = {
+    "openvort/worker-sandbox:latest": {"context": "docker/worker-sandbox"},
+    "openvort/coding-sandbox:latest": {"context": "docker/coding-sandbox"},
+    "openvort/browser-sandbox:latest": {"context": "docker/browser-sandbox", "use_entrypoint": True},
+}
+
+
+def image_needs_entrypoint(image: str) -> bool:
+    """Check if an image should use its own CMD/ENTRYPOINT instead of sleep infinity."""
+    spec = BUILTIN_IMAGES.get(image)
+    return bool(spec and spec.get("use_entrypoint"))
+
+
+def _find_project_root() -> str:
+    """Locate project root by looking for the docker/ directory."""
+    current = pathlib.Path(__file__).resolve().parent
+    for _ in range(10):
+        if (current / "docker").is_dir():
+            return str(current)
+        current = current.parent
+    return ""
 
 
 class DockerExecutor:
@@ -252,6 +277,56 @@ class DockerExecutor:
         except Exception as exc:
             return {"ok": False, "message": str(exc)}
 
+    async def check_image_exists(self, image: str) -> bool:
+        """Check if a Docker image exists locally."""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "docker", "image", "inspect", image,
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+            )
+            await proc.wait()
+            return proc.returncode == 0
+        except Exception:
+            return False
+
+    async def install_image_streaming(self, image: str) -> AsyncIterator[str]:
+        """Build (for builtin images) or pull, yielding progress lines."""
+        spec = BUILTIN_IMAGES.get(image)
+        if spec:
+            project_root = _find_project_root()
+            if project_root:
+                context_dir = os.path.join(project_root, spec["context"])
+                if os.path.isfile(os.path.join(context_dir, "Dockerfile")):
+                    async for line in self._build_image_streaming(image, context_dir):
+                        yield line
+                    return
+        async for line in self._pull_image_streaming(image):
+            yield line
+
+    async def _build_image_streaming(self, tag: str, context_dir: str) -> AsyncIterator[str]:
+        """Run `docker build` and yield output lines."""
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "build", "--progress=plain", "-t", tag, context_dir,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+        )
+        async for raw in proc.stdout:
+            yield raw.decode(errors="replace").rstrip()
+        await proc.wait()
+        if proc.returncode != 0:
+            yield f"[ERROR] docker build exited with code {proc.returncode}"
+
+    async def _pull_image_streaming(self, image: str) -> AsyncIterator[str]:
+        """Run `docker pull` and yield output lines."""
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "pull", image,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+        )
+        async for raw in proc.stdout:
+            yield raw.decode(errors="replace").rstrip()
+        await proc.wait()
+        if proc.returncode != 0:
+            yield f"[ERROR] docker pull exited with code {proc.returncode}"
+
     async def batch_stats(self, container_ids: list[str]) -> dict[str, dict]:
         """Get stats for multiple containers in one call."""
         if not container_ids:
@@ -280,6 +355,23 @@ class DockerExecutor:
             return result
         except Exception:
             return {}
+
+    async def get_container_ip(self, container_id: str) -> str:
+        """Return the container's IP address (bridge network) or '' (host network)."""
+        if not container_id:
+            return ""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "docker", "inspect", "-f",
+                "{{.NetworkSettings.IPAddress}}", container_id,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+            )
+            stdout, _ = await proc.communicate()
+            if proc.returncode == 0:
+                return stdout.decode().strip()
+        except Exception:
+            pass
+        return ""
 
     # ---- Internal helpers ----
 
@@ -368,6 +460,13 @@ class DockerExecutor:
                 "stderr": "".join(stderr_parts),
                 "exit_code": proc.returncode or 0,
             }
+        except asyncio.CancelledError:
+            proc.kill()
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=5)
+            except asyncio.TimeoutError:
+                pass
+            raise
         except asyncio.TimeoutError:
             proc.kill()
             try:

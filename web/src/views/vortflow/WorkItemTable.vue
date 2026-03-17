@@ -38,6 +38,7 @@ import {
     removeVortflowIterationStory, removeVortflowIterationTask,
     addVortflowVersionStory, removeVortflowVersionStory,
     getVortgitRepos, getVortgitRepoBranches,
+    getVortflowTags,
 } from "@/api";
 import type {
     WorkItemType,
@@ -288,7 +289,7 @@ const dateFilterConfig: ColumnFilterConfig = { type: "date" };
 
 const tagsFilterConfig = computed<ColumnFilterConfig>(() => ({
     type: "enum",
-    options: (dynamicTagOptions.value.length ? dynamicTagOptions.value : baseTagOptions).map(t => ({
+    options: (dynamicTagOptions.value.length ? dynamicTagOptions.value : baseTagOptions.value).map(t => ({
         label: t,
         value: t,
     })),
@@ -400,8 +401,22 @@ const handleExportJson = () => {
 
 const priorityModel = reactive<Record<string, Priority>>({});
 const tagsModel = reactive<Record<string, string[]>>({});
-const baseTagOptions = ["客户需求", "演示站", "运营需求", "待开会确认", "已发布", "高优先", "稳定性", "UI优化", "S1", "S2", "S3", "S4", "develop", "test"];
+const apiTagDefinitions = ref<Array<{ id: string; name: string; color: string }>>([]);
+const baseTagOptions = computed(() => apiTagDefinitions.value.map(t => t.name));
 const dynamicTagOptions = ref<string[]>([]);
+
+const loadTagDefinitions = async () => {
+    try {
+        const res: any = await getVortflowTags();
+        apiTagDefinitions.value = (res?.items || []).map((t: any) => ({
+            id: t.id,
+            name: t.name,
+            color: t.color,
+        }));
+    } catch {
+        apiTagDefinitions.value = [];
+    }
+};
 const planTimeModel = reactive<Record<string, any>>({});
 const collaboratorsModel = reactive<Record<string, string[]>>({});
 
@@ -478,7 +493,7 @@ const loadBranchOptions = async (repoId?: string) => {
 };
 
 const collectTagOptions = (rows: RowItem[]) => {
-    const set = new Set<string>(baseTagOptions);
+    const set = new Set<string>(baseTagOptions.value);
     for (const row of rows) {
         for (const tag of row.tags || []) {
             if (tag) set.add(tag);
@@ -955,6 +970,7 @@ const {
         getBackendStatesByDisplayStatus(typeValue as WorkItemType, statusValue) || [],
     dynamicTagOptions,
     baseTagOptions,
+    tagDefinitions: apiTagDefinitions,
     priorityModel,
     tagsModel,
     collaboratorsModel,
@@ -2138,6 +2154,7 @@ onMounted(async () => {
     await Promise.all([
         loadApiMetadata(false),
         loadRepoOptions(),
+        loadTagDefinitions(),
         vortFlowStore.loadColumnSettings(props.type || ""),
         vortFlowStore.loadViews(props.type || ""),
     ]);
