@@ -140,7 +140,7 @@ const unregisterItem = (key: string) => {
 const selectItem = (key: string) => {
     if (!props.selectable) return;
 
-    const keyPath = [key]; // TODO: 计算完整路径
+    const keyPath = [key];
 
     // 触发点击事件
     emit("click", { key, keyPath });

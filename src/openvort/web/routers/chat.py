@@ -284,6 +284,7 @@ async def stream_response(message_id: str, request: Request):
         try:
             yield {"event": "thinking", "data": "start"}
 
+            cancelled = False
             async for event in agent.process_stream_web(
                 msg["content"], member_id=member_id, images=msg.get("images", []),
                 session_id=session_id,
@@ -292,11 +293,16 @@ async def stream_response(message_id: str, request: Request):
                 target_id=msg.get("target_id", ""),
             ):
                 if running.cancel_event.is_set():
-                    break
+                    cancelled = True
+                    event_type = event.get("type", "")
+                    if event_type == "text" and not disconnected:
+                        yield {"event": "text", "data": event["text"]}
+                    continue
                 if await request.is_disconnected():
                     disconnected = True
                     running.cancel_event.set()
-                    break
+                    cancelled = True
+                    continue
 
                 event_type = event.get("type", "")
                 if event_type == "text":
@@ -304,7 +310,7 @@ async def stream_response(message_id: str, request: Request):
                 elif event_type in ("tool_use", "tool_output", "tool_progress", "tool_result", "usage"):
                     yield {"event": event_type, "data": json.dumps(event, ensure_ascii=False)}
 
-            if running.cancel_event.is_set():
+            if cancelled:
                 if not disconnected:
                     yield {"event": "interrupted", "data": "aborted"}
                 return
@@ -382,13 +388,17 @@ async def chat_history(request: Request, limit: int = 20, offset: int = 0, sessi
                     elif block.get("type") == "tool_result":
                         continue
 
+        msg_interrupted = False
         if role == "assistant" and tool_calls:
             next_msg = messages[i + 1] if i + 1 < len(messages) else None
             if next_msg and next_msg.get("role") == "user" and isinstance(next_msg.get("content"), list):
                 result_map: dict[str, str] = {}
                 for block in next_msg["content"]:
                     if isinstance(block, dict) and block.get("type") == "tool_result":
-                        result_map[block.get("tool_use_id", "")] = block.get("content", "")
+                        result_content = block.get("content", "")
+                        result_map[block.get("tool_use_id", "")] = result_content
+                        if result_content == "[已中止]":
+                            msg_interrupted = True
                 for tc in tool_calls:
                     tc["output"] = result_map.get(tc.get("id", ""), "")
 
@@ -405,6 +415,8 @@ async def chat_history(request: Request, limit: int = 20, offset: int = 0, sessi
             }
             if tool_calls:
                 entry["tool_calls"] = tool_calls
+            if msg_interrupted:
+                entry["interrupted"] = True
             formatted.append(entry)
         elif role == "user" and (content or images):
             entry = {

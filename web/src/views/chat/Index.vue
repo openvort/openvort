@@ -178,6 +178,7 @@ interface ActiveStream {
     twTimer: ReturnType<typeof setInterval> | null;
     messagesRef: ChatMessage[];
     phase: "thinking" | "generating" | "tool_running" | "idle";
+    _abortTimeout?: ReturnType<typeof setTimeout> | null;
 }
 const activeStreams = new Map<string, ActiveStream>();
 
@@ -601,6 +602,10 @@ async function handleSend() {
         function flushAndFinish(options?: { interrupted?: boolean }) {
             if (streamState.done) return;
             streamState.done = true;
+            if (streamState._abortTimeout) {
+                clearTimeout(streamState._abortTimeout);
+                streamState._abortTimeout = null;
+            }
             aborting.value = false;
             stopTypewriter();
             let finalText = streamState.targetText;
@@ -850,34 +855,49 @@ async function handleAbortCurrentStream() {
     if (!loading.value || aborting.value) return;
     const sessionId = currentSessionId.value;
     const streamState = activeStreams.get(sessionId);
-    if (!streamState) {
+    if (!streamState || streamState.done) {
         loading.value = false;
         return;
     }
 
     aborting.value = true;
+
+    function forceFinalize() {
+        if (streamState.done) return;
+        streamState.done = true;
+        if (streamState._abortTimeout) {
+            clearTimeout(streamState._abortTimeout);
+            streamState._abortTimeout = null;
+        }
+        aborting.value = false;
+        if (streamState.twTimer) {
+            clearInterval(streamState.twTimer);
+            streamState.twTimer = null;
+        }
+        streamState.assistantMsg.content = streamState.targetText || "";
+        streamState.assistantMsg.streaming = false;
+        streamState.assistantMsg.interrupted = true;
+        activeStreams.delete(sessionId);
+        loading.value = false;
+        scrollToBottom(true);
+        loadSessionInfo();
+    }
+
     try {
         await abortChatMessage(streamState.messageId);
     } catch {
-        // Fall back to local close/finalize even if abort API fails.
-    } finally {
         try { streamState.eventSource?.close(); } catch { /* noop */ }
-        if (!streamState.done) {
-            streamState.done = true;
-            if (streamState.twTimer) {
-                clearInterval(streamState.twTimer);
-                streamState.twTimer = null;
-            }
-                streamState.assistantMsg.content = streamState.targetText
-                ? `${streamState.targetText}...`
-                : "";
-            streamState.assistantMsg.streaming = false;
-            activeStreams.delete(sessionId);
-            loading.value = false;
-            scrollToBottom(true);
-            loadSessionInfo();
-        }
-        aborting.value = false;
+        forceFinalize();
+        return;
+    }
+
+    // Backend accepted; wait for summary text + `interrupted` SSE event.
+    // Timeout fallback: force finalize if no response within 15s.
+    if (!streamState.done) {
+        streamState._abortTimeout = setTimeout(() => {
+            try { streamState.eventSource?.close(); } catch { /* noop */ }
+            forceFinalize();
+        }, 15000);
     }
 }
 
@@ -917,7 +937,7 @@ function triggerVideoInput() {
     input.type = 'file';
     input.accept = '.mp4,.mov,.avi,.wmv,.flv,.mkv';
     input.multiple = false;
-    input.onchange = () => { /* TODO */ };
+    input.onchange = () => { if (input.files?.length) addFiles(input.files); };
     input.click();
 }
 
@@ -1025,6 +1045,7 @@ function parseHistoryMessages(raw: any[]): ChatMessage[] {
             content,
             images,
             timestamp: m.timestamp ? m.timestamp * 1000 : 0,
+            interrupted: m.interrupted || false,
         };
         if (m.tool_calls?.length) {
             msg.toolCalls = mergeToolCalls(
@@ -2472,10 +2493,11 @@ onUnmounted(() => {
                                 v-if="loading"
                                 :disabled="aborting"
                                 @click="handleAbortCurrentStream"
-                                class="w-20 h-9 rounded-lg flex items-center justify-center transition-colors send-btn"
-                                :class="aborting ? 'send-btn-disabled' : 'send-btn-stop'"
+                                class="h-9 rounded-lg flex items-center justify-center gap-1.5 transition-colors send-btn"
+                                :class="aborting ? 'send-btn-disabled px-3' : 'send-btn-stop w-20'"
                             >
                                 <Square :size="14" fill="currentColor" class="text-white" />
+                                <span v-if="aborting" class="text-white text-xs">正在中止...</span>
                             </button>
                             <button
                                 v-else
