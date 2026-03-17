@@ -200,10 +200,9 @@ async def update_settings(req: UpdateSettingsRequest):
         await config_service.save_llm_settings(data)
         llm_related_changed = True
 
-    # Update web settings (auto_check_update)
+    # Update web settings (auto_check_update) — persist to DB
     if req.auto_check_update is not None:
-        settings = get_settings()
-        settings.web.auto_check_update = req.auto_check_update
+        await config_service.save_auto_check_update(req.auto_check_update)
 
     # 仅在 LLM 配置变化时才应用并热更新，避免无关设置更新被 LLM 状态阻塞
     if llm_related_changed:

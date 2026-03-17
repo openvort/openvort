@@ -288,6 +288,7 @@ async def _start_service(web_flag: bool | None):
     await config_service.load_all()
     await config_service.apply_llm_to_settings()
     await config_service.apply_org_to_settings()
+    await config_service.apply_web_to_settings()
 
     # 初始化 Agent
     session_store = SessionStore(session_factory=session_factory)

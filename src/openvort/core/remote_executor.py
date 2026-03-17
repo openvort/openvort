@@ -34,6 +34,7 @@ class RemoteNodeExecutor(Protocol):
         context: dict | None = None,
         timeout: int = 300,
         on_text: "Callable[[str], None] | None" = None,
+        extra_system_prompt: str = "",
     ) -> dict:
         """Execute a work instruction on the remote node."""
         ...

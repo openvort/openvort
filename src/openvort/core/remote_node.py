@@ -205,6 +205,20 @@ class RemoteNodeService:
             gateway_token = secrets.token_urlsafe(32)
             merged_env["GATEWAY_TOKEN"] = gateway_token
 
+            # Inject OpenVort's LLM config so the agent reuses the same provider
+            try:
+                from openvort.web.deps import get_config_service
+                cs = get_config_service()
+                chain = await cs.get_effective_llm_chain()
+                if chain:
+                    primary = chain[0]
+                    merged_env.setdefault("OPENVORT_LLM_PROVIDER", primary.get("provider", ""))
+                    merged_env.setdefault("OPENVORT_LLM_API_KEY", primary.get("api_key", ""))
+                    merged_env.setdefault("OPENVORT_LLM_API_BASE", primary.get("api_base", ""))
+                    merged_env.setdefault("OPENVORT_LLM_MODEL", primary.get("model", ""))
+            except Exception as exc:
+                log.warning(f"Failed to inject LLM config into container: {exc}")
+
         executor = DockerExecutor()
         result = await executor.create_container({
             "image": image,
@@ -458,6 +472,7 @@ class RemoteNodeService:
     async def send_instruction(
         self, node_id: str, instruction: str, *, context: dict | None = None, timeout: int = 300,
         on_text: "Callable[[str], None] | None" = None,
+        extra_system_prompt: str = "",
     ) -> dict:
         """Send a work instruction to a remote node via its executor."""
         async with self._sf() as db:
@@ -483,9 +498,12 @@ class RemoteNodeService:
                 openclaw_exec = get_executor("openclaw")
                 if not openclaw_exec:
                     return {"ok": False, "error": "unsupported_type", "message": "OpenClaw executor 未注册"}
-                log.info(f"Sending instruction to OpenClaw Docker node {node.name}: {node.gateway_url}")
+                cid = config.get("container_id", "")
+                log.info(f"Sending instruction to OpenClaw Docker node {node.name}: container={cid[:12]}")
                 result = await openclaw_exec.send_instruction(
-                    node.gateway_url, token, instruction, context=context, timeout=timeout, on_text=on_text,
+                    node.gateway_url, token, instruction,
+                    container_id=cid, context=context, timeout=timeout, on_text=on_text,
+                    extra_system_prompt=extra_system_prompt,
                 )
             else:
                 cid = config.get("container_id", "")
@@ -494,6 +512,7 @@ class RemoteNodeService:
                 log.info(f"Sending instruction to Docker node {node.name}: container={cid[:12]}")
                 result = await executor.send_instruction(
                     cid, "", instruction, context=context, timeout=timeout, on_text=on_text,
+                    extra_system_prompt=extra_system_prompt,
                 )
         else:
             token = _decrypt(node.gateway_token)
@@ -503,7 +522,7 @@ class RemoteNodeService:
             log.info(f"Sending instruction to node {node.name}: url={node.gateway_url}, token={masked}, len={len(token)}")
             result = await executor.send_instruction(
                 node.gateway_url, token, instruction, context=context, timeout=timeout,
-                on_text=on_text,
+                on_text=on_text, extra_system_prompt=extra_system_prompt,
             )
 
         if result.get("ok"):

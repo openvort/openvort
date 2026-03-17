@@ -101,12 +101,25 @@ class RemoteWorkTool(BaseTool):
 
         node = await _service.get_node(node_id)
         if not node:
-            return f"绑定的工作节点（{node_id[:8]}...）不存在，请管理员重新配置。"
+            return (
+                f"绑定的工作节点（{node_id[:8]}...）不存在，请管理员重新配置。\n"
+                "[FALLBACK] 节点不可用，请使用你的内置工具完成本次任务。"
+            )
+
+        node_status = node.get("status", "unknown")
+        if node_status not in ("online", "running"):
+            return (
+                f"工作节点「{node['name']}」当前不可用（状态: {node_status}）。\n"
+                "[FALLBACK] 请使用你的内置工具（如 browser_navigate、git_code_task 等）完成本次任务，"
+                "简短告知用户节点暂时离线即可，不要反复提及。"
+            )
 
         context = {
             "employee_name": member_name,
             "employee_post": member_post,
         }
+
+        extra_sp = _build_node_system_prompt(node, member_name, member_post)
 
         import asyncio
 
@@ -127,7 +140,7 @@ class RemoteWorkTool(BaseTool):
 
         result = await _service.send_instruction(
             node_id, instruction, context=context, timeout=timeout,
-            on_text=_on_text,
+            on_text=_on_text, extra_system_prompt=extra_sp,
         )
 
         if result["ok"]:
@@ -145,9 +158,63 @@ class RemoteWorkTool(BaseTool):
                     hint += f"\n\n已收到的部分输出：\n{partial_text}"
                 return hint
             elif error == "connect_error":
-                return f"无法连接到远程节点「{node['name']}」: {message}"
+                return (
+                    f"无法连接到远程节点「{node['name']}」: {message}\n"
+                    "[FALLBACK] 节点连接失败，请使用你的内置工具完成本次任务，"
+                    "简短告知用户节点暂时不可用即可。"
+                )
             else:
                 return f"远程执行失败：{message}"
+
+
+def _build_node_system_prompt(node: dict, member_name: str, member_post: str) -> str:
+    """Build the extra system prompt injected into the node AI.
+
+    This makes the node AI an extension of the AI employee rather than
+    an independent agent — it knows who it is, what environment it has,
+    and how much autonomy it has.
+    """
+    node_type = node.get("node_type", "")
+    config = node.get("config") or {}
+    image = config.get("image", "")
+
+    # Identity
+    identity = f"你是「{member_name}」"
+    if member_post:
+        identity += f"（{member_post}）"
+    identity += "，正在使用这台工作电脑完成同事交办的任务。"
+
+    # Environment capabilities based on node type
+    if node_type == "docker":
+        env_section = """## 工作环境
+
+你在一台 Docker 容器中工作，拥有 root 权限。
+已预装：git, curl, python3, node/npm。
+你可以自由使用 apt-get, npm, pip 安装任何需要的工具和依赖。"""
+    else:
+        env_section = """## 工作环境
+
+你在一台远程工作机器上运行，可以执行命令和操作文件。"""
+
+    autonomy_section = """## 自主权准则
+
+你对这台工作电脑有完全的自主权，像一个真人员工使用自己的工作电脑一样。
+
+### 遇到缺少工具时的处理原则
+- **小依赖**（pip/npm 包、命令行工具等）：直接安装，不需要说明，装完继续执行任务
+- **中等依赖**（Chromium/Playwright 等 100-500MB 级别）：在执行结果中简要说明"正在安装 XX，可能需要 1-2 分钟"，然后直接安装并继续执行
+- **大型软件**（数 GB 级别的 SDK、数据库等）：在结果中说明需要安装什么、大约多大、需要多久，等待下一条指令确认后再装
+
+### 禁止行为
+- 不要因为缺少某个工具就放弃任务或降级处理（如用 curl 代替浏览器）
+- 不要说"容器中没有 XX，无法完成"——你可以自己安装
+- 不要每次都列出环境限制清单，专注于完成任务"""
+
+    return f"""{identity}
+
+{env_section}
+
+{autonomy_section}"""
 
 
 def get_remote_work_tools() -> list[BaseTool]:

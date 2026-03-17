@@ -1,13 +1,16 @@
 """
 OpenClaw Gateway WebSocket client.
 
-Implements the Gateway protocol v3: connect handshake, agent execution
-with agent.wait, and streaming event collection.
+Implements the Gateway protocol v3: challenge-response handshake with
+Ed25519 device signatures, agent execution with agent.wait, and
+streaming event collection.
 """
 
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
 import json
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -17,6 +20,14 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 import websockets
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.serialization import (
+    Encoding,
+    PublicFormat,
+    PrivateFormat,
+    NoEncryption,
+    load_pem_private_key,
+)
 from websockets.asyncio.client import ClientConnection
 
 from openvort.utils.logging import get_logger
@@ -24,9 +35,16 @@ from openvort.utils.logging import get_logger
 log = get_logger("core.openclaw_ws")
 
 _PROTOCOL_VERSION = 3
-_CLIENT_ID = "gateway-client"
-_CLIENT_MODE = "backend"
+_CLIENT_ID = "cli"
+_CLIENT_MODE = "cli"
 _CLIENT_VERSION = "1.0.0"
+_DEFAULT_SCOPES = [
+    "operator.read",
+    "operator.write",
+    "operator.admin",
+    "operator.approvals",
+    "operator.pairing",
+]
 
 
 @dataclass
@@ -135,6 +153,7 @@ class OpenClawWsClient:
         run_id: str | None = None
         wait_req_id: str | None = None
         latest_text: str = ""
+        tool_outputs: list[str] = []
         result = AgentResult(ok=False, error="unexpected disconnect")
 
         try:
@@ -162,9 +181,15 @@ class OpenClawWsClient:
                     elif msg_id == wait_req_id:
                         payload = msg.get("payload", {})
                         status = payload.get("status", "unknown")
+                        parts = []
+                        if latest_text:
+                            parts.append(latest_text)
+                        if tool_outputs:
+                            parts.append("\n".join(tool_outputs))
+                        final_text = "\n\n".join(parts)
                         result = AgentResult(
                             ok=(status == "ok"),
-                            text=latest_text,
+                            text=final_text,
                             status=status,
                             started_at=payload.get("startedAt"),
                             ended_at=payload.get("endedAt"),
@@ -190,7 +215,23 @@ class OpenClawWsClient:
                                     except Exception:
                                         pass
 
-                    # tick keepalive — just ignore
+                        elif stream == "tool":
+                            phase = data.get("phase", "")
+                            if phase == "result":
+                                tool_result = data.get("result")
+                                if isinstance(tool_result, dict):
+                                    stdout = tool_result.get("stdout", "")
+                                    if stdout:
+                                        tool_outputs.append(stdout)
+                                elif isinstance(tool_result, str) and tool_result:
+                                    tool_outputs.append(tool_result)
+                            elif phase == "output":
+                                output = data.get("output", "")
+                                if output and on_text is not None:
+                                    try:
+                                        on_text(output)
+                                    except Exception:
+                                        pass
 
         except websockets.exceptions.ConnectionClosed:
             if not result.text and latest_text:
@@ -226,8 +267,22 @@ class OpenClawWsClient:
     # ------------------------------------------------------------------
 
     async def _handshake(self, token: str, *, timeout: float = 15) -> dict:
-        """Perform the connect handshake, return hello-ok payload."""
+        """Perform the challenge-response connect handshake.
+
+        Protocol v3 flow:
+        1. Wait for ``connect.challenge`` event (contains nonce + ts)
+        2. Generate/reuse Ed25519 keypair, sign challenge payload
+        3. Send ``connect`` request with auth token + device signature
+        4. Wait for ``hello-ok`` response
+        """
         assert self._ws is not None
+
+        deadline = asyncio.get_event_loop().time() + timeout
+
+        nonce, ts = await self._wait_challenge(deadline)
+
+        identity = _get_device_identity()
+        device_section = _sign_challenge(identity, nonce, ts, token)
 
         req_id = _short_id()
         connect_frame = {
@@ -244,17 +299,19 @@ class OpenClawWsClient:
                     "mode": _CLIENT_MODE,
                 },
                 "role": "operator",
-                "scopes": ["operator.read", "operator.write"],
-                "caps": [],
+                "scopes": _DEFAULT_SCOPES,
+                "caps": ["agent-events", "tool-events"],
                 "commands": [],
                 "permissions": {},
                 "auth": {"token": token},
+                "locale": "en-US",
+                "userAgent": f"openvort/{_CLIENT_VERSION}",
+                "device": device_section,
             },
         }
 
         await self._ws.send(json.dumps(connect_frame))
 
-        deadline = asyncio.get_event_loop().time() + timeout
         while True:
             remaining = deadline - asyncio.get_event_loop().time()
             if remaining <= 0:
@@ -267,9 +324,6 @@ class OpenClawWsClient:
 
             msg = json.loads(raw)
 
-            if msg.get("type") == "event" and msg.get("event") == "connect.challenge":
-                continue
-
             if msg.get("type") == "res" and msg.get("id") == req_id:
                 if not msg.get("ok"):
                     err = msg.get("error", {})
@@ -278,8 +332,24 @@ class OpenClawWsClient:
                     )
                 return msg.get("payload", {})
 
-            # Skip unexpected frames during handshake
             log.debug(f"Handshake: skipping frame type={msg.get('type')}")
+
+    async def _wait_challenge(self, deadline: float) -> tuple[str, int]:
+        """Wait for ``connect.challenge`` event, return ``(nonce, ts)``."""
+        assert self._ws is not None
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                raise OpenClawWsError("等待 challenge 超时")
+            try:
+                raw = await asyncio.wait_for(self._ws.recv(), timeout=remaining)
+            except asyncio.TimeoutError:
+                raise OpenClawWsError("等待 challenge 超时")
+            msg = json.loads(raw)
+            if msg.get("type") == "event" and msg.get("event") == "connect.challenge":
+                payload = msg.get("payload", {})
+                return payload["nonce"], payload["ts"]
+            log.debug(f"Pre-challenge: skipping frame type={msg.get('type')}")
 
     async def _send_req(self, req_id: str, method: str, params: dict) -> None:
         assert self._ws is not None
@@ -303,6 +373,70 @@ class OpenClawWsClient:
 
 class OpenClawWsError(Exception):
     """Raised when a WebSocket operation fails."""
+
+
+# ------------------------------------------------------------------
+# Device identity & challenge signing (Ed25519)
+# ------------------------------------------------------------------
+
+_device_identity: dict | None = None
+
+
+def _get_device_identity() -> dict:
+    """Get or generate a persistent Ed25519 device identity.
+
+    The identity is kept in-memory for the lifetime of the process.
+    """
+    global _device_identity
+    if _device_identity is not None:
+        return _device_identity
+
+    private_key = Ed25519PrivateKey.generate()
+    public_key = private_key.public_key()
+    pub_bytes = public_key.public_bytes(Encoding.Raw, PublicFormat.Raw)
+    pub_b64url = base64.urlsafe_b64encode(pub_bytes).decode().rstrip("=")
+    device_id = hashlib.sha256(pub_bytes).hexdigest()
+    private_pem = private_key.private_bytes(
+        Encoding.PEM, PrivateFormat.PKCS8, NoEncryption()
+    ).decode()
+
+    _device_identity = {
+        "id": device_id,
+        "publicKey": pub_b64url,
+        "privateKey": private_pem,
+    }
+    return _device_identity
+
+
+def _sign_challenge(identity: dict, nonce: str, ts: int, token: str) -> dict:
+    """Sign the gateway challenge nonce.
+
+    Signature payload format: ``v2|deviceId|clientId|clientMode|role|scopes|ts|token|nonce``
+    """
+    parts = [
+        "v2",
+        identity["id"],
+        _CLIENT_ID,
+        _CLIENT_MODE,
+        "operator",
+        ",".join(_DEFAULT_SCOPES),
+        str(ts),
+        token,
+        nonce,
+    ]
+    payload = "|".join(parts)
+
+    private_key = load_pem_private_key(identity["privateKey"].encode(), password=None)
+    signature = private_key.sign(payload.encode())  # type: ignore[union-attr]
+    sig_b64url = base64.urlsafe_b64encode(signature).decode().rstrip("=")
+
+    return {
+        "id": identity["id"],
+        "publicKey": identity["publicKey"],
+        "signature": sig_b64url,
+        "signedAt": ts,
+        "nonce": nonce,
+    }
 
 
 def _http_to_ws(url: str) -> str:

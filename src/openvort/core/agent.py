@@ -87,6 +87,17 @@ SYSTEM_PROMPT = """你是 OpenVort 助手，一个智能研发工作流引擎。
 - 对于已转写的语音消息，禁止再说“无法识别语音内容”或要求用户把语音改成文字
 """
 
+# Built-in tools that overlap with remote node capabilities.
+# When a node is online, these are removed from the tool list to prevent
+# the LLM from bypassing the node and using them directly.
+_NODE_SUPERSEDED_TOOLS = frozenset({
+    "browser_navigate",
+    "browser_snapshot",
+    "browser_screenshot",
+    "browser_click",
+    "browser_type",
+})
+
 
 class AgentRuntime:
     """AI Agent 运行时
@@ -164,12 +175,21 @@ class AgentRuntime:
             except Exception as e:
                 log.warning(f"检查插件 {plugin.name} 就绪状态失败: {e}")
 
+        # 2.2 AI 员工远程节点 prompt + tool gating
+        remote_node_prompt = ""
+        if ctx.member and ctx.member.is_virtual:
+            node_info = await self._get_remote_node_info(ctx.member)
+            if node_info:
+                remote_node_prompt = self._build_remote_node_prompt_section(node_info)
+                if node_info.get("status") in ("online", "running"):
+                    blocked_tools |= _NODE_SUPERSEDED_TOOLS
+
         # 3. 获取可用工具（按权限和渠道过滤）
         tools = self._registry.to_claude_tools(
             permissions=ctx.permissions if ctx.permissions else None,
             allowed_tools=ctx.allowed_tools,
         )
-        # 移除未就绪插件的工具，用户必须先完成引导（同步通讯录 + 绑定身份）
+        # 移除未就绪插件的工具 + 节点在线时被替代的内置工具
         if blocked_tools:
             tools = [t for t in tools if t["name"] not in blocked_tools]
         tools = self._prioritize_tools_for_intent(content, tools)
@@ -200,6 +220,9 @@ class AgentRuntime:
                 # 检查是否为 AI 员工，注入人设
                 if ctx.member and ctx.member.is_virtual and ctx.member.virtual_system_prompt:
                     system += f"\n\n# AI 员工人设\n\n{ctx.member.virtual_system_prompt}"
+
+                if remote_node_prompt:
+                    system += f"\n\n{remote_node_prompt}"
 
                 plugin_prompts = self._registry.get_system_prompt_extension()
                 if plugin_prompts:
@@ -422,6 +445,15 @@ class AgentRuntime:
             except Exception as e:
                 log.warning(f"[im-stream] 检查插件 {plugin.name} 就绪状态失败: {e}")
 
+        # AI 员工远程节点 prompt + tool gating
+        remote_node_prompt = ""
+        if ctx.member and ctx.member.is_virtual:
+            node_info = await self._get_remote_node_info(ctx.member)
+            if node_info:
+                remote_node_prompt = self._build_remote_node_prompt_section(node_info)
+                if node_info.get("status") in ("online", "running"):
+                    blocked_tools |= _NODE_SUPERSEDED_TOOLS
+
         tools = self._registry.to_claude_tools(
             permissions=ctx.permissions if ctx.permissions else None,
             allowed_tools=ctx.allowed_tools,
@@ -451,6 +483,8 @@ class AgentRuntime:
                     system += f"\n\n# 当前操作提示\n\n{action_hint}"
                 if ctx.member and ctx.member.is_virtual and ctx.member.virtual_system_prompt:
                     system += f"\n\n# AI 员工人设\n\n{ctx.member.virtual_system_prompt}"
+                if remote_node_prompt:
+                    system += f"\n\n{remote_node_prompt}"
                 plugin_prompts = self._registry.get_system_prompt_extension()
                 if plugin_prompts:
                     system += "\n\n" + plugin_prompts
@@ -653,6 +687,13 @@ class AgentRuntime:
                         onboarding_hints.append(f"## {plugin.display_name}引导\n\n{hint}")
             except Exception as e:
                 log.warning(f"[web] 检查插件 {plugin.name} 就绪状态失败: {e}")
+
+        # When chatting with a member that has an available remote node,
+        # block built-in tools that the node supersedes.
+        if target_type == "member" and target_id:
+            node_info = await self._get_remote_node_info_by_id(target_id)
+            if node_info and node_info.get("status") in ("online", "running"):
+                blocked_tools |= _NODE_SUPERSEDED_TOOLS
 
         # Build system prompt: member proxy chats use a standalone persona prompt
         if target_type == "member" and target_id:
@@ -1196,7 +1237,29 @@ class AgentRuntime:
                 node = await db.get(RemoteNode, node_id)
                 if not node:
                     return None
-                return {"name": node.name, "gateway_url": node.gateway_url, "status": node.status}
+                return {
+                    "name": node.name,
+                    "gateway_url": node.gateway_url,
+                    "status": node.status,
+                    "node_type": node.node_type,
+                }
+        except Exception:
+            return None
+
+    async def _get_remote_node_info_by_id(self, member_id: str) -> dict | None:
+        """Look up remote node info for a member given only the member ID."""
+        try:
+            from openvort.web.deps import get_db_session_factory
+            from openvort.contacts.models import Member
+
+            sf = get_db_session_factory()
+            if not sf:
+                return None
+            async with sf() as db:
+                m = await db.get(Member, member_id)
+                if not m:
+                    return None
+            return await self._get_remote_node_info(m)
         except Exception:
             return None
 
@@ -1279,22 +1342,58 @@ class AgentRuntime:
         """Build system prompt section describing remote work capability."""
         node_name = info.get("name", "远程节点")
         status = info.get("status", "unknown")
-        status_label = {"online": "在线", "offline": "离线"}.get(status, "未知")
+        node_type = info.get("node_type", "")
+        is_available = status in ("online", "running")
+
+        if is_available:
+            env_hint = ""
+            if node_type == "docker":
+                env_hint = "这是一台 Docker 容器，你拥有 root 权限，可以自由安装任何需要的软件。"
+
+            return f"""
+## 你的工作电脑
+
+你有一台工作电脑「{node_name}」，当前在线可用。{env_hint}
+使用 `remote_work` 工具就像你亲自坐在电脑前操作一样。
+
+### 什么时候用你的电脑
+
+所有需要"动手"的任务都在你的电脑上完成：
+- 编码、改文件、运行命令
+- 浏览网页、截图、页面交互
+- 部署、调试、安装依赖
+
+以下任务直接使用内置工具，不需要经过电脑：
+- 发 IM 消息、管理工作项、管理定时任务、查 Git 记录、纯知识问答
+
+### 怎么用
+
+调用 `remote_work` 时，在 `instruction` 中用自然语言描述你想做的事。把意图说清楚，不要只是透传同事的原话。
+
+### 操作连续性
+
+在电脑上开始做一件事后，后续相关操作继续在电脑上做，不要中途切回内置工具。
+
+### 缺少工具时
+
+你的电脑可以自己安装软件。如果电脑反馈缺少某个工具：
+- 小工具：直接发一条安装指令，装完继续原任务
+- 大软件（浏览器等 300MB+）：告知同事需要安装什么、大约多久，确认后再装
+
+### 登录与认证
+
+如果电脑反馈需要登录网站或授权，告知同事需要在「{node_name}」上完成登录，等确认后继续。"""
+
         return f"""
-## 远程工作环境
+## 你的工作电脑（当前离线）
 
-你拥有一台远程工作电脑「{node_name}」（当前状态: {status_label}），可以通过 `remote_work` 工具在上面执行实际操作。
+你有一台工作电脑「{node_name}」，但当前不可用（状态: {status}）。
 
-**使用场景**: 当同事要求你执行编码、运行命令、操作文件、部署、调试等需要在电脑上完成的任务时，使用 `remote_work` 工具将指令发送到远程电脑执行。
+### 降级处理
 
-**触发关键词**: 当对话中出现「远程」「在你电脑上」「帮我跑一下」「执行」「部署」「写代码」「改代码」「运行」等意图时，主动使用此工具。
-
-**使用方式**: 调用 `remote_work` 工具，在 `instruction` 参数中用自然语言描述要执行的任务。远程电脑会理解并执行指令，返回结果。
-
-**登录与认证**: 如果远程执行结果显示需要登录网站、授权第三方服务、输入验证码等需要人工交互的操作，你应该：
-1. 告知同事需要先在远程电脑「{node_name}」上手动完成登录/授权
-2. 说明具体需要登录哪个网站或服务
-3. 等同事确认登录完成后，再继续执行原任务"""
+1. **首次遇到**：简短告知同事电脑暂时离线，然后直接用内置工具完成任务
+2. **后续**：不要反复提，直接用内置工具即可
+3. **恢复后**：如果 `remote_work` 调用成功了，说明电脑恢复了，后续切回电脑"""
 
     @staticmethod
     def _build_async_task_prompt() -> str:
