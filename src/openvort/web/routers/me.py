@@ -508,7 +508,10 @@ async def save_plugin_personal_settings(request: Request, plugin_name: str, req:
                 if isinstance(val, str) and val.startswith("****"):
                     new_data[key] = old_data.get(key, "")
                 elif val:
-                    new_data[key] = encrypt_token(str(val).strip())
+                    cleaned = str(val).encode("ascii", errors="ignore").decode("ascii").strip()
+                    if not cleaned:
+                        raise HTTPException(status_code=400, detail=f"字段 {key} 包含无效字符，请确保输入纯 ASCII 内容（如 API Token）")
+                    new_data[key] = encrypt_token(cleaned)
                 else:
                     new_data[key] = ""
             else:

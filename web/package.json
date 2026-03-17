@@ -23,6 +23,7 @@
     "axios": "^1.13.5",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "cropperjs": "^1.6.2",
     "dayjs": "^1.11.19",
     "echarts": "^6.0.0",
     "lucide-vue-next": "^0.563.0",
