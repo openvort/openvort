@@ -110,6 +110,11 @@ class PluginLoader:
                     log.warning(f"无法加载本地 Plugin '{plugin_dir.name}'：无效的模块")
                     continue
 
+                # Add plugin directory to sys.path so sub-modules (tools/, etc.) are importable
+                plugin_dir_str = str(plugin_dir)
+                if plugin_dir_str not in sys.path:
+                    sys.path.insert(0, plugin_dir_str)
+
                 module = importlib.util.module_from_spec(spec)
                 sys.modules[module_name] = module
                 spec.loader.exec_module(module)

@@ -253,6 +253,14 @@ class BasePlugin(ABC):
         """
         return []
 
+    def get_personal_config_schema(self) -> list[dict]:
+        """返回个人级配置字段定义（每位成员独立配置）
+
+        格式同 get_config_schema()。常用于个人 API Key / Token 等凭证。
+        前端会在「个人设置 → 插件配置」中渲染表单。
+        """
+        return []
+
     def get_current_config(self) -> dict:
         """返回当前配置值（secret 字段脱敏显示）"""
         return {}

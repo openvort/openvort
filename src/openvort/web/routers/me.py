@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from openvort.config.settings import get_settings
 from openvort.web.app import require_auth
-from openvort.web.deps import get_db_session_factory, get_auth_service
+from openvort.web.deps import get_db_session_factory, get_auth_service, get_registry
 
 router = APIRouter()
 
@@ -383,6 +383,171 @@ async def delete_git_token(request: Request, platform: str):
 
         if ident:
             ident.access_token = ""
+            await session.commit()
+
+    return {"success": True}
+
+
+# ---- 个人插件配置 ----
+
+
+@router.get("/plugin-settings")
+async def list_plugin_personal_settings(request: Request):
+    """列出所有声明了 personal_config_schema 的插件及当前用户配置状态"""
+    member_id = _get_member_id(request)
+
+    registry = get_registry()
+
+    from sqlalchemy import select
+    from openvort.db.models import MemberPluginSetting
+
+    session_factory = get_db_session_factory()
+    async with session_factory() as session:
+        stmt = select(MemberPluginSetting).where(MemberPluginSetting.member_id == member_id)
+        result = await session.execute(stmt)
+        saved = {row.plugin_name: row for row in result.scalars().all()}
+
+    plugins = []
+    for plugin in registry.list_plugins():
+        schema = plugin.get_personal_config_schema()
+        if not schema:
+            continue
+        has_config = plugin.name in saved and saved[plugin.name].settings_data != "{}"
+        plugins.append({
+            "plugin_name": plugin.name,
+            "display_name": plugin.display_name,
+            "description": plugin.description,
+            "schema": schema,
+            "has_config": has_config,
+        })
+    return {"plugins": plugins}
+
+
+@router.get("/plugin-settings/{plugin_name}")
+async def get_plugin_personal_settings(request: Request, plugin_name: str):
+    """获取某插件的个人配置（secret 字段脱敏）"""
+    member_id = _get_member_id(request)
+
+    registry = get_registry()
+    plugin = registry.get_plugin(plugin_name)
+    if not plugin:
+        raise HTTPException(status_code=404, detail="插件不存在")
+
+    schema = plugin.get_personal_config_schema()
+    if not schema:
+        raise HTTPException(status_code=400, detail="该插件不支持个人配置")
+
+    secret_keys = {f["key"] for f in schema if f.get("secret")}
+
+    from sqlalchemy import select
+    from openvort.db.models import MemberPluginSetting
+
+    session_factory = get_db_session_factory()
+    async with session_factory() as session:
+        stmt = select(MemberPluginSetting).where(
+            MemberPluginSetting.member_id == member_id,
+            MemberPluginSetting.plugin_name == plugin_name,
+        )
+        result = await session.execute(stmt)
+        row = result.scalar_one_or_none()
+
+    config = {}
+    if row and row.settings_data:
+        raw = json.loads(row.settings_data)
+        for key, val in raw.items():
+            if key in secret_keys and val:
+                from openvort.plugins.vortgit.crypto import decrypt_token
+                try:
+                    decrypted = decrypt_token(val)
+                    config[key] = "****" + decrypted[-4:] if len(decrypted) > 4 else "****"
+                except Exception:
+                    config[key] = "****"
+            else:
+                config[key] = val
+
+    return {"plugin_name": plugin_name, "config": config, "schema": schema}
+
+
+class PluginPersonalSettingsRequest(BaseModel):
+    settings: dict
+
+
+@router.put("/plugin-settings/{plugin_name}")
+async def save_plugin_personal_settings(request: Request, plugin_name: str, req: PluginPersonalSettingsRequest):
+    """保存个人插件配置（secret 字段加密存储）"""
+    member_id = _get_member_id(request)
+
+    registry = get_registry()
+    plugin = registry.get_plugin(plugin_name)
+    if not plugin:
+        raise HTTPException(status_code=404, detail="插件不存在")
+
+    schema = plugin.get_personal_config_schema()
+    if not schema:
+        raise HTTPException(status_code=400, detail="该插件不支持个人配置")
+
+    secret_keys = {f["key"] for f in schema if f.get("secret")}
+
+    from sqlalchemy import select
+    from openvort.db.models import MemberPluginSetting
+    from openvort.plugins.vortgit.crypto import encrypt_token
+
+    session_factory = get_db_session_factory()
+    async with session_factory() as session:
+        stmt = select(MemberPluginSetting).where(
+            MemberPluginSetting.member_id == member_id,
+            MemberPluginSetting.plugin_name == plugin_name,
+        )
+        result = await session.execute(stmt)
+        row = result.scalar_one_or_none()
+
+        old_data = json.loads(row.settings_data) if row and row.settings_data else {}
+        new_data = {}
+        for key, val in req.settings.items():
+            if key in secret_keys:
+                if isinstance(val, str) and val.startswith("****"):
+                    new_data[key] = old_data.get(key, "")
+                elif val:
+                    new_data[key] = encrypt_token(str(val).strip())
+                else:
+                    new_data[key] = ""
+            else:
+                new_data[key] = val
+
+        settings_json = json.dumps(new_data, ensure_ascii=False)
+
+        if row:
+            row.settings_data = settings_json
+        else:
+            row = MemberPluginSetting(
+                member_id=member_id,
+                plugin_name=plugin_name,
+                settings_data=settings_json,
+            )
+            session.add(row)
+        await session.commit()
+
+    return {"success": True}
+
+
+@router.delete("/plugin-settings/{plugin_name}")
+async def delete_plugin_personal_settings(request: Request, plugin_name: str):
+    """删除个人插件配置"""
+    member_id = _get_member_id(request)
+
+    from sqlalchemy import select
+    from openvort.db.models import MemberPluginSetting
+
+    session_factory = get_db_session_factory()
+    async with session_factory() as session:
+        stmt = select(MemberPluginSetting).where(
+            MemberPluginSetting.member_id == member_id,
+            MemberPluginSetting.plugin_name == plugin_name,
+        )
+        result = await session.execute(stmt)
+        row = result.scalar_one_or_none()
+        if row:
+            await session.delete(row)
             await session.commit()
 
     return {"success": True}

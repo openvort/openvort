@@ -460,6 +460,26 @@ async def init_db(database_url: str) -> None:
             )
         """))
 
+    # Member plugin settings (per-user plugin config like API keys)
+    async with _engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS member_plugin_settings (
+                id SERIAL PRIMARY KEY,
+                member_id VARCHAR(32) NOT NULL REFERENCES members(id),
+                plugin_name VARCHAR(64) NOT NULL,
+                settings_data TEXT DEFAULT '{}',
+                created_at TIMESTAMP DEFAULT now(),
+                updated_at TIMESTAMP DEFAULT now(),
+                CONSTRAINT uq_member_plugin_setting UNIQUE (member_id, plugin_name)
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_member_plugin_settings_member_id ON member_plugin_settings(member_id)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_member_plugin_settings_plugin_name ON member_plugin_settings(plugin_name)"
+        ))
+
     # Marketplace display name for installed skills
     async with _engine.begin() as conn:
         await conn.execute(text(

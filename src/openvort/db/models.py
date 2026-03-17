@@ -386,3 +386,19 @@ class ImCursor(Base):
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[int] = mapped_column(BigInteger, default=0)
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class MemberPluginSetting(Base):
+    """Per-member plugin settings — stores personal config (e.g. API keys) per plugin per user"""
+
+    __tablename__ = "member_plugin_settings"
+    __table_args__ = (
+        UniqueConstraint("member_id", "plugin_name", name="uq_member_plugin_setting"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    member_id: Mapped[str] = mapped_column(String(32), ForeignKey("members.id"), index=True)
+    plugin_name: Mapped[str] = mapped_column(String(64), index=True)
+    settings_data: Mapped[str] = mapped_column(Text, default="{}")  # JSON, secret fields Fernet-encrypted
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())

@@ -8,9 +8,10 @@ import {
     getGitTokens, saveGitToken, deleteGitToken,
     getMemberSkills, createPersonalSkill, updatePersonalSkill, deletePersonalSkill,
     getPublicSkills, subscribeMemberSkill, unsubscribeMemberSkill, generateMemberBioPrompt,
+    getPluginPersonalSettings, getPluginPersonalSetting, savePluginPersonalSetting, deletePluginPersonalSetting,
 } from "@/api";
 import { message, dialog } from "@/components/vort";
-import { Shield, Bell, User, GitBranch, Sparkles, Plus, Trash2, Globe, Bot } from "lucide-vue-next";
+import { Shield, Bell, User, GitBranch, Sparkles, Plus, Trash2, Globe, Bot, Puzzle } from "lucide-vue-next";
 import AvatarCropper from "vue-avatar-cropper";
 import "cropperjs/dist/cropper.min.css";
 
@@ -132,6 +133,7 @@ const menuItems = [
     { key: "skills", label: "我的技能", icon: Sparkles },
     { key: "security", label: "安全设置", icon: Shield },
     { key: "git", label: "Git 配置", icon: GitBranch },
+    { key: "plugins", label: "插件配置", icon: Puzzle },
     { key: "notification", label: "通知设置", icon: Bell },
 ];
 
@@ -557,6 +559,65 @@ async function toggleSubscribe(skill: SkillItem) {
     }
 }
 
+// ---- 插件个人配置 ----
+
+interface PluginPersonalItem {
+    plugin_name: string;
+    display_name: string;
+    description: string;
+    schema: { key: string; label: string; type: string; required?: boolean; secret?: boolean; placeholder?: string; description?: string; options?: { value: string; label: string }[] }[];
+    has_config: boolean;
+}
+
+const pluginsList = ref<PluginPersonalItem[]>([]);
+const pluginsLoading = ref(false);
+const pluginsLoaded = ref(false);
+const pluginDialogOpen = ref(false);
+const pluginDialogPlugin = ref<PluginPersonalItem | null>(null);
+const pluginForm = ref<Record<string, any>>({});
+const pluginSaving = ref(false);
+
+async function loadPluginSettings() {
+    pluginsLoading.value = true;
+    try {
+        const res: any = await getPluginPersonalSettings();
+        pluginsList.value = res?.plugins || [];
+        pluginsLoaded.value = true;
+    } catch { pluginsList.value = []; }
+    finally { pluginsLoading.value = false; }
+}
+
+async function openPluginConfig(item: PluginPersonalItem) {
+    pluginDialogPlugin.value = item;
+    pluginForm.value = {};
+    pluginDialogOpen.value = true;
+    try {
+        const res: any = await getPluginPersonalSetting(item.plugin_name);
+        if (res?.config) pluginForm.value = { ...res.config };
+    } catch { /* ignore */ }
+}
+
+async function handleSavePluginConfig() {
+    if (!pluginDialogPlugin.value) return;
+    pluginSaving.value = true;
+    try {
+        await savePluginPersonalSetting(pluginDialogPlugin.value.plugin_name, pluginForm.value);
+        message.success("配置已保存");
+        pluginDialogOpen.value = false;
+        loadPluginSettings();
+    } catch (e: any) {
+        message.error(e?.response?.data?.detail || "保存失败");
+    } finally { pluginSaving.value = false; }
+}
+
+async function handleDeletePluginConfig(pluginName: string) {
+    try {
+        await deletePluginPersonalSetting(pluginName);
+        message.success("已清除");
+        loadPluginSettings();
+    } catch { message.error("操作失败"); }
+}
+
 const router = useRouter();
 
 async function handleAiGenerateBio() {
@@ -579,6 +640,9 @@ function handleMenuClick(key: string) {
     }
     if (key === "skills" && !skillsLoaded.value) {
         loadMySkills();
+    }
+    if (key === "plugins" && !pluginsLoaded.value) {
+        loadPluginSettings();
     }
 }
 </script>
@@ -794,6 +858,54 @@ function handleMenuClick(key: string) {
                             </VortSpin>
                         </div>
 
+                        <!-- ========== 插件配置 ========== -->
+                        <div v-else-if="activeMenu === 'plugins'">
+                            <h3 class="text-base font-medium text-gray-800 mb-2">插件个人配置</h3>
+                            <p class="text-sm text-gray-400 mb-6">配置你在各插件中的个人凭证（如 API Key），每位成员独立配置</p>
+
+                            <VortSpin :spinning="pluginsLoading">
+                                <div v-if="pluginsList.length === 0 && pluginsLoaded" class="text-center py-8 text-gray-400 text-sm">
+                                    暂无需要个人配置的插件
+                                </div>
+                                <div v-else class="space-y-3">
+                                    <div
+                                        v-for="item in pluginsList"
+                                        :key="item.plugin_name"
+                                        class="flex items-center justify-between p-4 border border-gray-100 rounded-lg"
+                                    >
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center">
+                                                <Puzzle :size="16" class="text-purple-500" />
+                                            </div>
+                                            <div>
+                                                <div class="text-sm font-medium text-gray-700">{{ item.display_name }}</div>
+                                                <div v-if="item.has_config" class="text-xs text-green-500 mt-0.5">已配置</div>
+                                                <div v-else class="text-xs text-gray-400 mt-0.5">未配置</div>
+                                            </div>
+                                        </div>
+                                        <div class="flex items-center gap-2">
+                                            <VortButton
+                                                v-if="item.has_config"
+                                                variant="link"
+                                                size="small"
+                                                class="text-red-500"
+                                                @click="handleDeletePluginConfig(item.plugin_name)"
+                                            >
+                                                清除
+                                            </VortButton>
+                                            <VortButton
+                                                variant="link"
+                                                size="small"
+                                                @click="openPluginConfig(item)"
+                                            >
+                                                {{ item.has_config ? '修改' : '配置' }}
+                                            </VortButton>
+                                        </div>
+                                    </div>
+                                </div>
+                            </VortSpin>
+                        </div>
+
                         <!-- ========== 通知设置 ========== -->
                         <div v-else-if="activeMenu === 'notification'">
                             <h3 class="text-base font-medium text-gray-800 mb-2">通知设置</h3>
@@ -962,6 +1074,39 @@ function handleMenuClick(key: string) {
                         target="_blank"
                         class="text-xs text-blue-500 hover:underline ml-auto"
                     >去生成 Token →</a>
+                </div>
+            </VortFormItem>
+        </VortForm>
+    </VortDialog>
+
+    <!-- 插件个人配置弹窗 -->
+    <VortDialog :open="pluginDialogOpen" :title="pluginDialogPlugin ? `配置 ${pluginDialogPlugin.display_name}` : '插件配置'" :footer="false" @update:open="pluginDialogOpen = $event">
+        <div v-if="pluginDialogPlugin?.description" class="text-xs text-gray-400 mb-4">{{ pluginDialogPlugin.description }}</div>
+        <VortForm label-width="100px" class="mt-2">
+            <VortFormItem
+                v-for="field in (pluginDialogPlugin?.schema || [])"
+                :key="field.key"
+                :label="field.label"
+                :required="field.required"
+            >
+                <VortInputPassword
+                    v-if="field.secret"
+                    v-model="pluginForm[field.key]"
+                    :placeholder="field.placeholder"
+                />
+                <VortSelect
+                    v-else-if="field.type === 'select' && field.options"
+                    v-model="pluginForm[field.key]"
+                    :options="field.options"
+                    :placeholder="field.placeholder"
+                />
+                <VortInput v-else v-model="pluginForm[field.key]" :placeholder="field.placeholder" />
+                <div v-if="field.description" class="text-xs text-gray-400 mt-1">{{ field.description }}</div>
+            </VortFormItem>
+            <VortFormItem>
+                <div class="flex gap-3">
+                    <VortButton variant="primary" :loading="pluginSaving" @click="handleSavePluginConfig">保存</VortButton>
+                    <VortButton @click="pluginDialogOpen = false">取消</VortButton>
                 </div>
             </VortFormItem>
         </VortForm>

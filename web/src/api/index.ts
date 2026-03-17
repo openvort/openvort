@@ -65,6 +65,26 @@ export function deleteGitToken(platform: string) {
     return request.delete(`/me/git-tokens/${platform}`);
 }
 
+/** 获取支持个人配置的插件列表 */
+export function getPluginPersonalSettings() {
+    return request.get("/me/plugin-settings");
+}
+
+/** 获取某插件的个人配置 */
+export function getPluginPersonalSetting(pluginName: string) {
+    return request.get(`/me/plugin-settings/${pluginName}`);
+}
+
+/** 保存某插件的个人配置 */
+export function savePluginPersonalSetting(pluginName: string, settings: Record<string, any>) {
+    return request.put(`/me/plugin-settings/${pluginName}`, { settings });
+}
+
+/** 删除某插件的个人配置 */
+export function deletePluginPersonalSetting(pluginName: string) {
+    return request.delete(`/me/plugin-settings/${pluginName}`);
+}
+
 /** 获取通道列表（用于通知设置等） */
 export function getEnabledChannels() {
     return request.get("/admin/channels");
