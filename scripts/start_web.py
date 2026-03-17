@@ -20,8 +20,8 @@ from openvort.db import init_db, get_session_factory
 from openvort.auth.service import AuthService
 from openvort.plugin.registry import PluginRegistry
 from openvort.plugin.loader import PluginLoader
-from openvort.core.session import SessionStore
-from openvort.core.context import RequestContext
+from openvort.core.engine.session import SessionStore
+from openvort.core.engine.context import RequestContext
 from openvort.skill.loader import SkillLoader
 from openvort.web.deps import set_runtime
 from openvort.web.app import create_app
@@ -63,7 +63,7 @@ async def init_runtime():
     llm_settings = settings.llm
     agent = None
     if llm_settings.api_key and llm_settings.api_key != "your-api-key-here":
-        from openvort.core.agent import AgentRuntime
+        from openvort.core.engine.agent import AgentRuntime
         agent = AgentRuntime(
             llm_settings=llm_settings,
             registry=registry,

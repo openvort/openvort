@@ -144,7 +144,7 @@ def create_app() -> FastAPI:
 
     # ---- 健康检查（公开，无需认证） ----
     import time as _time
-    from openvort.core.updater import get_update_service as _get_update_svc
+    from openvort.core.services.updater import get_update_service as _get_update_svc
     _llm_health_cache: dict[str, object] = {"healthy": None, "checked_at": 0.0, "error": ""}
 
     @app.get("/api/health")
@@ -203,7 +203,7 @@ def create_app() -> FastAPI:
 
         # Actually ping the LLM API with a minimal request
         try:
-            from openvort.core.llm import create_provider
+            from openvort.core.engine.llm import create_provider
             provider = create_provider(
                 provider=primary.get("provider", "anthropic"),
                 api_key=primary.get("api_key", ""),

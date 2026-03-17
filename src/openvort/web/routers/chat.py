@@ -849,7 +849,7 @@ async def mark_read(req: MarkReadRequest, request: Request):
     member_id = payload.get("sub", "")
 
     from openvort.web.deps import get_db_session_factory
-    from openvort.core.chat_message import mark_session_read
+    from openvort.core.services.chat_message import mark_session_read
 
     sf = get_db_session_factory()
     async with sf() as db:
@@ -857,7 +857,7 @@ async def mark_read(req: MarkReadRequest, request: Request):
 
     # Cancel pending IM notifications for this session
     try:
-        from openvort.core.notification import get_notification_center
+        from openvort.core.services.notification import get_notification_center
         nc = get_notification_center()
         if nc:
             await nc.cancel_pending(member_id, req.session_id)
@@ -874,7 +874,7 @@ async def unread_counts(request: Request):
     member_id = payload.get("sub", "")
 
     from openvort.web.deps import get_db_session_factory
-    from openvort.core.chat_message import get_unread_counts
+    from openvort.core.services.chat_message import get_unread_counts
 
     sf = get_db_session_factory()
     async with sf() as db:

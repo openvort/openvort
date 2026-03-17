@@ -235,7 +235,7 @@ class SessionStore:
         summary = self._build_summary_text(old_messages)
         if llm_client:
             try:
-                from openvort.core.llm import LLMResponse
+                from openvort.core.engine.llm import LLMResponse
                 resp = await llm_client.create(
                     system="你是一个对话摘要助手。请将以下对话历史压缩为简洁的摘要，保留关键信息（用户需求、重要决策、工具调用结果等）。用中文输出，不超过 500 字。",
                     messages=[{"role": "user", "content": summary}],

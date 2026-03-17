@@ -11,11 +11,11 @@ import json
 import re
 
 from openvort.config.settings import LLMSettings
-from openvort.core.context import RequestContext
-from openvort.core.llm import (
+from openvort.core.engine.context import RequestContext
+from openvort.core.engine.llm import (
     LLMClient, LLMResponse, TextBlock, ThinkingBlock, ThinkingDelta, ToolUseBlock, Usage,
 )
-from openvort.core.session import SessionStore
+from openvort.core.engine.session import SessionStore
 from openvort.plugin.registry import PluginRegistry
 from openvort.utils.logging import get_logger
 
@@ -1377,7 +1377,7 @@ class AgentRuntime:
                 cid = config.get("container_id", "")
                 if cid and node.status in ("online", "running"):
                     try:
-                        from openvort.core.docker_executor import DockerExecutor
+                        from openvort.core.execution.docker_executor import DockerExecutor
                         ws_result = await DockerExecutor._exec_streaming(
                             cid, "cat /workspace/.workspace_state.json 2>/dev/null", timeout=3,
                         )

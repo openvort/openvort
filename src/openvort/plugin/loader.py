@@ -253,7 +253,7 @@ class PluginLoader:
     def _load_core_tools(self) -> None:
         """Register core infrastructure tools (node tools, etc.)."""
         try:
-            from openvort.core.node_tools import get_node_tools
+            from openvort.core.execution.node_tools import get_node_tools
             for tool in get_node_tools():
                 self.registry.register_tool(tool)
         except Exception as e:

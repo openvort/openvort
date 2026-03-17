@@ -160,7 +160,7 @@ class AgentTaskRunner:
         # Persist result
         try:
             from openvort.web.deps import get_session_store, get_db_session_factory
-            from openvort.core.chat_message import write_chat_message
+            from openvort.core.services.chat_message import write_chat_message
 
             session_store = get_session_store()
             sf = get_db_session_factory()

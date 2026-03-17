@@ -11,8 +11,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from openvort.config.settings import LLMSettings
-from openvort.core.agent import AgentRuntime
-from openvort.core.session import SessionStore
+from openvort.core.engine.agent import AgentRuntime
+from openvort.core.engine.session import SessionStore
 from openvort.plugin.registry import PluginRegistry
 from openvort.utils.logging import get_logger
 

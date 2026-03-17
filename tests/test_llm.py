@@ -1,6 +1,6 @@
 """LLM provider conversion tests."""
 
-from openvort.core.llm import OpenAICompatibleProvider
+from openvort.core.engine.llm import OpenAICompatibleProvider
 
 
 def _make_provider() -> OpenAICompatibleProvider:

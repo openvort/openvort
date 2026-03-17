@@ -42,7 +42,7 @@ class GroupBindTool(BaseTool):
         }
 
     async def execute(self, params: dict) -> str:
-        from openvort.core.group_context import group_context_manager as gcm
+        from openvort.core.messaging.group_context import group_context_manager as gcm
 
         caller_id = params.get("_caller_id", "")
         member_id = params.get("_member_id", "")

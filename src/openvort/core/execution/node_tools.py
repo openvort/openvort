@@ -17,7 +17,7 @@ from openvort.plugin.base import BaseTool
 from openvort.utils.logging import get_logger
 
 if TYPE_CHECKING:
-    from openvort.core.remote_node import RemoteNodeService
+    from openvort.core.execution.remote_node import RemoteNodeService
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 log = get_logger("core.node_tools")
@@ -59,7 +59,7 @@ def _truncate_output(output: str, max_lines: int = 50) -> str:
 async def _update_workspace_state(container_id: str, tool_name: str, params: dict) -> None:
     """Best-effort update of /workspace/.workspace_state.json after tool execution."""
     try:
-        from openvort.core.docker_executor import DockerExecutor
+        from openvort.core.execution.docker_executor import DockerExecutor
 
         update_script = """
 import json, os, time
@@ -160,7 +160,7 @@ async def _resolve_container(params: dict) -> tuple[str, str]:
     node_status = node.get("status", "unknown")
     if node_status not in ("online", "running"):
         # Attempt auto-restart for stopped containers
-        from openvort.core.docker_executor import DockerExecutor
+        from openvort.core.execution.docker_executor import DockerExecutor
 
         executor = DockerExecutor()
         status_info = await executor.get_container_status(container_id)
@@ -246,7 +246,7 @@ class NodeShellTool(BaseTool):
                 except Exception:
                     pass
 
-        from openvort.core.docker_executor import DockerExecutor
+        from openvort.core.execution.docker_executor import DockerExecutor
 
         try:
             result = await DockerExecutor._exec_streaming(
@@ -315,7 +315,7 @@ class NodeFileReadTool(BaseTool):
         limit = params.get("limit", 200) or 200
         limit = min(max(limit, 1), 2000)
 
-        from openvort.core.docker_executor import DockerExecutor
+        from openvort.core.execution.docker_executor import DockerExecutor
 
         # Check if file exists
         check_cmd = f"test -f {shlex.quote(path)} && echo EXISTS || echo NOTFOUND"
@@ -422,7 +422,7 @@ class NodeFileWriteTool(BaseTool):
         if not path:
             return "请提供文件路径"
 
-        from openvort.core.docker_executor import DockerExecutor
+        from openvort.core.execution.docker_executor import DockerExecutor
 
         # Ensure parent directory exists
         parent_dir = "/".join(path.rsplit("/", 1)[:-1])
@@ -590,7 +590,7 @@ class NodeBrowseTool(BaseTool):
             "full_page": params.get("full_page", False),
         }
 
-        from openvort.core.docker_executor import DockerExecutor
+        from openvort.core.execution.docker_executor import DockerExecutor
 
         escaped_params = json.dumps(script_params, ensure_ascii=False).replace("'", "'\\''")
         cmd = f"python3 -c '{_BROWSER_SCRIPT}' '{escaped_params}'"

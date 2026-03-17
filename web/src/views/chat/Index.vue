@@ -10,60 +10,56 @@ import {
 } from "lucide-vue-next";
 import { Popover as VortPopover, Image as VortImage, ImagePreviewGroup as VortImagePreviewGroup } from "@/components/vort";
 import {
-    sendChatMessage, getChatStreamUrl, getChatHistory, getChatSessionInfo,
-    setChatThinking, compactChatSession, resetChatSession,
-    getChatSessions, createChatSession, getChatMembers, getChatContacts, abortChatMessage, startMemberChat,
-    getVortflowBugs, getVortflowTasks, getVortflowStories, getVortflowMilestones,
-    getWorkAssignments,
-    restoreChatContext
+    getChatSessionInfo, setChatThinking, compactChatSession, resetChatSession,
+    getChatContacts, getWorkAssignments, restoreChatContext, startMemberChat
 } from "@/api";
 import { usePluginStore } from "@/stores/modules/plugin";
 import { useNotificationStore } from "@/stores/modules/notification";
-import { markChatRead } from "@/api";
-import { message, dialog } from "@/components/vort";
-import { marked } from "marked";
-import { pinyin } from "pinyin-pro";
+import { message } from "@/components/vort";
 import ContactList from "./ContactList.vue";
 import SessionSwitcher from "./SessionSwitcher.vue";
 import MemberProfile from "./MemberProfile.vue";
 import AiEmployeeBadge from "./AiEmployeeBadge.vue";
 import WorkspaceViewer from "./WorkspaceViewer.vue";
-import type { ChatMessage, ChatSession, PendingImage, Contact, MentionMember, SlashCommand, Draft, HashTagCategory, HashTagItem, ToolCall, ActionButton } from "./types";
+import type { ChatMessage, ChatSession, Contact, Draft, ActionButton } from "./types";
 import { shouldShowTimestamp, formatTimeDivider } from "./utils";
+import { useChatImages } from "./composables/useChatImages";
+import { useChatStream } from "./composables/useChatStream";
+import { useChatHistory } from "./composables/useChatHistory";
+import { useChatSession } from "./composables/useChatSession";
+import { useChatMentions } from "./composables/useChatMentions";
 
 const route = useRoute();
 const router = useRouter();
 const userStore = useUserStore();
 const pluginStore = usePluginStore();
+const notificationStore = useNotificationStore();
+
+// ---- Shared state ----
 const messages = ref<ChatMessage[]>([]);
 const inputText = ref("");
 const loading = ref(false);
-const aborting = ref(false);
+const currentSessionId = ref<string>("");
+const activeContact = ref<Contact | null>(null);
+const sessions = ref<ChatSession[]>([]);
+const sessionTokens = ref({ input: 0, output: 0, messages: 0, cacheCreation: 0, cacheRead: 0 });
+const thinkingLevel = ref<string>("off");
+const messageCounter = ref(0);
+const drafts = new Map<string, Draft>();
+
+// ---- Template refs ----
 type ChatScrollbarRef = { wrapRef?: HTMLElement | null };
 const chatScrollbar = ref<ChatScrollbarRef | null>(null);
 const inputArea = ref<HTMLElement>();
-const pendingImages = ref<PendingImage[]>([]);
-const isDragging = ref(false);
-const sendMode = ref<'enter' | 'ctrl-enter'>('enter');
-const settingsOpen = ref(false);
-const emojiOpen = ref(false);
-const thinkingLevel = ref<string>("off");
-const thinkingOpen = ref(false);
-const sessionTokens = ref({ input: 0, output: 0, messages: 0, cacheCreation: 0, cacheRead: 0 });
-const compacting = ref(false);
-const contextResetAt = ref(0);
-const hasMoreHistory = ref(false);
-const historyOffset = ref(0);
-const loadingMore = ref(false);
-let messageCounter = 0;
-
-// ---- Contact & Session state ----
-const activeContact = ref<Contact | null>(null);
-const sessions = ref<ChatSession[]>([]);
-const currentSessionId = ref<string>("");
 const contactListRef = ref<InstanceType<typeof ContactList>>();
 const sessionSwitcherRef = ref<InstanceType<typeof SessionSwitcher>>();
 
+// ---- UI state ----
+const sendMode = ref<'enter' | 'ctrl-enter'>('enter');
+const settingsOpen = ref(false);
+const emojiOpen = ref(false);
+const thinkingOpen = ref(false);
+const compacting = ref(false);
 const memberProfileOpen = ref(false);
 
 // ---- Message search ----
@@ -91,8 +87,8 @@ async function handleSearch() {
 const offlineSummary = ref<{ unreads: number; highlights: string[] } | null>(null);
 function dismissOfflineSummary() { offlineSummary.value = null; }
 
+// ---- Computed ----
 const isAiMode = computed(() => !activeContact.value || activeContact.value.type === "ai");
-const notificationStore = useNotificationStore();
 const currentSessionTitle = computed(() => {
     if (!currentSessionId.value) return "新对话";
     const s = sessions.value.find(s => s.session_id === currentSessionId.value);
@@ -104,6 +100,7 @@ const activeTaskStatus = computed(() => {
     return notificationStore.getTaskStatus(c.id);
 });
 
+// ---- Assignments and task bar ----
 const activeAssignments = ref<any[]>([]);
 const taskBarCollapsed = ref(localStorage.getItem('chat-taskbar-collapsed') === '1');
 function toggleTaskBar() {
@@ -120,68 +117,7 @@ async function loadActiveAssignments() {
     } catch { activeAssignments.value = []; }
 }
 
-// ---- 草稿暂存（切换会话时保留未发送内容）----
-const drafts = new Map<string, Draft>();
-
-async function fetchLatestMemberContact(memberId: string): Promise<Contact | null> {
-    try {
-        const res: any = await getChatContacts();
-        const contacts = Array.isArray(res?.contacts) ? res.contacts as Contact[] : [];
-        return contacts.find(c => c.type === "member" && c.id === memberId) || null;
-    } catch {
-        return null;
-    }
-}
-
-function saveDraft() {
-    const key = currentSessionId.value; // "" 代表新空对话
-    if (inputText.value || pendingImages.value.length) {
-        drafts.set(key, { text: inputText.value, images: [...pendingImages.value] });
-    } else {
-        drafts.delete(key);
-    }
-}
-
-function restoreDraft(sessionId: string) {
-    const draft = drafts.get(sessionId);
-    inputText.value = draft?.text ?? "";
-    pendingImages.value = draft?.images ? [...draft.images] : [];
-}
-
-watch(currentSessionId, (val) => {
-    localStorage.setItem('chat-last-session-id', val);
-});
-
-watch(activeContact, (contact) => {
-    if (contact) {
-        localStorage.setItem('chat-last-contact', JSON.stringify({
-            type: contact.type,
-            id: contact.id,
-            name: contact.name,
-            avatar_url: contact.avatar_url,
-            session_id: contact.session_id,
-            position: contact.position,
-        }));
-    }
-    loadActiveAssignments();
-}, { deep: true });
-
-// ---- 流式跨会话保持 ----
-
-interface ActiveStream {
-    sessionId: string;
-    messageId: string;
-    eventSource: EventSource;
-    assistantMsg: ChatMessage;
-    targetText: string;
-    done: boolean;
-    twTimer: ReturnType<typeof setInterval> | null;
-    messagesRef: ChatMessage[];
-    phase: "thinking" | "generating" | "tool_running" | "idle";
-    _abortTimeout?: ReturnType<typeof setTimeout> | null;
-}
-const activeStreams = new Map<string, ActiveStream>();
-
+// ---- Emojis ----
 const emojis = [
     '😀','😃','😄','😁','😆','😅','😂','🤣','😊','😇',
     '🙂','🙃','😉','😌','😍','🥰','😘','😗','😙','😚',
@@ -195,9 +131,7 @@ const emojis = [
     '🙌','🤝','🙏','❤️','🔥','💯','✨','🎉','😺','😸',
 ];
 
-// --- Smart auto-scroll ---
-// When user manually scrolls away from the bottom, pause auto-scroll.
-// Re-activate when user scrolls back near the bottom or performs an action (send, switch session, etc.).
+// ---- Smart auto-scroll ----
 const SCROLL_BOTTOM_THRESHOLD = 80;
 let autoScrollEnabled = true;
 let scrollRAF: number | null = null;
@@ -214,33 +148,10 @@ function scrollToBottom(force = false) {
     });
 }
 
+// ---- Simple helper functions ----
 function formatToolElapsed(seconds: number): string {
     if (seconds < 60) return `${seconds}s`;
     return `${Math.floor(seconds / 60)}m${seconds % 60}s`;
-}
-
-function mergeToolCalls(tools: ToolCall[]): ToolCall[] {
-    const merged: ToolCall[] = [];
-    for (const t of tools) {
-        const last = merged[merged.length - 1];
-        const isNodeTool = t.name.startsWith("node_");
-        if (!isNodeTool && last && last.name === t.name && last.status === "done" && t.status === "done") {
-            last.count = (last.count || 1) + 1;
-            if (t.output) {
-                last.output = last.output ? last.output + "\n" + t.output : t.output;
-            }
-            if (t.screenshots?.length) {
-                last.screenshots = [...(last.screenshots || []), ...t.screenshots];
-            }
-        } else {
-            merged.push({ ...t, count: t.count || 1 });
-        }
-    }
-    return merged;
-}
-
-function toggleToolCollapsed(tool: ToolCall) {
-    tool.collapsed = !tool.collapsed;
 }
 
 function toggleToolsExpanded(msg: ChatMessage) {
@@ -256,693 +167,7 @@ function getLastLines(output: string, n: number): string {
     return lines.slice(-n).join('\n');
 }
 
-function getStreamPhase(msg: ChatMessage): string {
-    if (!msg.streaming) return "idle";
-    const sessionId = currentSessionId.value;
-    const stream = activeStreams.get(sessionId);
-    return stream?.phase || "thinking";
-}
-
-function getAccumulatedOutput(msg: ChatMessage): string {
-    if (!msg.toolCalls) return "";
-    return msg.toolCalls
-        .filter(t => t.name.startsWith("node_") && t.output)
-        .map(t => {
-            const prefix = t.input?.command ? `$ ${t.input.command}\n` : "";
-            return prefix + (t.output || "");
-        })
-        .join("\n");
-}
-
-function getRecentFileChanges(msg: ChatMessage): string[] {
-    if (!msg.toolCalls) return [];
-    return msg.toolCalls
-        .filter(t => t.name === "node_file_write" && t.input?.path)
-        .map(t => t.input!.path as string);
-}
-
-// --- 流式 Markdown 渲染 ---
-function renderMarkdown(text: string): string {
-    if (!text) return "";
-    const fenceCount = (text.match(/^```/gm) || []).length;
-    let patched = text;
-    if (fenceCount % 2 !== 0) {
-        patched += "\n```";
-    }
-    return marked.parse(patched, { async: false }) as string;
-}
-
-// --- 图片处理 ---
-function fileToBase64(file: File): Promise<PendingImage | null> {
-    return new Promise((resolve) => {
-        if (!file.type.startsWith("image/")) { resolve(null); return; }
-        const reader = new FileReader();
-        reader.onload = () => {
-            const dataUrl = reader.result as string;
-            const match = dataUrl.match(/^data:(image\/[^;]+);base64,(.+)$/);
-            if (match) {
-                resolve({ data: match[2], media_type: match[1], preview: dataUrl });
-            } else { resolve(null); }
-        };
-        reader.onerror = () => resolve(null);
-        reader.readAsDataURL(file);
-    });
-}
-
-async function addFiles(files: FileList | File[]) {
-    for (const file of files) {
-        if (pendingImages.value.length >= 10) break;
-        const img = await fileToBase64(file);
-        if (img) pendingImages.value.push(img);
-    }
-}
-
-function removeImage(index: number) { pendingImages.value.splice(index, 1); }
-
-function handlePaste(e: ClipboardEvent) {
-    const items = e.clipboardData?.items;
-    if (!items) return;
-    const imageFiles: File[] = [];
-    for (const item of items) {
-        if (item.type.startsWith("image/")) {
-            const file = item.getAsFile();
-            if (file) imageFiles.push(file);
-        }
-    }
-    if (imageFiles.length) { e.preventDefault(); addFiles(imageFiles); }
-}
-
-function handleDragOver(e: DragEvent) { e.preventDefault(); isDragging.value = true; }
-function handleDragLeave(e: DragEvent) { e.preventDefault(); isDragging.value = false; }
-function handleDrop(e: DragEvent) {
-    e.preventDefault(); isDragging.value = false;
-    const files = e.dataTransfer?.files;
-    if (files?.length) addFiles(files);
-}
-
-// --- Contact selection ---
-async function handleContactSelect(contact: Contact) {
-    activeContact.value = contact;
-    if (contact.type === "ai") {
-        // Load AI sessions, select the last one
-        await sessionSwitcherRef.value?.loadSessions();
-        const lastSessionId = localStorage.getItem('chat-last-session-id');
-        if (lastSessionId && sessions.value.some(s => s.session_id === lastSessionId)) {
-            await switchSession(lastSessionId);
-        } else if (sessions.value.length > 0) {
-            await switchSession(sessions.value[0].session_id);
-        } else {
-            handleNewSession();
-        }
-    } else {
-        // Member mode: single session
-        if (contact.session_id) {
-            await switchSession(contact.session_id);
-        } else {
-            try {
-                const res: any = await startMemberChat(contact.id);
-                if (res?.session_id) {
-                    contact.session_id = res.session_id;
-                    await switchSession(res.session_id);
-                }
-            } catch {
-                message.error("进入对话失败");
-            }
-        }
-    }
-}
-
-function handleSessionsLoaded(loadedSessions: ChatSession[]) {
-    sessions.value = loadedSessions.map(session => ({ ...session }));
-}
-
-function handleNewSession() {
-    if (!currentSessionId.value && messages.value.length === 0) {
-        message.info("已经是最新对话");
-        return;
-    }
-    saveDraft();
-    currentSessionId.value = "";
-    messages.value = [];
-    messageCounter = 0;
-    sessionTokens.value = { input: 0, output: 0, messages: 0, cacheCreation: 0, cacheRead: 0 };
-    loading.value = false;
-    thinkingLevel.value = "off";
-    contextResetAt.value = 0;
-    hasMoreHistory.value = false;
-    historyOffset.value = 0;
-    restoreDraft("");
-}
-
-async function switchSession(sessionId: string) {
-    if (currentSessionId.value === sessionId && messages.value.length > 0) return;
-
-    // 保存当前会话的草稿
-    saveDraft();
-
-    // 保存当前会话的流式状态（如果正在流式输出）
-    const prevId = currentSessionId.value;
-    if (prevId && loading.value) {
-        const stream = activeStreams.get(prevId);
-        if (stream) {
-            stream.messagesRef = [...messages.value];
-        }
-    }
-
-    currentSessionId.value = sessionId;
-    messageCounter = 0;
-    sessionTokens.value = { input: 0, output: 0, messages: 0, cacheCreation: 0, cacheRead: 0 };
-
-    // 清除红点 + mark-read API
-    const notifStore = useNotificationStore();
-    if (notifStore.getUnread(sessionId) > 0) {
-        notifStore.clearUnread(sessionId);
-        markChatRead(sessionId).catch(() => {});
-    }
-
-    // 检查是否有活跃的流式连接
-    const existingStream = activeStreams.get(sessionId);
-    if (existingStream && !existingStream.done) {
-        // 恢复流式输出状态
-        messages.value = existingStream.messagesRef;
-        // 找到正在流式输出的 assistant 消息并重新绑定打字机
-        const lastMsg = messages.value[messages.value.length - 1];
-        if (lastMsg && lastMsg.role === "assistant" && lastMsg.streaming) {
-            existingStream.assistantMsg = lastMsg;
-            lastMsg.content = existingStream.targetText;
-            loading.value = true;
-            scrollToBottom(true);
-        }
-        restoreDraft(sessionId);
-        await loadSessionInfo();
-        return;
-    }
-
-    messages.value = [];
-    loading.value = false;
-    await loadHistory();
-    restoreDraft(sessionId);
-    await loadSessionInfo();
-}
-
-// --- 历史 & 发送 ---
-const HISTORY_PAGE_SIZE = 20;
-
-async function loadHistory() {
-    if (!currentSessionId.value) return false;
-    hasMoreHistory.value = false;
-    historyOffset.value = 0;
-    try {
-        const res: any = await getChatHistory(currentSessionId.value, HISTORY_PAGE_SIZE, 0);
-        contextResetAt.value = res?.context_reset_at || 0;
-        if (res?.messages) {
-            messages.value = parseHistoryMessages(res.messages);
-            historyOffset.value = messages.value.length;
-            hasMoreHistory.value = res.has_more || false;
-            scrollToBottom(true);
-        }
-        return true;
-    } catch {
-        return false;
-    }
-}
-
-async function loadMoreHistory() {
-    if (!currentSessionId.value || loadingMore.value || !hasMoreHistory.value) return;
-
-    const wrap = chatScrollbar.value?.wrapRef;
-    if (!wrap) return;
-
-    loadingMore.value = true;
-    const prevScrollHeight = wrap.scrollHeight;
-    const prevScrollTop = wrap.scrollTop;
-
-    try {
-        const res: any = await getChatHistory(currentSessionId.value, HISTORY_PAGE_SIZE, historyOffset.value);
-        if (res?.messages?.length) {
-            const older = parseHistoryMessages(res.messages);
-            messages.value = [...older, ...messages.value];
-            historyOffset.value += older.length;
-            hasMoreHistory.value = res.has_more || false;
-
-            await nextTick();
-            wrap.scrollTop = prevScrollTop + (wrap.scrollHeight - prevScrollHeight);
-        } else {
-            hasMoreHistory.value = false;
-        }
-    } catch { /* ignore */ }
-    finally { loadingMore.value = false; }
-}
-
-async function handleSend() {
-    const text = inputText.value.trim();
-    const images = [...pendingImages.value];
-    if ((!text && !images.length) || loading.value) return;
-
-    // 如果没有当前会话，先创建一个
-    if (!currentSessionId.value) {
-        try {
-            const res: any = await createChatSession();
-            const newSession: ChatSession = {
-                session_id: res.session_id,
-                title: res.title || "新对话",
-                created_at: Date.now() / 1000,
-                updated_at: Date.now() / 1000,
-            };
-            sessions.value = [newSession, ...sessions.value];
-            sessionSwitcherRef.value?.upsertSession(newSession);
-            // 迁移草稿 key：从 "" 到真实 session ID
-            const emptyDraft = drafts.get("");
-            if (emptyDraft) { drafts.delete(""); }
-            currentSessionId.value = newSession.session_id;
-        } catch {
-            message.error("创建对话失败");
-            return;
-        }
-    }
-
-    const sendSessionId = currentSessionId.value;
-
-    const userMsg: ChatMessage = {
-        id: String(++messageCounter),
-        role: "user",
-        content: text,
-        images: images.map((i) => i.preview),
-        timestamp: Date.now()
-    };
-    messages.value.push(userMsg);
-    inputText.value = "";
-    pendingImages.value = [];
-    drafts.delete(sendSessionId);
-    scrollToBottom(true);
-
-    const rawAssistantMsg: ChatMessage = {
-        id: String(++messageCounter),
-        role: "assistant",
-        content: "",
-        toolCalls: [],
-        timestamp: Date.now(),
-        streaming: true,
-        // 成员聊天模式：使用成员头像
-        avatar_url: !isAiMode.value ? activeContact.value?.avatar_url : undefined,
-    };
-    messages.value.push(rawAssistantMsg);
-    const assistantMsg = messages.value[messages.value.length - 1]!;
-    loading.value = true;
-    aborting.value = false;
-
-    try {
-        const res: any = await sendChatMessage(
-            text,
-            images.map((i) => ({ data: i.data, media_type: i.media_type })),
-            sendSessionId,
-            activeContact.value?.type || "ai",
-            activeContact.value?.type === "member" ? activeContact.value.id : "",
-        );
-        const messageId = res?.message_id;
-        if (!messageId) {
-            assistantMsg.content = "发送失败，请重试。";
-            loading.value = false;
-            return;
-        }
-
-        // 创建流式状态
-        const streamState: ActiveStream = {
-            sessionId: sendSessionId,
-            messageId,
-            eventSource: null as any,
-            assistantMsg,
-            targetText: "",
-            done: false,
-            twTimer: null,
-            messagesRef: messages.value,
-            phase: "thinking" as const,
-        };
-        activeStreams.set(sendSessionId, streamState);
-
-        function tickTypewriter() {
-            const shown = streamState.assistantMsg.content.length;
-            const total = streamState.targetText.length;
-            if (shown < total) {
-                const buffered = total - shown;
-                const charsPerTick = Math.min(Math.max(1, Math.ceil(buffered / 30)), 3);
-                streamState.assistantMsg.content = streamState.targetText.slice(0, shown + charsPerTick);
-                if (currentSessionId.value === sendSessionId) scrollToBottom();
-            } else if (streamState.done) { stopTypewriter(); }
-        }
-
-        function startTypewriter() {
-            if (streamState.twTimer) return;
-            streamState.twTimer = setInterval(tickTypewriter, 30);
-        }
-        function stopTypewriter() {
-            if (streamState.twTimer) { clearInterval(streamState.twTimer); streamState.twTimer = null; }
-        }
-
-        function flushAndFinish(options?: { interrupted?: boolean }) {
-            if (streamState.done) return;
-            streamState.done = true;
-            if (streamState._abortTimeout) {
-                clearTimeout(streamState._abortTimeout);
-                streamState._abortTimeout = null;
-            }
-            aborting.value = false;
-            stopTypewriter();
-            let finalText = streamState.targetText;
-            if (options?.interrupted) {
-                if (!finalText) finalText = "";
-                streamState.assistantMsg.interrupted = true;
-            }
-            streamState.assistantMsg.content = finalText;
-            streamState.assistantMsg.streaming = false;
-            activeStreams.delete(sendSessionId);
-
-            // 始终重置当前会话的 loading 状态，避免卡住
-            if (currentSessionId.value === sendSessionId) {
-                loading.value = false;
-            }
-
-            if (currentSessionId.value !== sendSessionId) {
-                // noop: unread is managed by notification store via WebSocket
-            } else {
-                scrollToBottom();
-                loadSessionInfo();
-            }
-            loadActiveAssignments();
-        }
-
-        const url = getChatStreamUrl(messageId, userStore.token);
-        const eventSource = new EventSource(url);
-        streamState.eventSource = eventSource;
-
-        eventSource.addEventListener("text", (e: MessageEvent) => {
-            streamState.targetText = e.data;
-            streamState.phase = "generating";
-            startTypewriter();
-        });
-
-        eventSource.addEventListener("thinking", (_e: MessageEvent) => {});
-
-        eventSource.addEventListener("tool_use", (e: MessageEvent) => {
-            try {
-                const data = JSON.parse(e.data);
-                streamState.phase = "tool_running";
-                if (!streamState.assistantMsg.toolCalls) streamState.assistantMsg.toolCalls = [];
-                const calls = streamState.assistantMsg.toolCalls;
-                const last = calls[calls.length - 1];
-                const isNodeTool = data.name.startsWith("node_");
-                if (!isNodeTool && last && last.name === data.name && last.status === "done") {
-                    last.count = (last.count || 1) + 1;
-                    last.status = "running";
-                    last.elapsed = undefined;
-                } else {
-                    calls.push({ name: data.name, status: "running", count: 1, id: data.id, input: data.input });
-                }
-                if (currentSessionId.value === sendSessionId) scrollToBottom();
-            } catch { /* ignore */ }
-        });
-
-        eventSource.addEventListener("tool_output", (e: MessageEvent) => {
-            try {
-                const data = JSON.parse(e.data);
-                const calls = streamState.assistantMsg.toolCalls;
-                const call = calls && [...calls].reverse().find(t => t.name === data.name && t.status === "running");
-                if (call) {
-                    call.hasLiveOutput = true;
-                    call.output = call.output ? call.output + "\n" + data.output : data.output;
-                    if (currentSessionId.value === sendSessionId) scrollToBottom();
-                }
-            } catch { /* ignore */ }
-        });
-
-        eventSource.addEventListener("tool_progress", (e: MessageEvent) => {
-            try {
-                const data = JSON.parse(e.data);
-                const calls = streamState.assistantMsg.toolCalls;
-                const call = calls && [...calls].reverse().find(t => t.name === data.name && t.status === "running");
-                if (call) call.elapsed = data.elapsed;
-            } catch { /* ignore */ }
-        });
-
-        eventSource.addEventListener("tool_result", (e: MessageEvent) => {
-            try {
-                const data = JSON.parse(e.data);
-                streamState.phase = "thinking";
-                const calls = streamState.assistantMsg.toolCalls;
-                const call = calls && [...calls].reverse().find(t => t.name === data.name && t.status === "running");
-                if (call) {
-                    call.status = "done";
-                    if (data.result) {
-                        // 解析截图: 支持多个 [screenshot]base64 段
-                        if (data.result.includes("[screenshot]")) {
-                            const matches = Array.from(
-                                data.result.matchAll(/\[screenshot\]([A-Za-z0-9+/=]+)/g),
-                            );
-                            if (matches.length) {
-                                const newScreenshots = matches.map((m: any) => m[1].trim());
-                                call.screenshots = [
-                                    ...(call.screenshots || []),
-                                    ...newScreenshots,
-                                ];
-                                call.output = data.result
-                                    .replace(/\[screenshot\][A-Za-z0-9+/=]+/g, "")
-                                    .trim();
-                            } else {
-                                call.output = data.result;
-                            }
-                        } else {
-                            call.output = data.result;
-                        }
-                    }
-                    call.collapsed = call.hasLiveOutput ? false : !!call.output;
-                }
-                if (currentSessionId.value === sendSessionId) scrollToBottom();
-            } catch { /* ignore */ }
-        });
-
-        eventSource.addEventListener("title_updated", (e: MessageEvent) => {
-            try {
-                const data = JSON.parse(e.data);
-                let updated = false;
-                sessions.value = sessions.value.map((session) => {
-                    if (session.session_id !== data.session_id) return session;
-                    if (session.title === data.title) return session;
-                    updated = true;
-                    return { ...session, title: data.title };
-                });
-                if (updated) {
-                    sessionSwitcherRef.value?.updateSessionTitle(data.session_id, data.title);
-                }
-            } catch { /* ignore */ }
-        });
-
-        eventSource.addEventListener("action_button", (e: MessageEvent) => {
-            try {
-                const data = JSON.parse(e.data);
-                if (!streamState.assistantMsg.actionButtons) streamState.assistantMsg.actionButtons = [];
-                streamState.assistantMsg.actionButtons.push({
-                    action: data.action,
-                    label: data.label,
-                    params: data.params,
-                });
-                if (currentSessionId.value === sendSessionId) scrollToBottom();
-            } catch { /* ignore */ }
-        });
-
-        eventSource.addEventListener("usage", (e: MessageEvent) => {
-            try {
-                const data = JSON.parse(e.data);
-                sessionTokens.value = {
-                    input: data.total_input_tokens || 0,
-                    output: data.total_output_tokens || 0,
-                    messages: sessionTokens.value.messages,
-                    cacheCreation: data.total_cache_creation_tokens || 0,
-                    cacheRead: data.total_cache_read_tokens || 0,
-                };
-            } catch { /* ignore */ }
-        });
-
-        eventSource.addEventListener("done", (_e: MessageEvent) => {
-            streamState.phase = "idle";
-            eventSource.close();
-            flushAndFinish();
-        });
-
-        eventSource.addEventListener("interrupted", (e: MessageEvent) => {
-            streamState.phase = "idle";
-            eventSource.close();
-            flushAndFinish({ interrupted: true });
-        });
-
-        eventSource.addEventListener("server_error", (e: MessageEvent) => {
-            const data = e.data;
-            if (data) {
-                // 解析错误信息，提供用户友好的提示
-                let errorMsg = "AI 服务暂时不可用，请稍后重试";
-                try {
-                    // 尝试解析常见的错误格式
-                    if (data.includes("Model name not specified")) {
-                        errorMsg = "模型配置错误，请检查编码模型设置";
-                    } else if (data.includes("rate_limit") || data.includes("429")) {
-                        errorMsg = "请求过于频繁，请稍后再试";
-                    } else if (data.includes("authentication") || data.includes("401")) {
-                        errorMsg = "API 密钥验证失败，请检查配置";
-                    } else if (data.includes("timeout") || data.includes("504")) {
-                        errorMsg = "请求超时，请重试";
-                    } else if (data.includes("400")) {
-                        errorMsg = "请求参数错误，请检查模型配置";
-                    } else if (data.includes("500") || data.includes("503")) {
-                        errorMsg = "服务暂时不可用，请稍后重试";
-                    }
-                } catch {
-                    // 解析失败时使用默认错误信息
-                }
-                streamState.targetText += `\n\n${errorMsg}`;
-            }
-            eventSource.close();
-            flushAndFinish();
-        });
-
-        eventSource.onerror = () => {
-            eventSource.close();
-            if (!streamState.done) {
-                if (aborting.value) {
-                    flushAndFinish({ interrupted: true });
-                    return;
-                }
-                if (!streamState.targetText) streamState.targetText = "连接中断，请重试。";
-                flushAndFinish();
-            }
-        };
-
-        // SSE timeout: if no events received within 30s, abort
-        let lastEventTime = Date.now();
-        const sseTimeoutCheck = setInterval(() => {
-            if (streamState.done) { clearInterval(sseTimeoutCheck); return; }
-            if (Date.now() - lastEventTime > 30000) {
-                clearInterval(sseTimeoutCheck);
-                eventSource.close();
-                if (!streamState.targetText) streamState.targetText = "AI 响应超时，请重试。";
-                flushAndFinish();
-            }
-        }, 5000);
-        // Track last event time on every SSE event
-        const trackEvent = () => { lastEventTime = Date.now(); };
-        for (const evtName of ["text", "tool_use", "tool_output", "tool_progress", "tool_result", "usage", "thinking", "done", "server_error", "interrupted"]) {
-            eventSource.addEventListener(evtName, trackEvent);
-        }
-    } catch (err: any) {
-        // 提供用户友好的错误提示
-        let errorMsg = "请求失败，请检查网络连接";
-        if (err?.response?.status === 400) {
-            errorMsg = "请求参数错误，请检查模型配置";
-        } else if (err?.response?.status === 401) {
-            errorMsg = "API 密钥验证失败，请检查配置";
-        } else if (err?.response?.status === 429) {
-            errorMsg = "请求过于频繁，请稍后再试";
-        } else if (err?.response?.status >= 500) {
-            errorMsg = "服务暂时不可用，请稍后重试";
-        } else if (err?.message?.includes("Network")) {
-            errorMsg = "网络连接失败，请检查网络";
-        }
-        assistantMsg.content = errorMsg;
-        loading.value = false;
-        aborting.value = false;
-    }
-}
-
-async function handleAbortCurrentStream() {
-    if (!loading.value || aborting.value) return;
-    const sessionId = currentSessionId.value;
-    const streamState = activeStreams.get(sessionId);
-    if (!streamState || streamState.done) {
-        loading.value = false;
-        return;
-    }
-
-    aborting.value = true;
-
-    function forceFinalize() {
-        if (streamState.done) return;
-        streamState.done = true;
-        if (streamState._abortTimeout) {
-            clearTimeout(streamState._abortTimeout);
-            streamState._abortTimeout = null;
-        }
-        aborting.value = false;
-        if (streamState.twTimer) {
-            clearInterval(streamState.twTimer);
-            streamState.twTimer = null;
-        }
-        streamState.assistantMsg.content = streamState.targetText || "";
-        streamState.assistantMsg.streaming = false;
-        streamState.assistantMsg.interrupted = true;
-        activeStreams.delete(sessionId);
-        loading.value = false;
-        scrollToBottom(true);
-        loadSessionInfo();
-    }
-
-    try {
-        await abortChatMessage(streamState.messageId);
-    } catch {
-        try { streamState.eventSource?.close(); } catch { /* noop */ }
-        forceFinalize();
-        return;
-    }
-
-    // Backend accepted; wait for summary text + `interrupted` SSE event.
-    // Timeout fallback: force finalize if no response within 15s.
-    if (!streamState.done) {
-        streamState._abortTimeout = setTimeout(() => {
-            try { streamState.eventSource?.close(); } catch { /* noop */ }
-            forceFinalize();
-        }, 15000);
-    }
-}
-
-function handlePressEnter(e: KeyboardEvent) {
-    // If mention/command panel is open, let panel handle it
-    if (handlePanelKeydown(e)) return;
-
-    if (sendMode.value === 'enter') {
-        if (e.ctrlKey || e.metaKey) {
-            const textarea = e.target as HTMLTextAreaElement;
-            const start = textarea.selectionStart;
-            const end = textarea.selectionEnd;
-            inputText.value = inputText.value.substring(0, start) + '\n' + inputText.value.substring(end);
-            nextTick(() => { textarea.selectionStart = textarea.selectionEnd = start + 1; });
-        } else { e.preventDefault(); handleSend(); }
-    } else {
-        if (e.ctrlKey || e.metaKey) { e.preventDefault(); handleSend(); }
-    }
-}
-
-function setSendMode(mode: 'enter' | 'ctrl-enter') {
-    sendMode.value = mode;
-    settingsOpen.value = false;
-}
-
-function triggerFileInput() {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.jpg,.jpeg,.png,.txt,.rar,.zip,.doc,.docx,.xls,.7z';
-    input.multiple = true;
-    input.onchange = () => { if (input.files?.length) addFiles(input.files); };
-    input.click();
-}
-
-function triggerVideoInput() {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.mp4,.mov,.avi,.wmv,.flv,.mkv';
-    input.multiple = false;
-    input.onchange = () => { if (input.files?.length) addFiles(input.files); };
-    input.click();
-}
-
-function insertEmoji(emoji: string) { inputText.value += emoji; emojiOpen.value = false; }
-
+// ---- Session info and settings ----
 async function loadSessionInfo() {
     if (!currentSessionId.value) return;
     try {
@@ -983,6 +208,52 @@ async function handleCompact() {
     finally { compacting.value = false; }
 }
 
+// ---- Composables ----
+const {
+    pendingImages, isDragging, addFiles, removeImage,
+    handlePaste, handleDragOver, handleDragLeave, handleDrop,
+} = useChatImages();
+
+const {
+    aborting, activeStreams, handleSend, handleAbortCurrentStream,
+    toggleToolCollapsed, getStreamPhase, getAccumulatedOutput,
+    getRecentFileChanges, renderMarkdown,
+} = useChatStream({
+    messages, inputText, loading, currentSessionId, activeContact, sessions,
+    sessionTokens, pendingImages, isAiMode, messageCounter, drafts,
+    sessionSwitcherRef, scrollToBottom, loadSessionInfo, loadActiveAssignments,
+});
+
+const {
+    hasMoreHistory, historyOffset, loadingMore, contextResetAt,
+    loadHistory, loadMoreHistory, formatTokens,
+} = useChatHistory({
+    messages, currentSessionId, chatScrollbar, messageCounter, scrollToBottom,
+});
+
+const {
+    switchSession, handleNewSession, handleContactSelect,
+    handleSessionsLoaded, saveDraft, restoreDraft,
+} = useChatSession({
+    messages, inputText, loading, currentSessionId, activeContact, sessions,
+    sessionTokens, thinkingLevel, pendingImages, messageCounter,
+    hasMoreHistory, historyOffset, contextResetAt,
+    activeStreams, drafts, sessionSwitcherRef,
+    loadHistory, loadSessionInfo, scrollToBottom,
+});
+
+const {
+    showMentionPanel, showCommandPanel, showHashTagPanel,
+    mentionMembers, filteredCommands,
+    mentionActiveIndex, commandActiveIndex, hashTagActiveIndex,
+    panelStyle, hashTagLevel, hashTagSelectedCategory,
+    hashTagItemsLoading, filteredHashTagCategories, filteredHashTagItems,
+    hashTagQuery, selectMention, selectCommand,
+    selectHashTagCategory, selectHashTagItem,
+    handlePanelKeydown, isAnyPanelOpen, handleClickOutsidePanel,
+} = useChatMentions({ inputText, pluginStore });
+
+// ---- Functions that depend on composable returns ----
 async function handleReset() {
     if (!currentSessionId.value) return;
     try {
@@ -1027,77 +298,46 @@ async function handleReloadHistory() {
     }
 }
 
-function parseHistoryMessages(raw: any[]): ChatMessage[] {
-    const parsed: ChatMessage[] = raw.map((m: any) => {
-        const images = m.images?.map((img: string) => {
-            if (img && !img.startsWith('data:') && !img.startsWith('http') && !img.startsWith('/')) {
-                return `/api/${img}`;
-            }
-            return img;
-        });
-        let content = m.content || "";
-        if (images?.length && /^(请看图片)+$/.test(content.trim())) {
-            content = "";
-        }
-        const msg: ChatMessage = {
-            id: m.id || String(++messageCounter),
-            role: m.role,
-            content,
-            images,
-            timestamp: m.timestamp ? m.timestamp * 1000 : 0,
-            interrupted: m.interrupted || false,
-        };
-        if (m.tool_calls?.length) {
-            msg.toolCalls = mergeToolCalls(
-                m.tool_calls.map((tc: any) => {
-                    let output = tc.output || "";
-                    let screenshots: string[] | undefined;
-                    if (output && output.includes("[screenshot]")) {
-                        const matches = Array.from(output.matchAll(/\[screenshot\]([A-Za-z0-9+/=]+)/g));
-                        if (matches.length) {
-                            screenshots = matches.map((m) => m[1].trim());
-                            output = output.replace(/\[screenshot\][A-Za-z0-9+/=]+/g, "").trim();
-                        }
-                    }
-                    return { name: tc.name, status: tc.status || "done", output, screenshots, collapsed: true, count: 1 };
-                })
-            );
-        }
-        return msg;
-    });
-    const NO_MERGE_RE = /^【/;
-    const merged: ChatMessage[] = [];
-    for (const msg of parsed) {
-        const last = merged[merged.length - 1];
-        const isNotification = NO_MERGE_RE.test(msg.content) || (last && NO_MERGE_RE.test(last.content));
-        if (msg.role === "assistant" && last?.role === "assistant" && !isNotification) {
-            if (msg.content) {
-                last.content = last.content ? last.content + "\n\n" + msg.content : msg.content;
-            }
-            if (msg.toolCalls?.length) {
-                last.toolCalls = [...(last.toolCalls || []), ...msg.toolCalls];
-            }
-        } else {
-            merged.push(msg);
-        }
+function handlePressEnter(e: KeyboardEvent) {
+    if (handlePanelKeydown(e)) return;
+
+    if (sendMode.value === 'enter') {
+        if (e.ctrlKey || e.metaKey) {
+            const textarea = e.target as HTMLTextAreaElement;
+            const start = textarea.selectionStart;
+            const end = textarea.selectionEnd;
+            inputText.value = inputText.value.substring(0, start) + '\n' + inputText.value.substring(end);
+            nextTick(() => { textarea.selectionStart = textarea.selectionEnd = start + 1; });
+        } else { e.preventDefault(); handleSend(); }
+    } else {
+        if (e.ctrlKey || e.metaKey) { e.preventDefault(); handleSend(); }
     }
-    return merged;
 }
 
-function formatTokens(n: number): string {
-    if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
-    if (n >= 1_000) return (n / 1_000).toFixed(1) + "K";
-    return String(n);
+function setSendMode(mode: 'enter' | 'ctrl-enter') {
+    sendMode.value = mode;
+    settingsOpen.value = false;
 }
 
-function formatTime(ts: number): string {
-    if (!ts) return "";
-    const d = new Date(ts * 1000);
-    const now = new Date();
-    const isToday = d.toDateString() === now.toDateString();
-    if (isToday) return d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
-    return d.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
+function triggerFileInput() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.jpg,.jpeg,.png,.txt,.rar,.zip,.doc,.docx,.xls,.7z';
+    input.multiple = true;
+    input.onchange = () => { if (input.files?.length) addFiles(input.files); };
+    input.click();
 }
+
+function triggerVideoInput() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.mp4,.mov,.avi,.wmv,.flv,.mkv';
+    input.multiple = false;
+    input.onchange = () => { if (input.files?.length) addFiles(input.files); };
+    input.click();
+}
+
+function insertEmoji(emoji: string) { inputText.value += emoji; emojiOpen.value = false; }
 
 async function copyMessageContent(msg: ChatMessage) {
     const text = msg.content || '';
@@ -1144,513 +384,13 @@ async function handleActionButton(_msg: ChatMessage, btn: ActionButton) {
     }
 }
 
-// ---- @mention、/command、#tag 提示 ----
-const slashCommands: SlashCommand[] = [
-    { name: "/new", label: "/new", description: "重置上下文" },
-    { name: "/status", label: "/status", description: "查看会话状态" },
-    { name: "/compact", label: "/compact", description: "压缩上下文" },
-    { name: "/think", label: "/think", description: "设置思考级别 (off|low|medium|high)" },
-    { name: "/usage", label: "/usage", description: "设置用量显示 (off|tokens|full)" },
-    { name: "/help", label: "/help", description: "显示帮助" },
-];
-
-const showMentionPanel = ref(false);
-const showCommandPanel = ref(false);
-const showHashTagPanel = ref(false);
-const mentionMembers = ref<MentionMember[]>([]);
-const filteredCommands = ref<SlashCommand[]>([]);
-const mentionActiveIndex = ref(0);
-const commandActiveIndex = ref(0);
-const hashTagActiveIndex = ref(0);
-const mentionQuery = ref("");
-const commandQuery = ref("");
-const hashTagQuery = ref("");
-const panelStyle = ref({ left: '0px' });
-let mentionStartPos = -1;
-let hashTagStartPos = -1;
-
-// #tag two-level state
-const hashTagLevel = ref<'category' | 'items'>('category');
-const hashTagSelectedCategory = ref<HashTagCategory | null>(null);
-const hashTagItems = ref<HashTagItem[]>([]);
-const hashTagItemsLoading = ref(false);
-
-const allHashTagCategories: HashTagCategory[] = [
-    { key: 'bug', label: '#bug', description: '缺陷跟踪', plugin: 'vortflow' },
-    { key: 'task', label: '#task', description: '任务管理', plugin: 'vortflow' },
-    { key: 'story', label: '#story', description: '需求列表', plugin: 'vortflow' },
-    { key: 'milestone', label: '#milestone', description: '里程碑', plugin: 'vortflow' },
-];
-
-const availableHashTagCategories = computed(() => {
-    const enabledPlugins = new Set(pluginStore.extensions.map(e => e.plugin));
-    return allHashTagCategories.filter(c => enabledPlugins.has(c.plugin));
-});
-
-const filteredHashTagCategories = computed(() => {
-    if (!hashTagQuery.value) return availableHashTagCategories.value;
-    const kw = hashTagQuery.value.toLowerCase();
-    return availableHashTagCategories.value.filter(
-        c => c.key.includes(kw) || c.label.includes(kw) || c.description.includes(kw)
-    );
-});
-
-const filteredHashTagItems = computed(() => {
-    if (!hashTagQuery.value) return hashTagItems.value;
-    const kw = hashTagQuery.value.toLowerCase();
-    return hashTagItems.value.filter(
-        item => item.id.toLowerCase().includes(kw) || item.title.toLowerCase().includes(kw)
-    );
-});
-
-// Unified display list for the #tag panel
-const hashTagDisplayList = computed(() => {
-    if (hashTagLevel.value === 'category') return filteredHashTagCategories.value;
-    return filteredHashTagItems.value;
-});
-
-// All members cache for local pinyin search
-const allMembers = ref<MentionMember[]>([]);
-let allMembersLoaded = false;
-
-async function ensureMembersLoaded() {
-    if (allMembersLoaded) return;
+async function fetchLatestMemberContact(memberId: string): Promise<Contact | null> {
     try {
-        const res: any = await getChatMembers("", 200);
-        allMembers.value = res?.members || [];
-        allMembersLoaded = true;
-    } catch { /* ignore */ }
-}
-
-/**
- * Match member name by pinyin initials (supports polyphones)
- */
-function matchPinyin(name: string, keyword: string): boolean {
-    if (!keyword) return true;
-    const kw = keyword.toLowerCase();
-
-    // Direct name/email match
-    if (name.toLowerCase().includes(kw)) return true;
-
-    // Full pinyin match
-    const fullPy = pinyin(name, { toneType: 'none', type: 'array' }).join('').toLowerCase();
-    if (fullPy.includes(kw)) return true;
-
-    // Pinyin initials match (with polyphone support via multiple mode)
-    const initialsArr = pinyin(name, { pattern: 'first', type: 'array', multiple: true });
-    // Build all possible initial combinations for polyphones
-    const combos = initialsArr.reduce<string[]>((acc, cur) => {
-        // cur may be a string with multiple initials separated by space for polyphones
-        const options = typeof cur === 'string' ? cur.split(' ') : [cur];
-        if (acc.length === 0) return options.map(o => o.toLowerCase());
-        const result: string[] = [];
-        for (const prefix of acc) {
-            for (const opt of options) {
-                result.push(prefix + opt.toLowerCase());
-            }
-        }
-        return result;
-    }, []);
-
-    return combos.some(c => c.includes(kw));
-}
-
-function filterMembersByKeyword(keyword: string): MentionMember[] {
-    if (!keyword) return allMembers.value.slice(0, 20);
-    return allMembers.value.filter(m =>
-        matchPinyin(m.name, keyword) ||
-        (m.email && m.email.toLowerCase().includes(keyword.toLowerCase()))
-    ).slice(0, 20);
-}
-
-async function searchMembers(keyword: string) {
-    await ensureMembersLoaded();
-    mentionMembers.value = filterMembersByKeyword(keyword);
-    mentionActiveIndex.value = 0;
-    showMentionPanel.value = mentionMembers.value.length > 0;
-}
-
-function updatePanelPosition() {
-    const textarea = document.querySelector('textarea.chat-textarea') as HTMLTextAreaElement;
-    const container = document.querySelector('.relative.px-6') as HTMLElement;
-    if (!textarea || !container) return;
-
-    // Create a mirror div to measure cursor position
-    const mirror = document.createElement('div');
-    const style = window.getComputedStyle(textarea);
-    const mirrorProps = [
-        'fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing',
-        'wordSpacing', 'textIndent', 'whiteSpace', 'wordWrap', 'overflowWrap',
-        'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
-        'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
-        'boxSizing', 'width',
-    ];
-    mirror.style.position = 'absolute';
-    mirror.style.visibility = 'hidden';
-    mirror.style.overflow = 'hidden';
-    for (const prop of mirrorProps) {
-        (mirror.style as any)[prop] = style.getPropertyValue(prop.replace(/([A-Z])/g, '-$1').toLowerCase());
-    }
-    document.body.appendChild(mirror);
-
-    const text = textarea.value.substring(0, textarea.selectionStart);
-    mirror.textContent = text;
-    const span = document.createElement('span');
-    span.textContent = '|';
-    mirror.appendChild(span);
-
-    const textareaRect = textarea.getBoundingClientRect();
-    const containerRect = container.getBoundingClientRect();
-    const spanRect = span.getBoundingClientRect();
-    const mirrorRect = mirror.getBoundingClientRect();
-
-    document.body.removeChild(mirror);
-
-    // Calculate left position relative to container
-    const cursorLeft = textareaRect.left + (spanRect.left - mirrorRect.left) - textarea.scrollLeft;
-    const relativeLeft = Math.max(0, cursorLeft - containerRect.left);
-
-    panelStyle.value = { left: `${relativeLeft}px` };
-}
-
-// Whether any popup panel is open
-const isAnyPanelOpen = computed(() => showMentionPanel.value || showCommandPanel.value || showHashTagPanel.value);
-
-// Watch inputText to detect @, / and # triggers
-watch(inputText, () => {
-    nextTick(() => handleInput());
-});
-
-function closeAllPanels() {
-    showMentionPanel.value = false;
-    showCommandPanel.value = false;
-    showHashTagPanel.value = false;
-    hashTagLevel.value = 'category';
-    hashTagSelectedCategory.value = null;
-}
-
-function handleInput() {
-    const textarea = document.querySelector('textarea.chat-textarea') as HTMLTextAreaElement;
-    if (!textarea) return;
-
-    const cursorPos = textarea.selectionStart;
-    const text = textarea.value;
-    const textBeforeCursor = text.substring(0, cursorPos);
-
-    // Check for @ mention
-    const atMatch = textBeforeCursor.match(/@([^\s@]*)$/);
-    if (atMatch) {
-        mentionStartPos = cursorPos - atMatch[1].length - 1;
-        mentionQuery.value = atMatch[1];
-        mentionActiveIndex.value = 0;
-        showCommandPanel.value = false;
-        showHashTagPanel.value = false;
-        updatePanelPosition();
-        searchMembers(atMatch[1]);
-        return;
-    }
-
-    // Check for # tag (when VortFlow/VortGit plugins are enabled)
-    if (availableHashTagCategories.value.length > 0) {
-        const hashMatch = textBeforeCursor.match(/#([^\s#]*)$/);
-        if (hashMatch) {
-            hashTagStartPos = cursorPos - hashMatch[1].length - 1;
-            showMentionPanel.value = false;
-            showCommandPanel.value = false;
-
-            const rawQuery = hashMatch[1];
-            // Check if query matches a category prefix (e.g., "bug" or "bug/keyword")
-            const slashIdx = rawQuery.indexOf('/');
-            if (slashIdx >= 0) {
-                // Two-level: category selected, now filtering items
-                const catKey = rawQuery.substring(0, slashIdx);
-                const itemQuery = rawQuery.substring(slashIdx + 1);
-                const cat = availableHashTagCategories.value.find(c => c.key === catKey);
-                if (cat) {
-                    if (hashTagSelectedCategory.value?.key !== cat.key) {
-                        hashTagSelectedCategory.value = cat;
-                        hashTagLevel.value = 'items';
-                        loadHashTagItems(cat.key);
-                    }
-                    hashTagQuery.value = itemQuery;
-                    hashTagActiveIndex.value = 0;
-                    showHashTagPanel.value = true;
-                    updatePanelPosition();
-                    return;
-                }
-            }
-
-            // Check if the full query exactly matches a category
-            const exactCat = availableHashTagCategories.value.find(c => c.key === rawQuery);
-            if (exactCat && hashTagLevel.value === 'category') {
-                // User typed "#bug" exactly - show items level
-                hashTagSelectedCategory.value = exactCat;
-                hashTagLevel.value = 'items';
-                hashTagQuery.value = '';
-                hashTagActiveIndex.value = 0;
-                showHashTagPanel.value = true;
-                updatePanelPosition();
-                loadHashTagItems(exactCat.key);
-                return;
-            }
-
-            // First level: filtering categories
-            if (hashTagLevel.value !== 'items') {
-                hashTagLevel.value = 'category';
-                hashTagSelectedCategory.value = null;
-            }
-            hashTagQuery.value = rawQuery;
-            hashTagActiveIndex.value = 0;
-            showHashTagPanel.value = hashTagDisplayList.value.length > 0 || hashTagLevel.value === 'items';
-            updatePanelPosition();
-            return;
-        }
-    }
-
-    // Check for / command (only at start of input)
-    const slashMatch = textBeforeCursor.match(/^\/(\S*)$/);
-    if (slashMatch) {
-        commandQuery.value = slashMatch[1];
-        commandActiveIndex.value = 0;
-        showMentionPanel.value = false;
-        showHashTagPanel.value = false;
-        updatePanelPosition();
-        filterCommands(slashMatch[1]);
-        return;
-    }
-
-    // Close panels
-    closeAllPanels();
-}
-
-function filterCommands(keyword: string) {
-    const kw = keyword.toLowerCase();
-    filteredCommands.value = slashCommands.filter(
-        c => c.name.toLowerCase().includes(kw) || c.description.includes(kw)
-    );
-    showCommandPanel.value = filteredCommands.value.length > 0;
-}
-
-function selectMention(member: MentionMember) {
-    const textarea = document.querySelector('textarea.chat-textarea') as HTMLTextAreaElement;
-    if (!textarea) return;
-
-    const before = inputText.value.substring(0, mentionStartPos);
-    const after = inputText.value.substring(textarea.selectionStart);
-    inputText.value = before + `@${member.name} ` + after;
-    showMentionPanel.value = false;
-
-    nextTick(() => {
-        const newPos = mentionStartPos + member.name.length + 2; // @name + space
-        textarea.selectionStart = textarea.selectionEnd = newPos;
-        textarea.focus();
-    });
-}
-
-function selectCommand(cmd: SlashCommand) {
-    inputText.value = cmd.name + " ";
-    showCommandPanel.value = false;
-
-    nextTick(() => {
-        const textarea = document.querySelector('textarea.chat-textarea') as HTMLTextAreaElement;
-        if (textarea) {
-            textarea.selectionStart = textarea.selectionEnd = inputText.value.length;
-            textarea.focus();
-        }
-    });
-}
-
-// ---- #tag: load items for a category ----
-async function loadHashTagItems(categoryKey: string) {
-    hashTagItemsLoading.value = true;
-    hashTagItems.value = [];
-    try {
-        let res: any;
-        switch (categoryKey) {
-            case 'bug':
-                res = await getVortflowBugs({ page: 1, page_size: 20 });
-                hashTagItems.value = (res?.items || res?.bugs || []).map((b: any) => ({
-                    id: b.id || b.bug_id, title: b.title, state: b.state, priority: b.severity, category: 'bug'
-                }));
-                break;
-            case 'task':
-                res = await getVortflowTasks({ page: 1, page_size: 20 });
-                hashTagItems.value = (res?.items || res?.tasks || []).map((t: any) => ({
-                    id: t.id || t.task_id, title: t.title, state: t.state, category: 'task'
-                }));
-                break;
-            case 'story':
-                res = await getVortflowStories({ page: 1, page_size: 20 });
-                hashTagItems.value = (res?.items || res?.stories || []).map((s: any) => ({
-                    id: s.id || s.story_id, title: s.title, state: s.state, priority: s.priority, category: 'story'
-                }));
-                break;
-            case 'milestone':
-                res = await getVortflowMilestones({ page: 1, page_size: 20 });
-                hashTagItems.value = (res?.items || res?.milestones || []).map((m: any) => ({
-                    id: m.id || m.milestone_id, title: m.name || m.title, state: m.status, category: 'milestone'
-                }));
-                break;
-        }
-    } catch { /* ignore */ }
-    hashTagItemsLoading.value = false;
-}
-
-function selectHashTagCategory(cat: HashTagCategory) {
-    const textarea = document.querySelector('textarea.chat-textarea') as HTMLTextAreaElement;
-    if (!textarea) return;
-
-    // Replace the # query with #category/
-    const before = inputText.value.substring(0, hashTagStartPos);
-    const after = inputText.value.substring(textarea.selectionStart);
-    inputText.value = before + `#${cat.key}/` + after;
-    hashTagSelectedCategory.value = cat;
-    hashTagLevel.value = 'items';
-    hashTagQuery.value = '';
-    hashTagActiveIndex.value = 0;
-    loadHashTagItems(cat.key);
-
-    nextTick(() => {
-        const newPos = hashTagStartPos + cat.key.length + 2; // # + key + /
-        textarea.selectionStart = textarea.selectionEnd = newPos;
-        textarea.focus();
-    });
-}
-
-function selectHashTagItem(item: HashTagItem) {
-    const textarea = document.querySelector('textarea.chat-textarea') as HTMLTextAreaElement;
-    if (!textarea) return;
-
-    const before = inputText.value.substring(0, hashTagStartPos);
-    const after = inputText.value.substring(textarea.selectionStart);
-    const tag = `#${item.category}/${item.title}#id:${item.id} `;
-    inputText.value = before + tag + after;
-    closeAllPanels();
-
-    nextTick(() => {
-        const newPos = hashTagStartPos + tag.length;
-        textarea.selectionStart = textarea.selectionEnd = newPos;
-        textarea.focus();
-    });
-}
-
-function scrollActiveItemIntoView(type: 'mention' | 'command' | 'hashtag') {
-    nextTick(() => {
-        const attr = type === 'mention' ? 'data-mention-index' : type === 'command' ? 'data-command-index' : 'data-hashtag-index';
-        const idx = type === 'mention' ? mentionActiveIndex.value : type === 'command' ? commandActiveIndex.value : hashTagActiveIndex.value;
-        const el = document.querySelector(`[${attr}="${idx}"]`) as HTMLElement;
-        if (el) el.scrollIntoView({ block: 'nearest' });
-    });
-}
-
-function handlePanelKeydown(e: KeyboardEvent) {
-    if (showMentionPanel.value) {
-        const list = mentionMembers.value;
-        if (e.key === 'ArrowDown') {
-            e.preventDefault();
-            mentionActiveIndex.value = (mentionActiveIndex.value + 1) % list.length;
-            scrollActiveItemIntoView('mention');
-        } else if (e.key === 'ArrowUp') {
-            e.preventDefault();
-            mentionActiveIndex.value = (mentionActiveIndex.value - 1 + list.length) % list.length;
-            scrollActiveItemIntoView('mention');
-        } else if (e.key === 'Enter' || e.key === 'Tab') {
-            e.preventDefault();
-            e.stopPropagation();
-            if (list[mentionActiveIndex.value]) selectMention(list[mentionActiveIndex.value]);
-        } else if (e.key === 'Escape') {
-            e.preventDefault();
-            showMentionPanel.value = false;
-        }
-        return true;
-    }
-    if (showCommandPanel.value) {
-        const list = filteredCommands.value;
-        if (e.key === 'ArrowDown') {
-            e.preventDefault();
-            commandActiveIndex.value = (commandActiveIndex.value + 1) % list.length;
-            scrollActiveItemIntoView('command');
-        } else if (e.key === 'ArrowUp') {
-            e.preventDefault();
-            commandActiveIndex.value = (commandActiveIndex.value - 1 + list.length) % list.length;
-            scrollActiveItemIntoView('command');
-        } else if (e.key === 'Enter' || e.key === 'Tab') {
-            e.preventDefault();
-            e.stopPropagation();
-            if (list[commandActiveIndex.value]) selectCommand(list[commandActiveIndex.value]);
-        } else if (e.key === 'Escape') {
-            e.preventDefault();
-            showCommandPanel.value = false;
-        }
-        return true;
-    }
-    if (showHashTagPanel.value) {
-        const list = hashTagDisplayList.value;
-        if (e.key === 'ArrowDown') {
-            e.preventDefault();
-            hashTagActiveIndex.value = (hashTagActiveIndex.value + 1) % (list.length || 1);
-            scrollActiveItemIntoView('hashtag');
-        } else if (e.key === 'ArrowUp') {
-            e.preventDefault();
-            hashTagActiveIndex.value = (hashTagActiveIndex.value - 1 + (list.length || 1)) % (list.length || 1);
-            scrollActiveItemIntoView('hashtag');
-        } else if (e.key === 'Enter' || e.key === 'Tab') {
-            e.preventDefault();
-            e.stopPropagation();
-            if (hashTagLevel.value === 'category') {
-                const cat = filteredHashTagCategories.value[hashTagActiveIndex.value];
-                if (cat) selectHashTagCategory(cat as HashTagCategory);
-            } else {
-                const item = filteredHashTagItems.value[hashTagActiveIndex.value];
-                if (item) selectHashTagItem(item as HashTagItem);
-            }
-        } else if (e.key === 'Escape') {
-            e.preventDefault();
-            if (hashTagLevel.value === 'items') {
-                // Go back to category level
-                hashTagLevel.value = 'category';
-                hashTagSelectedCategory.value = null;
-                hashTagQuery.value = '';
-                hashTagActiveIndex.value = 0;
-                // Reset input to just #
-                const textarea = document.querySelector('textarea.chat-textarea') as HTMLTextAreaElement;
-                if (textarea) {
-                    const before = inputText.value.substring(0, hashTagStartPos);
-                    const after = inputText.value.substring(textarea.selectionStart);
-                    inputText.value = before + '#' + after;
-                    nextTick(() => {
-                        textarea.selectionStart = textarea.selectionEnd = hashTagStartPos + 1;
-                        textarea.focus();
-                    });
-                }
-            } else {
-                showHashTagPanel.value = false;
-            }
-        } else if (e.key === 'Backspace' && hashTagLevel.value === 'items' && !hashTagQuery.value) {
-            // If at items level with empty query, go back to category
-            e.preventDefault();
-            hashTagLevel.value = 'category';
-            hashTagSelectedCategory.value = null;
-            const textarea = document.querySelector('textarea.chat-textarea') as HTMLTextAreaElement;
-            if (textarea) {
-                const before = inputText.value.substring(0, hashTagStartPos);
-                const after = inputText.value.substring(textarea.selectionStart);
-                inputText.value = before + '#' + after;
-                nextTick(() => {
-                    textarea.selectionStart = textarea.selectionEnd = hashTagStartPos + 1;
-                    textarea.focus();
-                });
-            }
-        }
-        return true;
-    }
-    return false;
-}
-
-function handleClickOutsidePanel(e: MouseEvent) {
-    const target = e.target as HTMLElement;
-    if (!target.closest('.mention-panel') && !target.closest('.chat-textarea')) {
-        closeAllPanels();
+        const res: any = await getChatContacts();
+        const contacts = Array.isArray(res?.contacts) ? res.contacts as Contact[] : [];
+        return contacts.find(c => c.type === "member" && c.id === memberId) || null;
+    } catch {
+        return null;
     }
 }
 
@@ -1667,15 +407,34 @@ function applyPromptFromQuery() {
     }
 }
 
+// ---- Watchers ----
+watch(currentSessionId, (val) => {
+    localStorage.setItem('chat-last-session-id', val);
+});
+
+watch(activeContact, (contact) => {
+    if (contact) {
+        localStorage.setItem('chat-last-contact', JSON.stringify({
+            type: contact.type,
+            id: contact.id,
+            name: contact.name,
+            avatar_url: contact.avatar_url,
+            session_id: contact.session_id,
+            position: contact.position,
+        }));
+    }
+    loadActiveAssignments();
+}, { deep: true });
+
 watch(() => route.query.prompt, (val) => {
     if (val) applyPromptFromQuery();
 });
 
+// ---- Lifecycle ----
 onMounted(async () => {
     document.addEventListener("paste", handlePaste);
     document.addEventListener("click", handleClickOutsidePanel);
 
-    // Listen for offline summary and node status changes via WebSocket
     try {
         const { useWebSocket } = await import("@/composables/useWebSocket");
         const { on } = useWebSocket();
@@ -1693,7 +452,7 @@ onMounted(async () => {
             if (!data?.session_id || !data?.content) return;
             if (data.session_id === currentSessionId.value && !loading.value) {
                 const newMsg: ChatMessage = {
-                    id: String(++messageCounter),
+                    id: String(++messageCounter.value),
                     role: "assistant",
                     content: data.content,
                     timestamp: Date.now(),
@@ -1713,7 +472,6 @@ onMounted(async () => {
         });
     } catch { /* silent */ }
 
-    // Bind native keydown on textarea for panel keyboard interception (arrows, ESC, Tab, Backspace)
     nextTick(() => {
         const textarea = document.querySelector('textarea.chat-textarea') as HTMLTextAreaElement;
         if (textarea) {
@@ -1727,7 +485,6 @@ onMounted(async () => {
         }
     });
 
-    // Route query params take priority (e.g., from AI employee "对话" button)
     const querySession = route.query.session as string | undefined;
     const queryContact = route.query.contact as string | undefined;
     const queryType = route.query.type as string | undefined;
@@ -1755,7 +512,6 @@ onMounted(async () => {
             await switchSession(targetSessionId);
         }
     } else {
-        // Restore last active contact from localStorage
         let restoredContact: { type: string; id: string; name?: string; avatar_url?: string; session_id?: string; position?: string } | null = null;
         try {
             const saved = localStorage.getItem('chat-last-contact');
@@ -1806,10 +562,8 @@ onMounted(async () => {
         }
     }
 
-    // Handle pre-filled prompt from query parameter (e.g., AiAssistButton)
     applyPromptFromQuery();
 
-    // Scroll-up to load archived history
     await nextTick();
     const scrollWrap = chatScrollbar.value?.wrapRef;
     if (scrollWrap) {

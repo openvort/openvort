@@ -387,7 +387,7 @@ async def handle_webhook(webhook_name: str, request: Request):
     # 执行动作
     if config.action_type == "agent_chat" and _agent:
         try:
-            from openvort.core.context import RequestContext
+            from openvort.core.engine.context import RequestContext
             member = await _load_member(member_id)
             ctx = RequestContext(
                 channel=config.channel, user_id=config.user_id, permissions={"*"},

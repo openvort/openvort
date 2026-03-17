@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
-from openvort.core.updater import get_update_service
+from openvort.core.services.updater import get_update_service
 from openvort.utils.logging import get_logger
 
 log = get_logger("web.upgrade")

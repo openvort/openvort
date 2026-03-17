@@ -21,7 +21,7 @@ router = APIRouter()
 
 
 def _get_service():
-    from openvort.core.remote_node import RemoteNodeService
+    from openvort.core.execution.remote_node import RemoteNodeService
     return RemoteNodeService(get_db_session_factory())
 
 
@@ -54,7 +54,7 @@ class UpdateNodeRequest(BaseModel):
 @router.get("/docker/images")
 async def list_docker_images():
     """List locally available Docker images."""
-    from openvort.core.docker_executor import DockerExecutor
+    from openvort.core.execution.docker_executor import DockerExecutor
     images = await DockerExecutor().list_local_images()
     return {"images": images}
 
@@ -65,7 +65,7 @@ async def pull_docker_image(body: dict):
     image = body.get("image", "")
     if not image:
         return {"ok": False, "message": "请指定镜像名"}
-    from openvort.core.docker_executor import DockerExecutor
+    from openvort.core.execution.docker_executor import DockerExecutor
     result = await DockerExecutor().pull_image(image)
     return result
 
@@ -84,7 +84,7 @@ async def check_image_status(images: str = ""):
     image_list = [i.strip() for i in images.split(",") if i.strip()]
     if not image_list:
         return {"images": {}}
-    from openvort.core.docker_executor import DockerExecutor, BUILTIN_IMAGES
+    from openvort.core.execution.docker_executor import DockerExecutor, BUILTIN_IMAGES
     executor = DockerExecutor()
     result = {}
     for img in image_list:
@@ -113,7 +113,7 @@ async def install_image_sse(body: dict, token: str = ""):
     if not image:
         return {"ok": False, "message": "请指定镜像名"}
 
-    from openvort.core.docker_executor import DockerExecutor
+    from openvort.core.execution.docker_executor import DockerExecutor
 
     async def _stream():
         executor = DockerExecutor()

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { ProTable, TableCell, type ProTableColumn, type ProTableRequestParams, type ProTableResponse } from "@/components/vort-biz";
+import { ProTable, TableCell } from "@/components/vort-biz";
 import { message } from "@/components/vort";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
 import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
@@ -23,14 +23,17 @@ import ViewSelector from "./components/ViewSelector.vue";
 import ViewManageDialog from "./components/ViewManageDialog.vue";
 import ViewCreateDialog from "./components/ViewCreateDialog.vue";
 import ColumnSettingsDialog from "./components/ColumnSettingsDialog.vue";
-import type { ColumnSettingItem } from "./components/ColumnSettingsDialog.vue";
 import { useVortFlowStore } from "@/stores";
 import type { CustomView } from "@/stores/modules/vortflow";
 import { useVortFlowViews, SYSTEM_VIEWS } from "./composables/useVortFlowViews";
+import { useWorkItemExport } from "./composables/useWorkItemExport";
+import { useWorkItemColumns } from "./composables/useWorkItemColumns";
+import { useWorkItemViewState } from "./composables/useWorkItemViewState";
+import { useWorkItemDataSource } from "./composables/useWorkItemDataSource";
 import { useWorkItemCommon } from "./work-item/useWorkItemCommon";
 import { useWorkItemInlineEdit } from "./work-item/useWorkItemInlineEdit";
 import {
-    getVortflowStory, getVortflowStories, getVortflowTask, getVortflowTasks, getVortflowBug, getVortflowBugs,
+    getVortflowStories,
     getVortflowProjects, createVortflowStory, createVortflowTask, createVortflowBug,
     deleteVortflowStory, deleteVortflowTask, deleteVortflowBug,
     updateVortflowStory, updateVortflowTask, updateVortflowBug,
@@ -350,54 +353,11 @@ const handleColumnFilter = (field: string, value: ColumnFilterValue | null) => {
     tableRef.value?.refresh?.();
 };
 
-const getExportData = (): RowItem[] => {
-    if (selectedRows.value.length > 0) return selectedRows.value;
-    return Object.values(itemRowsById);
-};
-
-const downloadFile = (content: string, filename: string, type: string) => {
-    const bom = type.includes("csv") ? "\uFEFF" : "";
-    const blob = new Blob([bom + content], { type });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
-};
-
-const handleExportCsv = () => {
-    const rows = getExportData();
-    if (!rows.length) { message.warning("暂无数据可导出"); return; }
-    const headers = ["工作编号", "标题", "类型", "状态", "优先级", "负责人", "创建人", "标签", "协作者", "创建时间", "计划开始", "计划结束"];
-    const csvRows = rows.map(r => [
-        r.workNo || "", (r.title || "").replace(/"/g, '""'), r.type || "",
-        r.status || "", r.priority || "", r.owner || "", r.creator || "",
-        (r.tags || []).join(";"), (r.collaborators || []).join(";"),
-        r.createdAt || "", r.planTime?.[0] || "", r.planTime?.[1] || "",
-    ].map(v => `"${v}"`).join(","));
-    downloadFile([headers.join(","), ...csvRows].join("\n"), `工作项导出_${new Date().toISOString().slice(0, 10)}.csv`, "text/csv;charset=utf-8");
-    message.success(`已导出 ${rows.length} 条数据`);
-};
-
-const handleExportExcel = () => {
-    handleExportCsv();
-    message.info("已导出为 CSV 格式，可使用 Excel 打开");
-};
-
-const handleExportJson = () => {
-    const rows = getExportData();
-    if (!rows.length) { message.warning("暂无数据可导出"); return; }
-    const data = rows.map(r => ({
-        workNo: r.workNo, title: r.title, type: r.type, status: r.status,
-        priority: r.priority, owner: r.owner, creator: r.creator,
-        tags: r.tags, collaborators: r.collaborators, createdAt: r.createdAt,
-        planTimeStart: r.planTime?.[0] || "", planTimeEnd: r.planTime?.[1] || "",
-        description: r.description || "",
-    }));
-    downloadFile(JSON.stringify(data, null, 2), `工作项导出_${new Date().toISOString().slice(0, 10)}.json`, "application/json;charset=utf-8");
-    message.success(`已导出 ${rows.length} 条数据`);
-};
+const {
+    handleExportCsv,
+    handleExportExcel,
+    handleExportJson,
+} = useWorkItemExport({ selectedRows, itemRowsById });
 
 const priorityModel = reactive<Record<string, Priority>>({});
 const tagsModel = reactive<Record<string, string[]>>({});
@@ -527,309 +487,41 @@ const formatFileSize = (size: number): string => {
     return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 };
 
-const columnSettingsOpen = ref(false);
+const {
+    columnSettingsOpen,
+    columnSettings,
+    columns,
+    columnSettingsForDialog,
+    handleColumnSettingsSave,
+    handleColumnWidthChange,
+    applyOrderedColumnSettings,
+} = useWorkItemColumns({ workItemType: props.type || "" });
 
-const ALL_COLUMN_DEFS: Array<ProTableColumn<RowItem> & { key: string }> = [
-    { key: "workNo", title: "工作编号", dataIndex: "workNo", width: 130, sorter: true, align: "left", fixed: "left", slot: "workNo" },
-    { key: "title", title: "标题", dataIndex: "title", width: 228, ellipsis: true, align: "left", fixed: "left", slot: "title" },
-    { key: "status", title: "状态", dataIndex: "status", width: 120, slot: "status", align: "left" },
-    { key: "owner", title: "负责人", dataIndex: "owner", width: 160, sorter: true, align: "left", slot: "owner" },
-    { key: "priority", title: "优先级", dataIndex: "priority", width: 120, slot: "priority", align: "left" },
-    { key: "tags", title: "标签", dataIndex: "tags", width: 180, slot: "tags", align: "left" },
-    { key: "createdAt", title: "创建时间", dataIndex: "createdAt", width: 150, sorter: true, align: "left", slot: "createdAt" },
-    { key: "collaborators", title: "协作者", dataIndex: "collaborators", width: 140, slot: "collaborators", align: "left" },
-    { key: "type", title: "工作项类型", dataIndex: "type", width: 120, sorter: true, align: "left", slot: "type" },
-    { key: "planTime", title: "计划时间", dataIndex: "planTime", width: 260, sorter: true, align: "left", slot: "planTime" },
-    { key: "creator", title: "创建人", dataIndex: "creator", width: 160, sorter: true, align: "left", slot: "creator" },
-    { key: "updatedAt", title: "更新时间", dataIndex: "updatedAt", width: 150, sorter: true, align: "left", slot: "updatedAt" },
-    { key: "iteration", title: "迭代", dataIndex: "iteration", width: 140, sorter: true, align: "left", slot: "iteration" },
-    { key: "version", title: "版本", dataIndex: "version", width: 120, sorter: true, align: "left", slot: "version" },
-    { key: "estimateHours", title: "预估工时", dataIndex: "estimateHours", width: 100, sorter: true, align: "left", slot: "estimateHours" },
-    { key: "repo", title: "关联仓库", dataIndex: "repo", width: 140, align: "left", slot: "repo" },
-    { key: "milestone", title: "关联里程碑", dataIndex: "milestone", width: 140, align: "left", slot: "milestone" },
-    { key: "branch", title: "关联分支", dataIndex: "branch", width: 140, align: "left", slot: "branch" },
-    { key: "project", title: "关联项目", dataIndex: "projectName", width: 140, sorter: true, align: "left", slot: "project" },
-    { key: "startAt", title: "实际开始时间", dataIndex: "startAt", width: 150, sorter: true, align: "left", slot: "startAt" },
-    { key: "endAt", title: "实际结束时间", dataIndex: "endAt", width: 150, sorter: true, align: "left", slot: "endAt" },
-];
-
-const DEFAULT_VISIBLE_KEYS = new Set([
-    "workNo", "title", "status", "owner", "priority", "tags",
-    "createdAt", "collaborators", "type", "planTime", "creator",
-]);
-
-const buildDefaultColumnSettings = (): ColumnSettingItem[] =>
-    ALL_COLUMN_DEFS.map(c => ({
-        key: c.key,
-        title: c.title || c.key,
-        fixed: c.key === "workNo" || c.key === "title",
-        visible: DEFAULT_VISIBLE_KEYS.has(c.key),
-    }));
-
-const loadColumnSettingsFromStore = (): ColumnSettingItem[] => {
-    const typeKey = props.type || "";
-    if (!typeKey) return buildDefaultColumnSettings();
-    const persisted = vortFlowStore.getColumnSettings(typeKey);
-    if (!persisted || persisted.length === 0) return buildDefaultColumnSettings();
-    const defaults = buildDefaultColumnSettings();
-    const defaultMap = new Map(defaults.map(c => [c.key, c]));
-    const result: ColumnSettingItem[] = [];
-    const seen = new Set<string>();
-    for (const p of persisted) {
-        const def = defaultMap.get(p.key);
-        if (def) {
-            result.push({ ...def, visible: p.visible });
-            seen.add(p.key);
-        }
-    }
-    for (const d of defaults) {
-        if (!seen.has(d.key)) result.push(d);
-    }
-    return result;
-};
-
-const columnSettings = ref<ColumnSettingItem[]>(loadColumnSettingsFromStore());
-
-const handleColumnSettingsSave = (settings: ColumnSettingItem[]) => {
-    columnSettings.value = settings;
-    const typeKey = props.type || "";
-    if (typeKey) {
-        const existing = vortFlowStore.getColumnSettings(typeKey);
-        const widthMap = new Map<string, number>();
-        if (existing) {
-            for (const p of existing) {
-                if (p.width) widthMap.set(p.key, p.width);
-            }
-        }
-        vortFlowStore.setColumnSettings(
-            typeKey,
-            settings.map(s => {
-                const w = widthMap.get(s.key);
-                return w ? { key: s.key, visible: s.visible, width: w } : { key: s.key, visible: s.visible };
-            }),
-        );
-    }
-};
-
-const handleColumnWidthChange = (widths: Record<string, number>) => {
-    const typeKey = props.type || "";
-    if (!typeKey) return;
-    const existing = vortFlowStore.getColumnSettings(typeKey);
-    if (!existing || existing.length === 0) return;
-    const updated = existing.map(p => {
-        const w = widths[p.key];
-        return w ? { ...p, width: w } : p;
-    });
-    vortFlowStore.setColumnSettings(typeKey, updated);
-};
-
-const applyOrderedColumnSettings = (
-    current: ColumnSettingItem[],
-    saved: Array<{ key: string; visible: boolean }>,
-): ColumnSettingItem[] => {
-    if (!saved?.length) return current;
-    const currentMap = new Map(current.map((item) => [item.key, item]));
-    const next: ColumnSettingItem[] = [];
-    const seen = new Set<string>();
-
-    for (const item of saved) {
-        const currentItem = currentMap.get(item.key);
-        if (!currentItem) continue;
-        next.push({ ...currentItem, visible: item.visible });
-        seen.add(item.key);
-    }
-
-    for (const item of current) {
-        if (seen.has(item.key)) continue;
-        next.push(item);
-    }
-
-    return next;
-};
-
-const columns = computed<ProTableColumn<RowItem>[]>(() => {
-    const orderedKeys = columnSettings.value.filter(s => s.visible).map(s => s.key);
-    const colMap = new Map(ALL_COLUMN_DEFS.map(c => [c.key, c]));
-    const persisted = vortFlowStore.getColumnSettings(props.type || "");
-    const widthMap = new Map<string, number>();
-    if (persisted) {
-        for (const p of persisted) {
-            if (p.width) widthMap.set(p.key, p.width);
-        }
-    }
-    return orderedKeys.map(k => {
-        const def = colMap.get(k);
-        if (!def) return null;
-        const savedWidth = widthMap.get(k);
-        return savedWidth ? { ...def, width: savedWidth } : def;
-    }).filter(Boolean) as ProTableColumn<RowItem>[];
+const {
+    viewDirty,
+    isSystemView,
+    currentCustomView,
+    saveViewDialogOpen,
+    saveViewDropdownOpen,
+    saveViewWrapperRef,
+    currentViewStateForCreate,
+    resetViewBaseline,
+    collectCurrentViewState,
+    handleUpdateCurrentView,
+    handleSaveAsNew,
+    handleSaveAsNewView,
+} = useWorkItemViewState({
+    workItemType: props.type || "",
+    currentViewId,
+    keyword,
+    owner,
+    status,
+    columnFilters,
+    columnSortField,
+    columnSortOrder,
+    columnSettings,
+    applyOrderedColumnSettings,
 });
-
-// ---- View dirty tracking ----
-
-interface ViewSnapshot {
-    keyword: string;
-    owner: string;
-    status: string;
-    columnFilters: Record<string, ColumnFilterValue | null>;
-    sortField: string;
-    sortOrder: "ascend" | "descend" | null;
-    columns: Array<{ key: string; visible: boolean }>;
-}
-
-const viewBaseline = ref<ViewSnapshot | null>(null);
-
-const takeViewSnapshot = (): ViewSnapshot => ({
-    keyword: keyword.value,
-    owner: owner.value,
-    status: status.value,
-    columnFilters: { ...columnFilters },
-    sortField: columnSortField.value,
-    sortOrder: columnSortOrder.value,
-    columns: columnSettings.value.map(s => ({ key: s.key, visible: s.visible })),
-});
-
-const resetViewBaseline = () => {
-    viewBaseline.value = takeViewSnapshot();
-};
-
-const isSystemView = computed(() => {
-    return SYSTEM_VIEWS.some(v => v.id === currentViewId.value);
-});
-
-const currentCustomView = computed(() => {
-    if (isSystemView.value) return null;
-    return vortFlowStore.customViews.find(v => v.id === currentViewId.value) ?? null;
-});
-
-const viewDirty = computed(() => {
-    const base = viewBaseline.value;
-    if (!base) return false;
-    if (keyword.value !== base.keyword) return true;
-    if (owner.value !== base.owner) return true;
-    if (status.value !== base.status) return true;
-    if (columnSortField.value !== base.sortField) return true;
-    if (columnSortOrder.value !== base.sortOrder) return true;
-    const currentFilterKeys = Object.keys(columnFilters);
-    const baseFilterKeys = Object.keys(base.columnFilters);
-    if (currentFilterKeys.length !== baseFilterKeys.length) return true;
-    for (const k of currentFilterKeys) {
-        if (JSON.stringify(columnFilters[k]) !== JSON.stringify(base.columnFilters[k])) return true;
-    }
-    const curCols = columnSettings.value.map(s => `${s.key}:${s.visible}`).join(",");
-    const baseCols = base.columns.map(s => `${s.key}:${s.visible}`).join(",");
-    if (curCols !== baseCols) return true;
-    return false;
-});
-
-const saveViewDialogOpen = ref(false);
-const saveViewDropdownOpen = ref(false);
-const saveViewWrapperRef = ref<HTMLElement | null>(null);
-
-const onDocClickForSaveView = (e: MouseEvent) => {
-    if (saveViewWrapperRef.value && !saveViewWrapperRef.value.contains(e.target as Node)) {
-        saveViewDropdownOpen.value = false;
-    }
-};
-
-watch(saveViewDropdownOpen, (open) => {
-    if (open) {
-        document.addEventListener("click", onDocClickForSaveView, true);
-    } else {
-        document.removeEventListener("click", onDocClickForSaveView, true);
-    }
-});
-
-const collectCurrentViewState = () => {
-    const filters: Record<string, any> = {};
-    if (keyword.value) filters.keyword = keyword.value;
-    if (owner.value) filters.owner = owner.value;
-    if (status.value) filters.status = status.value;
-    if (columnSortField.value) {
-        filters.sortField = columnSortField.value;
-        filters.sortOrder = columnSortOrder.value;
-    }
-    const cfKeys = Object.keys(columnFilters);
-    if (cfKeys.length > 0) {
-        filters.columnFilters = { ...columnFilters };
-    }
-    const cols = columnSettings.value.map(s => ({ key: s.key, visible: s.visible }));
-    return { filters, cols };
-};
-
-const currentViewStateForCreate = computed(() => collectCurrentViewState());
-
-const handleUpdateCurrentView = async () => {
-    saveViewDropdownOpen.value = false;
-    const cv = currentCustomView.value;
-    if (!cv) {
-        message.warning("系统视图不可更新，请存为新视图");
-        return;
-    }
-    const { filters, cols } = collectCurrentViewState();
-    await vortFlowStore.updateCustomView(cv.id, { filters, columns: cols });
-    message.success("视图已更新");
-    resetViewBaseline();
-};
-
-const handleSaveAsNew = () => {
-    saveViewDropdownOpen.value = false;
-    saveViewDialogOpen.value = true;
-};
-
-const handleSaveAsNewView = async (data: { name: string; scope: "personal" | "shared" }) => {
-    const { filters, cols } = collectCurrentViewState();
-    const maxOrder = vortFlowStore.customViews.reduce((max, v) => Math.max(max, v.order), -1);
-    const res = await vortFlowStore.addCustomView({
-        name: data.name,
-        work_item_type: props.type || "缺陷",
-        scope: data.scope,
-        visible: true,
-        filters,
-        columns: cols,
-        order: maxOrder + 1,
-    });
-    if (res?.id && currentWorkItemType.value) {
-        vortFlowStore.setViewId(currentWorkItemType.value, res.id);
-    }
-    saveViewDialogOpen.value = false;
-    message.success("视图已创建");
-    resetViewBaseline();
-};
-
-watch(currentViewId, () => {
-    keyword.value = "";
-    owner.value = "";
-    status.value = "";
-    columnSortField.value = "";
-    columnSortOrder.value = null;
-    for (const k of Object.keys(columnFilters)) {
-        delete columnFilters[k];
-    }
-    const cv = vortFlowStore.customViews.find(v => v.id === currentViewId.value);
-    if (cv?.filters) {
-        const f = cv.filters;
-        if (f.keyword) keyword.value = f.keyword;
-        if (f.owner) owner.value = f.owner;
-        if (f.status) status.value = f.status;
-        if (f.sortField) columnSortField.value = f.sortField;
-        if (f.sortOrder) columnSortOrder.value = f.sortOrder;
-        if (f.columnFilters) {
-            for (const [k, v] of Object.entries(f.columnFilters as Record<string, ColumnFilterValue>)) {
-                columnFilters[k] = v;
-            }
-        }
-    }
-    if (cv?.columns?.length) {
-        columnSettings.value = applyOrderedColumnSettings(
-            columnSettings.value,
-            cv.columns.map((c: any) => ({ key: c.key, visible: c.visible })),
-        );
-    }
-    nextTick(() => resetViewBaseline());
-});
-
-const columnSettingsForDialog = computed<ColumnSettingItem[]>(() => columnSettings.value);
 
 const getRecordBackendId = (record: RowItem): string => String(record.backendId || "").trim();
 
@@ -1105,486 +797,44 @@ const selectRowDateField = async (record: RowItem, field: "startAt" | "endAt", v
     }
 };
 
-const prependPinnedRow = (typeValue: WorkItemType, row: RowItem) => {
-    const list = pinnedRowsByType[typeValue] || [];
-    const rowId = row.backendId || row.workNo;
-    pinnedRowsByType[typeValue] = [row, ...list.filter((x) => (x.backendId || x.workNo) !== rowId)];
-};
-
-const cacheItemRows = (rows: RowItem[]) => {
-    for (const row of rows) {
-        if (!row.backendId) continue;
-        itemRowsById[row.backendId] = row;
-    }
-};
-
-const findItemRowById = (itemId?: string): RowItem | null => {
-    if (!itemId) return null;
-    return itemRowsById[itemId] || null;
-};
-
-const findItemRowByIdentifier = (itemId?: string): RowItem | null => {
-    if (!itemId) return null;
-    const byBackendId = findItemRowById(itemId);
-    if (byBackendId) return byBackendId;
-    return Object.values(itemRowsById).find((row) => row.workNo === itemId) || null;
-};
-
-const loadItemById = async (itemId: string | undefined, itemType: WorkItemType): Promise<RowItem | null> => {
-    if (!itemId) return null;
-    const cached = findItemRowByIdentifier(itemId);
-    if (cached) return cached;
-    try {
-        const res: any = itemType === "任务"
-            ? await getVortflowTask(itemId)
-            : itemType === "缺陷"
-                ? await getVortflowBug(itemId)
-                : await getVortflowStory(itemId);
-        if (!res?.id) return null;
-        const row = mapBackendItemToRow(res, itemType, 0);
-        itemRowsById[String(res.id)] = row;
-        return row;
-    } catch {
-        return null;
-    }
-};
-
-const loadChildItems = async (parentId: string, itemType: WorkItemType, projectId?: string): Promise<RowItem[]> => {
-    if (!parentId || itemType === "缺陷") return [];
-    const res: any = itemType === "任务"
-        ? await getVortflowTasks({
-            parent_id: parentId,
-            page: 1,
-            page_size: 100,
-        })
-        : await getVortflowStories({
-            parent_id: parentId,
-            project_id: projectId,
-            page: 1,
-            page_size: 100,
-        });
-    const rows = ((res?.items || []) as any[]).map((item, index) => {
-        const row = mapBackendItemToRow(item, itemType, index);
-        row.isChild = true;
-        return row;
-    });
-    cacheItemRows(rows);
-    itemChildrenMap[parentId] = rows;
-    return rows;
-};
-
-const mapBackendItemToRow = (item: any, typeValue: WorkItemType, index: number): RowItem => {
-    const created = item?.created_at ? new Date(item.created_at) : new Date();
-    const createdAt = formatCnTime(created);
-    const deadline = item?.deadline ? String(item.deadline).split("T")[0] : "";
-    const backendId = String(item?.id || index + 1);
-    const workNo = `#${backendId.replace(/-/g, "").slice(0, 6).toUpperCase().padEnd(6, "X")}`;
-    const ownerSourceId = String(item?.assignee_id || item?.pm_id || item?.developer_id || "").trim();
-    const ownerSourceName = getMemberNameById(ownerSourceId);
-    const ownerName = ownerSourceName || (ownerSourceId ? ownerSourceId : "未指派");
-
-    const creatorSourceId = String(item?.submitter_id || item?.creator_id || item?.reporter_id || "").trim();
-    const creatorName = getMemberNameById(creatorSourceId) || (creatorSourceId || "");
-
-    const collaboratorsFromBackend = Array.isArray(item?.collaborators)
-        ? (item.collaborators as any[]).map((x) => {
-            const id = String(x || "").trim();
-            return getMemberNameById(id) || id;
-        }).filter(Boolean)
-        : [];
-
-    const tags: string[] = Array.isArray(item?.tags)
-        ? (item.tags as any[]).map((x) => String(x || "").trim()).filter(Boolean)
-        : [];
-
-    const planDate = deadline || formatDate(created);
-    const updated = item?.updated_at ? new Date(item.updated_at) : null;
-    const updatedAt = updated ? formatCnTime(updated) : "";
-    const estimateHours = item?.estimate_hours != null ? item.estimate_hours : undefined;
-    const loggedHours = item?.actual_hours != null ? item.actual_hours : undefined;
-    const remainHours = (estimateHours != null && loggedHours != null)
-        ? Math.max(0, Number(estimateHours) - Number(loggedHours))
-        : undefined;
-    const iterationId = item?.iteration_id ? String(item.iteration_id) : "";
-    const versionId = item?.version_id ? String(item.version_id) : "";
-    const startAt = item?.start_at ? String(item.start_at).split("T")[0] : "";
-    const endAt = item?.end_at ? String(item.end_at).split("T")[0] : "";
-    return {
-        backendId,
-        workNo,
-        title: String(item?.title || ""),
-        parentId: item?.parent_id ? String(item.parent_id) : "",
-        parentTitle: "",
-        childrenCount: Number(item?.children_count || 0),
-        isChild: Boolean(item?.parent_id),
-        priority: mapBackendPriority(item, typeValue),
-        tags,
-        status: mapBackendStateToStatus(typeValue, String(item?.state || "")),
-        createdAt,
-        updatedAt,
-        collaborators: collaboratorsFromBackend,
-        type: typeValue,
-        planTime: [planDate, planDate],
-        description: item?.description || "",
-        ownerId: ownerSourceId,
-        owner: ownerName,
-        creator: creatorName,
-        projectId: item?.project_id ? String(item.project_id) : "",
-        projectName: item?.project_id ? (apiProjects.value.find(p => p.id === String(item.project_id))?.name || "") : "",
-        iterationId,
-        iteration: item?.iteration_name ? String(item.iteration_name) : "",
-        versionId,
-        version: item?.version_name ? String(item.version_name) : "",
-        estimateHours,
-        loggedHours,
-        remainHours,
-        milestoneId: item?.milestone_id ? String(item.milestone_id) : "",
-        milestone: item?.milestone_name ? String(item.milestone_name) : "",
-        repoId: item?.repo_id ? String(item.repo_id) : "",
-        repo: "",
-        branch: item?.branch ? String(item.branch) : "",
-        startAt,
-        endAt,
-        _prevIteration: iterationId,
-        _prevVersion: versionId,
-    };
-};
-
-const createOwnerMatcher = (ownerValue: string) => {
-    const normalizedOwner = String(ownerValue || "").trim();
-    const ownerMemberId = normalizedOwner && normalizedOwner !== "未指派" ? getMemberIdByName(normalizedOwner) : "";
-    const matchOwner = (row: RowItem) => {
-        if (!normalizedOwner) return true;
-        if (normalizedOwner === "未指派") return !String(row.ownerId || "").trim();
-        if (ownerMemberId) return String(row.ownerId || "").trim() === ownerMemberId;
-        return row.owner === normalizedOwner;
-    };
-    return { ownerMemberId, matchOwner };
-};
-
-const getVisibleChildRows = (rows: RowItem[], ownerValue = owner.value, statusValue = status.value) => {
-    const currentType = String(props.type ?? type.value ?? "").trim();
-    if (!props.useApi || (currentType !== "需求" && currentType !== "任务")) return rows;
-    const { matchOwner } = createOwnerMatcher(ownerValue);
-    const flattenedRows: RowItem[] = [];
-    for (const row of rows) {
-        flattenedRows.push(row);
-        const itemId = String(row.backendId || "").trim();
-        if (!itemId || !expandedItemIds[itemId]) continue;
-        const children = (itemChildrenMap[itemId] || [])
-            .filter((child) => !statusValue || child.status === statusValue)
-            .filter(matchOwner)
-            .map((child) => ({ ...child, isChild: true }));
-        flattenedRows.push(...children);
-    }
-    return flattenedRows;
-};
-
-const postProcessTableRows = (rows: RowItem[]) => getVisibleChildRows(rows);
-
-const SORT_FIELD_MAP: Record<string, string> = {
-    createdAt: "created_at",
-    updatedAt: "updated_at",
-    priority: "priority",
-    title: "title",
-    status: "state",
-    planTime: "deadline",
-    owner: "assignee_id",
-    creator: "creator_id",
-};
-
-const SORT_FIELD_OVERRIDES: Record<string, Record<string, string>> = {
-    "需求": { owner: "pm_id", creator: "submitter_id" },
-    "缺陷": { creator: "reporter_id" },
-};
-
-const applyColumnFilters = (rows: RowItem[]): RowItem[] => {
-    const filters = columnFilters;
-    if (!Object.keys(filters).length) return rows;
-
-    return rows.filter(row => {
-        for (const [field, fv] of Object.entries(filters)) {
-            if (!fv) continue;
-            if (field === "status") {
-                const vals = fv.value as string[];
-                if (vals?.length && !vals.includes(row.status)) return false;
-            } else if (field === "owner") {
-                const vals = fv.value as string[];
-                if (vals?.length) {
-                    const rowOwner = String(row.owner || "").trim();
-                    const matched = vals.some((value) => {
-                        if (value === "__unassigned__") {
-                            return !String(row.ownerId || "").trim() || rowOwner === "未指派" || !rowOwner;
-                        }
-                        return rowOwner === value;
-                    });
-                    if (!matched) return false;
-                }
-            } else if (field === "collaborators") {
-                const vals = fv.value as string[];
-                if (vals?.length) {
-                    const rowCollaborators = (row.collaborators || []).map((name) => String(name || "").trim()).filter(Boolean);
-                    if (!vals.some((value) => rowCollaborators.includes(value))) return false;
-                }
-            } else if (field === "tags") {
-                const vals = fv.value as string[];
-                if (vals?.length) {
-                    const rowTags: string[] = row.tags || [];
-                    if (!vals.some(v => rowTags.includes(v))) return false;
-                }
-            } else if (field === "iteration") {
-                const vals = fv.value as string[];
-                if (vals?.length && !vals.includes(row.iteration || "")) return false;
-            } else if (field === "version") {
-                const vals = fv.value as string[];
-                if (vals?.length && !vals.includes(row.version || "")) return false;
-            } else if (field === "milestone") {
-                const vals = fv.value as string[];
-                if (vals?.length && !vals.includes(row.milestone || "")) return false;
-            } else if (field === "createdAt" || field === "planTime" || field === "updatedAt" || field === "startAt" || field === "endAt") {
-                const dateFieldMap: Record<string, string> = {
-                    createdAt: row.createdAt,
-                    planTime: row.planStartDate || row.planEndDate || "",
-                    updatedAt: row.updatedAt || "",
-                    startAt: row.startAt || "",
-                    endAt: row.endAt || "",
-                };
-                const rowVal = dateFieldMap[field] || "";
-                if (!rowVal) return false;
-                const rowDate = new Date(rowVal).getTime();
-                if (isNaN(rowDate)) return false;
-                const { operator, value } = fv;
-                if (operator === "between") {
-                    const [start, end] = value as [string, string];
-                    if (start && rowDate < new Date(start).getTime()) return false;
-                    if (end && rowDate > new Date(end + "T23:59:59").getTime()) return false;
-                } else {
-                    const target = new Date(value).getTime();
-                    if (isNaN(target)) continue;
-                    if (operator === "gt" && rowDate <= target) return false;
-                    if (operator === "lt" && rowDate >= target) return false;
-                    if (operator === "gte" && rowDate < target) return false;
-                    if (operator === "lte" && rowDate > target) return false;
-                    if (operator === "eq" && new Date(rowVal).toDateString() !== new Date(value).toDateString()) return false;
-                }
-            }
-        }
-        return true;
-    });
-};
-
-const applyColumnSort = (rows: RowItem[]): RowItem[] => {
-    const field = columnSortField.value;
-    const order = columnSortOrder.value;
-    if (!field || !order) return rows;
-
-    const sorted = [...rows];
-    const dir = order === "ascend" ? 1 : -1;
-
-    sorted.sort((a, b) => {
-        let va: any;
-        let vb: any;
-        if (field === "status") {
-            va = a.status || "";
-            vb = b.status || "";
-        } else if (field === "tags") {
-            va = (a.tags || []).join(",");
-            vb = (b.tags || []).join(",");
-        } else if (field === "createdAt") {
-            va = a.createdAt || "";
-            vb = b.createdAt || "";
-        } else if (field === "planTime") {
-            va = a.planStartDate || a.planEndDate || "";
-            vb = b.planStartDate || b.planEndDate || "";
-        } else if (field === "updatedAt") {
-            va = a.updatedAt || "";
-            vb = b.updatedAt || "";
-        } else if (field === "iteration") {
-            va = a.iteration || "";
-            vb = b.iteration || "";
-        } else if (field === "version") {
-            va = a.version || "";
-            vb = b.version || "";
-        } else if (field === "milestone") {
-            va = a.milestone || "";
-            vb = b.milestone || "";
-        } else if (field === "startAt") {
-            va = a.startAt || "";
-            vb = b.startAt || "";
-        } else if (field === "endAt") {
-            va = a.endAt || "";
-            vb = b.endAt || "";
-        } else {
-            return 0;
-        }
-        if (va < vb) return -1 * dir;
-        if (va > vb) return 1 * dir;
-        return 0;
-    });
-    return sorted;
-};
-
-const request = async (params: ProTableRequestParams): Promise<ProTableResponse<RowItem>> => {
-    const kw = String(params.keyword ?? "").trim().toLowerCase();
-    const ownerValue = String(params.owner ?? "").trim();
-    const { ownerMemberId, matchOwner } = createOwnerMatcher(ownerValue);
-    const typeValue = String(props.type ?? params.type ?? "").trim();
-    const statusValue = String(params.status ?? "").trim();
-    const current = Number(params.current || 1);
-    const pageSize = Number(params.pageSize || 20);
-
-    const effectiveSortField = columnSortField.value || params.sortField || "";
-    const effectiveSortOrder = columnSortOrder.value || params.sortOrder || null;
-    const typeOverrides = SORT_FIELD_OVERRIDES[typeValue];
-    let backendSortBy = (typeOverrides && typeOverrides[effectiveSortField]) || SORT_FIELD_MAP[effectiveSortField] || "";
-    if (backendSortBy === "priority" && typeValue === "缺陷") backendSortBy = "severity";
-    const backendSortOrder = effectiveSortOrder === "ascend" ? "asc" : effectiveSortOrder === "descend" ? "desc" : "";
-
-    if (props.useApi && (typeValue === "需求" || typeValue === "任务" || typeValue === "缺陷")) {
-        const workType = typeValue as WorkItemType;
-        const backendStates = statusValue ? getBackendStatesByDisplayStatus(workType, statusValue) : undefined;
-        if (statusValue && (!backendStates || backendStates.length === 0)) {
-            totalCount.value = 0;
-            return { data: [], total: 0, current, pageSize };
-        }
-        const projectIdParam = props.projectId || undefined;
-        const iterationIdParam = props.iterationId || undefined;
-        const vf = props.viewFilters || {};
-        const viewOwner = vf.owner || undefined;
-        const viewCreator = vf.creator || undefined;
-        const viewParticipant = vf.participant || undefined;
-        const effectiveAssignee = ownerMemberId || viewOwner || undefined;
-        const sortParams = backendSortBy ? { sort_by: backendSortBy, sort_order: backendSortOrder } : {};
-        const requestByState = async (state?: string, page = current, size = pageSize) => {
-            if (workType === "需求") {
-                return getVortflowStories({
-                    keyword: kw, state, parent_id: "root",
-                    project_id: projectIdParam,
-                    iteration_id: iterationIdParam,
-                    pm_id: ownerMemberId || viewOwner || undefined,
-                    submitter_id: viewCreator,
-                    participant_id: viewParticipant,
-                    ...sortParams,
-                    page, page_size: size
-                });
-            }
-            if (workType === "任务") {
-                return getVortflowTasks({
-                    keyword: kw,
-                    parent_id: "root",
-                    state,
-                    assignee_id: effectiveAssignee,
-                    project_id: projectIdParam,
-                    iteration_id: iterationIdParam,
-                    creator_id: viewCreator,
-                    participant_id: viewParticipant,
-                    ...sortParams,
-                    page,
-                    page_size: size
-                });
-            }
-            return getVortflowBugs({
-                keyword: kw,
-                state,
-                assignee_id: effectiveAssignee,
-                project_id: projectIdParam,
-                iteration_id: iterationIdParam,
-                reporter_id: viewCreator,
-                participant_id: viewParticipant,
-                ...sortParams,
-                page,
-                page_size: size
-            });
-        };
-        const fetchAllItemsByState = async (state?: string): Promise<any[]> => {
-            const batchSize = 100;
-            const firstRes: any = await requestByState(state, 1, batchSize);
-            const allItems: any[] = [...((firstRes as any)?.items || [])];
-            const total = Number((firstRes as any)?.total || allItems.length);
-            const totalPages = Math.max(1, Math.ceil(total / batchSize));
-            for (let page = 2; page <= totalPages; page++) {
-                const pageRes: any = await requestByState(state, page, batchSize);
-                const pageItems = ((pageRes as any)?.items || []);
-                if (!pageItems.length) break;
-                allItems.push(...pageItems);
-            }
-            return allItems;
-        };
-        const buildRowsFromItems = (items: any[]): RowItem[] => {
-            const rows = items.map((item: any, idx: number) => mapBackendItemToRow(item, workType, idx));
-            if (workType === "需求" || workType === "任务") {
-                cacheItemRows(rows);
-            }
-            return rows;
-        };
-
-        let rows: RowItem[] = [];
-        let totalFromApi = 0;
-
-        if (backendStates && backendStates.length > 1) {
-            // Multi-state display filters need full merged querying across all pages.
-            const merged = new Map<string, any>();
-            const itemGroups = await Promise.all(backendStates.map((state) => fetchAllItemsByState(state)));
-            for (const items of itemGroups) {
-                for (const item of items) {
-                    const id = String(item?.id || "");
-                    if (!id || merged.has(id)) continue;
-                    merged.set(id, item);
-                }
-            }
-            const mergedItems = [...merged.values()];
-            const allRows = buildRowsFromItems(mergedItems)
-                .filter((x) => !statusValue || x.status === statusValue)
-                .filter(matchOwner);
-            totalFromApi = allRows.length;
-            const start = (current - 1) * pageSize;
-            rows = allRows.slice(start, start + pageSize);
-        } else {
-            const backendState = backendStates?.[0];
-            if (ownerValue && (workType === "需求" || ownerValue === "未指派" || !ownerMemberId)) {
-                const allItems = await fetchAllItemsByState(backendState);
-                const allRows = buildRowsFromItems(allItems)
-                    .filter((x) => !statusValue || x.status === statusValue)
-                    .filter(matchOwner);
-                totalFromApi = allRows.length;
-                const start = (current - 1) * pageSize;
-                rows = allRows.slice(start, start + pageSize);
-            } else {
-                const res: any = await requestByState(backendState, current, pageSize);
-                rows = buildRowsFromItems((res as any)?.items || []);
-                if (statusValue) rows = rows.filter((x) => x.status === statusValue);
-                if (ownerValue) rows = rows.filter(matchOwner);
-                totalFromApi = Number((res as any)?.total || rows.length);
-            }
-        }
-
-        if (current === 1) {
-            let pinnedRows = pinnedRowsByType[workType] || [];
-            if (statusValue) pinnedRows = pinnedRows.filter((x) => x.status === statusValue);
-            if (ownerValue) pinnedRows = pinnedRows.filter(matchOwner);
-            const pinnedIds = new Set(pinnedRows.map((x) => x.backendId || x.workNo));
-            rows = [...pinnedRows, ...rows.filter((x) => !pinnedIds.has(x.backendId || x.workNo))];
-            rows = rows.slice(0, pageSize);
-        }
-        const isIncompleteView = vf.status === "incomplete";
-        if (isIncompleteView) {
-            const completedStatuses: Set<string> = new Set(["已完成", "已关闭", "已取消", "发布完成"]);
-            rows = rows.filter((x) => !completedStatuses.has(x.status));
-            totalFromApi = rows.length;
-        }
-        rows = applyColumnFilters(rows);
-        rows = applyColumnSort(rows);
-        totalFromApi = rows.length;
-        const optionRows = workType === "需求" || workType === "任务" ? getVisibleChildRows(rows, ownerValue, statusValue) : rows;
-        collectTagOptions(optionRows);
-        collectEnumOptions(optionRows);
-        totalCount.value = totalFromApi;
-        return { data: rows, total: totalFromApi, current, pageSize };
-    }
-
-    totalCount.value = 0;
-    return { data: [], total: 0, current, pageSize };
-};
+const {
+    mapBackendItemToRow,
+    findItemRowById,
+    findItemRowByIdentifier,
+    loadItemById,
+    loadChildItems,
+    request,
+    postProcessTableRows,
+    prependPinnedRow,
+} = useWorkItemDataSource({
+    useApi: computed(() => props.useApi),
+    propType: props.type || "",
+    propProjectId: computed(() => props.projectId || ""),
+    propIterationId: computed(() => props.iterationId || ""),
+    propViewFilters: computed(() => props.viewFilters || {}),
+    type,
+    owner,
+    status,
+    columnFilters,
+    columnSortField,
+    columnSortOrder,
+    totalCount,
+    apiProjects,
+    pinnedRowsByType,
+    expandedItemIds,
+    expandingItemIds,
+    itemRowsById,
+    itemChildrenMap,
+    getMemberIdByName,
+    getMemberNameById,
+    mapBackendStateToStatus,
+    mapBackendPriority,
+    getBackendStatesByDisplayStatus,
+    formatCnTime,
+    formatDate,
+    collectTagOptions,
+    collectEnumOptions,
+});
 
 const tableRef = ref<any>(null);
 

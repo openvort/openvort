@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 from openvort.utils.logging import get_logger
 
 if TYPE_CHECKING:
-    from openvort.core.remote_node import RemoteNodeService
+    from openvort.core.execution.remote_node import RemoteNodeService
 
 log = get_logger("core.browser_env")
 

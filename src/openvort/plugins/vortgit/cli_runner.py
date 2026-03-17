@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from openvort.core.coding_env import CodingEnvironment, EnvMode, ExecResult
+from openvort.core.execution.coding_env import CodingEnvironment, EnvMode, ExecResult
 from openvort.utils.logging import get_logger
 
 log = get_logger("plugins.vortgit.cli_runner")

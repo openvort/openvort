@@ -63,8 +63,8 @@ def _get_service():
 
     # Fallback: lazy init (e.g. deps not yet populated)
     from openvort.web.deps import get_db_session_factory, get_agent
-    from openvort.core.schedule_service import ScheduleService
-    from openvort.core.scheduler import Scheduler
+    from openvort.core.services.schedule_service import ScheduleService
+    from openvort.core.services.scheduler import Scheduler
 
     global _scheduler_instance, _service_instance
     if _scheduler_instance is None:

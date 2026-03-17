@@ -128,7 +128,7 @@ async def _reload_llm_client() -> None:
     """热更新运行时的 LLMClient，无需重启"""
     try:
         from openvort.web.deps import get_agent, get_config_service
-        from openvort.core.llm import LLMClient
+        from openvort.core.engine.llm import LLMClient
         settings = get_settings()
         config_service = get_config_service()
         chain = await config_service.get_effective_llm_chain()

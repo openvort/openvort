@@ -13,8 +13,8 @@ from typing import TYPE_CHECKING
 from openvort.utils.logging import get_logger
 
 if TYPE_CHECKING:
-    from openvort.core.session import SessionStore
-    from openvort.core.llm import LLMClient
+    from openvort.core.engine.session import SessionStore
+    from openvort.core.engine.llm import LLMClient
 
 log = get_logger("core.commands")
 

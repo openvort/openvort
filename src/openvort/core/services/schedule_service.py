@@ -15,7 +15,7 @@ from functools import partial
 from sqlalchemy import select, delete, or_, func as sa_func, and_
 
 from openvort.contacts.service import ContactService
-from openvort.core.scheduler import Scheduler
+from openvort.core.services.scheduler import Scheduler
 from openvort.db.models import ScheduleJob, WorkAssignment
 from openvort.utils.logging import get_logger
 
@@ -309,7 +309,7 @@ class ScheduleService:
 
     async def _build_executor_context(self, job: ScheduleJob) -> "RequestContext":
         """Build execution context. owner_id IS the executor (AI employee or system)."""
-        from openvort.core.context import RequestContext
+        from openvort.core.engine.context import RequestContext
         from openvort.auth.service import AuthService
 
         exec_id = f"{job.job_id}_{uuid.uuid4().hex[:8]}"

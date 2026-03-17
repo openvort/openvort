@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import select, update as sa_update
 from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
 
-from openvort.core.remote_executor import get_executor
+from openvort.core.execution.remote_executor import get_executor
 from openvort.db.models import RemoteNode
 from openvort.utils.logging import get_logger
 
@@ -170,7 +170,7 @@ class RemoteNodeService:
         description: str = "",
     ) -> dict:
         """Create a DB record and start a Docker container for a work node."""
-        from openvort.core.docker_executor import DockerExecutor
+        from openvort.core.execution.docker_executor import DockerExecutor
 
         async with self._sf() as db:
             node = RemoteNode(
@@ -199,7 +199,7 @@ class RemoteNodeService:
 
         merged_env = dict(env_vars or {})
 
-        from openvort.core.docker_executor import image_needs_entrypoint
+        from openvort.core.execution.docker_executor import image_needs_entrypoint
 
         executor = DockerExecutor()
         result = await executor.create_container({
@@ -243,7 +243,7 @@ class RemoteNodeService:
         cid = await self._get_container_id(node_id)
         if not cid:
             return {"ok": False, "message": "容器 ID 不存在"}
-        from openvort.core.docker_executor import DockerExecutor
+        from openvort.core.execution.docker_executor import DockerExecutor
         result = await DockerExecutor().start_container(cid)
         if result.get("ok"):
             await self._update_status(node_id, "running")
@@ -253,7 +253,7 @@ class RemoteNodeService:
         cid = await self._get_container_id(node_id)
         if not cid:
             return {"ok": False, "message": "容器 ID 不存在"}
-        from openvort.core.docker_executor import DockerExecutor
+        from openvort.core.execution.docker_executor import DockerExecutor
         result = await DockerExecutor().stop_container(cid)
         if result.get("ok"):
             await self._update_status(node_id, "stopped")
@@ -263,7 +263,7 @@ class RemoteNodeService:
         cid = await self._get_container_id(node_id)
         if not cid:
             return {"ok": False, "message": "容器 ID 不存在"}
-        from openvort.core.docker_executor import DockerExecutor
+        from openvort.core.execution.docker_executor import DockerExecutor
         result = await DockerExecutor().restart_container(cid)
         if result.get("ok"):
             await self._update_status(node_id, "running")
@@ -273,7 +273,7 @@ class RemoteNodeService:
         cid = await self._get_container_id(node_id)
         if not cid:
             return {"ok": False, "message": "容器 ID 不存在"}
-        from openvort.core.docker_executor import DockerExecutor
+        from openvort.core.execution.docker_executor import DockerExecutor
         result = await DockerExecutor().remove_container(cid)
         if result.get("ok"):
             await self._update_status(node_id, "stopped")
@@ -283,21 +283,21 @@ class RemoteNodeService:
         cid = await self._get_container_id(node_id)
         if not cid:
             return {"status": "unknown"}
-        from openvort.core.docker_executor import DockerExecutor
+        from openvort.core.execution.docker_executor import DockerExecutor
         return await DockerExecutor().get_container_status(cid)
 
     async def get_docker_stats(self, node_id: str) -> dict:
         cid = await self._get_container_id(node_id)
         if not cid:
             return {}
-        from openvort.core.docker_executor import DockerExecutor
+        from openvort.core.execution.docker_executor import DockerExecutor
         return await DockerExecutor().get_container_stats(cid)
 
     async def get_docker_logs(self, node_id: str, *, tail: int = 100) -> str:
         cid = await self._get_container_id(node_id)
         if not cid:
             return ""
-        from openvort.core.docker_executor import DockerExecutor
+        from openvort.core.execution.docker_executor import DockerExecutor
         return await DockerExecutor().get_container_logs(cid, tail=tail)
 
     async def get_all_docker_stats(self) -> dict:
@@ -313,7 +313,7 @@ class RemoteNodeService:
         if not cid_map:
             return {}
 
-        from openvort.core.docker_executor import DockerExecutor
+        from openvort.core.execution.docker_executor import DockerExecutor
         raw = await DockerExecutor().batch_stats(list(cid_map.keys()))
         result = {}
         for cid, stats in raw.items():
@@ -329,7 +329,7 @@ class RemoteNodeService:
         if not docker_nodes:
             return
 
-        from openvort.core.docker_executor import DockerExecutor
+        from openvort.core.execution.docker_executor import DockerExecutor
         executor = DockerExecutor()
 
         running_cids: list[str] = []

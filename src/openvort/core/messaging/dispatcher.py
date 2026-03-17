@@ -9,7 +9,7 @@ import asyncio
 from collections import defaultdict
 from typing import Awaitable, Callable
 
-from openvort.core.context import RequestContext
+from openvort.core.engine.context import RequestContext
 from openvort.utils.logging import get_logger
 
 log = get_logger("core.dispatcher")

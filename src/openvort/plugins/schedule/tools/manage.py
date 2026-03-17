@@ -72,8 +72,8 @@ class ScheduleManageTool(BaseTool):
         }
 
     async def execute(self, params: dict) -> str:
-        from openvort.core.schedule_service import ScheduleService
-        from openvort.core.scheduler import Scheduler
+        from openvort.core.services.schedule_service import ScheduleService
+        from openvort.core.services.scheduler import Scheduler
 
         action = params["action"]
         # _member_id 是当前发起请求的成员 ID
