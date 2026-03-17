@@ -284,6 +284,7 @@ async def stream_response(message_id: str, request: Request):
         try:
             yield {"event": "thinking", "data": "start"}
 
+            cancelled = False
             async for event in agent.process_stream_web(
                 msg["content"], member_id=member_id, images=msg.get("images", []),
                 session_id=session_id,
@@ -292,11 +293,16 @@ async def stream_response(message_id: str, request: Request):
                 target_id=msg.get("target_id", ""),
             ):
                 if running.cancel_event.is_set():
-                    break
+                    cancelled = True
+                    event_type = event.get("type", "")
+                    if event_type == "text" and not disconnected:
+                        yield {"event": "text", "data": event["text"]}
+                    continue
                 if await request.is_disconnected():
                     disconnected = True
                     running.cancel_event.set()
-                    break
+                    cancelled = True
+                    continue
 
                 event_type = event.get("type", "")
                 if event_type == "text":
@@ -304,7 +310,7 @@ async def stream_response(message_id: str, request: Request):
                 elif event_type in ("tool_use", "tool_output", "tool_progress", "tool_result", "usage"):
                     yield {"event": event_type, "data": json.dumps(event, ensure_ascii=False)}
 
-            if running.cancel_event.is_set():
+            if cancelled:
                 if not disconnected:
                     yield {"event": "interrupted", "data": "aborted"}
                 return
@@ -382,13 +388,17 @@ async def chat_history(request: Request, limit: int = 20, offset: int = 0, sessi
                     elif block.get("type") == "tool_result":
                         continue
 
+        msg_interrupted = False
         if role == "assistant" and tool_calls:
             next_msg = messages[i + 1] if i + 1 < len(messages) else None
             if next_msg and next_msg.get("role") == "user" and isinstance(next_msg.get("content"), list):
                 result_map: dict[str, str] = {}
                 for block in next_msg["content"]:
                     if isinstance(block, dict) and block.get("type") == "tool_result":
-                        result_map[block.get("tool_use_id", "")] = block.get("content", "")
+                        result_content = block.get("content", "")
+                        result_map[block.get("tool_use_id", "")] = result_content
+                        if result_content == "[已中止]":
+                            msg_interrupted = True
                 for tc in tool_calls:
                     tc["output"] = result_map.get(tc.get("id", ""), "")
 
@@ -405,6 +415,8 @@ async def chat_history(request: Request, limit: int = 20, offset: int = 0, sessi
             }
             if tool_calls:
                 entry["tool_calls"] = tool_calls
+            if msg_interrupted:
+                entry["interrupted"] = True
             formatted.append(entry)
         elif role == "user" and (content or images):
             entry = {
@@ -583,6 +595,55 @@ async def reset_session(req: ResetRequest, request: Request):
     reset_ts = await session_store.reset_context("web", member_id, req.session_id)
 
     return {"success": True, "context_reset_at": reset_ts}
+
+
+class ClearHistoryRequest(BaseModel):
+    session_id: str = "default"
+
+
+@router.post("/clear-history")
+async def clear_history(req: ClearHistoryRequest, request: Request):
+    """Permanently delete all chat messages (active + archived) and reset context.
+
+    Keeps the ChatSession row so the contact remains in the sidebar.
+    """
+    payload = require_auth(request)
+    member_id = payload.get("sub", "")
+
+    from sqlalchemy import select, delete as sa_delete
+    from openvort.db.models import ChatSession, ChatMessage
+    from openvort.web.deps import get_db_session_factory
+
+    session_store = get_session_store()
+    key = f"web:{member_id}:{req.session_id}"
+    session = session_store._sessions.get(key)
+    if session:
+        session.messages = []
+        session.context_reset_at = 0
+
+    sf = get_db_session_factory()
+    async with sf() as db:
+        row = (await db.execute(
+            select(ChatSession).where(
+                ChatSession.channel == "web",
+                ChatSession.user_id == member_id,
+                ChatSession.session_id == req.session_id,
+            )
+        )).scalar_one_or_none()
+        if row:
+            row.messages = "[]"
+            row.archived_messages = None
+            row.context_reset_at = None
+
+        await db.execute(
+            sa_delete(ChatMessage).where(
+                ChatMessage.owner_id == member_id,
+                ChatMessage.session_id == req.session_id,
+            )
+        )
+        await db.commit()
+
+    return {"success": True}
 
 
 class RestoreContextRequest(BaseModel):
@@ -788,7 +849,7 @@ async def mark_read(req: MarkReadRequest, request: Request):
     member_id = payload.get("sub", "")
 
     from openvort.web.deps import get_db_session_factory
-    from openvort.core.chat_message import mark_session_read
+    from openvort.core.services.chat_message import mark_session_read
 
     sf = get_db_session_factory()
     async with sf() as db:
@@ -796,7 +857,7 @@ async def mark_read(req: MarkReadRequest, request: Request):
 
     # Cancel pending IM notifications for this session
     try:
-        from openvort.core.notification import get_notification_center
+        from openvort.core.services.notification import get_notification_center
         nc = get_notification_center()
         if nc:
             await nc.cancel_pending(member_id, req.session_id)
@@ -813,7 +874,7 @@ async def unread_counts(request: Request):
     member_id = payload.get("sub", "")
 
     from openvort.web.deps import get_db_session_factory
-    from openvort.core.chat_message import get_unread_counts
+    from openvort.core.services.chat_message import get_unread_counts
 
     sf = get_db_session_factory()
     async with sf() as db:

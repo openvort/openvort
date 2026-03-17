@@ -31,9 +31,6 @@ from openvort.web.routers.work_assignments import work_assignments_router
 from openvort.web.routers.remote_nodes import router as remote_nodes_router
 from openvort.web.routers.marketplace import router as marketplace_router
 
-# Backward compatibility alias
-openclaw_nodes_router = remote_nodes_router
-
 __all__ = [
     "auth_router",
     "chat_router",
@@ -61,6 +58,5 @@ __all__ = [
     "work_assignments_router",
     "voice_providers_router",
     "remote_nodes_router",
-    "openclaw_nodes_router",  # 兼容旧名称
     "marketplace_router",
 ]

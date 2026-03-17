@@ -7,6 +7,8 @@ import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
 import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
 import { Copy, Pencil } from "lucide-vue-next";
 import { useWorkItemCommon } from "./useWorkItemCommon";
+import WorkItemLinkPanel from "./WorkItemLinkPanel.vue";
+import TestCaseLinkPanel from "./TestCaseLinkPanel.vue";
 import { getVortflowProjects, getVortflowIterations, getVortflowVersions, getVortgitRepos, getVortgitRepoBranches } from "@/api";
 import type { WorkItemType, Status, DateRange, RowItem, DetailComment, DetailLog } from "@/components/vort-biz/work-item/WorkItemTable.types";
 
@@ -60,6 +62,12 @@ const parentRecord = computed(() => props.parentRecord || null);
 const childRecords = computed(() => props.childRecords || []);
 const isHierarchyRecord = computed(() => record.value?.type === "需求" || record.value?.type === "任务");
 const canCreateChild = computed(() => Boolean(record.value?.backendId) && isHierarchyRecord.value);
+const linkEntityType = computed<"story" | "task" | "bug">(() => {
+    const t = record.value?.type;
+    if (t === "需求") return "story";
+    if (t === "任务") return "task";
+    return "bug";
+});
 const childItemLabel = computed(() => record.value?.type === "任务" ? "子任务" : "子需求");
 const addChildLabel = computed(() => record.value?.type === "任务" ? "添加子任务" : "添加子需求");
 const emptyChildText = computed(() => `暂无关联的${childItemLabel.value}`);
@@ -998,24 +1006,21 @@ watch(() => props.initialData, (value) => {
                 <p class="bug-detail-empty">暂无工作日志</p>
             </div>
             <div class="bug-detail-panel" v-else-if="detailActiveTab === 'related'">
-                <template v-if="isHierarchyRecord && childRecords.length > 0">
-                    <div class="story-children-list">
-                        <button
-                            v-for="child in childRecords"
-                            :key="child.backendId || child.workNo"
-                            type="button"
-                            class="story-children-item"
-                            @click="emit('openRelated', child)"
-                        >
-                            <span class="story-children-title">{{ child.title }}</span>
-                            <span class="story-children-status">{{ child.status }}</span>
-                        </button>
-                    </div>
-                </template>
+                <WorkItemLinkPanel
+                    v-if="record?.backendId"
+                    :entity-type="linkEntityType"
+                    :entity-id="record.backendId"
+                    @open-related="(r) => emit('openRelated', r as any)"
+                />
                 <p v-else class="bug-detail-empty">暂无关联工作项</p>
             </div>
             <div class="bug-detail-panel" v-else-if="detailActiveTab === 'test'">
-                <p class="bug-detail-empty">暂无关联测试用例</p>
+                <TestCaseLinkPanel
+                    v-if="record?.backendId"
+                    :entity-type="linkEntityType"
+                    :entity-id="record.backendId"
+                />
+                <p v-else class="bug-detail-empty">暂无关联测试用例</p>
             </div>
             <div class="bug-detail-panel" v-else>
                 <p class="bug-detail-empty">暂无关联文档</p>

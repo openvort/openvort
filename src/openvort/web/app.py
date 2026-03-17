@@ -8,16 +8,20 @@ from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import HTTPConnection
 from starlette.responses import Response
 
 from openvort.web.auth import verify_token
 
 
-def require_auth(request: Request) -> dict:
-    """JWT 认证依赖 — 所有登录用户"""
-    auth = request.headers.get("Authorization", "")
+def require_auth(conn: HTTPConnection) -> dict:
+    """JWT 认证依赖 — 所有登录用户。WebSocket 端点自行鉴权，此处跳过。"""
+    if conn.scope.get("type") == "websocket":
+        return {}
+
+    auth = conn.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
-        token = request.query_params.get("token", "")
+        token = conn.query_params.get("token", "")
     else:
         token = auth[7:]
 
@@ -30,9 +34,12 @@ def require_auth(request: Request) -> dict:
     return payload
 
 
-def require_admin(request: Request) -> dict:
-    """管理员权限依赖 — 仅 admin 角色"""
-    payload = require_auth(request)
+def require_admin(conn: HTTPConnection) -> dict:
+    """管理员权限依赖 — 仅 admin 角色。WebSocket 端点自行鉴权，此处跳过。"""
+    if conn.scope.get("type") == "websocket":
+        return {}
+
+    payload = require_auth(conn)
     roles = payload.get("roles", [])
     if "admin" not in roles:
         raise HTTPException(status_code=403, detail="需要管理员权限")
@@ -137,7 +144,7 @@ def create_app() -> FastAPI:
 
     # ---- 健康检查（公开，无需认证） ----
     import time as _time
-    from openvort.core.updater import get_update_service as _get_update_svc
+    from openvort.core.services.updater import get_update_service as _get_update_svc
     _llm_health_cache: dict[str, object] = {"healthy": None, "checked_at": 0.0, "error": ""}
 
     @app.get("/api/health")
@@ -196,7 +203,7 @@ def create_app() -> FastAPI:
 
         # Actually ping the LLM API with a minimal request
         try:
-            from openvort.core.llm import create_provider
+            from openvort.core.engine.llm import create_provider
             provider = create_provider(
                 provider=primary.get("provider", "anthropic"),
                 api_key=primary.get("api_key", ""),

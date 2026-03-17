@@ -128,6 +128,7 @@ class AgentTaskRunner:
 
         self._emit(rt, {"type": "thinking", "data": "start"})
 
+        cancelled = False
         async for event in agent.process_stream_web(
             content,
             member_id=owner_id,
@@ -138,18 +139,20 @@ class AgentTaskRunner:
             target_id=target_id,
         ):
             if cancel.is_set():
-                self._emit(rt, {"type": "interrupted", "data": "aborted"})
-                await self._mark_completed(rt, "cancelled")
-                return
+                cancelled = True
+                event_type = event.get("type", "")
+                if event_type == "text":
+                    self._emit(rt, {"type": "text", "data": event["text"]})
+                continue
 
             event_type = event.get("type", "")
             if event_type == "text":
                 self._emit(rt, {"type": "text", "data": event["text"]})
-            elif event_type in ("tool_use", "tool_output", "tool_progress", "tool_result", "usage"):
+            elif event_type in ("tool_use", "tool_output", "tool_progress", "tool_result", "usage", "action_button"):
                 import json
                 self._emit(rt, {"type": event_type, "data": json.dumps(event, ensure_ascii=False)})
 
-        if cancel.is_set():
+        if cancelled or cancel.is_set():
             self._emit(rt, {"type": "interrupted", "data": "aborted"})
             await self._mark_completed(rt, "cancelled")
             return
@@ -157,7 +160,7 @@ class AgentTaskRunner:
         # Persist result
         try:
             from openvort.web.deps import get_session_store, get_db_session_factory
-            from openvort.core.chat_message import write_chat_message
+            from openvort.core.services.chat_message import write_chat_message
 
             session_store = get_session_store()
             sf = get_db_session_factory()

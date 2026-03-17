@@ -2,7 +2,7 @@
 
 import pytest
 
-from openvort.core.session import SessionStore
+from openvort.core.engine.session import SessionStore
 from openvort.plugin.base import BaseTool, Message
 from openvort.plugin.registry import PluginRegistry
 

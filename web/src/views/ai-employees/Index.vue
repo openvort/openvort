@@ -84,6 +84,15 @@ const filteredEmployees = computed(() => {
     return employees.value.filter(e => (e.post || e.virtual_role) === activeCategory.value);
 });
 
+const postCounts = computed(() => {
+    const map: Record<string, number> = {};
+    for (const e of employees.value) {
+        const key = e.post || e.virtual_role || "";
+        if (key) map[key] = (map[key] || 0) + 1;
+    }
+    return map;
+});
+
 // ---- State: stats ----
 
 const stats = ref<Record<string, { total_sessions: number; today_sessions: number; last_active_at: string }>>({});
@@ -541,6 +550,10 @@ async function loadRemoteNodes() {
                         @click="activeCategory = 'all'"
                     >
                         全部
+                        <span
+                            class="ml-1 text-xs px-1.5 py-0.5 rounded-full"
+                            :class="activeCategory === 'all' ? 'bg-blue-500/30 text-white' : 'bg-gray-100 text-gray-500'"
+                        >{{ employees.length }}</span>
                     </button>
                     <button
                         v-for="post in posts"
@@ -552,6 +565,11 @@ async function loadRemoteNodes() {
                         @click="activeCategory = post.key"
                     >
                         {{ post.name }}
+                        <span
+                            v-if="postCounts[post.key]"
+                            class="ml-1 text-xs px-1.5 py-0.5 rounded-full"
+                            :class="activeCategory === post.key ? 'bg-blue-500/30 text-white' : 'bg-gray-100 text-gray-500'"
+                        >{{ postCounts[post.key] }}</span>
                     </button>
                 </div>
 
@@ -644,11 +662,11 @@ async function loadRemoteNodes() {
                                 </span>
                                 <vort-tip
                                     v-if="emp.remote_node_id && getNodeInfo(emp.remote_node_id)"
-                                    :title="`远程节点: ${getNodeInfo(emp.remote_node_id)?.name || ''}`"
+                                    :title="`工作节点: ${getNodeInfo(emp.remote_node_id)?.name || ''}`"
                                 >
                                     <span
                                         class="flex items-center"
-                                        :class="getNodeInfo(emp.remote_node_id)?.status === 'online' ? 'text-emerald-500' : 'text-red-400'"
+                                        :class="['online', 'running'].includes(getNodeInfo(emp.remote_node_id)?.status || '') ? 'text-emerald-500' : 'text-red-400'"
                                     >
                                         <Cpu :size="12" />
                                     </span>
@@ -779,7 +797,7 @@ async function loadRemoteNodes() {
                     <div class="rounded-lg border border-gray-100 bg-white">
                         <div class="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50/60 rounded-t-lg">
                             <Cpu :size="15" class="text-gray-400" />
-                            <h4 class="text-sm font-semibold text-gray-700">远程工作节点（Outbound）</h4>
+                            <h4 class="text-sm font-semibold text-gray-700">工作节点（Outbound）</h4>
                         </div>
                         <div class="px-4 py-3">
                             <div class="text-xs text-gray-400 mb-3">
@@ -797,10 +815,13 @@ async function loadRemoteNodes() {
                                         <div class="flex items-center gap-2">
                                             <span
                                                 class="w-2 h-2 rounded-full flex-shrink-0"
-                                                :class="node.status === 'online' ? 'bg-green-500' : node.status === 'offline' ? 'bg-red-400' : 'bg-gray-300'"
+                                                :class="['online', 'running'].includes(node.status) ? 'bg-green-500' : ['offline', 'stopped', 'error'].includes(node.status) ? 'bg-red-400' : 'bg-gray-300'"
                                             />
                                             <span>{{ node.name }}</span>
-                                            <span class="text-xs text-gray-400">{{ node.gateway_url }}</span>
+                                            <span class="text-xs px-1 py-0.5 rounded" :class="node.node_type === 'docker' ? 'bg-purple-50 text-purple-600' : 'bg-blue-50 text-blue-600'">
+                                                {{ node.node_type === 'docker' ? 'Docker' : 'OpenClaw' }}
+                                            </span>
+                                            <span class="text-xs text-gray-400">{{ node.node_type === 'docker' ? (['running', 'stopped'].includes(node.status) ? (node.status === 'running' ? '运行中' : '已停止') : node.status) : node.gateway_url }}</span>
                                         </div>
                                     </VortSelectOption>
                                 </VortSelect>

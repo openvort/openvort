@@ -447,7 +447,6 @@ export function useBugTrackingState() {
     };
 
     const handleSubmitCreateBug = () => {
-        // TODO: 调用API创建
         createBugDrawerOpen.value = false;
     };
 

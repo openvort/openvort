@@ -221,7 +221,7 @@ def _extract_codex_text(line: str) -> str:
 
 def _get_coding_env():
     """Create CodingEnvironment from VortGit settings."""
-    from openvort.core.coding_env import CodingEnvironment
+    from openvort.core.execution.coding_env import CodingEnvironment
     from openvort.plugins.vortgit.config import VortGitSettings
 
     settings = VortGitSettings()
@@ -335,7 +335,7 @@ class CodeTaskTool(BaseTool):
         }
 
     async def execute(self, params: dict) -> str:
-        from openvort.core.coding_env import EnvMode
+        from openvort.core.execution.coding_env import EnvMode
 
         repo_id = params.get("repo_id", "")
         repo_name = params.get("repo_name", "")

@@ -7,7 +7,17 @@ export interface ChatMessage {
     toolsExpanded?: boolean;
     timestamp: number;
     streaming?: boolean;
-    avatar_url?: string;  // 成员聊天时，assistant 消息使用成员头像
+    avatar_url?: string;
+    interrupted?: boolean;
+    actionButtons?: ActionButton[];
+}
+
+export interface ActionButton {
+    action: string;
+    label: string;
+    params?: Record<string, any>;
+    clicked?: boolean;
+    loading?: boolean;
 }
 
 export interface ChatSession {
@@ -28,7 +38,10 @@ export interface ToolCall {
     collapsed?: boolean;
     count?: number;
     hasLiveOutput?: boolean;
-    screenshots?: string[];  // base64 screenshots from tool output
+    screenshots?: string[];
+    id?: string;
+    input?: Record<string, any>;
+    outputExpanded?: boolean;
 }
 
 export interface PendingImage {

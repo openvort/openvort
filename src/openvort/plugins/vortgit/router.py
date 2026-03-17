@@ -702,7 +702,7 @@ async def batch_delete_code_tasks(body: CodeTaskBatchDelete, request: Request):
 @router.get("/coding-env/status")
 async def coding_env_status():
     try:
-        from openvort.core.coding_env import CodingEnvironment
+        from openvort.core.execution.coding_env import CodingEnvironment
         from openvort.config.config_service import ConfigService
         from openvort.plugins.vortgit.config import VortGitSettings
 

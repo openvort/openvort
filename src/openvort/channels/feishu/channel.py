@@ -518,11 +518,8 @@ class FeishuChannel(BaseChannel):
                         started = True
                     continue
 
-                if event_type == "tool_use":
-                    tool_name = event.get("name", "unknown")
-                    visible_text = merge_streaming_text(visible_text, f"\n\n🔧 正在执行 {tool_name}...")
-                elif event_type == "tool_result":
-                    visible_text = merge_streaming_text(visible_text, " ✅")
+                if event_type in ("tool_use", "tool_result", "tool_output", "tool_progress"):
+                    continue
                 elif event_type == "text_delta":
                     visible_text += event.get("text", "")
                 elif event_type == "text":

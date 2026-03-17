@@ -1,6 +1,14 @@
 # OpenVort
 
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/)
+[![Node.js 18+](https://img.shields.io/badge/Node.js-18%2B-green.svg)](https://nodejs.org/)
+[![Vue 3](https://img.shields.io/badge/Vue-3.5-brightgreen.svg)](https://vuejs.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115%2B-009688.svg)](https://fastapi.tiangolo.com/)
+
 开源 AI 研发工作流引擎 — 通过 IM 或 Web 面板与 AI Agent 交互，自动化项目管理、代码仓库、团队协作。
+
+> **Open-source AI-powered R&D workflow engine** — Interact with AI agents via IM (WeCom / DingTalk / Feishu) or Web panel to automate project management, code repositories, and team collaboration.
 
 ## 特性
 
@@ -114,7 +122,7 @@ src/openvort/
 web/                # 前端（Vue 3.5 + TypeScript 5.9 + Vite 7 + Tailwind CSS 4）
 ```
 
-详细架构设计参见 [`docs/architecture.md`](docs/architecture.md)。
+详细架构设计参见项目 Wiki（即将发布）。
 
 ## 扩展市场
 

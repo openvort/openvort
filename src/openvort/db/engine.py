@@ -367,6 +367,118 @@ async def init_db(database_url: str) -> None:
             "CREATE INDEX IF NOT EXISTS ix_flow_comments_author ON flow_comments(author_id)"
         ))
 
+    # VortFlow: tag definitions table
+    async with _engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS flow_tags (
+                id VARCHAR(32) PRIMARY KEY,
+                name VARCHAR(100) NOT NULL UNIQUE,
+                color VARCHAR(20) DEFAULT '#3b82f6',
+                sort_order INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT now(),
+                updated_at TIMESTAMP DEFAULT now()
+            )
+        """))
+
+    # VortFlow: work item links table (generic many-to-many between story/task/bug)
+    async with _engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS flow_work_item_links (
+                id VARCHAR(32) PRIMARY KEY,
+                source_type VARCHAR(16) NOT NULL,
+                source_id VARCHAR(32) NOT NULL,
+                target_type VARCHAR(16) NOT NULL,
+                target_id VARCHAR(32) NOT NULL,
+                created_by VARCHAR(32),
+                created_at TIMESTAMP DEFAULT now(),
+                CONSTRAINT uq_work_item_link UNIQUE (source_type, source_id, target_type, target_id)
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_flow_wil_source ON flow_work_item_links(source_type, source_id)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_flow_wil_target ON flow_work_item_links(target_type, target_id)"
+        ))
+
+    # VortFlow: status definitions table
+    async with _engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS flow_statuses (
+                id VARCHAR(32) PRIMARY KEY,
+                name VARCHAR(100) NOT NULL UNIQUE,
+                icon VARCHAR(10) DEFAULT '○',
+                icon_color VARCHAR(20) DEFAULT '#3b82f6',
+                command VARCHAR(200) DEFAULT '',
+                work_item_types_json TEXT DEFAULT '[]',
+                sort_order INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT now(),
+                updated_at TIMESTAMP DEFAULT now()
+            )
+        """))
+
+    # VortFlow: test case module / test case / test case - work item link
+    async with _engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS flow_test_modules (
+                id VARCHAR(32) PRIMARY KEY,
+                project_id VARCHAR(32) REFERENCES flow_projects(id),
+                parent_id VARCHAR(32) REFERENCES flow_test_modules(id),
+                name VARCHAR(200) NOT NULL,
+                sort_order INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT now(),
+                updated_at TIMESTAMP DEFAULT now()
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_flow_test_modules_project_id ON flow_test_modules(project_id)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_flow_test_modules_parent_id ON flow_test_modules(parent_id)"
+        ))
+
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS flow_test_cases (
+                id VARCHAR(32) PRIMARY KEY,
+                project_id VARCHAR(32) REFERENCES flow_projects(id),
+                module_id VARCHAR(32) REFERENCES flow_test_modules(id),
+                title VARCHAR(500) NOT NULL,
+                precondition TEXT DEFAULT '',
+                notes TEXT DEFAULT '',
+                case_type VARCHAR(32) DEFAULT 'functional',
+                priority INTEGER DEFAULT 2,
+                maintainer_id VARCHAR(32),
+                review_result VARCHAR(32) DEFAULT 'pending',
+                steps_json TEXT DEFAULT '[]',
+                created_at TIMESTAMP DEFAULT now(),
+                updated_at TIMESTAMP DEFAULT now()
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_flow_test_cases_project_id ON flow_test_cases(project_id)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_flow_test_cases_module_id ON flow_test_cases(module_id)"
+        ))
+
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS flow_test_case_work_items (
+                id VARCHAR(32) PRIMARY KEY,
+                test_case_id VARCHAR(32) REFERENCES flow_test_cases(id),
+                entity_type VARCHAR(16) NOT NULL,
+                entity_id VARCHAR(32) NOT NULL,
+                created_by VARCHAR(32),
+                created_at TIMESTAMP DEFAULT now(),
+                CONSTRAINT uq_testcase_workitem UNIQUE (test_case_id, entity_type, entity_id)
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_flow_tcwi_test_case_id ON flow_test_case_work_items(test_case_id)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_flow_tcwi_entity ON flow_test_case_work_items(entity_type, entity_id)"
+        ))
+
     # Group chat table (group-project binding)
     async with _engine.begin() as conn:
         await conn.execute(text("""

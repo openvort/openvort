@@ -61,7 +61,7 @@ const records = ref([
     color: #333;
 }
 .file-link {
-    color: #4096ff;
+    color: var(--vort-primary);
     text-decoration: none;
 }
 .file-link:hover {

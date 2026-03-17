@@ -176,7 +176,7 @@ async def fetch_available_models(req: FetchModelsRequest):
                     return {"success": False, "error": f"HTTP {resp.status_code}: {resp.text[:200]}"}
         else:
             # OpenAI-compatible providers
-            from openvort.core.llm import _default_api_base
+            from openvort.core.engine.llm import _default_api_base
             base = (api_base or _default_api_base(provider_name)).rstrip("/")
             if not base.endswith("/v1"):
                 base = base + "/v1"
@@ -257,7 +257,7 @@ async def _try_provider(provider_name: str, api_key: str, api_base: str,
                         model_name: str, timeout: int,
                         api_format: str) -> dict[str, Any]:
     """Attempt a minimal LLM call with the given api_format. Returns result dict."""
-    from openvort.core.llm import create_provider
+    from openvort.core.engine.llm import create_provider
 
     provider = create_provider(
         provider=provider_name, api_key=api_key, api_base=api_base,

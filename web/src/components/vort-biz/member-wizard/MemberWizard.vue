@@ -401,7 +401,7 @@ async function complete() {
                         <Cpu :size="16" class="text-emerald-600" />
                     </div>
                     <div>
-                        <div class="text-sm font-medium text-gray-800">远程工作节点（推荐）</div>
+                        <div class="text-sm font-medium text-gray-800">工作节点（推荐）</div>
                         <div class="text-xs text-gray-400">让 AI 员工拥有一台"工作电脑"</div>
                     </div>
                 </div>
@@ -412,7 +412,7 @@ async function complete() {
                 <div v-if="remoteNodes.length">
                     <VortSelect
                         v-model="formData.remoteNodeId"
-                        placeholder="选择要绑定的远程节点（可选）"
+                        placeholder="选择要绑定的工作节点（可选）"
                         allow-clear
                         style="width: 100%"
                     >
@@ -420,10 +420,13 @@ async function complete() {
                             <div class="flex items-center gap-2">
                                 <span
                                     class="w-2 h-2 rounded-full flex-shrink-0"
-                                    :class="node.status === 'online' ? 'bg-green-500' : node.status === 'offline' ? 'bg-red-400' : 'bg-gray-300'"
+                                    :class="['online', 'running'].includes(node.status) ? 'bg-green-500' : ['offline', 'stopped', 'error'].includes(node.status) ? 'bg-red-400' : 'bg-gray-300'"
                                 />
                                 <span>{{ node.name }}</span>
-                                <span class="text-xs text-gray-400">{{ node.gateway_url }}</span>
+                                <span class="text-xs px-1 py-0.5 rounded" :class="node.node_type === 'docker' ? 'bg-purple-50 text-purple-600' : 'bg-blue-50 text-blue-600'">
+                                    {{ node.node_type === 'docker' ? 'Docker' : 'OpenClaw' }}
+                                </span>
+                                <span class="text-xs text-gray-400">{{ node.node_type === 'docker' ? (node.status === 'running' ? '运行中' : node.status) : node.gateway_url }}</span>
                             </div>
                         </VortSelectOption>
                     </VortSelect>
@@ -431,7 +434,7 @@ async function complete() {
                 <div v-else class="text-sm text-gray-400 flex items-center gap-1.5 py-1 px-3 bg-gray-50 rounded-lg">
                     暂无可用节点，可稍后在
                     <router-link to="/remote-nodes" class="text-blue-600 hover:underline inline-flex items-center gap-0.5" @click.stop>
-                        远程节点管理 <ExternalLink :size="12" />
+                        工作节点管理 <ExternalLink :size="12" />
                     </router-link>
                     中配置
                 </div>

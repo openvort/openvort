@@ -1,6 +1,6 @@
 """LLM provider conversion tests."""
 
-from openvort.core.llm import OpenAICompatibleProvider
+from openvort.core.engine.llm import OpenAICompatibleProvider
 
 
 def _make_provider() -> OpenAICompatibleProvider:
@@ -19,8 +19,8 @@ def test_openai_compatible_tool_call_message_uses_empty_string_content():
                 {
                     "type": "tool_use",
                     "id": "call_123",
-                    "name": "remote_work",
-                    "input": {"instruction": "run tests"},
+                    "name": "node_shell",
+                    "input": {"command": "pytest tests/"},
                 }
             ],
         }
@@ -44,8 +44,8 @@ def test_openai_compatible_tool_call_message_keeps_text_content():
                 {
                     "type": "tool_use",
                     "id": "call_456",
-                    "name": "remote_work",
-                    "input": {"instruction": "check logs"},
+                    "name": "node_shell",
+                    "input": {"command": "tail -100 /var/log/app.log"},
                 },
             ],
         }
@@ -54,4 +54,4 @@ def test_openai_compatible_tool_call_message_keeps_text_content():
     converted = provider._convert_messages("system prompt", messages, "gpt-4o")
 
     assert converted[1]["content"] == "我来处理。"
-    assert converted[1]["tool_calls"][0]["function"]["name"] == "remote_work"
+    assert converted[1]["tool_calls"][0]["function"]["name"] == "node_shell"

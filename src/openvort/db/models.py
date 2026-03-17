@@ -254,7 +254,7 @@ class RemoteNode(Base):
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(64), index=True)
-    node_type: Mapped[str] = mapped_column(String(32), default="openclaw")  # openclaw / ...
+    node_type: Mapped[str] = mapped_column(String(32), default="docker")
     description: Mapped[str] = mapped_column(Text, default="")
     gateway_url: Mapped[str] = mapped_column(String(512))
     gateway_token: Mapped[str] = mapped_column(Text, default="")  # Fernet encrypted
@@ -268,9 +268,6 @@ class RemoteNode(Base):
     def __repr__(self) -> str:
         return f"<RemoteNode {self.id[:8]} {self.name} ({self.node_type})>"
 
-
-# Backward compatibility alias
-OpenClawNode = RemoteNode
 
 class GroupChat(Base):
     """群聊记录 — 持久化群聊元数据及项目关联"""

@@ -1,6 +1,6 @@
 from openvort.channels.feishu.channel import FeishuChannel
 from openvort.channels.feishu.tools import SendFeishuVoiceTool
-from openvort.core.agent import AgentRuntime
+from openvort.core.engine.agent import AgentRuntime
 
 
 class _FakeFeishuAPI:

@@ -42,7 +42,7 @@ async def create_agent_route(req: AgentRouteItem):
     """创建 Agent 路由规则"""
     if not _router_instance:
         return {"success": False, "error": "Agent 路由器未初始化"}
-    from openvort.core.router import AgentConfig
+    from openvort.core.engine.router import AgentConfig
     config = AgentConfig(
         name=req.name, model=req.model, system_prompt=req.system_prompt,
         max_tokens=req.max_tokens, channels=req.channels,

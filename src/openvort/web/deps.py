@@ -6,8 +6,8 @@ Web 面板依赖注入
 
 from typing import Optional
 
-from openvort.core.agent import AgentRuntime
-from openvort.core.session import SessionStore
+from openvort.core.engine.agent import AgentRuntime
+from openvort.core.engine.session import SessionStore
 from openvort.plugin.registry import PluginRegistry
 
 # 运行时单例，由 cli.py 启动时注入

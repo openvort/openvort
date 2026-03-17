@@ -107,7 +107,8 @@ const allMenus = computed(() => {
     return [...staticMenus, ...dynamicMenus];
 });
 
-const filteredMenus = computed(() => allMenus.value.filter(m => m.position !== "bottom"));
+const topMenus = computed(() => allMenus.value.filter(m => m.position === "top"));
+const filteredMenus = computed(() => allMenus.value.filter(m => !m.position));
 const bottomMenus = computed(() => allMenus.value.filter(m => m.position === "bottom"));
 
 // 当前展开的菜单
@@ -246,6 +247,33 @@ watch([collapsed, () => props.isMobile, () => route.path], () => {
         <!-- Logo -->
         <div class="flex items-center h-[56px] px-4web flex-shrink-0 overflow-hidden ml-3">
             <img :src="openvortLogo" alt="OpenVort" class="h-8 w-auto max-w-none" />
+        </div>
+
+        <!-- 顶部固定区域 -->
+        <div v-if="topMenus.length" class="flex-shrink-0 border-b border-gray-100 px-2 py-2 overflow-hidden">
+            <div
+                v-for="item in topMenus"
+                :key="item.title"
+                class="flex items-center h-[40px] px-3 rounded-md cursor-pointer mb-0.5 transition-colors"
+                :class="isActive(item) ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50'"
+                @click="handleClick(item)"
+            >
+                <component :is="iconMap[item.icon]" v-if="iconMap[item.icon]" :size="18" class="flex-shrink-0 relative">
+                </component>
+                <span v-if="item.path === '/chat' && collapsed && notificationStore.totalUnreadCount > 0"
+                    class="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-red-500 border border-white" />
+                <span
+                    class="ml-3 text-[14px] leading-5 truncate overflow-hidden"
+                    :style="{
+                        maxWidth: `${140 * collapseProgress}px`,
+                        opacity: collapseProgress,
+                        transition: 'none'
+                    }"
+                >{{ item.title }}</span>
+                <span v-if="item.path === '/chat' && !collapsed && notificationStore.totalUnreadCount > 0"
+                    class="ml-auto flex-shrink-0 min-w-[18px] h-[18px] rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center px-1"
+                >{{ notificationStore.totalUnreadCount > 99 ? '99+' : notificationStore.totalUnreadCount }}</span>
+            </div>
         </div>
 
         <!-- 菜单 -->

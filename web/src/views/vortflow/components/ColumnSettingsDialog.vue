@@ -372,7 +372,7 @@ const getTitle = (key: string) => fieldTitleMap.value.get(key) || key;
 }
 
 .displayed-item--drop-target {
-    border-top: 2px solid #4096ff;
+    border-top: 2px solid var(--vort-primary);
 }
 
 .drag-handle {

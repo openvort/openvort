@@ -1,18 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from "vue";
+import { ref, onMounted } from "vue";
 import {
-    getMembers, getMember, createMember, updateMember, resetMemberPassword,
-    toggleMemberAccount, assignMemberRole, removeMemberRole,
-    deleteMember, batchDeleteMembers, batchEnableAccount,
-    batchDisableAccount, batchAssignRole, batchRemoveRole,
-    batchAssignDept, batchRemoveDept,
-    getRoles, getPermissions, createRole, updateRole, deleteRole,
-    syncContacts, getSuggestions,
-    acceptSuggestion, rejectSuggestion, dedupContacts,
-    getDepartmentTree, createDepartment,
-    updateDepartment, deleteDepartment, addDepartmentMember,
-    removeDepartmentMember, getChannels,
-    getOrgCalendar, createOrgCalendarEntry, deleteOrgCalendarEntry, syncHolidays, getWorkSettings, updateWorkSettings,
+    batchDeleteMembers, batchEnableAccount, batchDisableAccount,
+    batchAssignRole, batchRemoveRole, batchAssignDept, batchRemoveDept,
 } from "@/api";
 import {
     RefreshCw, Search, Shield, UserCheck, UserX, Key,
@@ -23,764 +13,88 @@ import {
 import { message, dialog } from "@/components/vort";
 import { DeptTree } from "@/components/vort-biz/dept-tree";
 import { MemberWizard } from "@/components/vort-biz/member-wizard";
-import type { DeptNode } from "@/components/vort-biz/dept-tree";
+import { useContactMembers } from "./composables/useContactMembers";
+import { useContactRoles } from "./composables/useContactRoles";
+import { useContactDepartments } from "./composables/useContactDepartments";
+import { useOrgCalendar } from "./composables/useOrgCalendar";
 
-// ---- 类型 ----
-
-interface MemberItem {
-    id: string;
-    name: string;
-    email: string;
-    phone: string;
-    position: string;
-    status: string;
-    is_account: boolean;
-    has_password: boolean;
-    roles: string[];
-    platform_accounts: Record<string, string>;
-    departments: string[];
-    created_at: string;
-}
-
-interface MemberDetail extends Omit<MemberItem, 'departments'> {
-    avatar_url: string;
-    permissions: string[];
-    remote_node_id: string;
-    departments: { id: number; name: string }[];
-    identities: {
-        id: number;
-        platform: string;
-        platform_user_id: string;
-        platform_username: string;
-        platform_display_name: string;
-        platform_email: string;
-        platform_position: string;
-        platform_department: string;
-    }[];
-}
-
-interface RoleItem {
-    id: number;
-    name: string;
-    display_name: string;
-    source: string;
-    is_builtin: boolean;
-    is_admin: boolean;
-    permissions: { code: string; display_name: string }[];
-    member_count: number;
-}
-
-interface Suggestion {
-    id: number;
-    source_member_id: string;
-    source_name: string;
-    source_platform: string;
-    target_member_id: string;
-    target_name: string;
-    match_type: string;
-    confidence: number;
-}
-
-// ---- 状态 ----
+// ---- Shared state ----
 
 const activeTab = ref("org");
-
-// 组织架构 — 成员列表
-const members = ref<MemberItem[]>([]);
-const membersTotal = ref(0);
-const membersPage = ref(1);
-const membersSize = ref(50);
-const searchText = ref("");
-const filterRole = ref("");
-const loadingMembers = ref(false);
-const loadingSync = ref(false);
-const loadingDedup = ref(false);
-
-// 组织架构 — 当前选中的部门（null = 全部成员）
 const selectedDeptId = ref<number | null>(null);
 
-// 通道列表（用于同步选择）
-interface ChannelItem {
-    name: string;
-    display_name: string;
-    type: string;
-    status: string;
-    enabled: boolean;
-}
-const channels = ref<ChannelItem[]>([]);
+// ---- Composables ----
 
-// 角色
-const roles = ref<RoleItem[]>([]);
-const loadingRoles = ref(false);
-const selectedRoleIndex = ref(0);
-const selectedRole = computed(() => roles.value[selectedRoleIndex.value] || null);
-const roleMembers = ref<MemberItem[]>([]);
-const loadingRoleMembers = ref(false);
-
-// 权限列表
-interface PermissionItem {
-    id: number;
-    code: string;
-    display_name: string;
-    source: string;
-}
-const allPermissions = ref<PermissionItem[]>([]);
-
-// 权限分组
-interface PermGroup {
-    key: string;
-    label: string;
-    permissions: PermissionItem[];
-}
-
-const CORE_SUBGROUPS: Record<string, string> = {
-    contacts: "通讯录",
-    members: "成员管理",
-    departments: "部门管理",
-    plugins: "插件管理",
-    skills: "Skill 管理",
-    channels: "通道管理",
-    settings: "系统设置",
-    logs: "日志",
-    dashboard: "仪表盘",
-    schedules: "计划任务",
-    webhooks: "Webhook",
-    agents: "Agent",
-};
-
-const PLUGIN_DISPLAY_NAMES: Record<string, string> = {
-    browser: "浏览器",
-    vortflow: "VortFlow 项目管理",
-    vortgit: "VortGit 代码仓库",
-    zentao: "禅道",
-    jenkins: "Jenkins",
-    report: "汇报",
-    schedule: "计划任务",
-};
-
-const groupedPermissions = computed(() => {
-    const corePerms = allPermissions.value.filter(p => p.source === "core");
-    const pluginPerms = allPermissions.value.filter(p => p.source !== "core");
-
-    const coreGroups: PermGroup[] = [];
-    const coreMap = new Map<string, PermissionItem[]>();
-    for (const p of corePerms) {
-        const prefix = p.code.split(".")[0];
-        if (!coreMap.has(prefix)) coreMap.set(prefix, []);
-        coreMap.get(prefix)!.push(p);
-    }
-    for (const [prefix, perms] of coreMap) {
-        coreGroups.push({ key: `core.${prefix}`, label: CORE_SUBGROUPS[prefix] || prefix, permissions: perms });
-    }
-
-    const pluginGroups: PermGroup[] = [];
-    const pluginMap = new Map<string, PermissionItem[]>();
-    for (const p of pluginPerms) {
-        if (!pluginMap.has(p.source)) pluginMap.set(p.source, []);
-        pluginMap.get(p.source)!.push(p);
-    }
-    for (const [source, perms] of pluginMap) {
-        pluginGroups.push({ key: source, label: PLUGIN_DISPLAY_NAMES[source] || source, permissions: perms });
-    }
-
-    return { coreGroups, pluginGroups };
+const {
+    members, membersTotal, membersPage, membersSize,
+    searchText, filterRole, loadingMembers, loadingSync, loadingDedup,
+    selectedIds, rowSelection,
+    channels,
+    suggestions, showSuggestions,
+    drawerOpen, drawerLoading, currentMember, editForm, savingEdit,
+    createMemberDialogOpen, createMemberForm, savingCreateMember, wizardOpen,
+    roleDialogOpen, roleDialogMember, roleDialogLoading,
+    loadMembers, handleSearch, handleSync, loadChannels, handleDedup,
+    loadSuggestions, handleAccept, handleReject,
+    openMemberDrawer, handleSaveEdit, handleToggleAccount, handleResetPassword,
+    handleCreateMember, openCreateMemberDialog,
+    handleDelete,
+    openRoleDialog,
+} = useContactMembers({
+    selectedDeptId,
+    refreshDeptTree: async () => { await loadDeptTree(); },
 });
 
-// 内联编辑状态
-const editingPerms = ref<string[] | null>(null);
-const savingPermsInline = ref(false);
-
-const canEditPermissions = computed(() => {
-    if (!selectedRole.value) return false;
-    return !selectedRole.value.is_admin && !selectedRole.value.is_builtin;
+const {
+    roles, allPermissions, selectedRoleIndex, selectedRole,
+    roleMembers, loadingRoles, loadingRoleMembers,
+    editingPerms, savingPermsInline, canEditPermissions, activePermCodes, hasPermChanges,
+    groupedPermissions,
+    roleEditDialogOpen, roleEditMode, roleEditForm, roleEditIsBuiltin, savingRole,
+    isPermSelected, isGroupAllSelected, isGroupPartial, isSectionAllSelected, isSectionPartial,
+    toggleSection, toggleGroup, togglePerm,
+    savePermissionsInline, cancelPermEdit,
+    openCreateRoleDialog, openEditRoleDialog, handleSaveRole, handleDeleteRole,
+    togglePermission, isDialogGroupAllSelected, isDialogGroupPartial, toggleDialogGroup,
+    isDialogSectionAllSelected, isDialogSectionPartial, toggleDialogSection,
+    loadRoles, loadPermissions, loadRoleMembers,
+    handleAssignRole, handleRemoveRole,
+} = useContactRoles({
+    loadMembers,
+    openMemberDrawer,
+    currentMember,
 });
 
-const activePermCodes = computed(() => {
-    if (editingPerms.value !== null) return editingPerms.value;
-    if (!selectedRole.value) return [];
-    if (selectedRole.value.is_admin) return allPermissions.value.map(p => p.code);
-    return selectedRole.value.permissions.map(p => p.code);
+const {
+    deptTree, expandedDeptIds, selectedDept, deptBreadcrumb,
+    loadingDepts,
+    deptDialogOpen, deptDialogMode, deptDialogForm, savingDept,
+    addMemberDialogOpen, addMemberSearch, addMemberResults, addMemberLoading,
+    drawerDeptDialogOpen,
+    loadDeptTree, handleSelectDept, handleToggleDeptExpand,
+    openCreateDeptDialog, openEditDeptDialog, handleSaveDept, handleDeleteDept,
+    handleSearchAddMember, handleAddMemberToDept, handleRemoveMemberFromDept,
+    handleAddDeptToMember, handleRemoveDeptFromMember,
+} = useContactDepartments({
+    selectedDeptId,
+    loadMembers,
+    membersPage,
+    openMemberDrawer,
+    currentMember,
 });
 
-const hasPermChanges = computed(() => {
-    if (editingPerms.value === null || !selectedRole.value) return false;
-    const original = new Set(selectedRole.value.permissions.map(p => p.code));
-    const current = new Set(editingPerms.value);
-    if (original.size !== current.size) return true;
-    for (const c of original) { if (!current.has(c)) return true; }
-    return false;
-});
+const {
+    calendarEntries, loadingCalendar, calendarYear, syncingHolidays,
+    workSettings, editingWorkSettings, savingWorkSettings, workSettingsForm,
+    calendarDialogOpen, calendarForm, savingCalendar,
+    weekDayOptions, dayTypeOptions, dayTypeLabel, dayTypeColor,
+    loadCalendar, loadWorkSettings,
+    startEditWorkSettings, cancelEditWorkSettings, handleSaveWorkSettings,
+    handleSyncHolidays,
+    openCalendarDialog, handleSaveCalendar, handleDeleteCalendar,
+} = useOrgCalendar();
 
-function isPermSelected(code: string): boolean {
-    return activePermCodes.value.includes(code);
-}
-
-function isGroupAllSelected(group: PermGroup): boolean {
-    return group.permissions.every(p => activePermCodes.value.includes(p.code));
-}
-
-function isGroupPartial(group: PermGroup): boolean {
-    const sel = group.permissions.filter(p => activePermCodes.value.includes(p.code));
-    return sel.length > 0 && sel.length < group.permissions.length;
-}
-
-function isSectionAllSelected(groups: PermGroup[]): boolean {
-    return groups.length > 0 && groups.every(g => isGroupAllSelected(g));
-}
-
-function isSectionPartial(groups: PermGroup[]): boolean {
-    const allCodes = groups.flatMap(g => g.permissions.map(p => p.code));
-    const selected = allCodes.filter(c => activePermCodes.value.includes(c));
-    return selected.length > 0 && selected.length < allCodes.length;
-}
-
-function toggleSection(groups: PermGroup[]) {
-    if (!canEditPermissions.value) return;
-    ensureEditingPerms();
-    const allCodes = groups.flatMap(g => g.permissions.map(p => p.code));
-    const allSelected = allCodes.every(c => editingPerms.value!.includes(c));
-    if (allSelected) {
-        const codesSet = new Set(allCodes);
-        editingPerms.value = editingPerms.value!.filter(c => !codesSet.has(c));
-    } else {
-        const existing = new Set(editingPerms.value!);
-        for (const c of allCodes) {
-            if (!existing.has(c)) editingPerms.value!.push(c);
-        }
-    }
-}
-
-function ensureEditingPerms() {
-    if (editingPerms.value === null && selectedRole.value) {
-        editingPerms.value = selectedRole.value.permissions.map(p => p.code);
-    }
-}
-
-function togglePerm(code: string) {
-    if (!canEditPermissions.value) return;
-    ensureEditingPerms();
-    const idx = editingPerms.value!.indexOf(code);
-    if (idx >= 0) editingPerms.value!.splice(idx, 1);
-    else editingPerms.value!.push(code);
-}
-
-function toggleGroup(group: PermGroup) {
-    if (!canEditPermissions.value) return;
-    ensureEditingPerms();
-    const allSelected = group.permissions.every(p => editingPerms.value!.includes(p.code));
-    if (allSelected) {
-        const codes = new Set(group.permissions.map(p => p.code));
-        editingPerms.value = editingPerms.value!.filter(c => !codes.has(c));
-    } else {
-        const existing = new Set(editingPerms.value!);
-        for (const p of group.permissions) {
-            if (!existing.has(p.code)) editingPerms.value!.push(p.code);
-        }
-    }
-}
-
-async function savePermissionsInline() {
-    if (!selectedRole.value || editingPerms.value === null) return;
-    savingPermsInline.value = true;
-    try {
-        const res: any = await updateRole(selectedRole.value.id, { permissions: editingPerms.value });
-        if (res?.success) {
-            message.success("权限已保存");
-            editingPerms.value = null;
-            await loadRoles();
-        } else {
-            message.error(res?.error || "保存失败");
-        }
-    } catch { message.error("保存失败"); }
-    finally { savingPermsInline.value = false; }
-}
-
-function cancelPermEdit() {
-    editingPerms.value = null;
-}
-
-watch(selectedRoleIndex, () => { editingPerms.value = null; });
-
-// 角色编辑弹窗
-const roleEditDialogOpen = ref(false);
-const roleEditMode = ref<"create" | "edit">("create");
-const roleEditForm = ref({ name: "", display_name: "", permissions: [] as string[] });
-const roleEditId = ref<number | null>(null);
-const roleEditIsBuiltin = ref(false);
-const savingRole = ref(false);
-
-// 匹配建议
-const suggestions = ref<Suggestion[]>([]);
-const showSuggestions = ref(false);
-
-// 成员详情抽屉
-const drawerOpen = ref(false);
-const drawerLoading = ref(false);
-const currentMember = ref<MemberDetail | null>(null);
-const editForm = ref({ name: "", email: "", phone: "", position: "" });
-const savingEdit = ref(false);
-
-// 角色分配弹窗
-const roleDialogOpen = ref(false);
-const roleDialogMember = ref<MemberItem | null>(null);
-const roleDialogLoading = ref(false);
-
-// 批量选择
-const selectedIds = ref<string[]>([]);
-
-// 批量角色弹窗
-const batchRoleDialogOpen = ref(false);
-const batchRoleAction = ref<"assign" | "remove">("assign");
-
-// 批量部门弹窗
-const batchDeptDialogOpen = ref(false);
-const batchDeptAction = ref<"assign" | "remove">("assign");
-
-const rowSelection = computed(() => ({
-    selectedRowKeys: selectedIds.value,
-    onChange: (keys: (string | number)[]) => {
-        selectedIds.value = keys as string[];
-    },
-}));
-
-// 组织架构 — 部门树
-const deptTree = ref<DeptNode[]>([]);
-const loadingDepts = ref(false);
-const expandedDeptIds = ref<Set<number>>(new Set());
-const selectedDept = computed(() => {
-    function find(nodes: DeptNode[], id: number): DeptNode | null {
-        for (const n of nodes) {
-            if (n.id === id) return n;
-            const found = find(n.children, id);
-            if (found) return found;
-        }
-        return null;
-    }
-    return selectedDeptId.value ? find(deptTree.value, selectedDeptId.value) : null;
-});
-const totalMemberCount = computed(() => {
-    function sum(nodes: DeptNode[]): number {
-        return nodes.reduce((acc, n) => acc + n.member_count + sum(n.children), 0);
-    }
-    return sum(deptTree.value);
-});
-
-// Breadcrumb path from root to selected dept
-const deptBreadcrumb = computed(() => {
-    if (!selectedDeptId.value) return [];
-    const path: DeptNode[] = [];
-    function find(nodes: DeptNode[], target: number): boolean {
-        for (const n of nodes) {
-            path.push(n);
-            if (n.id === target) return true;
-            if (find(n.children, target)) return true;
-            path.pop();
-        }
-        return false;
-    }
-    find(deptTree.value, selectedDeptId.value);
-    return path;
-});
-
-// 部门编辑
-const deptDialogOpen = ref(false);
-const deptDialogMode = ref<"create" | "edit">("create");
-const deptDialogParentId = ref<number | null>(null);
-const deptDialogForm = ref({ name: "" });
-const deptDialogEditId = ref<number | null>(null);
-const savingDept = ref(false);
-
-// 添加成员到部门弹窗
-const addMemberDialogOpen = ref(false);
-const addMemberSearch = ref("");
-const addMemberResults = ref<MemberItem[]>([]);
-const addMemberLoading = ref(false);
-
-// 新增成员弹窗
-const createMemberDialogOpen = ref(false);
-const createMemberForm = ref({
-    name: "", email: "", phone: "", position: "", is_account: false,
-});
-const savingCreateMember = ref(false);
-
-// 向导式创建成员
-const wizardOpen = ref(false);
-
-function openCreateMemberDialog() {
-    wizardOpen.value = true;
-}
-
-async function handleCreateMember() {
-    if (!createMemberForm.value.name.trim()) {
-        message.error("请输入姓名");
-        return;
-    }
-    savingCreateMember.value = true;
-    try {
-        const res: any = await createMember(createMemberForm.value);
-        if (res?.success) {
-            message.success("成员已创建");
-            createMemberDialogOpen.value = false;
-            await Promise.all([loadMembers(), loadDeptTree()]);
-        } else {
-            message.error(res?.error || "创建失败");
-        }
-    } catch { message.error("创建失败"); }
-    finally { savingCreateMember.value = false; }
-}
-
-// ---- 成员列表 ----
-
-async function loadMembers() {
-    loadingMembers.value = true;
-    try {
-        const params: any = {
-            search: searchText.value,
-            role: filterRole.value,
-            page: membersPage.value,
-            size: membersSize.value,
-            is_virtual: false,
-        };
-        if (selectedDeptId.value !== null) {
-            params.department_id = selectedDeptId.value;
-        }
-        const res: any = await getMembers(params);
-        members.value = res?.members || [];
-        membersTotal.value = res?.total || 0;
-    } catch { /* ignore */ }
-    finally { loadingMembers.value = false; }
-}
-
-async function handleSearch() {
-    membersPage.value = 1;
-    await loadMembers();
-}
-
-async function handleSync(channel?: string) {
-    loadingSync.value = true;
-    try {
-        const res: any = await syncContacts(channel);
-        if (res?.success && res.results?.length) {
-            const details = res.results.map((r: any) =>
-                `${r.platform}: 新建 ${r.created || 0}, 更新 ${r.updated || 0}, 关联 ${r.matched || 0}, 待确认 ${r.pending || 0}`
-            ).join("；");
-            message.success(`同步完成 — ${details}`);
-        } else if (res?.success) {
-            message.success("同步完成，无可用通道");
-        } else {
-            message.error(res?.error || "同步失败");
-        }
-        await Promise.all([loadMembers(), loadSuggestions(), loadDeptTree()]);
-    } catch { message.error("同步失败"); }
-    finally { loadingSync.value = false; }
-}
-
-async function loadChannels() {
-    try {
-        const res: any = await getChannels();
-        channels.value = (res?.channels || res || []).filter((c: ChannelItem) => c.enabled);
-    } catch { /* ignore */ }
-}
-
-async function handleDedup() {
-    loadingDedup.value = true;
-    try {
-        const res: any = await dedupContacts();
-        if (res?.success) {
-            message.success(`去重完成，合并了 ${res.merged || 0} 个重复联系人`);
-            await Promise.all([loadMembers(), loadSuggestions()]);
-        } else { message.error("去重失败"); }
-    } catch { message.error("去重失败"); }
-    finally { loadingDedup.value = false; }
-}
-
-// ---- 匹配建议 ----
-
-async function loadSuggestions() {
-    try {
-        const res: any = await getSuggestions();
-        suggestions.value = res?.suggestions || [];
-    } catch { /* ignore */ }
-}
-
-async function handleAccept(id: number) {
-    try {
-        const res: any = await acceptSuggestion(id);
-        if (res?.success) {
-            message.success("已合并");
-            await Promise.all([loadMembers(), loadSuggestions()]);
-        } else { message.error("操作失败"); }
-    } catch { message.error("操作失败"); }
-}
-
-async function handleReject(id: number) {
-    try {
-        const res: any = await rejectSuggestion(id);
-        if (res?.success) {
-            message.success("已忽略");
-            await loadSuggestions();
-        } else { message.error("操作失败"); }
-    } catch { message.error("操作失败"); }
-}
-
-// ---- 成员详情抽屉 ----
-
-async function openMemberDrawer(memberId: string) {
-    drawerOpen.value = true;
-    drawerLoading.value = true;
-    try {
-        const res: any = await getMember(memberId);
-        currentMember.value = res;
-        editForm.value = {
-            name: res.name || "",
-            email: res.email || "",
-            phone: res.phone || "",
-            position: res.position || "",
-        };
-    } catch { message.error("加载失败"); }
-    finally { drawerLoading.value = false; }
-}
-
-async function handleSaveEdit() {
-    if (!currentMember.value) return;
-    savingEdit.value = true;
-    try {
-        const res: any = await updateMember(currentMember.value.id, editForm.value);
-        if (res?.success) {
-            message.success("保存成功");
-            await loadMembers();
-            await openMemberDrawer(currentMember.value.id);
-        } else { message.error(res?.error || "保存失败"); }
-    } catch { message.error("保存失败"); }
-    finally { savingEdit.value = false; }
-}
-
-async function handleToggleAccount(member: MemberItem) {
-    try {
-        const res: any = await toggleMemberAccount(member.id);
-        if (res?.success) {
-            message.success(res.is_account ? "已启用登录" : "已禁用登录");
-            await loadMembers();
-            if (currentMember.value?.id === member.id) {
-                await openMemberDrawer(member.id);
-            }
-        } else { message.error("操作失败"); }
-    } catch { message.error("操作失败"); }
-}
-
-async function handleResetPassword(memberId: string) {
-    try {
-        const res: any = await resetMemberPassword(memberId);
-        if (res?.success) {
-            message.success("密码已重置为默认密码");
-            if (currentMember.value?.id === memberId) {
-                await openMemberDrawer(memberId);
-            }
-        } else { message.error("重置失败"); }
-    } catch { message.error("重置失败"); }
-}
-
-// ---- 角色管理 ----
-
-async function loadRoles() {
-    loadingRoles.value = true;
-    try {
-        const res: any = await getRoles();
-        roles.value = res?.roles || [];
-        // 加载默认选中角色的成员
-        if (roles.value.length) {
-            await loadRoleMembers(roles.value[selectedRoleIndex.value]?.name);
-        }
-    } catch { /* ignore */ }
-    finally { loadingRoles.value = false; }
-}
-
-async function loadPermissions() {
-    try {
-        const res: any = await getPermissions();
-        allPermissions.value = res?.permissions || [];
-    } catch { /* ignore */ }
-}
-
-function openCreateRoleDialog() {
-    roleEditMode.value = "create";
-    roleEditForm.value = { name: "", display_name: "", permissions: [] };
-    roleEditId.value = null;
-    roleEditIsBuiltin.value = false;
-    roleEditDialogOpen.value = true;
-}
-
-function openEditRoleDialog(role: RoleItem) {
-    roleEditMode.value = "edit";
-    roleEditForm.value = {
-        name: role.name,
-        display_name: role.display_name,
-        permissions: role.is_admin ? [] : role.permissions.map(p => p.code),
-    };
-    roleEditId.value = role.id;
-    roleEditIsBuiltin.value = role.is_builtin;
-    roleEditDialogOpen.value = true;
-}
-
-async function handleSaveRole() {
-    if (!roleEditForm.value.display_name.trim()) {
-        message.error("请输入角色显示名");
-        return;
-    }
-    savingRole.value = true;
-    try {
-        if (roleEditMode.value === "create") {
-            if (!roleEditForm.value.name.trim()) {
-                message.error("请输入角色标识");
-                savingRole.value = false;
-                return;
-            }
-            const res: any = await createRole({
-                name: roleEditForm.value.name,
-                display_name: roleEditForm.value.display_name,
-                permissions: roleEditForm.value.permissions,
-            });
-            if (res?.success) {
-                message.success("角色已创建");
-                roleEditDialogOpen.value = false;
-                await loadRoles();
-            } else {
-                message.error(res?.error || "创建失败");
-            }
-        } else {
-            if (!roleEditId.value) return;
-            const data: any = { display_name: roleEditForm.value.display_name };
-            const res: any = await updateRole(roleEditId.value, data);
-            if (res?.success) {
-                message.success("角色已更新");
-                roleEditDialogOpen.value = false;
-                await loadRoles();
-            } else {
-                message.error(res?.error || "更新失败");
-            }
-        }
-    } catch { message.error("操作失败"); }
-    finally { savingRole.value = false; }
-}
-
-async function handleDeleteRole(role: RoleItem) {
-    if (role.is_builtin) {
-        message.error("内置角色不可删除");
-        return;
-    }
-    dialog.confirm({
-        title: `确定删除角色「${role.display_name}」？该角色下的 ${role.member_count} 个成员将失去此角色。`,
-        okType: "danger",
-        onOk: async () => {
-            const res: any = await deleteRole(role.id);
-            if (res?.success) {
-                message.success("角色已删除");
-                selectedRoleIndex.value = 0;
-                await loadRoles();
-            } else {
-                message.error(res?.error || "删除失败");
-                throw new Error("删除失败");
-            }
-        },
-    });
-}
-
-function togglePermission(code: string) {
-    const idx = roleEditForm.value.permissions.indexOf(code);
-    if (idx >= 0) {
-        roleEditForm.value.permissions.splice(idx, 1);
-    } else {
-        roleEditForm.value.permissions.push(code);
-    }
-}
-
-function isDialogGroupAllSelected(group: PermGroup): boolean {
-    return group.permissions.every(p => roleEditForm.value.permissions.includes(p.code));
-}
-
-function isDialogGroupPartial(group: PermGroup): boolean {
-    const sel = group.permissions.filter(p => roleEditForm.value.permissions.includes(p.code));
-    return sel.length > 0 && sel.length < group.permissions.length;
-}
-
-function toggleDialogGroup(group: PermGroup) {
-    const allSelected = isDialogGroupAllSelected(group);
-    if (allSelected) {
-        const codes = new Set(group.permissions.map(p => p.code));
-        roleEditForm.value.permissions = roleEditForm.value.permissions.filter(c => !codes.has(c));
-    } else {
-        const existing = new Set(roleEditForm.value.permissions);
-        for (const p of group.permissions) {
-            if (!existing.has(p.code)) roleEditForm.value.permissions.push(p.code);
-        }
-    }
-}
-
-function isDialogSectionAllSelected(groups: PermGroup[]): boolean {
-    return groups.length > 0 && groups.every(g => isDialogGroupAllSelected(g));
-}
-
-function isDialogSectionPartial(groups: PermGroup[]): boolean {
-    const allCodes = groups.flatMap(g => g.permissions.map(p => p.code));
-    const selected = allCodes.filter(c => roleEditForm.value.permissions.includes(c));
-    return selected.length > 0 && selected.length < allCodes.length;
-}
-
-function toggleDialogSection(groups: PermGroup[]) {
-    const allCodes = groups.flatMap(g => g.permissions.map(p => p.code));
-    const allSelected = allCodes.every(c => roleEditForm.value.permissions.includes(c));
-    if (allSelected) {
-        const codesSet = new Set(allCodes);
-        roleEditForm.value.permissions = roleEditForm.value.permissions.filter(c => !codesSet.has(c));
-    } else {
-        const existing = new Set(roleEditForm.value.permissions);
-        for (const c of allCodes) {
-            if (!existing.has(c)) roleEditForm.value.permissions.push(c);
-        }
-    }
-}
-
-async function loadRoleMembers(roleName?: string) {
-    if (!roleName) return;
-    loadingRoleMembers.value = true;
-    try {
-        const res: any = await getMembers({ role: roleName, size: 999 });
-        roleMembers.value = res?.members || [];
-    } catch { roleMembers.value = []; }
-    finally { loadingRoleMembers.value = false; }
-}
-
-async function handleAssignRole(memberId: string, roleName: string) {
-    try {
-        const res: any = await assignMemberRole(memberId, roleName);
-        if (res?.success) {
-            message.success("角色已分配");
-            await loadMembers();
-            if (currentMember.value?.id === memberId) {
-                await openMemberDrawer(memberId);
-            }
-        } else { message.error("分配失败"); }
-    } catch { message.error("分配失败"); }
-}
-
-async function handleRemoveRole(memberId: string, roleName: string) {
-    try {
-        const res: any = await removeMemberRole(memberId, roleName);
-        if (res?.success) {
-            message.success("角色已移除");
-            await loadMembers();
-            if (currentMember.value?.id === memberId) {
-                await openMemberDrawer(memberId);
-            }
-        } else { message.error("移除失败"); }
-    } catch { message.error("移除失败"); }
-}
-
-// 角色分配弹窗
-function openRoleDialog(member: MemberItem) {
-    roleDialogMember.value = member;
-    roleDialogOpen.value = true;
-}
+// ---- Role dialog toggle (bridges members + roles composables) ----
 
 async function handleRoleDialogToggle(roleName: string) {
     if (!roleDialogMember.value) return;
@@ -794,28 +108,12 @@ async function handleRoleDialogToggle(roleName: string) {
     roleDialogOpen.value = false;
 }
 
-// ---- 删除 ----
+// ---- Batch operations ----
 
-async function handleDelete(memberId: string, memberName: string) {
-    dialog.confirm({
-        title: `确定删除成员「${memberName}」？此操作不可恢复。`,
-        okType: "danger",
-        onOk: async () => {
-            const res: any = await deleteMember(memberId);
-            if (res?.success) {
-                message.success("已删除");
-                drawerOpen.value = false;
-                selectedIds.value = selectedIds.value.filter(id => id !== memberId);
-                await loadMembers();
-            } else {
-                message.error(res?.error || "删除失败");
-                throw new Error("删除失败");
-            }
-        },
-    });
-}
-
-// ---- 批量操作 ----
+const batchRoleDialogOpen = ref(false);
+const batchRoleAction = ref<"assign" | "remove">("assign");
+const batchDeptDialogOpen = ref(false);
+const batchDeptAction = ref<"assign" | "remove">("assign");
 
 async function handleBatchDelete() {
     if (!selectedIds.value.length) return;
@@ -896,315 +194,7 @@ async function handleBatchRoleSelect(roleName: string) {
     } catch { message.error("操作失败"); }
 }
 
-// ---- 部门管理 ----
-
-// ---- 部门管理 ----
-
-// 详情抽屉：添加/移除部门
-const drawerDeptDialogOpen = ref(false);
-
-async function handleAddDeptToMember(deptId: number) {
-    if (!currentMember.value) return;
-    try {
-        const res: any = await addDepartmentMember(deptId, currentMember.value.id);
-        if (res?.success) {
-            message.success("已添加到部门");
-            await Promise.all([openMemberDrawer(currentMember.value.id), loadMembers()]);
-        } else { message.error("添加失败（可能已在该部门）"); }
-    } catch { message.error("添加失败"); }
-}
-
-async function handleRemoveDeptFromMember(deptId: number) {
-    if (!currentMember.value) return;
-    try {
-        const res: any = await removeDepartmentMember(deptId, currentMember.value.id);
-        if (res?.success) {
-            message.success("已从部门移除");
-            await Promise.all([openMemberDrawer(currentMember.value.id), loadMembers()]);
-        } else { message.error("移除失败"); }
-    } catch { message.error("移除失败"); }
-}
-
-async function loadDeptTree() {
-    loadingDepts.value = true;
-    try {
-        const res: any = await getDepartmentTree();
-        deptTree.value = res?.departments || [];
-        const ids = new Set<number>();
-        function collect(nodes: DeptNode[]) {
-            for (const n of nodes) {
-                if (n.children.length) {
-                    ids.add(n.id);
-                    collect(n.children);
-                }
-            }
-        }
-        collect(deptTree.value);
-        expandedDeptIds.value = ids;
-    } catch { /* ignore */ }
-    finally { loadingDepts.value = false; }
-}
-
-function handleSelectDept(deptId: number | null) {
-    selectedDeptId.value = deptId;
-    membersPage.value = 1;
-    loadMembers();
-}
-
-function handleToggleDeptExpand(deptId: number) {
-    const next = new Set(expandedDeptIds.value);
-    if (next.has(deptId)) next.delete(deptId);
-    else next.add(deptId);
-    expandedDeptIds.value = next;
-}
-
-function openCreateDeptDialog(parentId: number | null = null) {
-    deptDialogMode.value = "create";
-    deptDialogParentId.value = parentId;
-    deptDialogForm.value = { name: "" };
-    deptDialogEditId.value = null;
-    deptDialogOpen.value = true;
-}
-
-function openEditDeptDialog(dept: DeptNode) {
-    deptDialogMode.value = "edit";
-    deptDialogForm.value = { name: dept.name };
-    deptDialogEditId.value = dept.id;
-    deptDialogParentId.value = dept.parent_id;
-    deptDialogOpen.value = true;
-}
-
-async function handleSaveDept() {
-    if (!deptDialogForm.value.name.trim()) return;
-    savingDept.value = true;
-    try {
-        if (deptDialogMode.value === "create") {
-            const res: any = await createDepartment(deptDialogForm.value.name, deptDialogParentId.value);
-            if (res?.success) {
-                message.success("部门已创建");
-                deptDialogOpen.value = false;
-                await loadDeptTree();
-            } else { message.error(res?.error || "创建失败"); }
-        } else {
-            if (!deptDialogEditId.value) return;
-            const res: any = await updateDepartment(deptDialogEditId.value, { name: deptDialogForm.value.name });
-            if (res?.success) {
-                message.success("部门已更新");
-                deptDialogOpen.value = false;
-                await loadDeptTree();
-            } else { message.error("更新失败"); }
-        }
-    } catch { message.error("操作失败"); }
-    finally { savingDept.value = false; }
-}
-
-async function handleDeleteDept(deptId: number, deptName: string) {
-    dialog.confirm({
-        title: `确定删除部门「${deptName}」？子部门将上移到父级。`,
-        okType: "danger",
-        onOk: async () => {
-            const res: any = await deleteDepartment(deptId);
-            if (res?.success) {
-                message.success("部门已删除");
-                if (selectedDeptId.value === deptId) {
-                    selectedDeptId.value = null;
-                }
-                await Promise.all([loadDeptTree(), loadMembers()]);
-            } else {
-                message.error("删除失败");
-                throw new Error("删除失败");
-            }
-        },
-    });
-}
-
-async function handleSearchAddMember() {
-    if (!addMemberSearch.value.trim()) return;
-    addMemberLoading.value = true;
-    try {
-        const res: any = await getMembers({ search: addMemberSearch.value, size: 20 });
-        addMemberResults.value = res?.members || [];
-    } catch { addMemberResults.value = []; }
-    finally { addMemberLoading.value = false; }
-}
-
-async function handleAddMemberToDept(memberId: string) {
-    if (!selectedDeptId.value) return;
-    try {
-        const res: any = await addDepartmentMember(selectedDeptId.value, memberId);
-        if (res?.success) {
-            message.success("已添加");
-            await Promise.all([loadMembers(), loadDeptTree()]);
-        } else { message.error("添加失败（可能已在该部门）"); }
-    } catch { message.error("添加失败"); }
-}
-
-async function handleRemoveMemberFromDept(memberId: string) {
-    if (!selectedDeptId.value) return;
-    try {
-        const res: any = await removeDepartmentMember(selectedDeptId.value, memberId);
-        if (res?.success) {
-            message.success("已从部门移除");
-            await Promise.all([loadMembers(), loadDeptTree()]);
-        } else { message.error("移除失败"); }
-    } catch { message.error("移除失败"); }
-}
-
-// ---- 企业日历 ----
-
-interface CalendarEntry {
-    id: number;
-    date: string;
-    day_type: string;
-    name: string;
-    year: number;
-}
-
-interface WorkSettingsData {
-    timezone: string;
-    work_start: string;
-    work_end: string;
-    work_days: string;
-    lunch_start: string;
-    lunch_end: string;
-}
-
-const calendarEntries = ref<CalendarEntry[]>([]);
-const loadingCalendar = ref(false);
-const calendarYear = ref(new Date().getFullYear());
-const syncingHolidays = ref(false);
-const workSettings = ref<WorkSettingsData | null>(null);
-
-const calendarDialogOpen = ref(false);
-const calendarForm = ref({ date: "", day_type: "holiday", name: "" });
-const savingCalendar = ref(false);
-
-const editingWorkSettings = ref(false);
-const savingWorkSettings = ref(false);
-const workSettingsForm = ref({
-    timezone: "",
-    work_start: "",
-    work_end: "",
-    lunch_start: "",
-    lunch_end: "",
-    work_days: [] as number[],
-});
-
-const weekDayOptions = [
-    { label: "周一", value: 1 },
-    { label: "周二", value: 2 },
-    { label: "周三", value: 3 },
-    { label: "周四", value: 4 },
-    { label: "周五", value: 5 },
-    { label: "周六", value: 6 },
-    { label: "周日", value: 7 },
-];
-
-const dayTypeOptions = [
-    { label: "放假", value: "holiday" },
-    { label: "调休上班", value: "workday" },
-];
-const dayTypeLabel = (val: string) => dayTypeOptions.find(o => o.value === val)?.label || val;
-const dayTypeColor = (val: string) => val === "holiday" ? "red" : "blue";
-
-async function loadCalendar() {
-    loadingCalendar.value = true;
-    try {
-        const res: any = await getOrgCalendar(calendarYear.value);
-        calendarEntries.value = res?.entries || [];
-    } catch { /* ignore */ }
-    finally { loadingCalendar.value = false; }
-}
-
-async function loadWorkSettings() {
-    try {
-        const res: any = await getWorkSettings();
-        workSettings.value = res;
-    } catch { /* ignore */ }
-}
-
-function startEditWorkSettings() {
-    if (!workSettings.value) return;
-    workSettingsForm.value = {
-        timezone: workSettings.value.timezone,
-        work_start: workSettings.value.work_start,
-        work_end: workSettings.value.work_end,
-        lunch_start: workSettings.value.lunch_start,
-        lunch_end: workSettings.value.lunch_end,
-        work_days: workSettings.value.work_days.split(",").map(Number),
-    };
-    editingWorkSettings.value = true;
-}
-
-function cancelEditWorkSettings() {
-    editingWorkSettings.value = false;
-}
-
-async function handleSaveWorkSettings() {
-    savingWorkSettings.value = true;
-    try {
-        const res: any = await updateWorkSettings({
-            timezone: workSettingsForm.value.timezone,
-            work_start: workSettingsForm.value.work_start,
-            work_end: workSettingsForm.value.work_end,
-            lunch_start: workSettingsForm.value.lunch_start,
-            lunch_end: workSettingsForm.value.lunch_end,
-            work_days: workSettingsForm.value.work_days.sort((a, b) => a - b).join(","),
-        });
-        if (res?.success) {
-            message.success("工时设置已保存");
-            editingWorkSettings.value = false;
-            await loadWorkSettings();
-        } else { message.error(res?.error || "保存失败"); }
-    } catch { message.error("保存失败"); }
-    finally { savingWorkSettings.value = false; }
-}
-
-async function handleSyncHolidays() {
-    syncingHolidays.value = true;
-    try {
-        const res: any = await syncHolidays(calendarYear.value);
-        if (res?.success) {
-            message.success(`同步完成：新增 ${res.created} 条，跳过 ${res.skipped} 条`);
-            await loadCalendar();
-        } else { message.error(res?.error || "同步失败"); }
-    } catch { message.error("同步失败"); }
-    finally { syncingHolidays.value = false; }
-}
-
-function openCalendarDialog() {
-    calendarForm.value = { date: "", day_type: "holiday", name: "" };
-    calendarDialogOpen.value = true;
-}
-
-async function handleSaveCalendar() {
-    if (!calendarForm.value.date) {
-        message.error("请选择日期");
-        return;
-    }
-    savingCalendar.value = true;
-    try {
-        const res: any = await createOrgCalendarEntry(calendarForm.value);
-        if (res?.success) {
-            message.success("已添加");
-            calendarDialogOpen.value = false;
-            await loadCalendar();
-        } else { message.error(res?.error || "添加失败"); }
-    } catch { message.error("添加失败"); }
-    finally { savingCalendar.value = false; }
-}
-
-async function handleDeleteCalendar(id: number) {
-    try {
-        const res: any = await deleteOrgCalendarEntry(id);
-        if (res?.success) {
-            message.success("已删除");
-            await loadCalendar();
-        } else { message.error("删除失败"); }
-    } catch { message.error("删除失败"); }
-}
-
-// ---- 头像工具 ----
+// ---- UI helpers ----
 
 const AVATAR_COLORS = [
     'bg-blue-500', 'bg-green-500', 'bg-purple-500', 'bg-orange-500',
@@ -1215,7 +205,6 @@ const AVATAR_COLORS = [
 function getInitial(name: string): string {
     if (!name) return '?';
     const trimmed = name.trim();
-    // 英文名取首字母大写，中文取第一个字
     const first = trimmed.charAt(0);
     return /[a-zA-Z]/.test(first) ? first.toUpperCase() : first;
 }
@@ -1241,7 +230,6 @@ const PLATFORM_LABELS: Record<string, string> = {
 };
 const platformLabel = (key: string) => PLATFORM_LABELS[key] || key;
 
-// 角色显示名（优先后端配置，其次内置映射，最后回退英文标识）
 const BUILTIN_ROLE_LABELS: Record<string, string> = {
     admin: "管理员",
     manager: "管理者",
@@ -1254,7 +242,7 @@ function roleLabel(roleName: string): string {
     return BUILTIN_ROLE_LABELS[roleName] || roleName;
 }
 
-// ---- 初始化 ----
+// ---- Init ----
 
 onMounted(() => {
     loadMembers();

@@ -27,8 +27,6 @@ function formatTokens(n: number): string {
     return String(n);
 }
 
-// __CONTINUE_HERE__
-
 function renderTokenChart() {
     if (!tokenChartRef.value) return;
     if (!tokenChart) tokenChart = echarts.init(tokenChartRef.value);

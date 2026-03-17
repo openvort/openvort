@@ -322,7 +322,7 @@ watch(open, (v) => {
     opacity: 0.4;
 }
 .view-list-row.drag-over {
-    border-top: 2px solid #4096ff;
+    border-top: 2px solid var(--vort-primary);
 }
 .col-order { width: 50px; text-align: center; flex-shrink: 0; }
 .col-name { flex: 1; min-width: 0; }
@@ -343,8 +343,8 @@ watch(open, (v) => {
     transition: all 0.2s;
 }
 .op-btn:hover:not(:disabled) {
-    color: #4096ff;
-    background: rgba(64, 150, 255, 0.08);
+    color: var(--vort-primary);
+    background: var(--vort-primary-bg);
 }
 .op-btn:disabled {
     opacity: 0.3;
@@ -367,7 +367,7 @@ watch(open, (v) => {
     transition: border-color 0.2s;
 }
 .inline-edit-input:focus {
-    border-color: #4096ff;
+    border-color: var(--vort-primary);
 }
 .inline-edit-btn {
     display: inline-flex;

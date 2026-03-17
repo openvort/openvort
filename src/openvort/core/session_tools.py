@@ -13,8 +13,8 @@ from openvort.plugin.base import BaseTool
 from openvort.utils.logging import get_logger
 
 if TYPE_CHECKING:
-    from openvort.core.session import SessionStore
-    from openvort.core.agent import AgentRuntime
+    from openvort.core.engine.session import SessionStore
+    from openvort.core.engine.agent import AgentRuntime
 
 log = get_logger("core.session_tools")
 
@@ -180,7 +180,7 @@ class SessionsSendTool(BaseTool):
             return "请提供 channel、user_id 和 message"
 
         try:
-            from openvort.core.context import RequestContext
+            from openvort.core.engine.context import RequestContext
             ctx = RequestContext(channel=channel, user_id=user_id, permissions={"*"})
             reply = await _agent.process(ctx, message)
             return f"会话 {channel}:{user_id} 回复:\n{reply}"

@@ -177,18 +177,41 @@ async def _take_screenshot() -> str:
 # 全局浏览器实例（延迟初始化）
 _browser = None
 _page = None
+_cdp_endpoint: str = ""
+
+
+def set_cdp_endpoint(endpoint: str) -> None:
+    """Set remote CDP endpoint for Docker browser-sandbox containers."""
+    global _cdp_endpoint
+    _cdp_endpoint = endpoint
 
 
 async def _get_page():
-    """获取或创建浏览器页面（单例）"""
+    """获取或创建浏览器页面（单例）
+
+    Supports two modes:
+    - Remote CDP: connect to a Docker browser-sandbox via CDP endpoint
+    - Local headless: launch a local headless Chromium (default)
+    """
     global _browser, _page
     if _page and not _page.is_closed():
         return _page
     try:
         from playwright.async_api import async_playwright
         pw = await async_playwright().start()
-        _browser = await pw.chromium.launch(headless=True)
-        _page = await _browser.new_page()
+        if _cdp_endpoint:
+            _browser = await pw.chromium.connect_over_cdp(_cdp_endpoint)
+            contexts = _browser.contexts
+            if contexts:
+                pages = contexts[0].pages
+                _page = pages[0] if pages else await contexts[0].new_page()
+            else:
+                ctx = await _browser.new_context()
+                _page = await ctx.new_page()
+            log.info(f"Connected to remote browser via CDP: {_cdp_endpoint}")
+        else:
+            _browser = await pw.chromium.launch(headless=True)
+            _page = await _browser.new_page()
         return _page
     except ImportError:
         raise RuntimeError("请安装 playwright: pip install playwright && playwright install chromium")

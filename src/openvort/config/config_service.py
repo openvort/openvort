@@ -518,6 +518,29 @@ class ConfigService:
             break
         await self.save_llm_models(models)
 
+    # ---- Web settings ----
+
+    _WEB_AUTO_CHECK_UPDATE_KEY = "web.auto_check_update"
+
+    async def apply_web_to_settings(self) -> bool:
+        """Apply DB web settings overrides to the settings singleton."""
+        from openvort.config.settings import get_settings
+        settings = get_settings()
+        applied = False
+        value = self._cache.get(self._WEB_AUTO_CHECK_UPDATE_KEY)
+        if value is not None:
+            settings.web.auto_check_update = value.lower() in ("true", "1", "yes")
+            applied = True
+        if applied:
+            log.info("已从数据库加载 Web 配置覆盖")
+        return applied
+
+    async def save_auto_check_update(self, enabled: bool) -> None:
+        """Persist auto_check_update to DB and update settings singleton."""
+        from openvort.config.settings import get_settings
+        await self.set(self._WEB_AUTO_CHECK_UPDATE_KEY, str(enabled).lower())
+        get_settings().web.auto_check_update = enabled
+
     # ---- Org work settings ----
 
     _ORG_PREFIX = "org."
