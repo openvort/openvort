@@ -24,7 +24,10 @@ env/
 .env.local
 .env.*.local
 
-# Database
+# 部署脚本
+deploy.sh
+
+# 数据库
 *.db
 *.sqlite
 
