@@ -219,7 +219,9 @@ const currentInstanceId = computed(() => instCtx.selectedInstance.value?.id ?? "
 
 const authFailed = ref(false);
 
-function syncUrlState() {
+const JENKINS_STATE_KEY = "openvort.jenkins.nav-state";
+
+function buildNavQuery(): Record<string, string> {
     const query: Record<string, string> = {};
     if (instCtx.selectedInstance.value?.id) {
         query.instance = instCtx.selectedInstance.value.id;
@@ -230,7 +232,13 @@ function syncUrlState() {
     if (jobCtx.folderPath.value.length > 0) {
         query.folder = jobCtx.folderPath.value.join("/");
     }
+    return query;
+}
+
+function syncUrlState() {
+    const query = buildNavQuery();
     router.replace({ query });
+    try { sessionStorage.setItem(JENKINS_STATE_KEY, JSON.stringify(query)); } catch {}
 }
 
 watch(
@@ -419,9 +427,21 @@ async function loadFullLog() {
 }
 
 onMounted(async () => {
-    const urlInstanceId = route.query.instance as string | undefined;
-    const urlView = route.query.view as string | undefined;
-    const urlFolder = route.query.folder as string | undefined;
+    let navInstanceId = route.query.instance as string | undefined;
+    let navView = route.query.view as string | undefined;
+    let navFolder = route.query.folder as string | undefined;
+
+    if (!navInstanceId) {
+        try {
+            const saved = sessionStorage.getItem(JENKINS_STATE_KEY);
+            if (saved) {
+                const parsed = JSON.parse(saved) as Record<string, string>;
+                navInstanceId = parsed.instance || undefined;
+                navView = parsed.view || undefined;
+                navFolder = parsed.folder || undefined;
+            }
+        } catch {}
+    }
 
     await instCtx.loadInstances();
     initialLoading.value = false;
@@ -431,8 +451,8 @@ onMounted(async () => {
         return;
     }
 
-    if (urlInstanceId) {
-        const inst = instCtx.instances.value.find(i => i.id === urlInstanceId);
+    if (navInstanceId) {
+        const inst = instCtx.instances.value.find(i => i.id === navInstanceId);
         if (inst) instCtx.selectInstance(inst);
     }
 
@@ -441,8 +461,8 @@ onMounted(async () => {
     }
 
     if (instCtx.credentialConfigured.value === true) {
-        if (urlView) jobCtx.activeView.value = urlView;
-        if (urlFolder) jobCtx.folderPath.value = urlFolder.split("/");
+        if (navView) jobCtx.activeView.value = navView;
+        if (navFolder) jobCtx.folderPath.value = navFolder.split("/");
         await loadInstanceData();
     }
 

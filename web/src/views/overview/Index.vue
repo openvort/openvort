@@ -81,7 +81,7 @@ function handleSaveWidgets(updated: WidgetConfig[]) {
 <template>
     <div class="space-y-6">
         <div class="flex items-center justify-between">
-            <h2 class="text-lg font-medium text-gray-800">概览</h2>
+            <h2 class="text-lg font-medium text-gray-800">工作台</h2>
             <VortButton variant="text" size="small" @click="customizeOpen = true">
                 <Settings2 :size="16" class="mr-1" /> 自定义
             </VortButton>
