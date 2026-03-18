@@ -113,6 +113,24 @@ class SessionStore:
         if self._session_factory:
             await self._delete_from_db(channel, user_id, session_id)
 
+    async def delete_messages(
+        self, channel: str, user_id: str, session_id: str,
+        indices: set[int],
+    ) -> int:
+        """Delete specific messages by raw index from session context.
+
+        Returns number of messages actually removed.
+        """
+        messages = await self.get_messages(channel, user_id, session_id)
+        if not messages:
+            return 0
+        valid = {i for i in indices if 0 <= i < len(messages)}
+        if not valid:
+            return 0
+        new_messages = [m for i, m in enumerate(messages) if i not in valid]
+        await self.save_messages(channel, user_id, new_messages, session_id)
+        return len(valid)
+
     async def reset_context(self, channel: str, user_id: str, session_id: str = "default") -> float:
         """Reset AI context but preserve messages in archived_messages.
 

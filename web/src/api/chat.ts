@@ -9,9 +9,16 @@ export function sendChatMessage(
     images: { data: string; media_type: string }[] = [],
     sessionId = "default",
     targetType = "ai",
-    targetId = ""
+    targetId = "",
+    files: { file_id: string; filename: string; file_url: string; content_text: string; file_size: number }[] = []
 ) {
-    return request.post("/chat/send", { content, images, session_id: sessionId, target_type: targetType, target_id: targetId });
+    return request.post("/chat/send", { content, images, files, session_id: sessionId, target_type: targetType, target_id: targetId });
+}
+
+export function uploadChatFile(file: File) {
+    const formData = new FormData();
+    formData.append("file", file);
+    return request.post("/chat/upload", formData);
 }
 
 export function getChatStreamUrl(messageId: string, token: string) {
@@ -108,6 +115,10 @@ export function injectChatTaskMessage(taskId: string, content: string) {
 
 export function searchChatMessages(q: string, sessionId?: string, limit?: number) {
     return request.get("/chat/messages/search", { params: { q, session_id: sessionId, limit } });
+}
+
+export function deleteChatMessage(sessionId: string, msgIndex: number, role: string) {
+    return request.post("/chat/messages/delete", { session_id: sessionId, msg_index: msgIndex, role });
 }
 
 export function getChatMessages(sessionId: string, before?: string, limit?: number) {

@@ -22,7 +22,7 @@ const contactsLoading = ref(false);
 const searchKeyword = ref("");
 const showNewChatPopover = ref(false);
 const newChatKeyword = ref("");
-const newChatMembers = ref<MentionMember[]>([]);
+const allNewChatMembers = ref<MentionMember[]>([]);
 const newChatLoading = ref(false);
 const newChatActiveIndex = ref(-1);
 const newChatInputRef = ref<HTMLInputElement | null>(null);
@@ -170,9 +170,6 @@ async function handleHideContact(contact: Contact) {
     }
 }
 
-// New chat: search members
-let searchTimer: ReturnType<typeof setTimeout> | null = null;
-
 function getFirstLetter(name: string): string {
     if (!name) return "#";
     const first = name.charAt(0);
@@ -187,9 +184,20 @@ interface LetterGroup {
     members: MentionMember[];
 }
 
+const filteredNewChatMembers = computed(() => {
+    const kw = newChatKeyword.value.trim();
+    if (!kw) return allNewChatMembers.value;
+    return allNewChatMembers.value.filter(m =>
+        matchPinyin(m.name, kw) ||
+        (m.email && m.email.toLowerCase().includes(kw.toLowerCase())) ||
+        (m.department && m.department.toLowerCase().includes(kw.toLowerCase())) ||
+        (m.position && m.position.toLowerCase().includes(kw.toLowerCase()))
+    );
+});
+
 const groupedNewChatMembers = computed<LetterGroup[]>(() => {
     const map = new Map<string, MentionMember[]>();
-    for (const m of newChatMembers.value) {
+    for (const m of filteredNewChatMembers.value) {
         const letter = getFirstLetter(m.name);
         if (!map.has(letter)) map.set(letter, []);
         map.get(letter)!.push(m);
@@ -211,13 +219,13 @@ function getFlatIndex(groupIndex: number, memberIndex: number): number {
     return offset + memberIndex;
 }
 
-async function loadNewChatMembers(keyword = "") {
+async function loadNewChatMembers() {
     newChatLoading.value = true;
     try {
-        const res: any = await getChatMembers(keyword, 200);
-        newChatMembers.value = res?.members || [];
+        const res: any = await getChatMembers("", 200);
+        allNewChatMembers.value = res?.members || [];
     } catch {
-        newChatMembers.value = [];
+        allNewChatMembers.value = [];
     } finally {
         newChatLoading.value = false;
     }
@@ -226,17 +234,15 @@ async function loadNewChatMembers(keyword = "") {
 watch(showNewChatPopover, (open) => {
     if (open) {
         newChatKeyword.value = "";
-        newChatMembers.value = [];
+        allNewChatMembers.value = [];
         newChatActiveIndex.value = -1;
         loadNewChatMembers();
         nextTick(() => newChatInputRef.value?.focus());
     }
 });
 
-watch(newChatKeyword, (kw) => {
-    if (searchTimer) clearTimeout(searchTimer);
+watch(newChatKeyword, () => {
     newChatActiveIndex.value = -1;
-    searchTimer = setTimeout(() => loadNewChatMembers(kw.trim()), 300);
 });
 
 function handleNewChatKeydown(e: KeyboardEvent) {
@@ -328,7 +334,7 @@ defineExpose({ refreshContacts, loadContacts });
                             <div v-if="newChatLoading" class="flex items-center justify-center py-6">
                                 <Loader2 :size="16" class="animate-spin text-gray-400" />
                             </div>
-                            <div v-else-if="newChatMembers.length === 0" class="px-3 py-4 text-xs text-gray-400 text-center">
+                            <div v-else-if="filteredNewChatMembers.length === 0" class="px-3 py-4 text-xs text-gray-400 text-center">
                                 未找到匹配的成员
                             </div>
                             <template v-else v-for="(group, gi) in groupedNewChatMembers" :key="group.letter">

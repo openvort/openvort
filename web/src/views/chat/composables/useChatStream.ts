@@ -1,5 +1,5 @@
 import { ref, type Ref, type ComputedRef } from "vue";
-import type { ChatMessage, ChatSession, PendingImage, Contact, Draft, ToolCall } from "../types";
+import type { ChatMessage, ChatSession, PendingImage, PendingFile, Contact, Draft, ToolCall } from "../types";
 import { sendChatMessage, getChatStreamUrl, createChatSession, abortChatMessage } from "@/api";
 import { useUserStore } from "@/stores";
 import { message } from "@/components/vort";
@@ -47,6 +47,7 @@ interface UseChatStreamOptions {
     sessions: Ref<ChatSession[]>;
     sessionTokens: Ref<{ input: number; output: number; messages: number; cacheCreation: number; cacheRead: number }>;
     pendingImages: Ref<PendingImage[]>;
+    pendingFiles: Ref<PendingFile[]>;
     isAiMode: ComputedRef<boolean>;
     messageCounter: Ref<number>;
     drafts: Map<string, Draft>;
@@ -59,7 +60,7 @@ interface UseChatStreamOptions {
 export function useChatStream(options: UseChatStreamOptions) {
     const {
         messages, inputText, loading, currentSessionId, activeContact, sessions,
-        sessionTokens, pendingImages, isAiMode, messageCounter, drafts,
+        sessionTokens, pendingImages, pendingFiles, isAiMode, messageCounter, drafts,
         sessionSwitcherRef, scrollToBottom, loadSessionInfo, loadActiveAssignments,
     } = options;
 
@@ -109,7 +110,12 @@ export function useChatStream(options: UseChatStreamOptions) {
     async function handleSend() {
         const text = inputText.value.trim();
         const images = [...pendingImages.value];
-        if ((!text && !images.length) || loading.value) return;
+        const files = [...pendingFiles.value].filter(f => !f.uploading);
+        if (pendingFiles.value.some(f => f.uploading)) {
+            message.warning("文件正在上传中，请稍候...");
+            return;
+        }
+        if ((!text && !images.length && !files.length) || loading.value) return;
 
         if (!currentSessionId.value) {
             try {
@@ -138,11 +144,13 @@ export function useChatStream(options: UseChatStreamOptions) {
             role: "user",
             content: text,
             images: images.map((i) => i.preview),
+            files: files.map(f => ({ filename: f.filename, file_url: f.file_url, file_size: f.file_size })),
             timestamp: Date.now()
         };
         messages.value.push(userMsg);
         inputText.value = "";
         pendingImages.value = [];
+        pendingFiles.value = [];
         drafts.delete(sendSessionId);
         scrollToBottom(true);
 
@@ -167,6 +175,13 @@ export function useChatStream(options: UseChatStreamOptions) {
                 sendSessionId,
                 activeContact.value?.type || "ai",
                 activeContact.value?.type === "member" ? activeContact.value.id : "",
+                files.map(f => ({
+                    file_id: f.file_id,
+                    filename: f.filename,
+                    file_url: f.file_url,
+                    content_text: f.content_text,
+                    file_size: f.file_size,
+                })),
             );
             const messageId = res?.message_id;
             if (!messageId) {

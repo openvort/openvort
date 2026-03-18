@@ -35,11 +35,20 @@ export function useChatHistory(options: UseChatHistoryOptions) {
             if (images?.length && /^(请看图片)+$/.test(content.trim())) {
                 content = "";
             }
+            // Strip injected file content (between <file> tags) from display text
+            content = content.replace(/<file name="[^"]*">[\s\S]*?<\/file>/g, "").trim();
+            content = content.replace(/\[Attached file: .+?\(\d+ bytes\)\]/g, "").trim();
+            const files = m.files?.map((f: any) => ({
+                filename: f.filename || "",
+                file_url: f.file_url || "",
+                file_size: f.file_size || 0,
+            }));
             const msg: ChatMessage = {
                 id: m.id || String(++messageCounter.value),
                 role: m.role,
                 content,
                 images,
+                files,
                 timestamp: m.timestamp ? m.timestamp * 1000 : 0,
                 interrupted: m.interrupted || false,
             };

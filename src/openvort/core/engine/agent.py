@@ -611,6 +611,7 @@ class AgentRuntime:
         content: str,
         member_id: str = "admin",
         images: list[dict] | None = None,
+        files: list[dict] | None = None,
         session_id: str = "default",
         cancel_event: asyncio.Event | None = None,
         target_type: str = "ai",
@@ -653,14 +654,14 @@ class AgentRuntime:
         ctx.target_member_id = target_id or ""
         ctx.caller_member_id = member_id
 
-        if (not content or not content.strip()) and not images:
+        if (not content or not content.strip()) and not images and not files:
             log.warning(f"[web] 空消息，跳过处理: member_id={member_id}, session_id={session_id}")
             return
 
         direct_action = await self._maybe_handle_direct_channel_send(ctx, content)
         if direct_action:
             messages = await self._sessions.get_messages(ctx.channel, ctx.user_id, session_id)
-            user_content = self._build_user_content(content, images or [])
+            user_content = self._build_user_content(content, images or [], files or [])
             messages.append({"role": "user", "content": user_content})
             messages.append({"role": "assistant", "content": [{"type": "text", "text": direct_action["reply_text"]}]})
             await self._sessions.save_messages(ctx.channel, ctx.user_id, messages, session_id)
@@ -670,7 +671,7 @@ class AgentRuntime:
             return
 
         messages = await self._sessions.get_messages(ctx.channel, ctx.user_id, session_id)
-        user_content = self._build_user_content(content, images or [])
+        user_content = self._build_user_content(content, images or [], files or [])
         messages.append({"role": "user", "content": user_content})
 
         # 构建 system prompt（注入用户身份 + 插件引导）
@@ -1556,16 +1557,39 @@ class AgentRuntime:
 对于快速问答（不涉及工具调用的简单对话），直接正常回复即可，不需要确认。"""
 
     @staticmethod
-    def _build_user_content(text: str, images: list[dict]) -> str | list[dict]:
+    def _build_user_content(text: str, images: list[dict], files: list[dict] | None = None) -> str | list[dict]:
         """构建用户消息 content（纯文本或多模态）
 
         无图片时返回纯字符串（节省 token），有图片时返回 content blocks。
         同时把 pic_url 写入文本，确保后续轮次 AI 也能引用图片 URL。
         file_url is persisted in image blocks for history recovery.
+        Files with extracted text are appended to the user text.
         """
         normalized_text = AgentRuntime._normalize_user_text(text)
-        if not images:
-            return normalized_text
+
+        file_section = ""
+        file_blocks: list[dict] = []
+        if files:
+            parts = []
+            for f in files:
+                ct = f.get("content_text", "")
+                fn = f.get("filename", "unknown")
+                if ct:
+                    parts.append(f"<file name=\"{fn}\">\n{ct}\n</file>")
+                else:
+                    size = f.get("file_size", 0)
+                    parts.append(f"[Attached file: {fn} ({size} bytes)]")
+                file_blocks.append({
+                    "type": "file",
+                    "filename": fn,
+                    "file_url": f.get("file_url", ""),
+                    "file_size": f.get("file_size", 0),
+                })
+            if parts:
+                file_section = "\n\n" + "\n\n".join(parts)
+
+        if not images and not file_blocks:
+            return normalized_text + file_section if file_section else normalized_text
 
         blocks: list[dict] = []
         pic_urls = []
@@ -1594,11 +1618,13 @@ class AgentRuntime:
             url_list = "\n".join(pic_urls)
             url_hint = f"\n\n[图片URL，可用于嵌入禅道]\n{url_list}"
 
-        if normalized_text and normalized_text.strip():
-            blocks.append({"type": "text", "text": normalized_text + url_hint})
-        else:
-            blocks.append({"type": "text", "text": "请看图片" + url_hint})
+        combined_text = (normalized_text or "") + file_section + url_hint
+        if combined_text.strip():
+            blocks.append({"type": "text", "text": combined_text})
+        elif not file_blocks:
+            blocks.append({"type": "text", "text": "请看图片"})
 
+        blocks.extend(file_blocks)
         return blocks
 
     @staticmethod

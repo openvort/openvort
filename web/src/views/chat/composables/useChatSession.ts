@@ -1,5 +1,5 @@
 import { type Ref } from "vue";
-import type { ChatMessage, ChatSession, Contact, Draft, PendingImage } from "../types";
+import type { ChatMessage, ChatSession, Contact, Draft, PendingImage, PendingFile } from "../types";
 import type { ActiveStream } from "./useChatStream";
 import { startMemberChat, markChatRead } from "@/api";
 import { useNotificationStore } from "@/stores/modules/notification";
@@ -15,6 +15,7 @@ interface UseChatSessionOptions {
     sessionTokens: Ref<{ input: number; output: number; messages: number; cacheCreation: number; cacheRead: number }>;
     thinkingLevel: Ref<string>;
     pendingImages: Ref<PendingImage[]>;
+    pendingFiles: Ref<PendingFile[]>;
     messageCounter: Ref<number>;
     hasMoreHistory: Ref<boolean>;
     historyOffset: Ref<number>;
@@ -30,7 +31,7 @@ interface UseChatSessionOptions {
 export function useChatSession(options: UseChatSessionOptions) {
     const {
         messages, inputText, loading, currentSessionId, activeContact, sessions,
-        sessionTokens, thinkingLevel, pendingImages, messageCounter,
+        sessionTokens, thinkingLevel, pendingImages, pendingFiles, messageCounter,
         hasMoreHistory, historyOffset, contextResetAt,
         activeStreams, drafts, sessionSwitcherRef,
         loadHistory, loadSessionInfo, scrollToBottom,
@@ -38,8 +39,8 @@ export function useChatSession(options: UseChatSessionOptions) {
 
     function saveDraft() {
         const key = currentSessionId.value;
-        if (inputText.value || pendingImages.value.length) {
-            drafts.set(key, { text: inputText.value, images: [...pendingImages.value] });
+        if (inputText.value || pendingImages.value.length || pendingFiles.value.length) {
+            drafts.set(key, { text: inputText.value, images: [...pendingImages.value], files: [...pendingFiles.value] });
         } else {
             drafts.delete(key);
         }
@@ -49,6 +50,7 @@ export function useChatSession(options: UseChatSessionOptions) {
         const draft = drafts.get(sessionId);
         inputText.value = draft?.text ?? "";
         pendingImages.value = draft?.images ? [...draft.images] : [];
+        pendingFiles.value = draft?.files ? [...draft.files] : [];
     }
 
     function handleNewSession() {

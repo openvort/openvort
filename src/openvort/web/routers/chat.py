@@ -7,7 +7,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, File, Request, UploadFile
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
@@ -21,6 +21,14 @@ MEDIA_EXT_MAP = {
     "image/jpeg": "jpg", "image/jpg": "jpg", "image/png": "png",
     "image/gif": "gif", "image/webp": "webp",
 }
+
+ALLOWED_FILE_EXTS = {
+    "jpg", "jpeg", "png", "gif", "webp",
+    "txt", "md", "pdf", "doc", "docx", "xls", "xlsx",
+    "rar", "zip", "7z",
+}
+MAX_FILE_SIZE = 20 * 1024 * 1024  # 20MB
+EXTRACTABLE_EXTS = {"txt", "md", "pdf", "doc", "docx"}
 
 
 def _get_chat_upload_dir() -> Path:
@@ -37,6 +45,18 @@ def _save_chat_image(data_b64: str, media_type: str) -> str:
     filename = f"{uuid.uuid4().hex}.{ext}"
     (upload_dir / filename).write_bytes(base64.b64decode(data_b64))
     return f"/uploads/chat/{filename}"
+
+
+def _extract_file_text(file_bytes: bytes, ext: str) -> str:
+    """Extract text from supported file types. Returns empty string on failure."""
+    if ext not in EXTRACTABLE_EXTS:
+        return ""
+    try:
+        from openvort.plugins.knowledge.chunker import parse_document
+        return parse_document(file_bytes, ext)
+    except Exception as e:
+        log.warning(f"Failed to extract text from .{ext} file: {e}")
+        return ""
 
 router = APIRouter()
 
@@ -73,9 +93,18 @@ class ImageItem(BaseModel):
     media_type: str = "image/png"
 
 
+class FileItem(BaseModel):
+    file_id: str
+    filename: str
+    file_url: str
+    content_text: str = ""
+    file_size: int = 0
+
+
 class SendRequest(BaseModel):
     content: str
     images: list[ImageItem] = []
+    files: list[FileItem] = []
     session_id: str = "default"
     target_type: str = "ai"
     target_id: str = ""
@@ -163,6 +192,38 @@ async def batch_delete_sessions(req: BatchDeleteRequest, request: Request):
 # ---- 消息收发接口 ----
 
 
+@router.post("/upload")
+async def upload_file(request: Request, file: UploadFile = File(...)):
+    """Upload a file for chat. Returns metadata including extracted text for supported types."""
+    require_auth(request)
+    if not file.filename:
+        return {"error": "No file provided"}, 400
+
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+    if ext not in ALLOWED_FILE_EXTS:
+        return {"error": f"Unsupported file type: .{ext}"}
+
+    file_bytes = await file.read()
+    if len(file_bytes) > MAX_FILE_SIZE:
+        return {"error": "File too large (max 20MB)"}
+
+    upload_dir = _get_chat_upload_dir()
+    file_id = uuid.uuid4().hex
+    saved_name = f"{file_id}.{ext}" if ext else file_id
+    (upload_dir / saved_name).write_bytes(file_bytes)
+    file_url = f"/uploads/chat/{saved_name}"
+
+    content_text = _extract_file_text(file_bytes, ext)
+
+    return {
+        "file_id": file_id,
+        "filename": file.filename,
+        "file_url": file_url,
+        "content_text": content_text[:50000],
+        "file_size": len(file_bytes),
+    }
+
+
 @router.post("/send", response_model=SendResponse)
 async def send_message(req: SendRequest, request: Request):
     payload = require_auth(request)
@@ -175,9 +236,11 @@ async def send_message(req: SendRequest, request: Request):
         except Exception:
             pass
         images.append(d)
+    files = [f.model_dump() for f in req.files]
     _pending_messages[message_id] = {
         "content": req.content,
         "images": images,
+        "files": files,
         "member_id": payload.get("sub", ""),
         "name": payload.get("name", ""),
         "roles": payload.get("roles", []),
@@ -250,6 +313,7 @@ async def stream_response(message_id: str, request: Request):
             agent=agent,
             content=msg["content"],
             images=msg.get("images", []),
+            files=msg.get("files", []),
             target_type=msg.get("target_type", "ai"),
             target_id=msg.get("target_id", ""),
         )
@@ -287,6 +351,7 @@ async def stream_response(message_id: str, request: Request):
             cancelled = False
             async for event in agent.process_stream_web(
                 msg["content"], member_id=member_id, images=msg.get("images", []),
+                files=msg.get("files", []),
                 session_id=session_id,
                 cancel_event=running.cancel_event,
                 target_type=msg.get("target_type", "ai"),
@@ -365,6 +430,7 @@ async def chat_history(request: Request, limit: int = 20, offset: int = 0, sessi
         role = msg.get("role", "user")
         content = ""
         images: list[str] = []
+        msg_files: list[dict] = []
         tool_calls: list[dict] = []
         avatar_url = ""
         msg_ts = msg.get("_ts", 0)
@@ -379,6 +445,12 @@ async def chat_history(request: Request, limit: int = 20, offset: int = 0, sessi
                         file_url = block.get("file_url", "")
                         if file_url:
                             images.append(file_url)
+                    elif block.get("type") == "file":
+                        msg_files.append({
+                            "filename": block.get("filename", ""),
+                            "file_url": block.get("file_url", ""),
+                            "file_size": block.get("file_size", 0),
+                        })
                     elif block.get("type") == "tool_use":
                         tool_calls.append({
                             "name": block.get("name", ""),
@@ -418,7 +490,7 @@ async def chat_history(request: Request, limit: int = 20, offset: int = 0, sessi
             if msg_interrupted:
                 entry["interrupted"] = True
             formatted.append(entry)
-        elif role == "user" and (content or images):
+        elif role == "user" and (content or images or msg_files):
             entry = {
                 "id": str(i),
                 "role": role,
@@ -427,6 +499,8 @@ async def chat_history(request: Request, limit: int = 20, offset: int = 0, sessi
             }
             if images:
                 entry["images"] = images
+            if msg_files:
+                entry["files"] = msg_files
             formatted.append(entry)
 
     # Merge consecutive assistant messages
@@ -660,6 +734,86 @@ async def restore_context(req: RestoreContextRequest, request: Request):
     count = await session_store.restore_context("web", member_id, req.session_id)
 
     return {"success": True, "restored_count": count}
+
+
+class DeleteMessageRequest(BaseModel):
+    session_id: str = "default"
+    msg_index: int
+    role: str = ""
+
+
+@router.post("/messages/delete")
+async def delete_message(req: DeleteMessageRequest, request: Request):
+    """Delete a single chat bubble from conversation context.
+
+    For user messages: removes the raw message at msg_index.
+    For assistant messages: removes all consecutive raw assistant messages
+    starting from msg_index (they are merged into one bubble in the UI),
+    including intermediate tool_result messages.
+    """
+    payload = require_auth(request)
+    member_id = payload.get("sub", "")
+
+    session_store = get_session_store()
+    messages = await session_store.get_messages("web", member_id, req.session_id)
+
+    if req.msg_index < 0 or req.msg_index >= len(messages):
+        return {"success": False, "error": "invalid index"}
+
+    raw = messages[req.msg_index]
+    if req.role and raw.get("role") != req.role:
+        return {"success": False, "error": "role mismatch"}
+
+    indices: set[int] = {req.msg_index}
+
+    if raw.get("role") == "assistant":
+        j = req.msg_index + 1
+        while j < len(messages):
+            r = messages[j].get("role")
+            if r == "assistant":
+                indices.add(j)
+                j += 1
+            elif r == "user" and isinstance(messages[j].get("content"), list):
+                has_visible = any(
+                    isinstance(b, dict) and b.get("type") in ("text", "image")
+                    for b in messages[j]["content"]
+                )
+                if has_visible:
+                    break
+                indices.add(j)
+                j += 1
+            else:
+                break
+
+    deleted = await session_store.delete_messages("web", member_id, req.session_id, indices)
+
+    from sqlalchemy import select, delete as sa_delete
+    from openvort.db.models import ChatMessage as DBChatMessage
+    from openvort.web.deps import get_db_session_factory
+
+    ts_values = [messages[i].get("_ts", 0) for i in indices if i < len(messages)]
+    if ts_values:
+        try:
+            sf = get_db_session_factory()
+            async with sf() as db:
+                from datetime import datetime, timedelta
+                for ts in ts_values:
+                    if not ts:
+                        continue
+                    dt = datetime.fromtimestamp(ts)
+                    stmt = sa_delete(DBChatMessage).where(
+                        DBChatMessage.session_id == req.session_id,
+                        DBChatMessage.owner_id == member_id,
+                        DBChatMessage.created_at.between(
+                            dt - timedelta(seconds=2), dt + timedelta(seconds=2)
+                        ),
+                    )
+                    await db.execute(stmt)
+                await db.commit()
+        except Exception as e:
+            log.warning(f"删除 chat_messages 记录失败: {e}")
+
+    return {"success": True, "deleted": deleted}
 
 
 # ---- 消息搜索与分页 ----

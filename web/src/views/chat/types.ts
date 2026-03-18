@@ -3,6 +3,7 @@ export interface ChatMessage {
     role: "user" | "assistant";
     content: string;
     images?: string[];
+    files?: ChatFile[];
     toolCalls?: ToolCall[];
     toolsExpanded?: boolean;
     timestamp: number;
@@ -10,6 +11,12 @@ export interface ChatMessage {
     avatar_url?: string;
     interrupted?: boolean;
     actionButtons?: ActionButton[];
+}
+
+export interface ChatFile {
+    filename: string;
+    file_url: string;
+    file_size: number;
 }
 
 export interface ActionButton {
@@ -48,6 +55,15 @@ export interface PendingImage {
     data: string;
     media_type: string;
     preview: string;
+}
+
+export interface PendingFile {
+    file_id: string;
+    filename: string;
+    file_url: string;
+    content_text: string;
+    file_size: number;
+    uploading: boolean;
 }
 
 export interface Contact {
@@ -93,6 +109,7 @@ export interface SlashCommand {
 export interface Draft {
     text: string;
     images: PendingImage[];
+    files: PendingFile[];
 }
 
 export interface HashTagCategory {

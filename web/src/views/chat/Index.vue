@@ -6,12 +6,13 @@ import {
     Send, Bot, Loader2, Wrench, X, ImagePlus, FileText, MonitorPlay, Smile,
     Settings, Check, Brain, PackageMinus, RotateCcw, Zap, StopCircle, Square,
     Hash, Bug, ListTodo, BookOpen, Milestone, GitBranch, ChevronDown, ChevronRight,
-    Copy, RefreshCw, Search, Clock, Pause, ChevronUp
+    Copy, RefreshCw, Search, Clock, Pause, ChevronUp, Trash2, Paperclip, File
 } from "lucide-vue-next";
 import { Popover as VortPopover, Image as VortImage, ImagePreviewGroup as VortImagePreviewGroup } from "@/components/vort";
 import {
     getChatSessionInfo, setChatThinking, compactChatSession, resetChatSession,
-    getChatContacts, getWorkAssignments, restoreChatContext, startMemberChat
+    getChatContacts, getWorkAssignments, restoreChatContext, startMemberChat,
+    deleteChatMessage
 } from "@/api";
 import { usePluginStore } from "@/stores/modules/plugin";
 import { useNotificationStore } from "@/stores/modules/notification";
@@ -167,6 +168,12 @@ function getLastLines(output: string, n: number): string {
     return lines.slice(-n).join('\n');
 }
 
+function formatFileSize(bytes: number): string {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
 // ---- Session info and settings ----
 async function loadSessionInfo() {
     if (!currentSessionId.value) return;
@@ -210,7 +217,7 @@ async function handleCompact() {
 
 // ---- Composables ----
 const {
-    pendingImages, isDragging, addFiles, removeImage,
+    pendingImages, pendingFiles, isDragging, addFiles, removeImage, removeFile,
     handlePaste, handleDragOver, handleDragLeave, handleDrop,
 } = useChatImages();
 
@@ -220,7 +227,7 @@ const {
     getRecentFileChanges, renderMarkdown,
 } = useChatStream({
     messages, inputText, loading, currentSessionId, activeContact, sessions,
-    sessionTokens, pendingImages, isAiMode, messageCounter, drafts,
+    sessionTokens, pendingImages, pendingFiles, isAiMode, messageCounter, drafts,
     sessionSwitcherRef, scrollToBottom, loadSessionInfo, loadActiveAssignments,
 });
 
@@ -236,7 +243,7 @@ const {
     handleSessionsLoaded, saveDraft, restoreDraft,
 } = useChatSession({
     messages, inputText, loading, currentSessionId, activeContact, sessions,
-    sessionTokens, thinkingLevel, pendingImages, messageCounter,
+    sessionTokens, thinkingLevel, pendingImages, pendingFiles, messageCounter,
     hasMoreHistory, historyOffset, contextResetAt,
     activeStreams, drafts, sessionSwitcherRef,
     loadHistory, loadSessionInfo, scrollToBottom,
@@ -343,10 +350,33 @@ async function copyMessageContent(msg: ChatMessage) {
     const text = msg.content || '';
     if (!text) return;
     try {
-        await navigator.clipboard.writeText(text);
+        if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(text);
+        } else {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.left = '-9999px';
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+        }
         message.success("已复制到剪贴板");
     } catch {
         message.error("复制失败");
+    }
+}
+
+async function removeMessage(msg: ChatMessage) {
+    const idx = parseInt(msg.id, 10);
+    if (isNaN(idx)) return;
+    try {
+        await deleteChatMessage(currentSessionId.value || "default", idx, msg.role);
+        const i = messages.value.indexOf(msg);
+        if (i !== -1) messages.value.splice(i, 1);
+    } catch {
+        message.error("删除失败");
     }
 }
 
@@ -843,6 +873,14 @@ onUnmounted(() => {
                                         width="80" height="80" fit="cover"
                                         class="rounded-lg border border-white/30" />
                                 </div>
+                                <div v-if="msg.role === 'user' && msg.files?.length" class="flex flex-wrap gap-2 mb-2 justify-end">
+                                    <a v-for="(f, fi) in msg.files" :key="fi"
+                                        :href="f.file_url" target="_blank"
+                                        class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-500/20 text-white text-xs hover:bg-blue-500/30 transition-colors max-w-[200px]">
+                                        <Paperclip :size="12" class="flex-shrink-0" />
+                                        <span class="truncate">{{ f.filename }}</span>
+                                    </a>
+                                </div>
                             <!-- 桌面视角面板 -->
                             <WorkspaceViewer
                                 v-if="msg.toolCalls?.some(t => t.name.startsWith('node_'))"
@@ -965,15 +1003,21 @@ onUnmounted(() => {
                                 :class="msg.role === 'user' ? 'justify-end' : 'justify-start'">
                                 <vort-tooltip title="复制">
                                     <button @click="copyMessageContent(msg)"
-                                        class="p-1 rounded text-gray-300 hover:text-gray-500 hover:bg-gray-100 transition-colors cursor-pointer">
+                                        class="p-1 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors cursor-pointer">
                                         <Copy :size="14" />
                                     </button>
                                 </vort-tooltip>
                                 <vort-tooltip v-if="msg.role === 'user'" title="重新发送">
                                     <button @click="resendMessage(msg)"
-                                        class="p-1 rounded text-gray-300 hover:text-gray-500 hover:bg-gray-100 transition-colors cursor-pointer"
+                                        class="p-1 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors cursor-pointer"
                                         :disabled="loading">
                                         <RefreshCw :size="14" />
+                                    </button>
+                                </vort-tooltip>
+                                <vort-tooltip title="删除">
+                                    <button @click="removeMessage(msg)"
+                                        class="p-1 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors cursor-pointer">
+                                        <Trash2 :size="14" />
                                     </button>
                                 </vort-tooltip>
                             </div>
@@ -1028,7 +1072,7 @@ onUnmounted(() => {
                 <div v-if="isDragging"
                     class="absolute inset-0 z-10 flex items-center justify-center bg-blue-50/80 border-2 border-dashed border-blue-400 rounded-xl pointer-events-none">
                     <div class="text-blue-500 text-sm font-medium flex items-center gap-2">
-                        <ImagePlus :size="20" /> 松开以添加图片
+                        <ImagePlus :size="20" /> 松开以添加文件
                     </div>
                 </div>
 
@@ -1168,12 +1212,25 @@ onUnmounted(() => {
                 </Transition>
 
                 <div class="chat-input-box bg-white rounded-xl border border-gray-200 overflow-hidden relative">
-                    <div v-if="pendingImages.length" class="flex flex-wrap gap-2 px-4 pt-3">
-                        <div v-for="(img, i) in pendingImages" :key="i" class="relative group">
+                    <div v-if="pendingImages.length || pendingFiles.length" class="flex flex-wrap gap-2 px-4 pt-3">
+                        <div v-for="(img, i) in pendingImages" :key="'img-' + i" class="relative group">
                             <VortImage :src="img.preview" width="72" height="72" fit="cover"
                                 class="rounded-lg border border-gray-200 shadow-sm" />
                             <button @click="removeImage(i)"
                                 class="absolute -top-1.5 -right-1.5 w-5 h-5 bg-black/60 hover:bg-black/80 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                <X :size="12" />
+                            </button>
+                        </div>
+                        <div v-for="(f, i) in pendingFiles" :key="'file-' + i"
+                            class="relative group flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 max-w-[220px]">
+                            <Loader2 v-if="f.uploading" :size="16" class="animate-spin text-gray-400 flex-shrink-0" />
+                            <File v-else :size="16" class="text-blue-500 flex-shrink-0" />
+                            <div class="min-w-0 flex-1">
+                                <div class="text-xs text-gray-700 truncate">{{ f.filename }}</div>
+                                <div class="text-[10px] text-gray-400">{{ formatFileSize(f.file_size) }}</div>
+                            </div>
+                            <button @click="removeFile(i)"
+                                class="w-4 h-4 flex items-center justify-center rounded-full text-gray-300 hover:text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
                                 <X :size="12" />
                             </button>
                         </div>
@@ -1255,10 +1312,10 @@ onUnmounted(() => {
                             </button>
                             <button
                                 v-else
-                                :disabled="!inputText.trim() && !pendingImages.length"
+                                :disabled="!inputText.trim() && !pendingImages.length && !pendingFiles.length"
                                 @click="handleSend"
                                 class="w-20 h-9 rounded-lg flex items-center justify-center transition-colors send-btn"
-                                :class="!inputText.trim() && !pendingImages.length ? 'send-btn-disabled' : 'send-btn-active'"
+                                :class="!inputText.trim() && !pendingImages.length && !pendingFiles.length ? 'send-btn-disabled' : 'send-btn-active'"
                             >
                                 <Send :size="16" class="text-white" />
                             </button>
@@ -1282,18 +1339,92 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/* Markdown in chat bubbles */
+.prose :deep(h1),
+.prose :deep(h2),
+.prose :deep(h3),
+.prose :deep(h4) {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1f2937;
+    margin-top: 0.8em;
+    margin-bottom: 0.3em;
+    line-height: 1.5;
+}
+.prose :deep(h1:first-child),
+.prose :deep(h2:first-child),
+.prose :deep(h3:first-child) {
+    margin-top: 0;
+}
+.prose :deep(p) {
+    margin: 0.4em 0;
+}
+.prose :deep(p:last-child) {
+    margin-bottom: 0;
+}
+.prose :deep(ul),
+.prose :deep(ol) {
+    margin: 0.3em 0;
+    padding-left: 1.5em;
+}
+.prose :deep(li) {
+    margin: 0.15em 0;
+}
+.prose :deep(li p) {
+    margin: 0;
+}
 .prose :deep(pre) {
     background: #1e1e1e;
     color: #d4d4d4;
     border-radius: 8px;
     padding: 12px 16px;
+    font-size: 12px;
+    line-height: 1.6;
     overflow-x: auto;
+    margin: 0.5em 0;
 }
 .prose :deep(code) {
-    font-size: 13px;
+    font-size: 12px;
+    background: rgba(0, 0, 0, 0.08);
+    border-radius: 4px;
+    padding: 2px 5px;
 }
-.prose :deep(p:last-child) {
-    margin-bottom: 0;
+.prose :deep(pre code) {
+    background: none;
+    padding: 0;
+    color: inherit;
+}
+.prose :deep(strong) {
+    font-weight: 600;
+    color: #111827;
+}
+.prose :deep(table) {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    margin: 0.5em 0;
+}
+.prose :deep(th),
+.prose :deep(td) {
+    border: 1px solid #d1d5db;
+    padding: 5px 10px;
+    text-align: left;
+}
+.prose :deep(th) {
+    background: rgba(0, 0, 0, 0.04);
+    font-weight: 600;
+    color: #374151;
+}
+.prose :deep(blockquote) {
+    border-left: 3px solid #d1d5db;
+    padding-left: 12px;
+    margin: 0.5em 0;
+    color: #6b7280;
+    font-style: normal;
+}
+.prose :deep(hr) {
+    border-color: #e5e7eb;
+    margin: 0.8em 0;
 }
 
 .chat-textarea {
@@ -1333,8 +1464,6 @@ onUnmounted(() => {
     grid-template-columns: repeat(10, 1fr);
     gap: 2px;
     width: 400px;
-    max-height: 320px;
-    overflow-y: auto;
     padding: 4px;
 }
 

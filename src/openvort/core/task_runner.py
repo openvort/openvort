@@ -68,6 +68,7 @@ class AgentTaskRunner:
         agent,
         content: str,
         images: list[dict] | None = None,
+        files: list[dict] | None = None,
         target_type: str = "ai",
         target_id: str = "",
     ) -> str:
@@ -107,7 +108,7 @@ class AgentTaskRunner:
 
         async def _run():
             try:
-                await self._execute(rt, agent, content, images, owner_id, session_id, target_type, target_id)
+                await self._execute(rt, agent, content, images, files, owner_id, session_id, target_type, target_id)
             except Exception as e:
                 log.error(f"Task {task_id} failed: {e}")
                 self._emit(rt, {"type": "server_error", "data": str(e)})
@@ -122,7 +123,7 @@ class AgentTaskRunner:
         return task_id
 
     async def _execute(
-        self, rt: RunningTask, agent, content, images, owner_id, session_id, target_type, target_id,
+        self, rt: RunningTask, agent, content, images, files, owner_id, session_id, target_type, target_id,
     ):
         cancel = rt.cancel_event
 
@@ -133,6 +134,7 @@ class AgentTaskRunner:
             content,
             member_id=owner_id,
             images=images or [],
+            files=files or [],
             session_id=session_id,
             cancel_event=cancel,
             target_type=target_type,
