@@ -3,6 +3,7 @@
 from openvort.plugins.jenkins.tools.builds import BuildLogTool, BuildStatusTool, TriggerBuildTool
 from openvort.plugins.jenkins.tools.instances import JenkinsManageInstanceTool
 from openvort.plugins.jenkins.tools.jobs import JobInfoTool, ListJobsTool
+from openvort.plugins.jenkins.tools.manage_job import ManageJobTool
 from openvort.plugins.jenkins.tools.system import SystemInfoTool
 
 __all__ = [
@@ -13,4 +14,5 @@ __all__ = [
     "BuildStatusTool",
     "BuildLogTool",
     "SystemInfoTool",
+    "ManageJobTool",
 ]

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed } from "vue";
-import { useRouter } from "vue-router";
+import { useRouter, useRoute } from "vue-router";
 import { useUserStore } from "@/stores";
 import {
     getProfile, uploadAvatar, updateProfile, changePassword,
@@ -16,7 +16,8 @@ import AvatarCropper from "vue-avatar-cropper";
 import "cropperjs/dist/cropper.min.css";
 
 const userStore = useUserStore();
-const activeMenu = ref("basic");
+const route = useRoute();
+const activeMenu = ref((route.query.tab as string) || "basic");
 const loading = ref(false);
 
 const profile = ref({
@@ -191,6 +192,9 @@ const securityItems = computed(() => [
 
 onMounted(async () => {
     loadPageNotifyPrefs();
+    if (activeMenu.value !== "basic") {
+        handleMenuClick(activeMenu.value);
+    }
     loading.value = true;
     try {
         const res: any = await getProfile();
@@ -1080,9 +1084,16 @@ function handleMenuClick(key: string) {
     </VortDialog>
 
     <!-- 插件个人配置弹窗 -->
-    <VortDialog :open="pluginDialogOpen" :title="pluginDialogPlugin ? `配置 ${pluginDialogPlugin.display_name}` : '插件配置'" :footer="false" @update:open="pluginDialogOpen = $event">
+    <VortDialog
+        :open="pluginDialogOpen"
+        :title="pluginDialogPlugin ? `配置 ${pluginDialogPlugin.display_name}` : '插件配置'"
+        :confirm-loading="pluginSaving"
+        ok-text="保存"
+        @ok="handleSavePluginConfig"
+        @update:open="pluginDialogOpen = $event"
+    >
         <div v-if="pluginDialogPlugin?.description" class="text-xs text-gray-400 mb-4">{{ pluginDialogPlugin.description }}</div>
-        <VortForm label-width="100px" class="mt-2">
+        <VortForm label-width="120px" class="mt-2">
             <VortFormItem
                 v-for="field in (pluginDialogPlugin?.schema || [])"
                 :key="field.key"
@@ -1102,12 +1113,6 @@ function handleMenuClick(key: string) {
                 />
                 <VortInput v-else v-model="pluginForm[field.key]" :placeholder="field.placeholder" />
                 <div v-if="field.description" class="text-xs text-gray-400 mt-1">{{ field.description }}</div>
-            </VortFormItem>
-            <VortFormItem>
-                <div class="flex gap-3">
-                    <VortButton variant="primary" :loading="pluginSaving" @click="handleSavePluginConfig">保存</VortButton>
-                    <VortButton @click="pluginDialogOpen = false">取消</VortButton>
-                </div>
             </VortFormItem>
         </VortForm>
     </VortDialog>

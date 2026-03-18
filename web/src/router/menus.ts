@@ -43,6 +43,7 @@ export const menuConfig: MenuConfig[] = [
             { title: "编码任务", icon: "terminal-square", path: "/vortgit/code-tasks" },
         ],
     },
+    { title: "Jenkins", icon: "hard-drive", path: "/jenkins" },
     {
         title: "系统管理", icon: "wrench", label: "系统", requiredRole: "admin",
         children: [

@@ -30,6 +30,7 @@ virtual_roles_router = posts_router
 from openvort.web.routers.work_assignments import work_assignments_router
 from openvort.web.routers.remote_nodes import router as remote_nodes_router
 from openvort.web.routers.marketplace import router as marketplace_router
+from openvort.web.routers.jenkins import router as jenkins_router
 
 __all__ = [
     "auth_router",
@@ -59,4 +60,5 @@ __all__ = [
     "voice_providers_router",
     "remote_nodes_router",
     "marketplace_router",
+    "jenkins_router",
 ]

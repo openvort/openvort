@@ -47,7 +47,7 @@ const userStore = useUserStore();
 
 const tasks = ref<CodeTask[]>([]);
 const total = ref(0);
-const loading = ref(false);
+const loading = ref(true);
 const stats = ref<Stats | null>(null);
 
 const filterStatus = ref("");

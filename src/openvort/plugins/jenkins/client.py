@@ -148,9 +148,26 @@ class JenkinsClient:
             "name,fullName,displayName,description,url,buildable,color,nextBuildNumber,"
             "inQueue,lastBuild[number,result,timestamp,building,duration,url],"
             "lastCompletedBuild[number,result,timestamp,duration,url],"
-            "property[parameterDefinitions[name,type,defaultParameterValue[value],description]]"
+            "builds[number,result,timestamp,building,duration,url]{0,20},"
+            "property[parameterDefinitions[name,type,_class,defaultParameterValue[value],description,choices]]"
         )
         return await self._get_json(f"{self._job_path(job_name)}/api/json?tree={tree}")
+
+    async def get_parameter_choices(self, job_name: str, param_name: str, param_class: str) -> list[str]:
+        """Fetch dynamic choices for a build parameter (e.g. Git branches)."""
+        try:
+            safe_class = quote(param_class, safe=".@$")
+            safe_param = quote(param_name, safe="")
+            path = f"{self._job_path(job_name)}/descriptorByName/{safe_class}/fillValueItems?param={safe_param}"
+            data = await self._get_json(path)
+            values = data.get("values", [])
+            return [
+                str(v.get("value", "") or v.get("name", ""))
+                for v in values
+                if isinstance(v, dict) and (v.get("value") or v.get("name"))
+            ]
+        except JenkinsClientError:
+            return []
 
     async def trigger_build(self, job_name: str, parameters: dict | None = None) -> dict:
         if not job_name:
@@ -194,6 +211,116 @@ class JenkinsClient:
             "tail_lines": tail_lines,
             "truncated": truncated,
         }
+
+    async def get_job_config(self, job_name: str) -> str:
+        """Fetch raw config.xml for the given job."""
+        if not job_name:
+            raise JenkinsClientError("job_name 不能为空")
+        resp = await self._request("GET", f"{self._job_path(job_name)}/config.xml")
+        return resp.text or ""
+
+    async def create_job(self, job_name: str, config_xml: str, *, folder: str = "") -> dict:
+        """Create a new job under *folder* (or root) with the given XML config."""
+        if not job_name:
+            raise JenkinsClientError("job_name 不能为空")
+        if not config_xml:
+            raise JenkinsClientError("config_xml 不能为空")
+
+        base = self._job_path(folder) if folder else ""
+        await self._ensure_crumb()
+        headers: dict[str, str] = {"Content-Type": "application/xml"}
+        if self._crumb_field and self._crumb_value:
+            headers[self._crumb_field] = self._crumb_value
+
+        url = f"{self._base_url}{base}/createItem?name={quote(job_name, safe='')}"
+        try:
+            resp = await self._client.post(url, content=config_xml.encode("utf-8"), headers=headers)
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            detail = e.response.text.strip()[:300]
+            raise JenkinsClientError(
+                f"创建 Job 失败: {e.response.status_code} {detail}"
+            ) from e
+        except Exception as e:
+            raise JenkinsClientError(f"创建 Job 异常: {e}") from e
+
+        return {"created": True, "name": job_name, "folder": folder}
+
+    async def update_job_config(self, job_name: str, config_xml: str) -> dict:
+        """Overwrite config.xml for an existing job."""
+        if not job_name:
+            raise JenkinsClientError("job_name 不能为空")
+        if not config_xml:
+            raise JenkinsClientError("config_xml 不能为空")
+
+        await self._ensure_crumb()
+        headers: dict[str, str] = {"Content-Type": "application/xml"}
+        if self._crumb_field and self._crumb_value:
+            headers[self._crumb_field] = self._crumb_value
+
+        url = f"{self._base_url}{self._job_path(job_name)}/config.xml"
+        try:
+            resp = await self._client.post(url, content=config_xml.encode("utf-8"), headers=headers)
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            detail = e.response.text.strip()[:300]
+            raise JenkinsClientError(
+                f"更新 Job 配置失败: {e.response.status_code} {detail}"
+            ) from e
+        except Exception as e:
+            raise JenkinsClientError(f"更新 Job 配置异常: {e}") from e
+
+        return {"updated": True, "name": job_name}
+
+    async def delete_job(self, job_name: str) -> dict:
+        """Delete a job."""
+        if not job_name:
+            raise JenkinsClientError("job_name 不能为空")
+        await self._request("POST", f"{self._job_path(job_name)}/doDelete")
+        return {"deleted": True, "name": job_name}
+
+    async def copy_job(self, src_name: str, new_name: str, *, folder: str = "") -> dict:
+        """Copy an existing job to *new_name* under *folder* (or root)."""
+        if not src_name:
+            raise JenkinsClientError("src_name 不能为空")
+        if not new_name:
+            raise JenkinsClientError("new_name 不能为空")
+
+        base = self._job_path(folder) if folder else ""
+        await self._ensure_crumb()
+        headers: dict[str, str] = {"Content-Type": "application/x-www-form-urlencoded"}
+        if self._crumb_field and self._crumb_value:
+            headers[self._crumb_field] = self._crumb_value
+
+        safe_new = quote(new_name, safe="")
+        safe_src = quote(src_name, safe="")
+        url = f"{self._base_url}{base}/createItem?name={safe_new}&mode=copy&from={safe_src}"
+        try:
+            resp = await self._client.post(url, headers=headers)
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            detail = e.response.text.strip()[:300]
+            raise JenkinsClientError(
+                f"复制 Job 失败: {e.response.status_code} {detail}"
+            ) from e
+        except Exception as e:
+            raise JenkinsClientError(f"复制 Job 异常: {e}") from e
+
+        return {"copied": True, "src": src_name, "name": new_name, "folder": folder}
+
+    async def enable_job(self, job_name: str) -> dict:
+        """Enable a disabled job."""
+        if not job_name:
+            raise JenkinsClientError("job_name 不能为空")
+        await self._request("POST", f"{self._job_path(job_name)}/enable")
+        return {"enabled": True, "name": job_name}
+
+    async def disable_job(self, job_name: str) -> dict:
+        """Disable a job."""
+        if not job_name:
+            raise JenkinsClientError("job_name 不能为空")
+        await self._request("POST", f"{self._job_path(job_name)}/disable")
+        return {"disabled": True, "name": job_name}
 
     async def get_queue_info(self) -> dict:
         tree = "items[id,task[name,url],why,inQueueSince,stuck,blocked,buildable,params,url]"

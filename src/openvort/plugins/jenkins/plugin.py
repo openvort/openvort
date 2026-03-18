@@ -13,6 +13,7 @@ from openvort.plugins.jenkins.tools import (
     JenkinsManageInstanceTool,
     JobInfoTool,
     ListJobsTool,
+    ManageJobTool,
     SystemInfoTool,
     TriggerBuildTool,
 )
@@ -38,6 +39,7 @@ class JenkinsPlugin(BasePlugin):
             BuildStatusTool(),
             BuildLogTool(),
             SystemInfoTool(),
+            ManageJobTool(),
         ]
 
     def get_prompts(self) -> list[str]:

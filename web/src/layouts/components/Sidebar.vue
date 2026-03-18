@@ -10,7 +10,7 @@ import {
     MessageSquare, Puzzle, Radio, Users, Clock, BookOpen, Webhook, GitBranch, Cpu,
     Kanban, LayoutDashboard, ListChecks, CheckSquare, Bug, Milestone,
     Wrench, FolderGit2, Server, Shield, Sparkles, Library, Bot, Store, Bell,
-    BookMarked, ExternalLink
+    BookMarked, ExternalLink, HardDrive
 } from "lucide-vue-next";
 
 const props = defineProps<{ isMobile?: boolean }>();
@@ -85,7 +85,7 @@ const iconMap: Record<string, any> = {
     "check-square": CheckSquare, bug: Bug, milestone: Milestone,
     wrench: Wrench, "folder-git-2": FolderGit2, server: Server, shield: Shield,
     sparkles: Sparkles, library: Library, bot: Bot, store: Store, bell: Bell,
-    "book-marked": BookMarked, "external-link": ExternalLink,
+    "book-marked": BookMarked, "external-link": ExternalLink, "hard-drive": HardDrive,
 };
 
 const filterByRole = (items: MenuConfig[]) => {

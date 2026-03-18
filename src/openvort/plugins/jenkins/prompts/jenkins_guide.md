@@ -13,7 +13,15 @@
 4. 跟踪：
    - `jenkins_build_status`：查询指定构建号的状态和结果。
    - `jenkins_build_log`：拉取构建日志（默认返回尾部日志）。
- 
+5. Job 管理（增删改）：
+   - `jenkins_manage_job`：管理 Job 配置，支持 `get_config/create/update_config/delete/copy/enable/disable`。
+     - `get_config`：获取 Job 的 XML 配置（理解现有配置后再修改）
+     - `create`：创建新 Job，需提供 `job_name` 和 `config_xml`，可指定 `folder`
+     - `update_config`：更新 Job 配置，需提供 `job_name` 和完整的 `config_xml`
+     - `delete`：删除 Job
+     - `copy`：复制 Job，需提供 `src_job_name` 和 `new_job_name`
+     - `enable` / `disable`：启用/禁用 Job
+
 ## 多实例规则
 
 - 业务工具均支持 `instance_id` 参数。
@@ -38,6 +46,29 @@
 7. 用 `jenkins_build_status` 轮询状态直到 `building=false`。
 8. 若失败，用 `jenkins_build_log` 分析错误日志并给出修复建议。
 
+## Job 管理操作流程
+
+**创建 Job**：
+1. 向用户了解需求：Job 类型（Freestyle/Pipeline）、构建步骤、参数化需求等
+2. 可先用 `jenkins_list_jobs` 查看现有 Job 作为参考
+3. 如果要基于现有 Job 创建，先用 `jenkins_manage_job(action=get_config)` 获取参考配置
+4. 生成 XML 配置，向用户展示关键配置摘要
+5. 调用 `jenkins_manage_job(action=create)` 创建，等待用户确认
+
+**修改 Job 配置**：
+1. 先用 `jenkins_manage_job(action=get_config)` 获取当前 XML 配置
+2. 理解 XML 内容，按用户需求修改
+3. 向用户说明修改点
+4. 调用 `jenkins_manage_job(action=update_config)` 更新，等待用户确认
+
+**复制 Job**：
+1. 调用 `jenkins_manage_job(action=copy)` 复制
+2. 如需修改复制后的配置，再执行修改流程
+
+**删除 Job**：
+1. 先确认用户意图和目标 Job
+2. 调用 `jenkins_manage_job(action=delete)` 删除，等待用户确认
+
 ## 回答风格要求
 
 - 对 Jenkins 返回结果先给结论，再给关键字段（结果/耗时/失败阶段）。
@@ -46,9 +77,9 @@
 
 ## 操作确认机制
 
-**需要确认的操作**：新增实例（create）、修改实例（update）、删除实例（delete）、触发构建（trigger_build）
+**需要确认的操作**：新增实例（create）、修改实例（update）、删除实例（delete）、触发构建（trigger_build）、创建 Job（create）、更新 Job 配置（update_config）、删除 Job（delete）
 
-**查询操作无需确认**：list、verify、job_info、build_status、build_log 等
+**查询操作无需确认**：list、verify、job_info、build_status、build_log、get_config、copy、enable、disable 等
 
 **确认规则**：
 1. 当用户发起需要确认的操作时，**先与用户核对参数**，确认参数正确后再进入确认阶段
