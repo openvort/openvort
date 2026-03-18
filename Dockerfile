@@ -2,7 +2,7 @@
 FROM node:20-alpine AS frontend
 WORKDIR /app/web
 COPY web/package.json web/package-lock.json ./
-RUN npm ci
+RUN npm ci || (sleep 2 && npm ci)
 COPY web/ ./
 RUN npm run build
 

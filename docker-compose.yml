@@ -20,7 +20,6 @@ services:
     env_file: .env
     environment:
       PYTHONUNBUFFERED: "1"
-      OPENVORT_DATABASE_URL: postgresql+asyncpg://openvort:openvort@postgres:5432/openvort
     depends_on:
       postgres:
         condition: service_healthy

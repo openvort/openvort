@@ -72,6 +72,12 @@ async def init_db(database_url: str) -> None:
     except Exception as e:
         log.warning(f"pgvector 扩展不可用，知识库向量检索功能将不可用: {e}")
 
+    async with _engine.begin() as conn:
+        tables = Base.metadata.sorted_tables
+        if not _pgvector_available:
+            tables = [t for t in tables if t.name != "kb_chunks"]
+        await conn.run_sync(Base.metadata.create_all, tables=tables)
+
     # Remote work nodes (renamed from openclaw_nodes)
     async with _engine.begin() as conn:
         # Migrate: rename openclaw_nodes -> remote_nodes if old table exists
@@ -158,9 +164,13 @@ async def init_db(database_url: str) -> None:
         await conn.execute(
             text("ALTER TABLE IF EXISTS flow_stories ADD COLUMN IF NOT EXISTS parent_id VARCHAR(32) REFERENCES flow_stories(id)")
         )
-        await conn.execute(
-            text("CREATE INDEX IF NOT EXISTS ix_flow_stories_parent_id ON flow_stories(parent_id)")
-        )
+        await conn.execute(text("""
+            DO $$ BEGIN
+                IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'flow_stories') THEN
+                    CREATE INDEX IF NOT EXISTS ix_flow_stories_parent_id ON flow_stories(parent_id);
+                END IF;
+            END $$
+        """))
         await conn.execute(
             text("ALTER TABLE IF EXISTS flow_tasks ADD COLUMN IF NOT EXISTS tags_json TEXT DEFAULT '[]'")
         )
@@ -170,9 +180,13 @@ async def init_db(database_url: str) -> None:
         await conn.execute(
             text("ALTER TABLE IF EXISTS flow_tasks ADD COLUMN IF NOT EXISTS parent_id VARCHAR(32) REFERENCES flow_tasks(id)")
         )
-        await conn.execute(
-            text("CREATE INDEX IF NOT EXISTS ix_flow_tasks_parent_id ON flow_tasks(parent_id)")
-        )
+        await conn.execute(text("""
+            DO $$ BEGIN
+                IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'flow_tasks') THEN
+                    CREATE INDEX IF NOT EXISTS ix_flow_tasks_parent_id ON flow_tasks(parent_id);
+                END IF;
+            END $$
+        """))
         await conn.execute(
             text("ALTER TABLE IF EXISTS flow_tasks ADD COLUMN IF NOT EXISTS creator_id VARCHAR(32)")
         )
