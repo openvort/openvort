@@ -1552,7 +1552,8 @@ onMounted(async () => {
                 :params="queryParams"
                 :row-key="rowKeyGetter"
                 :row-selection="rowSelection"
-                :pagination="{ pageSize: 20, showSizeChanger: true, showQuickJumper: true, pageSizeOptions: [10, 20, 50] }"
+                :pagination="{ pageSize: vortFlowStore.tablePageSize, showSizeChanger: true, showQuickJumper: true, pageSizeOptions: [10, 20, 50] }"
+                @pagination-change="({ pageSize: ps }) => { vortFlowStore.tablePageSize = ps; }"
                 :toolbar="false"
                 bordered
                 @column-width-change="handleColumnWidthChange"

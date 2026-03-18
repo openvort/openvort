@@ -46,6 +46,7 @@ export const useVortFlowStore = defineStore(
         const viewsLoaded = ref(false);
         const columnSettingsByType = ref<Record<string, PersistedColumnSetting[]>>({});
         const columnSettingsLoaded = ref(false);
+        const tablePageSize = ref(20);
 
         const selectedProject = computed(() => {
             if (!selectedProjectId.value) return null;
@@ -208,7 +209,7 @@ export const useVortFlowStore = defineStore(
 
         return {
             selectedProjectId, viewIdByType, projects, projectsLoaded,
-            customViews, viewsLoaded, columnSettingsByType, columnSettingsLoaded,
+            customViews, viewsLoaded, columnSettingsByType, columnSettingsLoaded, tablePageSize,
             selectedProject,
             setProjectId, getViewId, setViewId, loadProjects,
             loadViews, addCustomView,
@@ -220,7 +221,7 @@ export const useVortFlowStore = defineStore(
     },
     {
         persist: {
-            pick: ["selectedProjectId", "viewIdByType", "columnSettingsByType", "customViews"],
+            pick: ["selectedProjectId", "viewIdByType", "columnSettingsByType", "customViews", "tablePageSize"],
         },
     }
 );

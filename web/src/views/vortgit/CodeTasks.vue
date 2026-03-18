@@ -230,8 +230,8 @@ async function handleBatchDelete() {
     }
 }
 
-onMounted(() => {
-    loadRefs();
+onMounted(async () => {
+    await loadRefs();
     refresh();
 });
 </script>
