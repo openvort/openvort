@@ -10,10 +10,13 @@ import type { ChatSession } from "./types";
 
 const PAGE_SIZE = 20;
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
     currentSessionId: string;
     currentTitle: string;
-}>();
+    compact?: boolean;
+}>(), {
+    compact: false,
+});
 
 const emit = defineEmits<{
     (e: "switch", sessionId: string): void;
@@ -259,9 +262,9 @@ defineExpose({ loadSessions, sessions, syncSessions, upsertSession, updateSessio
     <div class="flex items-center">
         <!-- Session dropdown trigger -->
         <VortPopover v-model:open="dropdownOpen" trigger="click" placement="bottomLeft" :arrow="false">
-            <button class="flex items-center gap-1 px-2 py-1 rounded-md hover:bg-gray-50 transition-colors cursor-pointer max-w-[300px]">
-                <span class="text-base font-medium text-gray-800 truncate">{{ currentTitle || '新对话' }}</span>
-                <ChevronDown :size="16" class="text-gray-400 flex-shrink-0" :class="dropdownOpen ? 'rotate-180' : ''" />
+            <button :class="[compact ? 'gap-0.5 px-1.5 py-0.5' : 'gap-1 px-2 py-1', 'flex items-center rounded-md hover:bg-gray-50 transition-colors cursor-pointer max-w-[300px]']">
+                <span :class="[compact ? 'text-xs' : 'text-base', 'font-medium text-gray-800 truncate']">{{ currentTitle || '新对话' }}</span>
+                <ChevronDown :size="compact ? 12 : 16" class="text-gray-400 flex-shrink-0" :class="dropdownOpen ? 'rotate-180' : ''" />
             </button>
             <template #content>
                 <div class="w-[320px] -m-3">
@@ -317,10 +320,10 @@ defineExpose({ loadSessions, sessions, syncSessions, upsertSession, updateSessio
         <!-- New session button -->
         <VortTooltip title="新建对话">
             <button
-                class="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer ml-1"
+                :class="[compact ? 'p-1 ml-0.5' : 'p-1.5 ml-1', 'rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer']"
                 @click="handleNewSession"
             >
-                <Plus :size="18" />
+                <Plus :size="compact ? 14 : 18" />
             </button>
         </VortTooltip>
 

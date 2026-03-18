@@ -10,6 +10,7 @@ import AiEmployeeBadge from "./AiEmployeeBadge.vue";
 
 const props = defineProps<{
     activeContactId: string;
+    compact?: boolean;
 }>();
 
 const emit = defineEmits<{

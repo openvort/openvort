@@ -451,7 +451,7 @@ onMounted(() => {
                                                 <div class="flex items-center gap-1">
                                                     <span class="text-blue-600 cursor-pointer hover:underline" @click="openMemberDrawer(row.id)">{{ row.name }}</span>
                                                 </div>
-                                                <div v-if="row.departments?.length" class="text-xs text-gray-400 mt-0.5 truncate">
+                                                <div v-if="row.departments?.length" class="text-xs text-gray-400 mt-0.5 line-clamp-2" :title="row.departments.join('、')">
                                                     {{ row.departments.join("、") }}
                                                 </div>
                                             </div>

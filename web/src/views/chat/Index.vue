@@ -2,11 +2,27 @@
 import { ref, onMounted, onUnmounted, nextTick, watch, computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useUserStore } from "@/stores";
+
+const props = withDefaults(defineProps<{
+    embedded?: boolean;
+    initialSessionId?: string;
+    embeddedSidebar?: boolean;
+}>(), {
+    embedded: false,
+    initialSessionId: "",
+    embeddedSidebar: false,
+});
+const emit = defineEmits<{
+    'embedded-maximize': [];
+    'embedded-close': [];
+    'embedded-toggle-sidebar': [];
+}>();
 import {
     Send, Bot, Loader2, Wrench, X, ImagePlus, FileText, MonitorPlay, Smile,
     Settings, Check, Brain, PackageMinus, RotateCcw, Zap, StopCircle, Square,
     Hash, Bug, ListTodo, BookOpen, Milestone, GitBranch, ChevronDown, ChevronRight,
-    Copy, RefreshCw, Search, Clock, Pause, ChevronUp, Trash2, Paperclip, File
+    Copy, RefreshCw, Search, Clock, Pause, ChevronUp, Trash2, Paperclip, File,
+    Maximize2, PanelLeftOpen, PanelLeftClose
 } from "lucide-vue-next";
 import { Popover as VortPopover, Image as VortImage, ImagePreviewGroup as VortImagePreviewGroup } from "@/components/vort";
 import {
@@ -437,13 +453,23 @@ function applyPromptFromQuery() {
     }
 }
 
+function fillPrompt(text: string) {
+    if (!text) return;
+    handleNewSession();
+    inputText.value = text;
+    nextTick(() => {
+        const textarea = document.querySelector('textarea.chat-textarea') as HTMLTextAreaElement;
+        if (textarea) textarea.focus();
+    });
+}
+
 // ---- Watchers ----
 watch(currentSessionId, (val) => {
-    localStorage.setItem('chat-last-session-id', val);
+    if (!props.embedded) localStorage.setItem('chat-last-session-id', val);
 });
 
 watch(activeContact, (contact) => {
-    if (contact) {
+    if (!props.embedded && contact) {
         localStorage.setItem('chat-last-contact', JSON.stringify({
             type: contact.type,
             id: contact.id,
@@ -453,11 +479,11 @@ watch(activeContact, (contact) => {
             position: contact.position,
         }));
     }
-    loadActiveAssignments();
+    if (!props.embedded) loadActiveAssignments();
 }, { deep: true });
 
 watch(() => route.query.prompt, (val) => {
-    if (val) applyPromptFromQuery();
+    if (!props.embedded && val) applyPromptFromQuery();
 });
 
 // ---- Lifecycle ----
@@ -465,42 +491,44 @@ onMounted(async () => {
     document.addEventListener("paste", handlePaste);
     document.addEventListener("click", handleClickOutsidePanel);
 
-    try {
-        const { useWebSocket } = await import("@/composables/useWebSocket");
-        const { on } = useWebSocket();
-        on("offline_summary", (data: any) => {
-            if (data.unreads > 0) {
-                offlineSummary.value = { unreads: data.unreads, highlights: data.highlights || [] };
-            }
-        });
-        on("node_status_change", (data: any) => {
-            if (activeContact.value && activeContact.value.remote_node_id === data.node_id) {
-                (activeContact.value as any).remote_node_status = data.status;
-            }
-        });
-        on("message", (data: any) => {
-            if (!data?.session_id || !data?.content) return;
-            if (data.session_id === currentSessionId.value && !loading.value) {
-                const newMsg: ChatMessage = {
-                    id: String(++messageCounter.value),
-                    role: "assistant",
-                    content: data.content,
-                    timestamp: Date.now(),
-                    avatar_url: activeContact.value?.avatar_url,
-                };
-                messages.value.push(newMsg);
-                nextTick(scrollToBottom);
-            }
-            contactListRef.value?.refreshContacts?.();
-        });
-        on("schedule_result", () => { loadActiveAssignments(); });
-        on("unread_update", () => { contactListRef.value?.refreshContacts?.(); });
-        on("_reconnected", () => {
-            contactListRef.value?.refreshContacts?.();
-            if (currentSessionId.value) loadHistory();
-            loadActiveAssignments();
-        });
-    } catch { /* silent */ }
+    if (!props.embedded) {
+        try {
+            const { useWebSocket } = await import("@/composables/useWebSocket");
+            const { on } = useWebSocket();
+            on("offline_summary", (data: any) => {
+                if (data.unreads > 0) {
+                    offlineSummary.value = { unreads: data.unreads, highlights: data.highlights || [] };
+                }
+            });
+            on("node_status_change", (data: any) => {
+                if (activeContact.value && activeContact.value.remote_node_id === data.node_id) {
+                    (activeContact.value as any).remote_node_status = data.status;
+                }
+            });
+            on("message", (data: any) => {
+                if (!data?.session_id || !data?.content) return;
+                if (data.session_id === currentSessionId.value && !loading.value) {
+                    const newMsg: ChatMessage = {
+                        id: String(++messageCounter.value),
+                        role: "assistant",
+                        content: data.content,
+                        timestamp: Date.now(),
+                        avatar_url: activeContact.value?.avatar_url,
+                    };
+                    messages.value.push(newMsg);
+                    nextTick(scrollToBottom);
+                }
+                contactListRef.value?.refreshContacts?.();
+            });
+            on("schedule_result", () => { loadActiveAssignments(); });
+            on("unread_update", () => { contactListRef.value?.refreshContacts?.(); });
+            on("_reconnected", () => {
+                contactListRef.value?.refreshContacts?.();
+                if (currentSessionId.value) loadHistory();
+                loadActiveAssignments();
+            });
+        } catch { /* silent */ }
+    }
 
     nextTick(() => {
         const textarea = document.querySelector('textarea.chat-textarea') as HTMLTextAreaElement;
@@ -514,6 +542,23 @@ onMounted(async () => {
             });
         }
     });
+
+    // Embedded mode: simplified initialization
+    if (props.embedded) {
+        activeContact.value = {
+            type: "ai", id: "ai", name: "AI 助手",
+            avatar_url: "", last_message: "", last_message_time: 0, unread: 0, pinned: true,
+        };
+        if (props.initialSessionId) {
+            currentSessionId.value = props.initialSessionId;
+            await loadHistory();
+            await loadSessionInfo();
+        }
+        await nextTick();
+        const scrollWrap = chatScrollbar.value?.wrapRef;
+        if (scrollWrap) scrollWrap.addEventListener("scroll", onChatScroll);
+        return;
+    }
 
     const querySession = route.query.session as string | undefined;
     const queryContact = route.query.contact as string | undefined;
@@ -594,6 +639,16 @@ onMounted(async () => {
 
     applyPromptFromQuery();
 
+    const floatDraft = localStorage.getItem("ai-float-draft");
+    if (floatDraft) {
+        localStorage.removeItem("ai-float-draft");
+        inputText.value = floatDraft;
+        nextTick(() => {
+            const textarea = document.querySelector('textarea.chat-textarea') as HTMLTextAreaElement;
+            if (textarea) textarea.focus();
+        });
+    }
+
     await nextTick();
     const scrollWrap = chatScrollbar.value?.wrapRef;
     if (scrollWrap) {
@@ -624,15 +679,18 @@ onUnmounted(() => {
     }
     activeStreams.clear();
 });
+
+defineExpose({ currentSessionId, inputText, handleReset, switchSession, handleNewSession, activeContact, sessions, isAiMode, fillPrompt });
 </script>
 
 <template>
     <div class="flex h-full">
         <!-- 左侧联系人列表 -->
-        <div class="flex-shrink-0 w-[260px] overflow-hidden">
+        <div v-if="!embedded || embeddedSidebar" :class="embedded ? 'flex-shrink-0 w-[200px] overflow-hidden border-r border-gray-100' : 'flex-shrink-0 w-[260px] overflow-hidden'">
             <ContactList
                 ref="contactListRef"
                 :active-contact-id="activeContact?.id || 'ai'"
+                :compact="embedded"
                 @select="handleContactSelect"
                 @history-cleared="handleHistoryCleared"
             />
@@ -641,15 +699,21 @@ onUnmounted(() => {
         <!-- 右侧聊天区域 -->
         <div class="flex-1 flex flex-col min-w-0">
             <!-- 头部 -->
-            <div class="flex items-center justify-between px-6 h-14 border-b border-gray-100 bg-white">
+            <div :class="embedded ? 'flex items-center justify-between px-3 h-11 border-b border-gray-100 bg-white' : 'flex items-center justify-between px-6 h-14 border-b border-gray-100 bg-white'">
                 <div class="flex items-center">
+                    <button v-if="embedded" @click="emit('embedded-toggle-sidebar')"
+                        class="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer mr-1">
+                        <PanelLeftOpen v-if="embeddedSidebar" :size="14" />
+                        <PanelLeftClose v-else :size="14" />
+                    </button>
                     <!-- AI mode: session switcher -->
                     <template v-if="isAiMode">
-                        <Bot :size="20" class="text-blue-600 mr-2" />
+                        <Bot :size="embedded ? 16 : 20" class="text-blue-600 mr-2" />
                         <SessionSwitcher
                             ref="sessionSwitcherRef"
                             :current-session-id="currentSessionId"
                             :current-title="currentSessionTitle"
+                            :compact="embedded"
                             @switch="switchSession"
                             @new-session="handleNewSession"
                             @sessions-loaded="handleSessionsLoaded"
@@ -658,14 +722,13 @@ onUnmounted(() => {
                     <!-- Member mode: show member info (click to open profile) -->
                     <template v-else>
                         <div class="flex items-center cursor-pointer hover:opacity-80 transition-opacity" @click="memberProfileOpen = true">
-                            <div class="w-8 h-8 rounded-full flex items-center justify-center mr-2 overflow-hidden"
-                                :class="activeContact?.avatar_url ? '' : 'bg-gray-100'">
+                            <div :class="[embedded ? 'w-6 h-6 mr-1.5' : 'w-8 h-8 mr-2', 'rounded-full flex items-center justify-center overflow-hidden', activeContact?.avatar_url ? '' : 'bg-gray-100']">
                                 <img v-if="activeContact?.avatar_url" :src="activeContact.avatar_url" class="w-full h-full object-cover" />
-                                <span v-else class="text-sm font-medium text-gray-500">{{ (activeContact?.name || '?')[0] }}</span>
+                                <span v-else :class="[embedded ? 'text-xs' : 'text-sm', 'font-medium text-gray-500']">{{ (activeContact?.name || '?')[0] }}</span>
                             </div>
-                            <h2 class="text-base font-medium text-gray-800">{{ activeContact?.name }}</h2>
-                            <span v-if="activeContact?.position" class="ml-2 text-xs text-gray-400">{{ activeContact.position }}</span>
-                            <AiEmployeeBadge v-if="activeContact?.is_virtual" class="ml-1.5 flex-shrink-0" />
+                            <h2 :class="[embedded ? 'text-xs' : 'text-base', 'font-medium text-gray-800']">{{ activeContact?.name }}</h2>
+                            <span v-if="activeContact?.position" :class="[embedded ? 'ml-1.5 text-[10px]' : 'ml-2 text-xs', 'text-gray-400']">{{ activeContact.position }}</span>
+                            <AiEmployeeBadge v-if="activeContact?.is_virtual" :class="[embedded ? 'ml-1 scale-90' : 'ml-1.5', 'flex-shrink-0']" />
                             <VortTooltip v-if="activeContact?.remote_node_id" :title="['online', 'running'].includes(activeContact.remote_node_status) ? '工作节点在线' : ['offline', 'stopped', 'error'].includes(activeContact.remote_node_status) ? '工作节点离线' : '工作节点状态未知'">
                                 <span class="inline-block w-2 h-2 rounded-full ml-1.5 flex-shrink-0"
                                     :class="['online', 'running'].includes(activeContact.remote_node_status) ? 'bg-green-500' : ['offline', 'stopped', 'error'].includes(activeContact.remote_node_status) ? 'bg-red-400' : 'bg-gray-300'" />
@@ -677,83 +740,99 @@ onUnmounted(() => {
                     </span>
                 </div>
                 <div class="flex items-center gap-2">
-                    <VortTooltip :overlay-style="{ maxWidth: 'none' }">
-                        <template #title>
-                            <div class="flex flex-col leading-tight">
-                                <span>输入 tokens: {{ formatTokens(sessionTokens.input) }} / 输出 tokens: {{ formatTokens(sessionTokens.output) }} / 缓存命中: {{ formatTokens(sessionTokens.cacheRead) }} / 消息数: {{ sessionTokens.messages }}</span>
-                                <span class="text-[11px] text-gray-400 mt-1">Token 统计受模型网关返回影响，可能存在偏差</span>
-                            </div>
-                        </template>
-                        <span class="text-xs text-gray-400 flex items-center gap-1 cursor-default">
-                            <Zap :size="14" />
-                            {{ formatTokens(sessionTokens.input + sessionTokens.output) }}
-                        </span>
-                    </VortTooltip>
-                    <VortPopover v-model:open="searchOpen" trigger="click" placement="bottomRight" :arrow="false">
-                        <VortTooltip title="搜索消息">
-                            <button class="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer">
-                                <Search :size="16" />
-                            </button>
+                    <template v-if="!embedded">
+                        <VortTooltip :overlay-style="{ maxWidth: 'none' }">
+                            <template #title>
+                                <div class="flex flex-col leading-tight">
+                                    <span>输入 tokens: {{ formatTokens(sessionTokens.input) }} / 输出 tokens: {{ formatTokens(sessionTokens.output) }} / 缓存命中: {{ formatTokens(sessionTokens.cacheRead) }} / 消息数: {{ sessionTokens.messages }}</span>
+                                    <span class="text-[11px] text-gray-400 mt-1">Token 统计受模型网关返回影响，可能存在偏差</span>
+                                </div>
+                            </template>
+                            <span class="text-xs text-gray-400 flex items-center gap-1 cursor-default">
+                                <Zap :size="14" />
+                                {{ formatTokens(sessionTokens.input + sessionTokens.output) }}
+                            </span>
                         </VortTooltip>
-                        <template #content>
-                            <div class="w-[320px] -m-1">
-                                <input
-                                    v-model="searchQuery"
-                                    placeholder="输入关键词搜索消息..."
-                                    class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-blue-400"
-                                    @input="handleSearch"
-                                    @keydown.enter="handleSearch"
-                                />
-                                <div v-if="searching" class="py-3 text-center text-xs text-gray-400">搜索中...</div>
-                                <div v-else-if="searchResults.length" class="max-h-[300px] overflow-y-auto mt-2 space-y-1">
-                                    <div
-                                        v-for="r in searchResults" :key="r.id"
-                                        class="px-3 py-2 rounded-lg hover:bg-gray-50 cursor-pointer"
-                                        @click="searchOpen = false"
-                                    >
-                                        <div class="text-xs text-gray-400">{{ r.sender_type === 'user' ? '我' : 'AI' }} - {{ r.created_at?.slice(0, 10) }}</div>
-                                        <div class="text-sm text-gray-700 line-clamp-2 mt-0.5">{{ r.content }}</div>
+                        <VortPopover v-model:open="searchOpen" trigger="click" placement="bottomRight" :arrow="false">
+                            <VortTooltip title="搜索消息">
+                                <button class="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer">
+                                    <Search :size="16" />
+                                </button>
+                            </VortTooltip>
+                            <template #content>
+                                <div class="w-[320px] -m-1">
+                                    <input
+                                        v-model="searchQuery"
+                                        placeholder="输入关键词搜索消息..."
+                                        class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-blue-400"
+                                        @input="handleSearch"
+                                        @keydown.enter="handleSearch"
+                                    />
+                                    <div v-if="searching" class="py-3 text-center text-xs text-gray-400">搜索中...</div>
+                                    <div v-else-if="searchResults.length" class="max-h-[300px] overflow-y-auto mt-2 space-y-1">
+                                        <div
+                                            v-for="r in searchResults" :key="r.id"
+                                            class="px-3 py-2 rounded-lg hover:bg-gray-50 cursor-pointer"
+                                            @click="searchOpen = false"
+                                        >
+                                            <div class="text-xs text-gray-400">{{ r.sender_type === 'user' ? '我' : 'AI' }} - {{ r.created_at?.slice(0, 10) }}</div>
+                                            <div class="text-sm text-gray-700 line-clamp-2 mt-0.5">{{ r.content }}</div>
+                                        </div>
+                                    </div>
+                                    <div v-else-if="searchQuery.length >= 2" class="py-3 text-center text-xs text-gray-400">无结果</div>
+                                </div>
+                            </template>
+                        </VortPopover>
+                        <VortPopover v-model:open="thinkingOpen" trigger="click" placement="bottomRight" :arrow="false">
+                            <VortTooltip title="Thinking 级别">
+                                <button class="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer">
+                                    <Brain :size="16" :class="thinkingLevel !== 'off' ? 'text-blue-500' : ''" />
+                                </button>
+                            </VortTooltip>
+                            <template #content>
+                                <div class="w-[200px] -m-1">
+                                    <div v-for="lvl in ['off', 'low', 'medium', 'high']" :key="lvl"
+                                        @click="handleThinkingChange(lvl)"
+                                        class="flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors"
+                                        :class="thinkingLevel === lvl ? 'bg-blue-50' : 'hover:bg-gray-50'">
+                                        <Check :size="14" :class="thinkingLevel === lvl ? 'text-blue-600' : 'text-transparent'" />
+                                        <span class="text-sm text-gray-700 capitalize">{{ lvl }}</span>
                                     </div>
                                 </div>
-                                <div v-else-if="searchQuery.length >= 2" class="py-3 text-center text-xs text-gray-400">无结果</div>
-                            </div>
-                        </template>
-                    </VortPopover>
-                    <VortPopover v-model:open="thinkingOpen" trigger="click" placement="bottomRight" :arrow="false">
-                        <VortTooltip title="Thinking 级别">
-                            <button class="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer">
-                                <Brain :size="16" :class="thinkingLevel !== 'off' ? 'text-blue-500' : ''" />
+                            </template>
+                        </VortPopover>
+                        <VortTooltip title="压缩上下文">
+                            <button class="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer"
+                                :disabled="compacting" @click="handleCompact">
+                                <PackageMinus :size="16" :class="compacting ? 'animate-pulse' : ''" />
                             </button>
                         </VortTooltip>
-                        <template #content>
-                            <div class="w-[200px] -m-1">
-                                <div v-for="lvl in ['off', 'low', 'medium', 'high']" :key="lvl"
-                                    @click="handleThinkingChange(lvl)"
-                                    class="flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors"
-                                    :class="thinkingLevel === lvl ? 'bg-blue-50' : 'hover:bg-gray-50'">
-                                    <Check :size="14" :class="thinkingLevel === lvl ? 'text-blue-600' : 'text-transparent'" />
-                                    <span class="text-sm text-gray-700 capitalize">{{ lvl }}</span>
-                                </div>
-                            </div>
-                        </template>
-                    </VortPopover>
-                    <VortTooltip title="压缩上下文">
-                        <button class="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer"
-                            :disabled="compacting" @click="handleCompact">
-                            <PackageMinus :size="16" :class="compacting ? 'animate-pulse' : ''" />
-                        </button>
-                    </VortTooltip>
+                    </template>
                     <VortTooltip title="重置上下文">
                         <button class="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer"
                             @click="handleReset">
                             <RotateCcw :size="16" />
                         </button>
                     </VortTooltip>
+                    <template v-if="embedded">
+                        <VortTooltip title="窗口全屏">
+                            <button class="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer"
+                                @click="emit('embedded-maximize')">
+                                <Maximize2 :size="14" />
+                            </button>
+                        </VortTooltip>
+                        <VortTooltip title="关闭">
+                            <button class="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer"
+                                @click="emit('embedded-close')">
+                                <X :size="14" />
+                            </button>
+                        </VortTooltip>
+                    </template>
                 </div>
             </div>
 
             <!-- Offline summary banner -->
-            <div v-if="offlineSummary" class="mx-4 mt-3 mb-1">
+            <div v-if="!embedded && offlineSummary" class="mx-4 mt-3 mb-1">
                 <div class="relative overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
                     <div class="absolute inset-y-0 left-0 w-1 bg-blue-500" />
                     <div class="flex items-start gap-3 px-4 py-4 pl-5">
@@ -792,7 +871,7 @@ onUnmounted(() => {
             </div>
 
             <!-- 重置后：重新加载会话记录按钮 -->
-            <div v-if="contextResetAt > 0 && currentSessionId" class="flex justify-center py-2 ">
+            <div v-if="!embedded && contextResetAt > 0 && currentSessionId" class="flex justify-center py-2 ">
                 <button
                     class="text-xs text-blue-500 hover:text-blue-600 cursor-pointer transition-colors flex items-center gap-1"
                     :disabled="loadingMore"
@@ -805,7 +884,7 @@ onUnmounted(() => {
             </div>
 
             <!-- 消息列表 -->
-            <VortScrollbar ref="chatScrollbar" class="flex-1" wrap-class="px-6 py-4" view-class="flex flex-col min-h-full">
+            <VortScrollbar ref="chatScrollbar" class="flex-1" :wrap-class="embedded ? 'px-4 py-3' : 'px-6 py-4'" view-class="flex flex-col min-h-full">
                 <VortImagePreviewGroup class="space-y-6">
                     <!-- 无会话状态 -->
                     <div v-if="!currentSessionId && isAiMode" class="flex flex-col items-center justify-center flex-1 text-gray-400">
@@ -1029,7 +1108,7 @@ onUnmounted(() => {
             </VortScrollbar>
 
             <!-- AI employee active tasks bar -->
-            <div v-if="activeContact?.is_virtual && activeAssignments.length > 0"
+            <div v-if="!embedded && activeContact?.is_virtual && activeAssignments.length > 0"
                 class="mx-6 pt-2 mb-0 flex items-center gap-1.5 text-xs">
                 <span class="text-gray-400 text-xs leading-none mr-0.5 flex-shrink-0">{{ activeAssignments.length }} 项进行中任务{{ taskBarCollapsed ? '' : '：' }}</span>
                 <template v-if="!taskBarCollapsed">
@@ -1067,7 +1146,7 @@ onUnmounted(() => {
             </div>
 
             <!-- 输入区域 -->
-            <div class="relative px-6 pt-2.5 pb-4" ref="inputArea"
+            <div :class="embedded ? 'relative px-3 pt-2 pb-3' : 'relative px-6 pt-2.5 pb-4'" ref="inputArea"
                 @dragover="handleDragOver" @dragleave="handleDragLeave" @drop="handleDrop">
                 <div v-if="isDragging"
                     class="absolute inset-0 z-10 flex items-center justify-center bg-blue-50/80 border-2 border-dashed border-blue-400 rounded-xl pointer-events-none">
@@ -1237,18 +1316,18 @@ onUnmounted(() => {
                     </div>
                     <VortTextarea
                         v-model="inputText"
-                        placeholder="请描述您问题，支持 Ctrl+V 粘贴图片。输入 @ 提及成员，/ 使用命令，# 引用工作项。"
-                        :auto-size="{ minRows: 3, maxRows: 6 }"
+                        :placeholder="embedded ? '输入你的问题...' : '请描述您问题，支持 Ctrl+V 粘贴图片。输入 @ 提及成员，/ 使用命令，# 引用工作项。'"
+                        :auto-size="embedded ? { minRows: 1, maxRows: 4 } : { minRows: 3, maxRows: 6 }"
                         :bordered="false"
-                        class="chat-textarea"
+                        :class="embedded ? 'chat-textarea-compact' : 'chat-textarea'"
                         @press-enter="handlePressEnter"
                     />
-                    <div class="flex items-center justify-between px-4 py-2">
+                    <div :class="embedded ? 'flex items-center justify-between px-3 py-1.5' : 'flex items-center justify-between px-4 py-2'">
                         <div class="flex items-center gap-1">
                             <VortPopover placement="top" :arrow="true">
                                 <button @click="triggerFileInput"
-                                    class="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer">
-                                    <FileText :size="18" />
+                                    :class="embedded ? 'p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer' : 'p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer'">
+                                    <FileText :size="embedded ? 16 : 18" />
                                 </button>
                                 <template #content>
                                     <span class="text-xs text-gray-500 whitespace-nowrap">.jpg,.jpeg,.png,.txt,.rar,.zip,.doc,.docx,.xls,.7z</span>
@@ -1256,16 +1335,16 @@ onUnmounted(() => {
                             </VortPopover>
                             <VortPopover placement="top" :arrow="true">
                                 <button @click="triggerVideoInput"
-                                    class="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer">
-                                    <MonitorPlay :size="18" />
+                                    :class="embedded ? 'p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer' : 'p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer'">
+                                    <MonitorPlay :size="embedded ? 16 : 18" />
                                 </button>
                                 <template #content>
                                     <span class="text-xs text-gray-500 whitespace-nowrap">.mp4,.mov,.avi,.wmv,.flv,.mkv</span>
                                 </template>
                             </VortPopover>
                             <VortPopover v-model:open="emojiOpen" trigger="click" placement="topLeft" :arrow="false" :overlay-style="{ maxWidth: '424px' }">
-                                <button class="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer">
-                                    <Smile :size="18" />
+                                <button :class="embedded ? 'p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer' : 'p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer'">
+                                    <Smile :size="embedded ? 16 : 18" />
                                 </button>
                                 <template #content>
                                     <div class="emoji-grid">
@@ -1279,7 +1358,7 @@ onUnmounted(() => {
                             </VortPopover>
                         </div>
                         <div class="flex items-center gap-2">
-                            <VortPopover v-model:open="settingsOpen" trigger="click" placement="topRight" :arrow="false">
+                            <VortPopover v-if="!embedded" v-model:open="settingsOpen" trigger="click" placement="topRight" :arrow="false">
                                 <button class="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer">
                                     <Settings :size="18" />
                                 </button>
@@ -1304,8 +1383,8 @@ onUnmounted(() => {
                                 v-if="loading"
                                 :disabled="aborting"
                                 @click="handleAbortCurrentStream"
-                                class="h-9 rounded-lg flex items-center justify-center gap-1.5 transition-colors send-btn"
-                                :class="aborting ? 'send-btn-disabled px-3' : 'send-btn-stop w-20'"
+                                class="rounded-lg flex items-center justify-center gap-1.5 transition-colors send-btn"
+                                :class="aborting ? 'send-btn-disabled px-3 h-8' : 'send-btn-stop h-8 w-16'"
                             >
                                 <Square :size="14" fill="currentColor" class="text-white" />
                                 <span v-if="aborting" class="text-white text-xs">正在中止...</span>
@@ -1314,10 +1393,13 @@ onUnmounted(() => {
                                 v-else
                                 :disabled="!inputText.trim() && !pendingImages.length && !pendingFiles.length"
                                 @click="handleSend"
-                                class="w-20 h-9 rounded-lg flex items-center justify-center transition-colors send-btn"
-                                :class="!inputText.trim() && !pendingImages.length && !pendingFiles.length ? 'send-btn-disabled' : 'send-btn-active'"
+                                :class="[
+                                    embedded ? 'w-16 h-8' : 'w-20 h-9',
+                                    'rounded-lg flex items-center justify-center transition-colors send-btn',
+                                    !inputText.trim() && !pendingImages.length && !pendingFiles.length ? 'send-btn-disabled' : 'send-btn-active'
+                                ]"
                             >
-                                <Send :size="16" class="text-white" />
+                                <Send :size="embedded ? 14 : 16" class="text-white" />
                             </button>
                         </div>
                     </div>
@@ -1327,7 +1409,7 @@ onUnmounted(() => {
 
         <!-- Member profile drawer -->
         <MemberProfile
-            v-if="activeContact && activeContact.type === 'member'"
+            v-if="!embedded && activeContact && activeContact.type === 'member'"
             v-model:open="memberProfileOpen"
             :member-id="activeContact.id"
             :member-name="activeContact.name"
@@ -1430,6 +1512,11 @@ onUnmounted(() => {
 .chat-textarea {
     padding: 15px 16px 12px !important;
     line-height: 1.8 !important;
+}
+.chat-textarea-compact {
+    padding: 8px 12px 4px !important;
+    line-height: 1.6 !important;
+    font-size: 13px !important;
 }
 .chat-input-box:focus-within {
     border-color: var(--vort-primary, #1456f0);

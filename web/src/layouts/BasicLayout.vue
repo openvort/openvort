@@ -6,6 +6,7 @@ import { useBreakpoint } from "@/hooks";
 import { initWebSocket, closeWebSocket } from "@/composables/useWebSocket";
 import Sidebar from "./components/Sidebar.vue";
 import Header from "./components/Header.vue";
+import AiFloat from "@/components/ai-float/AiFloat.vue";
 
 const route = useRoute();
 const appStore = useAppStore();
@@ -65,6 +66,9 @@ watch(isMobile, (val) => {
                 </router-view>
             </VortScrollbar>
         </div>
+
+        <!-- AI 助手浮标 -->
+        <AiFloat />
     </div>
 </template>
 

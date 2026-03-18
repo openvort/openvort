@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { useRouter } from "vue-router";
 import { Bot } from "lucide-vue-next";
 import {
     DropdownButton,
     DropdownMenuItem,
 } from "@/components/vort/dropdown";
+import { useAiFloat } from "@/composables/useAiFloat";
 
 export interface AiAssistPromptItem {
     /** Menu item label */
@@ -28,7 +28,7 @@ const props = withDefaults(defineProps<{
     label: "AI 助手",
 });
 
-const router = useRouter();
+const { openWithPrompt } = useAiFloat();
 
 const isDropdown = computed(() => Array.isArray(props.prompts) && props.prompts.length > 0);
 
@@ -39,7 +39,7 @@ const defaultPrompt = computed(() => {
 
 function go(prompt: string) {
     if (!prompt) return;
-    router.push({ name: "chat", query: { prompt } });
+    openWithPrompt(prompt);
 }
 </script>
 

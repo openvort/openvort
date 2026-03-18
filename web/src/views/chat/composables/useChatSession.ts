@@ -1,7 +1,7 @@
 import { type Ref } from "vue";
 import type { ChatMessage, ChatSession, Contact, Draft, PendingImage, PendingFile } from "../types";
 import type { ActiveStream } from "./useChatStream";
-import { startMemberChat, markChatRead } from "@/api";
+import { startMemberChat, markChatRead, getChatSessions } from "@/api";
 import { useNotificationStore } from "@/stores/modules/notification";
 import { message } from "@/components/vort";
 
@@ -119,7 +119,14 @@ export function useChatSession(options: UseChatSessionOptions) {
     async function handleContactSelect(contact: Contact) {
         activeContact.value = contact;
         if (contact.type === "ai") {
-            await sessionSwitcherRef.value?.loadSessions();
+            if (sessionSwitcherRef.value) {
+                await sessionSwitcherRef.value.loadSessions();
+            } else {
+                try {
+                    const res: any = await getChatSessions("ai", 20, 0);
+                    sessions.value = (res?.sessions || []).map((s: any) => ({ ...s }));
+                } catch { sessions.value = []; }
+            }
             const lastSessionId = localStorage.getItem('chat-last-session-id');
             if (lastSessionId && sessions.value.some(s => s.session_id === lastSessionId)) {
                 await switchSession(lastSessionId);
