@@ -492,6 +492,7 @@ const {
     columnSettings,
     columns,
     columnSettingsForDialog,
+    loadColumnSettingsFromStore,
     handleColumnSettingsSave,
     handleColumnWidthChange,
     applyOrderedColumnSettings,

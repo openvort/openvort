@@ -157,6 +157,7 @@ export function useWorkItemColumns(options: UseWorkItemColumnsOptions) {
         columns,
         columnSettingsForDialog,
         buildDefaultColumnSettings,
+        loadColumnSettingsFromStore,
         handleColumnSettingsSave,
         handleColumnWidthChange,
         applyOrderedColumnSettings,
