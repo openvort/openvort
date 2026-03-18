@@ -107,7 +107,8 @@ watch(() => props.filterValue, (val) => {
 
 const updatePosition = () => {
     if (!triggerRef.value) return;
-    const rect = triggerRef.value.getBoundingClientRect();
+    const th = triggerRef.value.closest("th");
+    const rect = (th || triggerRef.value).getBoundingClientRect();
     const panelWidth = 280;
     let left = rect.left;
     if (left + panelWidth > window.innerWidth - 8) {
@@ -115,8 +116,8 @@ const updatePosition = () => {
     }
     panelStyle.value = {
         position: "fixed",
-        top: `${rect.bottom + 4}px`,
-        left: `${Math.max(8, left)}px`,
+        top: `${rect.bottom - 3}px`,
+        left: `${Math.max(8, left - 3)}px`,
         zIndex: "1050",
     };
 };
@@ -198,15 +199,16 @@ const handleClear = () => {
 </script>
 
 <template>
-    <span
+    <div
         ref="triggerRef"
-        class="column-filter-trigger"
+        class="column-filter-cell"
         :class="{ 'has-active': activeCount > 0 }"
         @click.stop="toggleOpen"
     >
-        <Filter :size="12" />
+        <span class="column-filter-cell-label"><slot /></span>
+        <Filter :size="12" class="column-filter-cell-icon" />
         <span v-if="activeCount > 0" class="filter-badge">{{ activeCount }}</span>
-    </span>
+    </div>
 
     <Teleport to="body">
         <Transition name="filter-fade">
@@ -290,29 +292,61 @@ const handleClear = () => {
 </template>
 
 <style scoped>
-.column-filter-trigger {
+.column-filter-cell {
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-    width: 18px;
-    height: 18px;
-    border-radius: 3px;
+    gap: 4px;
     cursor: pointer;
-    color: #bbb;
-    position: relative;
-    margin-left: 2px;
-    flex-shrink: 0;
-    transition: color 0.2s, background 0.2s;
+    position: static;
+    user-select: none;
 }
-.column-filter-trigger:hover,
-.column-filter-trigger.has-active {
+/* Expand hover + click area to cover entire th */
+.column-filter-cell::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+}
+.column-filter-cell::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border: 1px solid transparent;
+    pointer-events: none;
+    transition: border-color 0.2s ease;
+    z-index: 1;
+}
+.column-filter-cell:hover::after {
+    border-color: #d9d9d9;
+}
+.column-filter-cell.has-active::after {
+    border-color: var(--vort-primary, #1456f0);
+}
+.column-filter-cell-label {
+    position: relative;
+    z-index: 2;
+}
+.column-filter-cell-icon {
+    position: absolute;
+    right: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #bbb;
+    opacity: 0;
+    transition: opacity 0.15s, color 0.15s;
+    z-index: 2;
+}
+.column-filter-cell:hover .column-filter-cell-icon,
+.column-filter-cell.has-active .column-filter-cell-icon {
+    opacity: 1;
+}
+.column-filter-cell.has-active .column-filter-cell-icon {
     color: var(--vort-primary, #1456f0);
-    background: var(--vort-primary-bg, rgba(20, 86, 240, 0.08));
 }
 .filter-badge {
     position: absolute;
-    top: -4px;
-    right: -4px;
+    top: 4px;
+    right: 4px;
     min-width: 14px;
     height: 14px;
     border-radius: 7px;
@@ -322,6 +356,7 @@ const handleClear = () => {
     line-height: 14px;
     text-align: center;
     padding: 0 3px;
+    z-index: 2;
 }
 .column-filter-panel {
     width: 280px;

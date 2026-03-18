@@ -1558,172 +1558,55 @@ onMounted(async () => {
                 @column-width-change="handleColumnWidthChange"
             >
                 <template #header-status="{ column }">
-                    <span>{{ column.title }}</span>
-                    <ColumnFilterPopover
-                        field="status"
-                        :title="column.title || ''"
-                        :config="statusFilterConfig"
-                        :sort-order="columnSortField === 'status' ? columnSortOrder : null"
-                        :filter-value="columnFilters['status']"
-                        @sort="(o) => handleColumnSort('status', o)"
-                        @filter="(v) => handleColumnFilter('status', v)"
-                    />
+                    <ColumnFilterPopover field="status" :title="column.title || ''" :config="statusFilterConfig" :sort-order="columnSortField === 'status' ? columnSortOrder : null" :filter-value="columnFilters['status']" @sort="(o) => handleColumnSort('status', o)" @filter="(v) => handleColumnFilter('status', v)">{{ column.title }}</ColumnFilterPopover>
                 </template>
 
                 <template #header-priority="{ column }">
-                    <span>{{ column.title }}</span>
-                    <ColumnFilterPopover
-                        field="priority"
-                        :title="column.title || ''"
-                        :config="priorityFilterConfig"
-                        :sort-order="columnSortField === 'priority' ? columnSortOrder : null"
-                        :filter-value="columnFilters['priority']"
-                        @sort="(o) => handleColumnSort('priority', o)"
-                        @filter="(v) => handleColumnFilter('priority', v)"
-                    />
+                    <ColumnFilterPopover field="priority" :title="column.title || ''" :config="priorityFilterConfig" :sort-order="columnSortField === 'priority' ? columnSortOrder : null" :filter-value="columnFilters['priority']" @sort="(o) => handleColumnSort('priority', o)" @filter="(v) => handleColumnFilter('priority', v)">{{ column.title }}</ColumnFilterPopover>
                 </template>
 
                 <template #header-createdAt="{ column }">
-                    <span>{{ column.title }}</span>
-                    <ColumnFilterPopover
-                        field="createdAt"
-                        :title="column.title || ''"
-                        :config="dateFilterConfig"
-                        :sort-order="columnSortField === 'createdAt' ? columnSortOrder : null"
-                        :filter-value="columnFilters['createdAt']"
-                        @sort="(o) => handleColumnSort('createdAt', o)"
-                        @filter="(v) => handleColumnFilter('createdAt', v)"
-                    />
+                    <ColumnFilterPopover field="createdAt" :title="column.title || ''" :config="dateFilterConfig" :sort-order="columnSortField === 'createdAt' ? columnSortOrder : null" :filter-value="columnFilters['createdAt']" @sort="(o) => handleColumnSort('createdAt', o)" @filter="(v) => handleColumnFilter('createdAt', v)">{{ column.title }}</ColumnFilterPopover>
                 </template>
 
                 <template #header-tags="{ column }">
-                    <span>{{ column.title }}</span>
-                    <ColumnFilterPopover
-                        field="tags"
-                        :title="column.title || ''"
-                        :config="tagsFilterConfig"
-                        :sort-order="columnSortField === 'tags' ? columnSortOrder : null"
-                        :filter-value="columnFilters['tags']"
-                        @sort="(o) => handleColumnSort('tags', o)"
-                        @filter="(v) => handleColumnFilter('tags', v)"
-                    />
+                    <ColumnFilterPopover field="tags" :title="column.title || ''" :config="tagsFilterConfig" :sort-order="columnSortField === 'tags' ? columnSortOrder : null" :filter-value="columnFilters['tags']" @sort="(o) => handleColumnSort('tags', o)" @filter="(v) => handleColumnFilter('tags', v)">{{ column.title }}</ColumnFilterPopover>
                 </template>
 
                 <template #header-planTime="{ column }">
-                    <span>{{ column.title }}</span>
-                    <ColumnFilterPopover
-                        field="planTime"
-                        :title="column.title || ''"
-                        :config="dateFilterConfig"
-                        :sort-order="columnSortField === 'planTime' ? columnSortOrder : null"
-                        :filter-value="columnFilters['planTime']"
-                        @sort="(o) => handleColumnSort('planTime', o)"
-                        @filter="(v) => handleColumnFilter('planTime', v)"
-                    />
+                    <ColumnFilterPopover field="planTime" :title="column.title || ''" :config="dateFilterConfig" :sort-order="columnSortField === 'planTime' ? columnSortOrder : null" :filter-value="columnFilters['planTime']" @sort="(o) => handleColumnSort('planTime', o)" @filter="(v) => handleColumnFilter('planTime', v)">{{ column.title }}</ColumnFilterPopover>
                 </template>
 
                 <template #header-owner="{ column }">
-                    <span>{{ column.title }}</span>
-                    <ColumnFilterPopover
-                        field="owner"
-                        :title="column.title || ''"
-                        :config="ownerFilterConfig"
-                        :sort-order="columnSortField === 'owner' ? columnSortOrder : null"
-                        :filter-value="columnFilters['owner']"
-                        @sort="(o) => handleColumnSort('owner', o)"
-                        @filter="(v) => handleColumnFilter('owner', v)"
-                    />
+                    <ColumnFilterPopover field="owner" :title="column.title || ''" :config="ownerFilterConfig" :sort-order="columnSortField === 'owner' ? columnSortOrder : null" :filter-value="columnFilters['owner']" @sort="(o) => handleColumnSort('owner', o)" @filter="(v) => handleColumnFilter('owner', v)">{{ column.title }}</ColumnFilterPopover>
                 </template>
 
                 <template #header-collaborators="{ column }">
-                    <span>{{ column.title }}</span>
-                    <ColumnFilterPopover
-                        field="collaborators"
-                        :title="column.title || ''"
-                        :config="collaboratorsFilterConfig"
-                        :sort-order="columnSortField === 'collaborators' ? columnSortOrder : null"
-                        :filter-value="columnFilters['collaborators']"
-                        @sort="(o) => handleColumnSort('collaborators', o)"
-                        @filter="(v) => handleColumnFilter('collaborators', v)"
-                    />
+                    <ColumnFilterPopover field="collaborators" :title="column.title || ''" :config="collaboratorsFilterConfig" :sort-order="columnSortField === 'collaborators' ? columnSortOrder : null" :filter-value="columnFilters['collaborators']" @sort="(o) => handleColumnSort('collaborators', o)" @filter="(v) => handleColumnFilter('collaborators', v)">{{ column.title }}</ColumnFilterPopover>
                 </template>
 
                 <template #header-updatedAt="{ column }">
-                    <span>{{ column.title }}</span>
-                    <ColumnFilterPopover
-                        field="updatedAt"
-                        :title="column.title || ''"
-                        :config="dateFilterConfig"
-                        :sort-order="columnSortField === 'updatedAt' ? columnSortOrder : null"
-                        :filter-value="columnFilters['updatedAt']"
-                        @sort="(o) => handleColumnSort('updatedAt', o)"
-                        @filter="(v) => handleColumnFilter('updatedAt', v)"
-                    />
+                    <ColumnFilterPopover field="updatedAt" :title="column.title || ''" :config="dateFilterConfig" :sort-order="columnSortField === 'updatedAt' ? columnSortOrder : null" :filter-value="columnFilters['updatedAt']" @sort="(o) => handleColumnSort('updatedAt', o)" @filter="(v) => handleColumnFilter('updatedAt', v)">{{ column.title }}</ColumnFilterPopover>
                 </template>
 
                 <template #header-iteration="{ column }">
-                    <span>{{ column.title }}</span>
-                    <ColumnFilterPopover
-                        field="iteration"
-                        :title="column.title || ''"
-                        :config="iterationFilterConfig"
-                        :sort-order="columnSortField === 'iteration' ? columnSortOrder : null"
-                        :filter-value="columnFilters['iteration']"
-                        @sort="(o) => handleColumnSort('iteration', o)"
-                        @filter="(v) => handleColumnFilter('iteration', v)"
-                    />
+                    <ColumnFilterPopover field="iteration" :title="column.title || ''" :config="iterationFilterConfig" :sort-order="columnSortField === 'iteration' ? columnSortOrder : null" :filter-value="columnFilters['iteration']" @sort="(o) => handleColumnSort('iteration', o)" @filter="(v) => handleColumnFilter('iteration', v)">{{ column.title }}</ColumnFilterPopover>
                 </template>
 
                 <template #header-version="{ column }">
-                    <span>{{ column.title }}</span>
-                    <ColumnFilterPopover
-                        field="version"
-                        :title="column.title || ''"
-                        :config="versionFilterConfig"
-                        :sort-order="columnSortField === 'version' ? columnSortOrder : null"
-                        :filter-value="columnFilters['version']"
-                        @sort="(o) => handleColumnSort('version', o)"
-                        @filter="(v) => handleColumnFilter('version', v)"
-                    />
+                    <ColumnFilterPopover field="version" :title="column.title || ''" :config="versionFilterConfig" :sort-order="columnSortField === 'version' ? columnSortOrder : null" :filter-value="columnFilters['version']" @sort="(o) => handleColumnSort('version', o)" @filter="(v) => handleColumnFilter('version', v)">{{ column.title }}</ColumnFilterPopover>
                 </template>
 
                 <template #header-startAt="{ column }">
-                    <span>{{ column.title }}</span>
-                    <ColumnFilterPopover
-                        field="startAt"
-                        :title="column.title || ''"
-                        :config="dateFilterConfig"
-                        :sort-order="columnSortField === 'startAt' ? columnSortOrder : null"
-                        :filter-value="columnFilters['startAt']"
-                        @sort="(o) => handleColumnSort('startAt', o)"
-                        @filter="(v) => handleColumnFilter('startAt', v)"
-                    />
+                    <ColumnFilterPopover field="startAt" :title="column.title || ''" :config="dateFilterConfig" :sort-order="columnSortField === 'startAt' ? columnSortOrder : null" :filter-value="columnFilters['startAt']" @sort="(o) => handleColumnSort('startAt', o)" @filter="(v) => handleColumnFilter('startAt', v)">{{ column.title }}</ColumnFilterPopover>
                 </template>
 
                 <template #header-endAt="{ column }">
-                    <span>{{ column.title }}</span>
-                    <ColumnFilterPopover
-                        field="endAt"
-                        :title="column.title || ''"
-                        :config="dateFilterConfig"
-                        :sort-order="columnSortField === 'endAt' ? columnSortOrder : null"
-                        :filter-value="columnFilters['endAt']"
-                        @sort="(o) => handleColumnSort('endAt', o)"
-                        @filter="(v) => handleColumnFilter('endAt', v)"
-                    />
+                    <ColumnFilterPopover field="endAt" :title="column.title || ''" :config="dateFilterConfig" :sort-order="columnSortField === 'endAt' ? columnSortOrder : null" :filter-value="columnFilters['endAt']" @sort="(o) => handleColumnSort('endAt', o)" @filter="(v) => handleColumnFilter('endAt', v)">{{ column.title }}</ColumnFilterPopover>
                 </template>
 
                 <template #header-milestone="{ column }">
-                    <span>{{ column.title }}</span>
-                    <ColumnFilterPopover
-                        field="milestone"
-                        :title="column.title || ''"
-                        :config="milestoneFilterConfig"
-                        :sort-order="columnSortField === 'milestone' ? columnSortOrder : null"
-                        :filter-value="columnFilters['milestone']"
-                        @sort="(o) => handleColumnSort('milestone', o)"
-                        @filter="(v) => handleColumnFilter('milestone', v)"
-                    />
+                    <ColumnFilterPopover field="milestone" :title="column.title || ''" :config="milestoneFilterConfig" :sort-order="columnSortField === 'milestone' ? columnSortOrder : null" :filter-value="columnFilters['milestone']" @sort="(o) => handleColumnSort('milestone', o)" @filter="(v) => handleColumnFilter('milestone', v)">{{ column.title }}</ColumnFilterPopover>
                 </template>
 
                 <template #workNo="{ text }">
