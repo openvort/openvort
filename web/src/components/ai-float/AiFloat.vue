@@ -51,7 +51,7 @@ watch(pendingPrompt, (prompt) => {
 
 <template>
     <div v-if="!isOnChatPage" class="ai-float-container">
-        <transition name="ai-float-panel">
+        <transition name="ai-float-panel" type="animation">
             <div v-if="panelOpen" class="ai-float-panel" :style="{ width: showContacts ? '660px' : '420px' }">
                 <div class="ai-float-body">
                     <ChatView
