@@ -3,6 +3,7 @@ export interface MenuConfig {
     title: string;
     icon: string;
     path?: string;
+    externalUrl?: string;
     label?: string;
     position?: string;
     requiredRole?: string;
@@ -53,6 +54,13 @@ export const menuConfig: MenuConfig[] = [
             { title: "工作节点", icon: "cpu", path: "/remote-nodes" },
             { title: "系统升级", icon: "arrow-up-circle", path: "/upgrade" },
             { title: "运行日志", icon: "file-text", path: "/logs" },
+        ],
+    },
+    {
+        title: "资源", icon: "book-marked", label: "资源",
+        children: [
+            { title: "文档", icon: "file-text", externalUrl: "https://www.openvort.com/docs" },
+            { title: "社区", icon: "users", externalUrl: "https://www.openvort.com/community" },
         ],
     },
     { title: "个人设置", icon: "user", path: "/profile", position: "bottom" },

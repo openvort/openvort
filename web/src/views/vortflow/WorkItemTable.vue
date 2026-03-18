@@ -341,6 +341,24 @@ const milestoneFilterConfig = computed<ColumnFilterConfig>(() => ({
     options: dynamicMilestoneOptions.value.map(o => ({ label: o.name, value: o.name })),
 }));
 
+const PRIORITY_DOT_COLOR_MAP: Record<string, string> = {
+    "紧急": "#ef4444",
+    "高": "#f59e0b",
+    "中": "#3b82f6",
+    "低": "#10b981",
+    "无优先级": "#9ca3af",
+};
+
+const priorityFilterConfig = computed<ColumnFilterConfig>(() => ({
+    type: "enum",
+    options: priorityOptions.map(o => ({
+        label: o.label,
+        value: o.value,
+        dotColor: PRIORITY_DOT_COLOR_MAP[o.label] || "#9ca3af",
+    })),
+    sortLabels: ["低 → 紧急", "紧急 → 低"] as [string, string],
+}));
+
 const handleColumnSort = (field: string, order: "ascend" | "descend" | null) => {
     columnSortField.value = order ? field : "";
     columnSortOrder.value = order;
@@ -1549,6 +1567,19 @@ onMounted(async () => {
                         :filter-value="columnFilters['status']"
                         @sort="(o) => handleColumnSort('status', o)"
                         @filter="(v) => handleColumnFilter('status', v)"
+                    />
+                </template>
+
+                <template #header-priority="{ column }">
+                    <span>{{ column.title }}</span>
+                    <ColumnFilterPopover
+                        field="priority"
+                        :title="column.title || ''"
+                        :config="priorityFilterConfig"
+                        :sort-order="columnSortField === 'priority' ? columnSortOrder : null"
+                        :filter-value="columnFilters['priority']"
+                        @sort="(o) => handleColumnSort('priority', o)"
+                        @filter="(v) => handleColumnFilter('priority', v)"
                     />
                 </template>
 

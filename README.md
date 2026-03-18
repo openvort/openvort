@@ -6,14 +6,14 @@
 [![Vue 3](https://img.shields.io/badge/Vue-3.5-brightgreen.svg)](https://vuejs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115%2B-009688.svg)](https://fastapi.tiangolo.com/)
 
-开源 AI 研发工作流引擎 — 通过 IM 或 Web 面板与 AI Agent 交互，自动化项目管理、代码仓库、团队协作。
+开源 AI 员工平台 — 创建 AI 员工，让他们与真人一起在企业微信、钉钉、飞书里协作，就像多招了几个同事。
 
-> **Open-source AI-powered R&D workflow engine** — Interact with AI agents via IM (WeCom / DingTalk / Feishu) or Web panel to automate project management, code repositories, and team collaboration.
+> **Open-source AI Employee Platform** — Create AI employees that work alongside your real team in WeCom, DingTalk, and Feishu — taking requirements, writing code, reviewing PRs, running builds, and generating reports, just like hiring a few more colleagues.
 
 ## 特性
 
 - **AI 驱动** — 基于 Claude tool use 的 agentic loop，Agent 自主决策调用工具，支持多模型 Failover
-- **AI 员工** — 虚拟成员绑定岗位与 Skill，通过定时任务自动执行日报/代码审查/测试等工作；支持绑定远程节点（Mac Mini + OpenClaw），在远程电脑上执行编码/部署等实操任务
+- **AI 员工** — 虚拟成员绑定岗位与 Skill，通过定时任务自动执行日报/代码审查/测试等工作；支持一键创建 Docker 工作电脑，在自己的环境里写代码、跑脚本、装工具
 - **异步任务执行** — Agent 执行与 SSE 解耦，用户离开页面 AI 继续工作；任务完成后自动通知；支持从任意页面查看进度、中断或追加指令
 - **消息通知系统** — Chat 为消息归宿，IM 为门铃：实时 WebSocket 推送未读红点、声音/Toast/桌面通知、Tab 标题计数；延迟检测已读后按用户偏好 IM 通道优先级发送简短提醒；通知聚合 + 免打扰时段
 - **多 IM 支持** — 企业微信、钉钉、飞书、OpenClaw 多平台网关，支持语音消息收发（ASR/TTS）

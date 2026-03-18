@@ -9,7 +9,8 @@ import {
     CheckCircle, User, Settings, ChevronDown, PanelLeftClose, PanelLeftOpen,
     MessageSquare, Puzzle, Radio, Users, Clock, BookOpen, Webhook, GitBranch, Cpu,
     Kanban, LayoutDashboard, ListChecks, CheckSquare, Bug, Milestone,
-    Wrench, FolderGit2, Server, Shield, Sparkles, Library, Bot, Store, Bell
+    Wrench, FolderGit2, Server, Shield, Sparkles, Library, Bot, Store, Bell,
+    BookMarked, ExternalLink
 } from "lucide-vue-next";
 
 const props = defineProps<{ isMobile?: boolean }>();
@@ -84,6 +85,7 @@ const iconMap: Record<string, any> = {
     "check-square": CheckSquare, bug: Bug, milestone: Milestone,
     wrench: Wrench, "folder-git-2": FolderGit2, server: Server, shield: Shield,
     sparkles: Sparkles, library: Library, bot: Bot, store: Store, bell: Bell,
+    "book-marked": BookMarked, "external-link": ExternalLink,
 };
 
 const filterByRole = (items: MenuConfig[]) => {
@@ -151,6 +153,10 @@ const isChildActive = (child: MenuConfig): boolean => {
 };
 
 const handleClick = (item: MenuConfig) => {
+    if (item.externalUrl) {
+        window.open(item.externalUrl, "_blank", "noopener,noreferrer");
+        return;
+    }
     if (item.path) {
         router.push(item.path);
         if (props.isMobile) {
@@ -377,6 +383,7 @@ watch([collapsed, () => props.isMobile, () => route.path], () => {
                                 @click="handleChildClick(child)"
                             >
                                 {{ child.title }}
+                                <ExternalLink v-if="child.externalUrl" :size="12" class="ml-1 opacity-40" />
                             </div>
                         </div>
                     </details>
@@ -452,6 +459,7 @@ watch([collapsed, () => props.isMobile, () => route.path], () => {
                         @click="handlePopupChildClick(child)"
                     >
                         {{ child.title }}
+                        <ExternalLink v-if="child.externalUrl" :size="12" class="ml-1 opacity-40" />
                     </div>
                 </div>
             </Transition>

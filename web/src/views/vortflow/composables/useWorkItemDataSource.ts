@@ -292,6 +292,9 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
                         const rowTags: string[] = row.tags || [];
                         if (!vals.some(v => rowTags.includes(v))) return false;
                     }
+                } else if (field === "priority") {
+                    const vals = fv.value as string[];
+                    if (vals?.length && !vals.includes(row.priority || "")) return false;
                 } else if (field === "iteration") {
                     const vals = fv.value as string[];
                     if (vals?.length && !vals.includes(row.iteration || "")) return false;
@@ -347,6 +350,10 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
             if (field === "status") {
                 va = a.status || "";
                 vb = b.status || "";
+            } else if (field === "priority") {
+                const priorityOrder: Record<string, number> = { urgent: 1, high: 2, medium: 3, low: 4, none: 5 };
+                va = priorityOrder[a.priority] ?? 99;
+                vb = priorityOrder[b.priority] ?? 99;
             } else if (field === "tags") {
                 va = (a.tags || []).join(",");
                 vb = (b.tags || []).join(",");
