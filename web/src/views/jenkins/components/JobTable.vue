@@ -83,17 +83,34 @@
                     </template>
                 </VortTableColumn>
 
-                <VortTableColumn label="操作" :width="100" align="center" fixed="right">
+                <VortTableColumn label="操作" :width="160" align="center" fixed="right">
                     <template #default="{ row }">
-                        <VortButton
-                            v-if="!row.is_folder"
-                            variant="text"
-                            size="small"
-                            :loading="buildingJob === row.name"
-                            @click="$emit('triggerBuild', row)"
-                        >
-                            <Play v-if="buildingJob !== row.name" :size="14" class="mr-1" /> 构建
-                        </VortButton>
+                        <div v-if="!row.is_folder" class="inline-flex items-center gap-1">
+                            <VortButton
+                                variant="text"
+                                size="small"
+                                :loading="buildingJob === row.name"
+                                @click="$emit('triggerBuild', row)"
+                            >
+                                <Play v-if="buildingJob !== row.name" :size="14" class="mr-1" /> 构建
+                            </VortButton>
+                            <VortTooltip title="查看配置">
+                                <button
+                                    class="p-1 text-gray-400 rounded hover:bg-gray-100 hover:text-gray-600 transition-colors"
+                                    @click="$emit('viewConfig', row)"
+                                >
+                                    <Settings :size="14" />
+                                </button>
+                            </VortTooltip>
+                            <VortTooltip title="AI 编辑配置">
+                                <button
+                                    class="p-1 text-gray-400 rounded hover:bg-gray-100 hover:text-blue-600 transition-colors"
+                                    @click="goAiEdit(row)"
+                                >
+                                    <Bot :size="14" />
+                                </button>
+                            </VortTooltip>
+                        </div>
                         <button
                             v-else
                             class="text-gray-400 hover:text-gray-600"
@@ -116,12 +133,15 @@
 </template>
 
 <script setup lang="ts">
-import { Play, ChevronRight, FolderClosed, HardDrive } from "lucide-vue-next";
+import { useRouter } from "vue-router";
+import { Play, ChevronRight, FolderClosed, HardDrive, Settings, Bot } from "lucide-vue-next";
 import { AiAssistButton } from "@/components/vort-biz/ai-assist-button";
 import type { AiAssistPromptItem } from "@/components/vort-biz/ai-assist-button";
 import StatusIcon from "./StatusIcon.vue";
 import { formatDuration, formatRelativeTime } from "../types";
 import type { JenkinsJob } from "../types";
+
+const router = useRouter();
 
 const aiPrompts: AiAssistPromptItem[] = [
     {
@@ -154,8 +174,19 @@ defineEmits<{
     (e: "enterFolder", folderName: string): void;
     (e: "viewDetail", job: JenkinsJob): void;
     (e: "triggerBuild", job: JenkinsJob): void;
+    (e: "viewConfig", job: JenkinsJob): void;
     (e: "navigateBreadcrumb", path: string[]): void;
     (e: "update:keyword", val: string): void;
     (e: "search"): void;
 }>();
+
+function goAiEdit(job: JenkinsJob) {
+    const name = job.full_name || job.name;
+    router.push({
+        name: "chat",
+        query: {
+            prompt: `我想编辑 Jenkins Job「${name}」的配置，请用 jenkins_manage_job(action=get_config, job_name="${name}") 获取它的当前配置，然后告诉我这个 Job 的关键配置信息（构建步骤、参数、触发器等），并询问我想修改什么。`,
+        },
+    });
+}
 </script>

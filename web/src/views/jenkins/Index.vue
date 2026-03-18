@@ -106,6 +106,7 @@
                         @enter-folder="handleEnterFolder"
                         @view-detail="handleViewDetail"
                         @trigger-build="handleTriggerBuild"
+                        @view-config="handleViewConfig"
                         @navigate-breadcrumb="handleNavigateBreadcrumb"
                         @update:keyword="jobCtx.keyword.value = $event"
                         @search="refreshJobs"
@@ -153,6 +154,14 @@
             @view-log="handleViewLog"
         />
 
+        <ConfigDialog
+            :open="configDialogOpen"
+            :job-name="configJobName"
+            :config="jobCtx.configSummary.value"
+            :loading="jobCtx.configSummaryLoading.value"
+            @update:open="configDialogOpen = $event"
+        />
+
         <BuildLogViewer
             :open="buildLogOpen"
             :build-number="logBuildNumber"
@@ -169,6 +178,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { Loader2, HardDrive, Plus, KeyRound, AlertTriangle, Settings } from "lucide-vue-next";
 import { AiAssistButton } from "@/components/vort-biz/ai-assist-button";
 import { useUserStore } from "@/stores";
@@ -181,12 +191,15 @@ import JobTable from "./components/JobTable.vue";
 import BuildDialog from "./components/BuildDialog.vue";
 import JobDetailDrawer from "./components/JobDetailDrawer.vue";
 import BuildLogViewer from "./components/BuildLogViewer.vue";
+import ConfigDialog from "./components/ConfigDialog.vue";
 
 import { useJenkinsInstances } from "./composables/useJenkinsInstances";
 import { useJenkinsJobs } from "./composables/useJenkinsJobs";
 import { useJenkinsBuild } from "./composables/useJenkinsBuild";
 import type { JenkinsInstance, JenkinsJob, JenkinsParameterDef } from "./types";
 
+const route = useRoute();
+const router = useRouter();
 const userStore = useUserStore();
 const isAdmin = computed(() => userStore.userInfo?.roles?.includes("admin") ?? false);
 
@@ -195,6 +208,7 @@ const jobCtx = useJenkinsJobs();
 const buildCtx = useJenkinsBuild();
 
 const initialLoading = ref(true);
+const initialized = ref(false);
 const pageState = computed(() => {
     if (initialLoading.value) return "loading";
     if (instCtx.instances.value.length === 0) return "no-instances";
@@ -204,6 +218,25 @@ const pageState = computed(() => {
 const currentInstanceId = computed(() => instCtx.selectedInstance.value?.id ?? "");
 
 const authFailed = ref(false);
+
+function syncUrlState() {
+    const query: Record<string, string> = {};
+    if (instCtx.selectedInstance.value?.id) {
+        query.instance = instCtx.selectedInstance.value.id;
+    }
+    if (jobCtx.activeView.value && jobCtx.activeView.value !== "All") {
+        query.view = jobCtx.activeView.value;
+    }
+    if (jobCtx.folderPath.value.length > 0) {
+        query.folder = jobCtx.folderPath.value.join("/");
+    }
+    router.replace({ query });
+}
+
+watch(
+    [currentInstanceId, () => jobCtx.activeView.value, () => jobCtx.folderPath.value.join("/")],
+    () => { if (initialized.value) syncUrlState(); },
+);
 
 async function loadInstanceData(silent = true) {
     if (!currentInstanceId.value) return;
@@ -266,14 +299,15 @@ async function handleCredentialSubmit(data: { username: string; api_token: strin
 }
 
 watch(currentInstanceId, async (id) => {
-    if (!id) return;
+    if (!id || !initialized.value) return;
     instCtx.credentialConfigured.value = null;
     jobCtx.resetNavigation();
+    authFailed.value = false;
     await instCtx.checkCredential(id);
 });
 
 watch(() => instCtx.credentialConfigured.value, async (configured) => {
-    if (configured === true) {
+    if (configured === true && initialized.value) {
         await loadInstanceData();
     }
 });
@@ -305,6 +339,19 @@ function handleViewDetail(job: JenkinsJob) {
     jobDetailOpen.value = true;
     if (currentInstanceId.value) {
         jobCtx.loadJobDetail(currentInstanceId.value, job.full_name || job.name);
+    }
+}
+
+// Config dialog
+const configDialogOpen = ref(false);
+const configJobName = ref("");
+
+function handleViewConfig(job: JenkinsJob) {
+    const jobName = job.full_name || job.name;
+    configJobName.value = jobName;
+    configDialogOpen.value = true;
+    if (currentInstanceId.value) {
+        jobCtx.loadConfigSummary(currentInstanceId.value, jobName);
     }
 }
 
@@ -372,7 +419,33 @@ async function loadFullLog() {
 }
 
 onMounted(async () => {
+    const urlInstanceId = route.query.instance as string | undefined;
+    const urlView = route.query.view as string | undefined;
+    const urlFolder = route.query.folder as string | undefined;
+
     await instCtx.loadInstances();
     initialLoading.value = false;
+
+    if (instCtx.instances.value.length === 0) {
+        initialized.value = true;
+        return;
+    }
+
+    if (urlInstanceId) {
+        const inst = instCtx.instances.value.find(i => i.id === urlInstanceId);
+        if (inst) instCtx.selectInstance(inst);
+    }
+
+    if (currentInstanceId.value) {
+        await instCtx.checkCredential(currentInstanceId.value);
+    }
+
+    if (instCtx.credentialConfigured.value === true) {
+        if (urlView) jobCtx.activeView.value = urlView;
+        if (urlFolder) jobCtx.folderPath.value = urlFolder.split("/");
+        await loadInstanceData();
+    }
+
+    initialized.value = true;
 });
 </script>

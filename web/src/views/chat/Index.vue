@@ -1298,6 +1298,7 @@ onUnmounted(() => {
 
 .chat-textarea {
     padding: 15px 16px 12px !important;
+    line-height: 1.8 !important;
 }
 .chat-input-box:focus-within {
     border-color: var(--vort-primary, #1456f0);

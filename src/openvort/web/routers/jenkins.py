@@ -511,6 +511,21 @@ async def get_job_info(request: Request, instance_id: str, job_name: str):
     return await _run_client(instance_id, member_id, handler)
 
 
+@router.get("/instances/{instance_id}/jobs/config-summary")
+async def get_job_config_summary(request: Request, instance_id: str, job_name: str):
+    member_id = _get_member_id(request)
+
+    if not job_name.strip():
+        raise HTTPException(status_code=400, detail="job_name 不能为空")
+
+    async def handler(client: JenkinsClient):
+        xml_text = await client.get_job_config(job_name.strip())
+        summary = JenkinsClient.parse_job_config_xml(xml_text)
+        return {"job_name": job_name.strip(), "config_xml": xml_text, **summary}
+
+    return await _run_client(instance_id, member_id, handler)
+
+
 @router.post("/instances/{instance_id}/jobs/build")
 async def trigger_build(request: Request, instance_id: str, req: TriggerBuildRequest):
     member_id = _get_member_id(request)

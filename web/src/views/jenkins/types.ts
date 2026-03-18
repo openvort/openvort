@@ -56,6 +56,25 @@ export interface JenkinsView {
     name: string;
 }
 
+export interface JenkinsConfigItem {
+    label: string;
+    value: string;
+    type: "text" | "code";
+}
+
+export interface JenkinsConfigSection {
+    title: string;
+    items: JenkinsConfigItem[];
+}
+
+export interface JenkinsConfigSummary {
+    job_name: string;
+    job_type: string;
+    sections: JenkinsConfigSection[];
+    raw_xml_length: number;
+    config_xml?: string;
+}
+
 export type JenkinsColor =
     | "blue" | "red" | "yellow" | "grey" | "notbuilt" | "disabled" | "aborted"
     | "blue_anime" | "red_anime" | "yellow_anime" | "grey_anime" | "aborted_anime";

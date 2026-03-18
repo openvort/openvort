@@ -47,6 +47,10 @@ export function getJenkinsJobInfo(id: string, jobName: string) {
     return request.get(`/jenkins/instances/${id}/jobs/info`, { params: { job_name: jobName } });
 }
 
+export function getJenkinsJobConfigSummary(id: string, jobName: string) {
+    return request.get(`/jenkins/instances/${id}/jobs/config-summary`, { params: { job_name: jobName } });
+}
+
 export function triggerJenkinsBuild(id: string, data: { job_name: string; parameters?: Record<string, any> }) {
     return request.post(`/jenkins/instances/${id}/jobs/build`, data);
 }

@@ -1,6 +1,6 @@
 import { ref, computed } from "vue";
-import { getJenkinsJobs, getJenkinsSystemInfo, getJenkinsJobInfo } from "@/api/jenkins";
-import type { JenkinsJob, JenkinsView, JenkinsJobDetail } from "../types";
+import { getJenkinsJobs, getJenkinsSystemInfo, getJenkinsJobInfo, getJenkinsJobConfigSummary } from "@/api/jenkins";
+import type { JenkinsJob, JenkinsView, JenkinsJobDetail, JenkinsConfigSummary } from "../types";
 
 export type LoadResult = "ok" | "auth_error" | "error";
 
@@ -114,6 +114,23 @@ export function useJenkinsJobs() {
         }
     }
 
+    // Job config summary
+    const configSummary = ref<JenkinsConfigSummary | null>(null);
+    const configSummaryLoading = ref(false);
+
+    async function loadConfigSummary(instanceId: string, jobName: string) {
+        configSummaryLoading.value = true;
+        configSummary.value = null;
+        try {
+            const res: any = await getJenkinsJobConfigSummary(instanceId, jobName);
+            configSummary.value = res as JenkinsConfigSummary;
+        } catch {
+            configSummary.value = null;
+        } finally {
+            configSummaryLoading.value = false;
+        }
+    }
+
     return {
         jobs,
         views,
@@ -132,5 +149,8 @@ export function useJenkinsJobs() {
         jobDetail,
         jobDetailLoading,
         loadJobDetail,
+        configSummary,
+        configSummaryLoading,
+        loadConfigSummary,
     };
 }
