@@ -14,6 +14,7 @@ export interface JenkinsBuild {
     timestamp: number;
     building: boolean;
     duration: number;
+    estimatedDuration?: number;
     url: string;
 }
 

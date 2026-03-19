@@ -24,10 +24,8 @@ def marketplace_search(query, ext_type, limit):
 
 async def _marketplace_search(query: str, ext_type: str, limit: int):
     from openvort.marketplace.client import MarketplaceClient
-    from openvort.config.settings import get_settings
 
-    settings = get_settings()
-    client = MarketplaceClient(base_url=settings.marketplace.url)
+    client = MarketplaceClient()
 
     try:
         result = await client.search(query=query, type=ext_type, limit=limit)
@@ -67,7 +65,7 @@ async def _marketplace_install(ext_type: str, ref: str):
     settings = get_settings()
     session_factory = await init_db(settings.database_url)
 
-    client = MarketplaceClient(base_url=settings.marketplace.url)
+    client = MarketplaceClient()
     registry = PluginRegistry()
     installer = MarketplaceInstaller(client, session_factory, registry, data_dir=settings.data_dir)
 
@@ -111,7 +109,7 @@ async def _marketplace_list():
     settings = get_settings()
     session_factory = await init_db(settings.database_url)
 
-    client = MarketplaceClient(base_url=settings.marketplace.url)
+    client = MarketplaceClient()
     registry = PluginRegistry()
     installer = MarketplaceInstaller(client, session_factory, registry, data_dir=settings.data_dir)
 
@@ -151,7 +149,7 @@ async def _marketplace_uninstall(slug: str):
     settings = get_settings()
     session_factory = await init_db(settings.database_url)
 
-    client = MarketplaceClient(base_url=settings.marketplace.url)
+    client = MarketplaceClient()
     registry = PluginRegistry()
     installer = MarketplaceInstaller(client, session_factory, registry, data_dir=settings.data_dir)
 
@@ -182,7 +180,7 @@ async def _marketplace_update():
     settings = get_settings()
     session_factory = await init_db(settings.database_url)
 
-    client = MarketplaceClient(base_url=settings.marketplace.url)
+    client = MarketplaceClient()
     registry = PluginRegistry()
     installer = MarketplaceInstaller(client, session_factory, registry, data_dir=settings.data_dir)
 
@@ -304,7 +302,7 @@ async def _marketplace_publish(folder: str, ext_type: str, slug: str, username: 
         import base64
         token = base64.b64encode(f"{username}:{password}".encode()).decode()
 
-    client = MarketplaceClient(base_url=settings.marketplace.url, token=token)
+    client = MarketplaceClient(token=token)
 
     try:
         click.echo("上传 Bundle...")
@@ -350,7 +348,7 @@ async def _marketplace_publish(folder: str, ext_type: str, slug: str, username: 
         result = await client.publish_extension(body)
         click.echo(f"\n发布成功! {result.get('author', '')}/{result.get('slug', slug)}")
         click.echo(f"  版本: v{result.get('version', '1.0.0')}")
-        click.echo(f"  查看: {settings.marketplace.url.replace('/api', '')}/{result.get('author', '')}/{result.get('slug', slug)}")
+        click.echo(f"  查看: https://openvort.com/{result.get('author', '')}/{result.get('slug', slug)}")
     except Exception as e:
         click.echo(f"发布失败: {e}", err=True)
         raise SystemExit(1)
@@ -376,7 +374,7 @@ async def _marketplace_sync(sync_all: bool):
     settings = get_settings()
     session_factory = await init_db(settings.database_url)
 
-    client = MarketplaceClient(base_url=settings.marketplace.url)
+    client = MarketplaceClient()
     registry = PluginRegistry()
     installer = MarketplaceInstaller(client, session_factory, registry, data_dir=settings.data_dir)
 

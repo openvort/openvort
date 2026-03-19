@@ -10,7 +10,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MARKETPLACE_URL = "https://openvort.com/api"
+MARKETPLACE_URL = "https://openvort.com/api"
 TIMEOUT = 30
 DOWNLOAD_TIMEOUT = 300
 
@@ -18,8 +18,8 @@ DOWNLOAD_TIMEOUT = 300
 class MarketplaceClient:
     """HTTP client to interact with the OpenVort extensions marketplace."""
 
-    def __init__(self, base_url: str = DEFAULT_MARKETPLACE_URL, token: str = ""):
-        self.base_url = base_url.rstrip("/")
+    def __init__(self, token: str = ""):
+        self.base_url = MARKETPLACE_URL
         self.token = token
         self._client: httpx.AsyncClient | None = None
 

@@ -22,10 +22,19 @@
                 class="inline-flex items-center gap-2 bg-white rounded-lg border border-gray-100 pl-3 pr-1.5 py-1.5 text-sm shadow-sm hover:shadow transition-shadow"
             >
                 <StatusIcon :color="job.color" />
-                <button class="text-left hover:text-blue-600 transition-colors max-w-[200px]" @click="handleViewDetail(job)">
-                    <span class="text-gray-700 truncate block">{{ job.name }}</span>
-                    <span v-if="job.description" class="text-xs text-gray-400 truncate block">{{ job.description }}</span>
-                </button>
+                <div class="text-left max-w-[200px]">
+                    <button class="hover:text-blue-600 transition-colors" @click="handleViewDetail(job)">
+                        <span class="text-gray-700 truncate block">{{ job.name }}</span>
+                    </button>
+                    <BuildProgress
+                        v-if="isPinnedJobBuilding(job)"
+                        :timestamp="job.last_build!.timestamp"
+                        :estimated-duration="job.last_build!.estimatedDuration || 0"
+                        :build-number="job.last_build!.number"
+                        @click="handleViewBuildLog(job)"
+                    />
+                    <span v-else-if="job.description" class="text-xs text-gray-400 truncate block">{{ job.description }}</span>
+                </div>
                 <vort-divider type="vertical" />
                 <VortTooltip title="构建">
                     <button
@@ -168,6 +177,7 @@
                             @update:keyword="jobCtx.keyword.value = $event"
                             @search="refreshJobs"
                             @toggle-pin="handleTogglePin"
+                            @view-build-log="handleViewBuildLog"
                         />
                     </div>
                 </template>
@@ -231,24 +241,26 @@
             :open="buildLogOpen"
             :build-number="logBuildNumber"
             :build-result="logBuildResult"
+            :building="logBuilding"
             :log-content="buildCtx.buildLog.value"
             :log-loading="buildCtx.buildLogLoading.value"
             :truncated="buildCtx.buildLogTruncated.value"
             :line-count="buildCtx.buildLogLineCount.value"
-            @update:open="buildLogOpen = $event"
+            @update:open="handleBuildLogClose"
             @load-full="loadFullLog"
         />
     </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from "vue";
+import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { Loader2, HardDrive, KeyRound, AlertTriangle, Settings, Plus, Play, PinOff } from "lucide-vue-next";
 import { AiAssistButton } from "@/components/vort-biz/ai-assist-button";
 import { useUserStore } from "@/stores";
 
 import StatusIcon from "./components/StatusIcon.vue";
+import BuildProgress from "./components/BuildProgress.vue";
 import InstanceList from "./components/InstanceList.vue";
 import InstanceFormDialog from "./components/InstanceFormDialog.vue";
 import CredentialDialog from "./components/CredentialDialog.vue";
@@ -535,7 +547,25 @@ async function handleBuildConfirm(params: Record<string, any>) {
 const buildLogOpen = ref(false);
 const logBuildNumber = ref(0);
 const logBuildResult = ref("");
+const logBuilding = ref(false);
 const logJobName = ref("");
+let logPollTimer: ReturnType<typeof setInterval> | null = null;
+
+function isPinnedJobBuilding(job: JenkinsJob): boolean {
+    return !!job.color?.endsWith("_anime") && !!job.last_build?.building;
+}
+
+function handleViewBuildLog(job: JenkinsJob) {
+    if (!currentInstanceId.value || !job.last_build) return;
+    const jobName = job.full_name || job.name;
+    logJobName.value = jobName;
+    logBuildNumber.value = job.last_build.number;
+    logBuildResult.value = job.last_build.result || "";
+    logBuilding.value = !!job.last_build.building;
+    buildLogOpen.value = true;
+    buildCtx.loadBuildLog(currentInstanceId.value, jobName, job.last_build.number, 500);
+    if (logBuilding.value) startLogPolling();
+}
 
 async function handleViewLog(buildNumber: number) {
     if (!currentInstanceId.value || !jobCtx.jobDetail.value) return;
@@ -543,14 +573,42 @@ async function handleViewLog(buildNumber: number) {
     logBuildNumber.value = buildNumber;
     const build = jobCtx.jobDetail.value.builds.find((b) => b.number === buildNumber);
     logBuildResult.value = build?.result || "";
+    logBuilding.value = build?.building || false;
     buildLogOpen.value = true;
-    await buildCtx.loadBuildLog(currentInstanceId.value, logJobName.value, buildNumber);
+    await buildCtx.loadBuildLog(currentInstanceId.value, logJobName.value, buildNumber, logBuilding.value ? 500 : 200);
+    if (logBuilding.value) startLogPolling();
+}
+
+function handleBuildLogClose(open: boolean) {
+    buildLogOpen.value = open;
+    if (!open) stopLogPolling();
+}
+
+function startLogPolling() {
+    stopLogPolling();
+    logPollTimer = setInterval(async () => {
+        if (!currentInstanceId.value || !logJobName.value || !logBuildNumber.value) return;
+        await buildCtx.loadBuildLog(currentInstanceId.value, logJobName.value, logBuildNumber.value, 500);
+        const status = await buildCtx.checkBuildStatus(currentInstanceId.value, logJobName.value, logBuildNumber.value);
+        if (status && !status.building) {
+            logBuildResult.value = status.result || "";
+            logBuilding.value = false;
+            stopLogPolling();
+            refreshJobs();
+        }
+    }, 3000);
+}
+
+function stopLogPolling() {
+    if (logPollTimer) { clearInterval(logPollTimer); logPollTimer = null; }
 }
 
 async function loadFullLog() {
     if (!currentInstanceId.value) return;
     await buildCtx.loadBuildLog(currentInstanceId.value, logJobName.value, logBuildNumber.value, 5000);
 }
+
+onUnmounted(() => { stopLogPolling(); });
 
 onMounted(async () => {
     let navInstanceId = route.query.instance as string | undefined;

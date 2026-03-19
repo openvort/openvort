@@ -789,7 +789,7 @@ async def _start_service(web_flag: bool | None):
             marketplace_installer = None
             if settings.marketplace.enabled:
                 from openvort.marketplace import MarketplaceClient, MarketplaceInstaller
-                mkt_client = MarketplaceClient(base_url=settings.marketplace.url)
+                mkt_client = MarketplaceClient()
                 marketplace_installer = MarketplaceInstaller(mkt_client, session_factory, registry, data_dir=settings.data_dir)
 
             # 注入运行时依赖

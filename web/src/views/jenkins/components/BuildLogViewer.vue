@@ -2,11 +2,19 @@
     <Dialog :open="open" width="900px" :footer="false" @update:open="$emit('update:open', $event)">
         <template #title>
             <div class="flex items-center gap-2">
-                <CheckCircle2 v-if="buildResult === 'SUCCESS'" class="w-5 h-5 text-green-500" />
+                <Loader2 v-if="building" class="w-5 h-5 text-blue-500 animate-spin" />
+                <CheckCircle2 v-else-if="buildResult === 'SUCCESS'" class="w-5 h-5 text-green-500" />
                 <XCircle v-else-if="buildResult === 'FAILURE'" class="w-5 h-5 text-red-500" />
                 <CircleDot v-else class="w-5 h-5 text-gray-400" />
                 <span>控制台输出</span>
                 <span class="text-sm text-gray-400 font-normal">#{{ buildNumber }}</span>
+                <span v-if="building" class="inline-flex items-center gap-1 text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full font-normal">
+                    <span class="relative flex h-1.5 w-1.5">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-1.5 w-1.5 bg-blue-500"></span>
+                    </span>
+                    实时
+                </span>
             </div>
         </template>
 
@@ -19,7 +27,7 @@
                 </div>
                 <div class="flex items-center gap-2">
                     <VortButton
-                        v-if="truncated"
+                        v-if="truncated && !building"
                         variant="text"
                         size="small"
                         @click="$emit('loadFull')"
@@ -38,10 +46,10 @@
             </div>
 
             <!-- Log content -->
-            <div v-if="logLoading" class="flex items-center justify-center py-12">
+            <div v-if="logLoading && !logContent" class="flex items-center justify-center py-12">
                 <Loader2 class="w-5 h-5 animate-spin text-gray-400" />
             </div>
-            <div v-else class="bg-gray-50 border border-gray-200 rounded-lg overflow-auto max-h-[60vh]">
+            <div v-else ref="logContainerRef" class="bg-gray-50 border border-gray-200 rounded-lg overflow-auto max-h-[60vh]">
                 <pre class="p-4 text-[13px] leading-5 font-mono text-gray-900 whitespace-pre-wrap break-words">{{ logContent || "（无日志内容）" }}</pre>
             </div>
         </div>
@@ -49,13 +57,15 @@
 </template>
 
 <script setup lang="ts">
+import { ref, watch, nextTick } from "vue";
 import { CheckCircle2, XCircle, CircleDot, Copy, Loader2 } from "lucide-vue-next";
 import { Dialog, message } from "@/components/vort";
 
-defineProps<{
+const props = defineProps<{
     open: boolean;
     buildNumber: number;
     buildResult: string;
+    building: boolean;
     logContent: string;
     logLoading: boolean;
     truncated: boolean;
@@ -67,10 +77,27 @@ defineEmits<{
     (e: "loadFull"): void;
 }>();
 
+const logContainerRef = ref<HTMLElement | null>(null);
+
+function scrollToBottom() {
+    nextTick(() => {
+        if (logContainerRef.value) {
+            logContainerRef.value.scrollTop = logContainerRef.value.scrollHeight;
+        }
+    });
+}
+
+watch(() => props.logContent, () => {
+    if (props.building) scrollToBottom();
+});
+
+watch(() => props.open, (val) => {
+    if (val && props.building) nextTick(scrollToBottom);
+});
+
 function copyLog() {
-    const el = document.querySelector("pre");
-    if (el) {
-        navigator.clipboard.writeText(el.textContent || "").then(() => {
+    if (props.logContent) {
+        navigator.clipboard.writeText(props.logContent).then(() => {
             message.success("已复制到剪贴板");
         });
     }

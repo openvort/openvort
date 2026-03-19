@@ -44,16 +44,25 @@
 
                 <VortTableColumn label="Name" prop="name" :min-width="220">
                     <template #default="{ row }">
-                        <button
-                            class="flex items-center gap-2 hover:text-blue-600 transition-colors text-left"
-                            @click="row.is_folder ? $emit('enterFolder', row.name) : $emit('viewDetail', row)"
-                        >
+                        <div class="flex items-center gap-2 text-left">
                             <FolderClosed v-if="row.is_folder" class="w-4 h-4 text-amber-500 shrink-0" />
-                            <div>
-                                <span :class="row.is_folder ? 'font-medium' : ''">{{ row.name }}</span>
-                                <p v-if="row.description" class="text-xs text-gray-400 mt-0.5 line-clamp-1">{{ row.description }}</p>
+                            <div class="min-w-0 flex-1">
+                                <button
+                                    class="hover:text-blue-600 transition-colors text-left"
+                                    @click="row.is_folder ? $emit('enterFolder', row.name) : $emit('viewDetail', row)"
+                                >
+                                    <span :class="row.is_folder ? 'font-medium' : ''">{{ row.name }}</span>
+                                </button>
+                                <p v-if="!isBuilding(row) && row.description" class="text-xs text-gray-400 mt-0.5 line-clamp-1">{{ row.description }}</p>
+                                <BuildProgress
+                                    v-if="isBuilding(row)"
+                                    :timestamp="row.last_build!.timestamp"
+                                    :estimated-duration="row.last_build!.estimatedDuration || 0"
+                                    :build-number="row.last_build!.number"
+                                    @click="$emit('viewBuildLog', row)"
+                                />
                             </div>
-                        </button>
+                        </div>
                     </template>
                 </VortTableColumn>
 
@@ -159,6 +168,7 @@ import { Play, ChevronRight, FolderClosed, HardDrive, Settings, Bot, Pin, PinOff
 import { AiAssistButton } from "@/components/vort-biz/ai-assist-button";
 import type { AiAssistPromptItem } from "@/components/vort-biz/ai-assist-button";
 import StatusIcon from "./StatusIcon.vue";
+import BuildProgress from "./BuildProgress.vue";
 import { formatDuration, formatRelativeTime } from "../types";
 import type { JenkinsJob } from "../types";
 
@@ -209,11 +219,16 @@ const aiPrompts = computed<AiAssistPromptItem[]>(() => {
     ];
 });
 
+function isBuilding(job: JenkinsJob): boolean {
+    return !!job.color?.endsWith("_anime") && !!job.last_build?.building;
+}
+
 defineEmits<{
     (e: "enterFolder", folderName: string): void;
     (e: "viewDetail", job: JenkinsJob): void;
     (e: "triggerBuild", job: JenkinsJob): void;
     (e: "viewConfig", job: JenkinsJob): void;
+    (e: "viewBuildLog", job: JenkinsJob): void;
     (e: "navigateBreadcrumb", path: string[]): void;
     (e: "update:keyword", val: string): void;
     (e: "search"): void;

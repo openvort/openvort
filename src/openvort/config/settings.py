@@ -195,7 +195,6 @@ class MarketplaceSettings(BaseSettings):
         env_prefix="OPENVORT_MARKETPLACE_", env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore",
     )
 
-    url: str = "https://openvort.com/api"
     enabled: bool = True
 
 
