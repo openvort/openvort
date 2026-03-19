@@ -543,7 +543,28 @@ async function handleBuildConfirm(params: Record<string, any>) {
     if (ok) {
         buildDialogOpen.value = false;
         refreshJobs();
+        waitForBuildStart(buildJobFullName.value);
     }
+}
+
+let buildWatchTimer: ReturnType<typeof setTimeout> | null = null;
+
+function waitForBuildStart(jobFullName: string) {
+    stopBuildWatch();
+    let attempts = 0;
+    const poll = async () => {
+        attempts++;
+        if (!currentInstanceId.value || attempts > 10) { stopBuildWatch(); return; }
+        await jobCtx.loadJobs(currentInstanceId.value, true);
+        const job = jobCtx.jobs.value.find(j => (j.full_name || j.name) === jobFullName);
+        if (job?.color?.endsWith("_anime")) { stopBuildWatch(); return; }
+        buildWatchTimer = setTimeout(poll, 2000);
+    };
+    buildWatchTimer = setTimeout(poll, 2000);
+}
+
+function stopBuildWatch() {
+    if (buildWatchTimer) { clearTimeout(buildWatchTimer); buildWatchTimer = null; }
 }
 
 const buildLogOpen = ref(false);
@@ -618,7 +639,7 @@ async function loadFullLog() {
     await buildCtx.loadBuildLog(currentInstanceId.value, logJobName.value, logBuildNumber.value, 5000);
 }
 
-onUnmounted(() => { stopLogPolling(); });
+onUnmounted(() => { stopLogPolling(); stopBuildWatch(); });
 
 onMounted(async () => {
     let navInstanceId = route.query.instance as string | undefined;
