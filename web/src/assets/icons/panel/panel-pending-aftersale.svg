@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="25px" height="24px" viewBox="0 0 25 24" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>待处理售后</title>
+    <defs>
+        <linearGradient x1="17.7529825%" y1="35.7484522%" x2="82.7575684%" y2="100%" id="panel-pending-aftersale-linearGradient-1">
+            <stop stop-color="currentColor" offset="0.463013549%"></stop>
+            <stop stop-color="currentColor" offset="100%"></stop>
+        </linearGradient>
+        <linearGradient x1="86.4918584%" y1="68.8724322%" x2="19.3884808%" y2="39.8568576%" id="panel-pending-aftersale-linearGradient-2">
+            <stop stop-color="currentColor" stop-opacity="0.18" offset="0%"></stop>
+            <stop stop-color="#FFFFFF" stop-opacity="0" offset="100%"></stop>
+        </linearGradient>
+        <linearGradient x1="86.2040202%" y1="62.8868153%" x2="2.2067292%" y2="42.4840273%" id="panel-pending-aftersale-linearGradient-3">
+            <stop stop-color="currentColor" stop-opacity="0.353111" offset="0%"></stop>
+            <stop stop-color="#FFFFFF" stop-opacity="0.532513385" offset="100%"></stop>
+        </linearGradient>
+    </defs>
+    <g id="VortMall-banner" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="店铺客服" transform="translate(-808.000000, -323.000000)">
+            <g id="编组-11" transform="translate(208.000000, 258.000000)">
+                <g id="编组-7" transform="translate(24.000000, 52.000000)">
+                    <g id="待处理售后" transform="translate(566.000000, 0.000000)">
+                        <g id="编组-9" transform="translate(0.000000, 1.496572)">
+                            <g id="待处理售后" transform="translate(10.925208, 11.503428)">
+                                <g transform="translate(0.000000, 1.626302)">
+                                    <g id="编组-12">
+                                        <g id="Bold/Back-Home" transform="translate(0.554792, 0.000000)" fill="url(#panel-pending-aftersale-linearGradient-1)">
+                                            <path d="M0,8.98991569 C0,7.53358621 0.646679887,6.15444043 1.76116772,5.23395125 L6.33704,1.4545998 C8.68526211,-0.484867947 12.0565734,-0.484865925 14.4047963,1.45460182 L18.9806665,5.23395241 C20.0951543,6.15444158 20.7418332,7.53358621 20.7418332,8.98991492 L20.7418332,15.8949202 C20.7418332,18.5717963 18.5988104,20.7418332 15.9552563,20.7418332 L4.78657652,20.7418332 C2.14302325,20.7418332 0,18.5717963 0,15.8949202 L0,8.98991569 Z" id="Icon"></path>
+                                        </g>
+                                        <path d="M9.04338701,7.71891892 L9.88592422,7.71891892 L11.4506362,7.71891892 C13.0460206,7.71891892 14.3393352,9.07658516 14.3393352,10.7513514 C14.3393352,12.4261175 13.0460206,13.7837838 11.4506362,13.7837838 L9.64519931,13.7837838 L7.23795014,13.7837838" id="路径" stroke="#FFFFFF" stroke-width="1.42463644" stroke-linecap="round" stroke-linejoin="round"></path>
+                                        <polyline id="路径-2" stroke="#FFFFFF" stroke-width="1.42463644" stroke-linecap="round" stroke-linejoin="round" points="7.92077562 12.1297299 6.28199446 13.7837839 7.78421053 15.437838"></polyline>
+                                    </g>
+                                    <rect id="矩形" stroke="url(#panel-pending-aftersale-linearGradient-3)" stroke-width="0.504950495" fill="url(#panel-pending-aftersale-linearGradient-2)" x="11.177683" y="14.0362592" width="12.0590384" height="7.21396842" rx="1.09167543"></rect>
+                                    <polygon id="星形" fill="#FFFFFF" points="20.4847645 17.5054054 19.682055 17.9313477 19.8353589 17.0291874 19.1859533 16.3902739 20.0834098 16.2586504 20.4847645 15.4378378 20.8861193 16.2586504 21.7835758 16.3902739 21.1341702 17.0291874 21.287474 17.9313477"></polygon>
+                                </g>
+                            </g>
+                        </g>
+                    </g>
+                </g>
+            </g>
+        </g>
+    </g>
+</svg>

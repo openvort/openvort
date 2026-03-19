@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="24px" height="24px" viewBox="0 0 24 24" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>待回复订单</title>
+    <defs>
+        <linearGradient x1="25.9419344%" y1="35.7484522%" x2="74.4389649%" y2="100%" id="panel-pending-reply-linearGradient-1">
+            <stop stop-color="currentColor" offset="0.463013549%"></stop>
+            <stop stop-color="currentColor" offset="100%"></stop>
+        </linearGradient>
+        <linearGradient x1="85.8210665%" y1="100%" x2="19.9511806%" y2="23.1270926%" id="panel-pending-reply-linearGradient-2">
+            <stop stop-color="currentColor" stop-opacity="0.18" offset="0%"></stop>
+            <stop stop-color="#FFFFFF" stop-opacity="0" offset="100%"></stop>
+        </linearGradient>
+        <linearGradient x1="85.5385193%" y1="84.1419038%" x2="3.08526324%" y2="30.0874295%" id="panel-pending-reply-linearGradient-3">
+            <stop stop-color="currentColor" stop-opacity="0.353111" offset="0%"></stop>
+            <stop stop-color="#FFFFFF" stop-opacity="0.293199232" offset="100%"></stop>
+        </linearGradient>
+    </defs>
+    <g id="VortMall-banner" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="店铺客服" transform="translate(-1092.000000, -323.000000)">
+            <g id="编组-11" transform="translate(208.000000, 258.000000)">
+                <g id="编组-7" transform="translate(24.000000, 52.000000)">
+                    <g id="待处理售后" transform="translate(849.000000, 0.000000)">
+                        <g id="编组-9" transform="translate(0.000000, 1.496572)">
+                            <g id="待回复订单" transform="translate(10.925208, 11.503428)">
+                                <g transform="translate(0.000000, 1.074951)">
+                                    <path d="M5.73573444,0 C3.17135851,0 1.09252078,2.06294774 1.09252078,4.60772237 L1.09252078,16.8949807 C1.09252078,19.4397544 3.17135851,21.5027027 5.73573407,21.5027027 L15.0221607,21.5027027 C17.5865371,21.5027027 19.665374,19.4397544 19.665374,16.8949807 L19.665374,6.63466661 C19.665374,5.34309292 19.1191175,4.11081327 18.1596944,3.23806514 L15.9314501,1.21112063 C15.0751032,0.432136068 13.9556097,0 12.7939164,0 L5.73573444,0 Z" id="Icon" fill="url(#panel-pending-reply-linearGradient-1)"></path>
+                                    <g id="编组-14" transform="translate(6.008864, 6.616216)" stroke="#FFFFFF" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.42433955">
+                                        <line x1="6.55512465" y1="0.275675676" x2="0" y2="0.275675676" id="路径"></line>
+                                        <path d="M2.2533241,1.87926375 L2.2533241,5.83965156 L2.2533241,1.87926375 Z" id="路径" transform="translate(2.253324, 3.859458) rotate(-270.000000) translate(-2.253324, -3.859458) "></path>
+                                    </g>
+                                    <ellipse id="椭圆形" stroke="url(#panel-pending-reply-linearGradient-3)" stroke-width="0.504950495" fill="url(#panel-pending-reply-linearGradient-2)" cx="19.1191136" cy="17.6432432" rx="4.66386824" ry="4.70968691"></ellipse>
+                                    <line x1="18.0265928" y1="17.9189189" x2="20.6213296" y2="17.9189189" id="路径-3" stroke="#FFFFFF" stroke-width="1.09167543" stroke-linecap="round" stroke-linejoin="round"></line>
+                                </g>
+                            </g>
+                        </g>
+                    </g>
+                </g>
+            </g>
+        </g>
+    </g>
+</svg>

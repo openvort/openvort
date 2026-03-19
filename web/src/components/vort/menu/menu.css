@@ -1,0 +1,478 @@
+/**
+ * Vort Menu 样式
+ * 参考 Ant Design 5.x
+ */
+
+/* ==================== 基础样式 ==================== */
+.vort-menu {
+    margin: 0;
+    padding: 4px;
+    list-style: none;
+    font-size: 14px;
+    line-height: 1.5714;
+    color: var(--vort-text);
+    background: transparent;
+    outline: none;
+    box-sizing: border-box;
+    /* 使用 Ant Design 的缓动函数，更平滑的宽度过渡 */
+    transition: width 0.3s cubic-bezier(0.2, 0, 0, 1) 0s;
+    /* 确保垂直布局，防止过渡期间菜单项并排 */
+    display: flex;
+    flex-direction: column;
+}
+
+.vort-menu *,
+.vort-menu *::before,
+.vort-menu *::after {
+    box-sizing: border-box;
+}
+
+/* ==================== 亮色主题 ==================== */
+.vort-menu--light {
+    background: var(--vort-bg-elevated, #fff);
+    color: var(--vort-text);
+}
+
+/* ==================== 暗色主题 ==================== */
+.vort-menu--dark {
+    background: #001529;
+    color: rgba(255, 255, 255, 0.65);
+}
+
+.vort-menu--dark .vort-menu-item {
+    color: rgba(255, 255, 255, 0.65);
+}
+
+.vort-menu--dark .vort-menu-item:hover {
+    color: #fff;
+    background: transparent;
+}
+
+.vort-menu--dark .vort-menu-item--selected {
+    color: #fff;
+    background: var(--vort-primary);
+}
+
+.vort-menu--dark .vort-menu-item--selected:hover {
+    background: var(--vort-primary);
+}
+
+.vort-menu--dark .vort-menu-submenu__title {
+    color: rgba(255, 255, 255, 0.65);
+}
+
+.vort-menu--dark .vort-menu-submenu__title:hover {
+    color: #fff;
+}
+
+.vort-menu--dark .vort-menu-submenu--open > .vort-menu-submenu__title,
+.vort-menu--dark .vort-menu-submenu--selected > .vort-menu-submenu__title {
+    color: #fff;
+}
+
+/* 暗色主题折叠状态下有选中子项的 SubMenu 背景高亮 */
+.vort-menu--dark.vort-menu--collapsed > .vort-menu-submenu--selected > .vort-menu-submenu__title {
+    color: #fff;
+    background: var(--vort-primary);
+}
+
+.vort-menu--dark .vort-menu-item-group__title {
+    color: rgba(255, 255, 255, 0.45);
+}
+
+/* ==================== 垂直模式 ==================== */
+.vort-menu--vertical {
+    border-right: 1px solid var(--vort-border-secondary);
+}
+
+.vort-menu--vertical.vort-menu--dark {
+    border-right: none;
+}
+
+.vort-menu--vertical.vort-menu--popup {
+    border-right: none;
+}
+
+/* ==================== 水平模式 ==================== */
+.vort-menu--horizontal {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    padding: 0 8px;
+    border-bottom: 1px solid var(--vort-border-secondary);
+    line-height: 46px;
+}
+
+.vort-menu--horizontal.vort-menu--dark {
+    border-bottom: none;
+}
+
+.vort-menu--horizontal > .vort-menu-item,
+.vort-menu--horizontal > .vort-menu-submenu {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    margin: 0;
+    border-radius: 0;
+}
+
+.vort-menu--horizontal > .vort-menu-item::after,
+.vort-menu--horizontal > .vort-menu-submenu::after {
+    content: "";
+    position: absolute;
+    right: 12px;
+    bottom: 0;
+    left: 12px;
+    height: 2px;
+    background: transparent;
+    transition: background 0.2s cubic-bezier(0.645, 0.045, 0.355, 1);
+}
+
+.vort-menu--horizontal > .vort-menu-item--selected::after,
+.vort-menu--horizontal > .vort-menu-submenu--selected::after,
+.vort-menu--horizontal > .vort-menu-submenu--open::after {
+    background: var(--vort-primary);
+}
+
+.vort-menu--horizontal .vort-menu-item {
+    height: 46px;
+    line-height: 46px;
+    padding: 0 16px;
+    margin: 0;
+    border-radius: 0;
+}
+
+.vort-menu--horizontal .vort-menu-item:hover {
+    background: transparent;
+    color: var(--vort-primary);
+}
+
+.vort-menu--horizontal .vort-menu-item--selected {
+    background: transparent;
+    color: var(--vort-primary);
+}
+
+.vort-menu--horizontal .vort-menu-submenu__title {
+    height: 46px;
+    line-height: 46px;
+    padding: 0 16px;
+    margin: 0;
+    border-radius: 0;
+}
+
+.vort-menu--horizontal .vort-menu-submenu__title:hover {
+    background: transparent;
+    color: var(--vort-primary);
+}
+
+.vort-menu--horizontal .vort-menu-submenu--open > .vort-menu-submenu__title {
+    color: var(--vort-primary);
+}
+
+/* ==================== 内联模式 ==================== */
+.vort-menu--inline {
+    width: 100%;
+    border-right: 1px solid var(--vort-border-secondary);
+}
+
+.vort-menu--inline.vort-menu--dark {
+    border-right: none;
+}
+
+/* ==================== 折叠状态 ==================== */
+.vort-menu--collapsed {
+    width: 56px;
+    padding: 4px;
+}
+
+/* 折叠状态下 MenuItem - 使用固定 padding 让图标居中 */
+.vort-menu--collapsed > .vort-menu-item,
+.vort-menu--collapsed > .vort-menu-submenu > .vort-menu-submenu__title {
+    /* 56px 宽度 - 8px padding = 48px 内容区, 图标 16px, 所以 padding = (48-16)/2 = 16px */
+    padding-left: 16px;
+    padding-right: 16px;
+    text-overflow: clip;
+}
+
+.vort-menu--collapsed > .vort-menu-item .vort-menu-item__icon,
+.vort-menu--collapsed > .vort-menu-submenu .vort-menu-submenu__icon {
+    margin-right: 0;
+}
+
+/* 折叠状态下文字透明 */
+.vort-menu--collapsed > .vort-menu-item .vort-menu-item__content,
+.vort-menu--collapsed > .vort-menu-submenu .vort-menu-submenu__title-content {
+    opacity: 0;
+    flex: 0;
+    width: 0;
+    overflow: hidden;
+}
+
+/* 折叠状态下箭头隐藏 */
+.vort-menu--collapsed > .vort-menu-submenu .vort-menu-submenu__arrow {
+    opacity: 0;
+}
+
+/* 折叠状态下有选中子项的 SubMenu 背景高亮（亮色主题） */
+.vort-menu--collapsed > .vort-menu-submenu--selected > .vort-menu-submenu__title {
+    color: var(--vort-primary);
+    background: var(--vort-primary-bg);
+}
+
+/* ==================== 菜单项 ==================== */
+.vort-menu-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    margin: 4px 0;
+    padding: 0 16px;
+    height: 40px;
+    border-radius: var(--vort-border-radius, 6px);
+    color: var(--vort-text);
+    cursor: pointer;
+    overflow: hidden;
+    transition:
+        background-color 0.3s cubic-bezier(0.645, 0.045, 0.355, 1),
+        padding 0.15s ease-out;
+}
+
+.vort-menu-item:hover {
+    background: var(--vort-fill-tertiary, rgba(0, 0, 0, 0.04));
+}
+
+.vort-menu-item--selected {
+    color: var(--vort-primary);
+    background: var(--vort-primary-bg);
+}
+
+.vort-menu-item--selected:hover {
+    background: var(--vort-primary-bg);
+}
+
+.vort-menu-item--disabled {
+    color: var(--vort-text-quaternary, rgba(0, 0, 0, 0.25));
+    cursor: not-allowed;
+}
+
+.vort-menu-item--disabled:hover {
+    background: transparent;
+}
+
+.vort-menu-item--danger {
+    color: var(--vort-error);
+}
+
+.vort-menu-item--danger:hover {
+    color: var(--vort-error);
+    background: var(--vort-error-bg, rgba(255, 77, 79, 0.1));
+}
+
+.vort-menu-item__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 10px;
+    font-size: 16px;
+    min-width: 16px;
+    flex-shrink: 0;
+    transition: margin 0.3s cubic-bezier(0.645, 0.045, 0.355, 1);
+}
+
+.vort-menu-item__content {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    opacity: 1;
+    transition: opacity 0.3s cubic-bezier(0.645, 0.045, 0.355, 1);
+}
+
+/* ==================== 子菜单 ==================== */
+.vort-menu-submenu {
+    position: relative;
+}
+
+.vort-menu-submenu__title {
+    position: relative;
+    display: flex;
+    align-items: center;
+    margin: 4px 0;
+    padding: 0 16px;
+    padding-right: 32px;
+    height: 40px;
+    border-radius: var(--vort-border-radius, 6px);
+    color: var(--vort-text);
+    cursor: pointer;
+    overflow: hidden;
+    transition:
+        background-color 0.3s cubic-bezier(0.645, 0.045, 0.355, 1),
+        padding 0.15s ease-out;
+}
+
+.vort-menu-submenu__title:hover {
+    background: var(--vort-fill-tertiary, rgba(0, 0, 0, 0.04));
+}
+
+.vort-menu-submenu--disabled .vort-menu-submenu__title {
+    color: var(--vort-text-quaternary, rgba(0, 0, 0, 0.25));
+    cursor: not-allowed;
+}
+
+.vort-menu-submenu--disabled .vort-menu-submenu__title:hover {
+    background: transparent;
+}
+
+/* SubMenu 只在有选中子项时才高亮 */
+.vort-menu-submenu--selected > .vort-menu-submenu__title {
+    color: var(--vort-primary);
+}
+
+.vort-menu-submenu__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 10px;
+    font-size: 16px;
+    min-width: 16px;
+    flex-shrink: 0;
+    transition: margin 0.3s cubic-bezier(0.645, 0.045, 0.355, 1);
+}
+
+.vort-menu-submenu__title-content {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    opacity: 1;
+    transition: opacity 0.3s cubic-bezier(0.645, 0.045, 0.355, 1);
+}
+
+.vort-menu-submenu__arrow {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    position: absolute;
+    top: 50%;
+    right: 12px;
+    font-size: 10px;
+    color: var(--vort-text-tertiary);
+    transform: translateY(-50%);
+    transition:
+        transform 0.2s cubic-bezier(0.645, 0.045, 0.355, 1),
+        opacity 0.3s cubic-bezier(0.645, 0.045, 0.355, 1);
+}
+
+/* vertical/horizontal 模式下的箭头旋转 */
+.vort-menu-submenu--vertical.vort-menu-submenu--open > .vort-menu-submenu__title > .vort-menu-submenu__arrow,
+.vort-menu-submenu--horizontal.vort-menu-submenu--open > .vort-menu-submenu__title > .vort-menu-submenu__arrow {
+    transform: translateY(-50%) rotate(180deg);
+}
+
+/* inline 模式下的箭头旋转 */
+.vort-menu-submenu--inline.vort-menu-submenu--open > .vort-menu-submenu__title > .vort-menu-submenu__arrow {
+    transform: translateY(-50%) rotate(180deg);
+}
+
+/* 子菜单内容 */
+.vort-menu-submenu__content {
+    overflow: hidden;
+    border-right: none !important;
+    padding: 0 !important;
+}
+
+/* ==================== 弹出层 ==================== */
+.vort-menu-submenu__popup {
+    position: fixed;
+    z-index: 1050;
+    min-width: 160px;
+    padding: 4px;
+    background: var(--vort-bg-elevated, #fff);
+    border-radius: var(--vort-border-radius-lg, 8px);
+    box-shadow:
+        0 6px 16px 0 rgba(0, 0, 0, 0.08),
+        0 3px 6px -4px rgba(0, 0, 0, 0.12),
+        0 9px 28px 8px rgba(0, 0, 0, 0.05);
+}
+
+.vort-menu-submenu__popup .vort-menu {
+    border-right: none !important;
+    padding: 0;
+}
+
+.vort-menu-submenu__popup .vort-menu-item {
+    margin: 4px 0;
+    height: 36px;
+}
+
+.vort-menu-submenu__popup .vort-menu-submenu__title {
+    margin: 4px 0;
+    height: 36px;
+}
+
+/* 暗色主题弹出层 */
+.vort-menu-submenu__popup.vort-menu--dark {
+    background: #001529;
+}
+
+/* ==================== 菜单分组 ==================== */
+.vort-menu-item-group {
+    padding: 0;
+}
+
+.vort-menu-item-group__title {
+    padding: 8px 16px 4px;
+    color: var(--vort-text-tertiary);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.vort-menu-item-group__list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+/* ==================== 分割线 ==================== */
+.vort-menu-divider {
+    height: 1px;
+    margin: 4px 12px;
+    background: var(--vort-border-secondary);
+    overflow: hidden;
+}
+
+.vort-menu-divider--dashed {
+    background: transparent;
+    border-top: 1px dashed var(--vort-border-secondary);
+}
+
+/* ==================== 动画 ==================== */
+
+/* 折叠展开动画 */
+.vort-menu-collapse-enter-active,
+.vort-menu-collapse-leave-active {
+    transition:
+        height 0.25s cubic-bezier(0.645, 0.045, 0.355, 1),
+        opacity 0.25s cubic-bezier(0.645, 0.045, 0.355, 1);
+    overflow: hidden;
+}
+
+.vort-menu-collapse-enter-from,
+.vort-menu-collapse-leave-to {
+    height: 0 !important;
+    opacity: 0;
+}
+
+/* 弹出层动画 */
+.vort-menu-popup-enter-active,
+.vort-menu-popup-leave-active {
+    transition:
+        opacity 0.15s cubic-bezier(0.645, 0.045, 0.355, 1),
+        transform 0.15s cubic-bezier(0.645, 0.045, 0.355, 1);
+}
+
+.vort-menu-popup-enter-from,
+.vort-menu-popup-leave-to {
+    opacity: 0;
+    transform: scaleY(0.9);
+    transform-origin: top;
+}

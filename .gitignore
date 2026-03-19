@@ -1,0 +1,69 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+.cursor/
+*.swp
+*.swo
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# 部署脚本
+deploy.sh
+
+# 数据库
+*.db
+*.sqlite
+
+# Logs
+*.log
+/logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Certificates & keys
+*.pem
+*.key
+
+# Temp files
+*.bak
+*.tmp
+
+# Test
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Ruff
+.ruff_cache/
+
+# mypy
+.mypy_cache/
+
+# Web frontend
+web/node_modules/
+web/dist/
+
+# Docs (internal)
+docs/
+
+# Root-level test scripts
+/test_*.py

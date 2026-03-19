@@ -1,0 +1,168 @@
+/**
+ * Vort Select 下拉面板样式（全局 CSS）
+ *
+ * 说明：由于 SelectContent 通过 Portal 渲染到 body，
+ * Vue 的 scoped 样式无法生效，因此需要使用全局样式。
+ * 通过 .vort-select-dropdown 类名限制作用范围。
+ *
+ * 参考 Ant Design 的 slide-up 动画效果
+ * https://ant.design/components/select-cn
+ */
+
+/* ========================================
+   下拉面板基础样式
+   ======================================== */
+.vort-select-dropdown {
+    /* 最小宽度等于触发器宽度，内容更宽时自动扩展 */
+    min-width: var(--reka-combobox-trigger-width, var(--reka-select-trigger-width, 100px));
+    background: #fff;
+    border-radius: var(--vort-radius, 6px);
+    border: none;
+    overflow: hidden;
+    box-shadow:
+        0 6px 16px 0 rgba(0, 0, 0, 0.08),
+        0 3px 6px -4px rgba(0, 0, 0, 0.12),
+        0 9px 28px 8px rgba(0, 0, 0, 0.05);
+}
+
+/* ========================================
+   下拉面板 - 选项样式
+   ======================================== */
+.vort-select-dropdown .vort-select-option {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 5px 12px;
+    font-size: var(--vort-font-size-sm, 14px);
+    line-height: 22px;
+    cursor: pointer;
+    user-select: none;
+    outline: none;
+    border-radius: var(--vort-radius-sm, 4px);
+    transition: background-color 0.15s;
+}
+
+.vort-select-dropdown .vort-select-option:hover {
+    background: rgba(0, 0, 0, 0.04);
+}
+
+.vort-select-dropdown .vort-select-option[data-highlighted] {
+    background: rgba(0, 0, 0, 0.04);
+}
+
+.vort-select-dropdown .vort-select-option[data-state="checked"] {
+    background: var(--vort-primary-bg, #e8f0fe);
+    font-weight: 500;
+}
+
+.vort-select-dropdown .vort-select-option[data-disabled] {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+.vort-select-dropdown .vort-select-option-content {
+    flex: 1;
+    /* 移除文本省略，让内容完整显示 */
+    white-space: nowrap;
+}
+
+.vort-select-dropdown .vort-select-option-check {
+    margin-left: 8px;
+}
+
+.vort-select-dropdown .vort-select-check-icon {
+    width: 16px;
+    height: 16px;
+    color: var(--vort-primary, #1456f0);
+}
+
+/* ========================================
+   下拉面板 - Viewport
+   ======================================== */
+.vort-select-dropdown .vort-select-dropdown-viewport {
+    padding: 4px;
+    overflow-y: auto;
+}
+
+/* ========================================
+   下拉面板 - 空状态
+   ======================================== */
+.vort-select-dropdown .vort-select-empty {
+    padding: 24px 12px;
+    text-align: center;
+    font-size: var(--vort-font-size-sm, 14px);
+    color: var(--vort-text-quaternary, rgba(0, 0, 0, 0.25));
+}
+
+/* ========================================
+   下拉面板 - 搜索区域
+   ======================================== */
+.vort-select-dropdown .vort-select-dropdown-search {
+    padding: 8px;
+    border-bottom: 1px solid var(--vort-border, #d9d9d9);
+}
+
+/* ========================================
+   下拉面板 - 底部插槽
+   ======================================== */
+.vort-select-dropdown .vort-select-dropdown-footer {
+    border-top: 1px solid var(--vort-border, #d9d9d9);
+}
+
+/* ========================================
+   下拉动画
+   复用 motion.css 中的通用下拉动画
+   ======================================== */
+
+/* 下拉在 trigger 下方 */
+.vort-select-dropdown[data-side="bottom"][data-state="open"] {
+    animation: vort-dropdown-slide-up-in var(--vort-duration-normal, 150ms) var(--vort-ease-decelerate, cubic-bezier(0, 0, 0.2, 1)) forwards;
+}
+
+.vort-select-dropdown[data-side="bottom"][data-state="closed"] {
+    animation: vort-dropdown-slide-up-out var(--vort-duration-normal, 150ms) var(--vort-ease-accelerate, cubic-bezier(0.4, 0, 1, 1)) forwards;
+    pointer-events: none;
+}
+
+/* 下拉在 trigger 上方 */
+.vort-select-dropdown[data-side="top"][data-state="open"] {
+    animation: vort-dropdown-slide-down-in var(--vort-duration-normal, 150ms) var(--vort-ease-decelerate, cubic-bezier(0, 0, 0.2, 1)) forwards;
+}
+
+.vort-select-dropdown[data-side="top"][data-state="closed"] {
+    animation: vort-dropdown-slide-down-out var(--vort-duration-normal, 150ms) var(--vort-ease-accelerate, cubic-bezier(0.4, 0, 1, 1)) forwards;
+    pointer-events: none;
+}
+
+/* ========================================
+   多选标签输入样式
+   ======================================== */
+
+/* 移除 TagsInput 默认边框 */
+[data-slot="tags-input-root"] {
+    border: none !important;
+    box-shadow: none !important;
+}
+
+/* ========================================
+   z-index 覆盖
+   覆盖 reka-ui 的 popper wrapper z-index
+   确保 Select 下拉在 Dialog(1000) 之上
+   ======================================== */
+[data-reka-popper-content-wrapper]:has(.vort-select-dropdown) {
+    z-index: 1050 !important;
+}
+
+/* ========================================
+   响应用户"减少动画"偏好设置
+   注：motion.css 已通过 CSS 变量处理，此处作为后备保障
+   ======================================== */
+@media (prefers-reduced-motion: reduce) {
+    .vort-select-dropdown[data-side="bottom"][data-state="open"],
+    .vort-select-dropdown[data-side="bottom"][data-state="closed"],
+    .vort-select-dropdown[data-side="top"][data-state="open"],
+    .vort-select-dropdown[data-side="top"][data-state="closed"] {
+        animation-duration: 0ms !important;
+    }
+}

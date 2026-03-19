@@ -1,0 +1,8 @@
+<svg width="16px" height="16px" viewBox="0 0 16 16">
+    <g stroke="none" stroke-width="1" fill="currentColor" fill-rule="evenodd">
+        <rect x="2.5" y="4.5" width="9" height="9" rx="1"></rect>
+        <path d="M5,2 L13,2 C13.5522847,2 14,2.44771525 14,3 L14,3 L14,3 L5,3 L5,2 Z"></path>
+        <path d="M13,2 C13.5522847,2 14,2.44771525 14,3 L14,11 L14,11 L13,11 L13,2 Z"></path>
+        <polyline points="4.5 8.49677215 6.5 10.4967722 9.49677215 7.5"></polyline>
+    </g>
+</svg>

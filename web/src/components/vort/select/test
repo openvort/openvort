@@ -1,0 +1,297 @@
+<script setup lang="ts">
+import { computed, ref, watch, nextTick, onBeforeUnmount } from "vue";
+import { cn } from "@/lib/utils";
+import {
+    SelectRoot,
+    SelectTrigger,
+    SelectPortal,
+    SelectContent,
+    SelectViewport,
+    SelectItem,
+    SelectItemText,
+    SelectItemIndicator,
+    SelectScrollUpButton,
+    SelectScrollDownButton
+} from "radix-vue";
+import { ChevronDown, ChevronUp, Check } from "lucide-vue-next";
+
+defineOptions({ name: "VortSelect" });
+
+/**
+ * Vort Select - Ant Design 风格选择器组件
+ *
+ * 设计规范参考 Ant Design 5.x
+ * - 主色: 使用 CSS 变量 --vort-primary（支持主题切换）
+ * - 圆角: 2px (default)
+ * - 高度: 40px (large), 32px (middle), 24px (small)
+ */
+
+type SelectSize = "large" | "middle" | "small";
+type SelectStatus = "error" | "warning";
+
+export interface SelectOption {
+    /** 选项值 */
+    value: string | number;
+    /** 选项标签 */
+    label: string;
+    /** 是否禁用 */
+    disabled?: boolean;
+}
+
+interface Props {
+    /** 选中的值 (v-model) */
+    modelValue?: string | number;
+    /** 选项列表 */
+    options?: SelectOption[];
+    /** 选择框占位文本 */
+    placeholder?: string;
+    /** 选择框大小 */
+    size?: SelectSize;
+    /** 是否禁用 */
+    disabled?: boolean;
+    /** 是否允许清除 */
+    allowClear?: boolean;
+    /** 设置校验状态 */
+    status?: SelectStatus;
+    /** 下拉菜单和选择器同宽。默认将设置 min-width，当值小于选择框宽度时会被忽略。false 时会关闭虚拟滚动 */
+    popupMatchSelectWidth?: boolean;
+    /** 自定义类名 */
+    class?: string;
+}
+
+const props = withDefaults(defineProps<Props>(), {
+    modelValue: undefined,
+    options: () => [],
+    placeholder: "请选择",
+    size: "middle",
+    disabled: false,
+    allowClear: false,
+    status: undefined,
+    popupMatchSelectWidth: true
+});
+
+const emit = defineEmits<{
+    "update:modelValue": [value: string | number | undefined];
+    change: [value: string | number | undefined];
+    focus: [event: FocusEvent];
+    blur: [event: FocusEvent];
+}>();
+
+// 内部状态
+const internalValue = ref<string>(props.modelValue?.toString() ?? "");
+const isOpen = ref(false);
+const isClosing = ref(false); // 标记正在关闭中
+const shouldMount = ref(false); // 控制 DOM 是否应该挂载
+
+// 同步外部 modelValue 到内部
+watch(
+    () => props.modelValue,
+    (newVal) => {
+        internalValue.value = newVal?.toString() ?? "";
+    }
+);
+
+// 组件根元素引用
+const selectRef = ref<HTMLElement | null>(null);
+
+// 处理外部点击关闭
+const handleOutsideClick = (event: MouseEvent) => {
+    if (!isOpen.value) return;
+
+    const target = event.target as HTMLElement;
+    // 检查点击是否在 select 内部（包括弹出层）
+    const isInsideSelect = selectRef.value?.contains(target);
+    const isInsideContent = target.closest("[data-radix-select-content]");
+
+    if (!isInsideSelect && !isInsideContent) {
+        isOpen.value = false;
+    }
+};
+
+// 处理打开/关闭动画
+watch(isOpen, (open) => {
+    if (open) {
+        // 打开：先挂载 DOM，然后等待下一帧再移除 closing 状态触发进入动画
+        shouldMount.value = true;
+        isClosing.value = false;
+
+        nextTick(() => {
+            // 修复 Radix 在打开时给 body 添加 pointer-events: none 的问题
+            document.body.style.pointerEvents = "";
+        });
+        // 添加外部点击监听
+        document.addEventListener("mousedown", handleOutsideClick, true);
+    } else {
+        // 关闭：先标记为 closing，播放动画，200ms 后卸载 DOM
+        isClosing.value = true;
+
+        setTimeout(() => {
+            shouldMount.value = false;
+        }, 200);
+
+        // 移除外部点击监听
+        document.removeEventListener("mousedown", handleOutsideClick, true);
+    }
+});
+
+// 组件卸载时清理
+onBeforeUnmount(() => {
+    document.removeEventListener("mousedown", handleOutsideClick, true);
+});
+
+// 处理选择变化
+const handleValueChange = (value: string) => {
+    internalValue.value = value;
+    const option = props.options.find((opt) => opt.value.toString() === value);
+    const emitValue = option?.value;
+    emit("update:modelValue", emitValue);
+    emit("change", emitValue);
+};
+
+// 获取选中项的标签
+const selectedLabel = computed(() => {
+    const option = props.options.find((opt) => opt.value.toString() === internalValue.value);
+    return option?.label;
+});
+
+// 尺寸样式
+const sizeClasses = computed(() => {
+    const sizes = {
+        large: "h-10 px-3 text-base",
+        middle: "h-8 px-3 text-sm",
+        small: "h-6 px-2 text-sm"
+    };
+    return sizes[props.size];
+});
+
+// 状态样式（根据 isOpen 保持激活状态）
+const statusClasses = computed(() => {
+    if (props.disabled) {
+        return "bg-black/4 border-[var(--vort-border)] cursor-not-allowed";
+    }
+
+    // 激活状态样式（下拉展开时保持）
+    const activeStyles = {
+        error: "border-[var(--vort-error)] shadow-[0_0_0_2px_rgba(255,77,79,0.1)]",
+        warning: "border-[var(--vort-warning)] shadow-[0_0_0_2px_rgba(250,173,20,0.1)]",
+        default: "border-[var(--vort-primary)] shadow-[0_0_0_2px_var(--vort-primary-shadow)]"
+    };
+
+    if (props.status === "error") {
+        return cn(
+            "border-[var(--vort-error)] hover:border-[var(--vort-error)]",
+            isOpen.value && activeStyles.error
+        );
+    }
+    if (props.status === "warning") {
+        return cn(
+            "border-[var(--vort-warning)] hover:border-[var(--vort-warning)]",
+            isOpen.value && activeStyles.warning
+        );
+    }
+    return cn(
+        "border-[var(--vort-border)] hover:border-[var(--vort-primary-hover)]",
+        isOpen.value && activeStyles.default
+    );
+});
+
+// Trigger 样式
+const triggerClasses = computed(() =>
+    cn(
+        "inline-flex items-center justify-between w-full bg-white border rounded-sm transition-all duration-200 outline-none cursor-pointer",
+        sizeClasses.value,
+        statusClasses.value,
+        props.class
+    )
+);
+
+// 下拉内容样式
+const contentClasses = computed(() =>
+    cn(
+        "overflow-hidden bg-white rounded-sm border border-[var(--vort-border-secondary)]",
+        "shadow-[0_6px_16px_0_rgba(0,0,0,0.08),0_3px_6px_-4px_rgba(0,0,0,0.12),0_9px_28px_8px_rgba(0,0,0,0.05)]",
+        // Ant Design 风格 - 从顶部展开
+        "origin-top transition-all duration-200 ease-[cubic-bezier(0.645,0.045,0.355,1)]",
+        // 根据状态应用动画
+        isOpen.value && !isClosing.value
+            ? "opacity-100 scale-y-100 translate-y-0" // 打开状态
+            : "opacity-0 scale-y-[0.8] -translate-y-2", // 关闭/初始状态
+        // popupMatchSelectWidth: 下拉菜单宽度匹配选择器宽度
+        props.popupMatchSelectWidth
+            ? "w-[var(--radix-select-trigger-width)]"
+            : "min-w-[var(--radix-select-trigger-width)]"
+    )
+);
+
+// 选项样式 - 参考 Ant Design: 选中项浅蓝背景，hover 灰色背景
+const getItemClasses = (disabled?: boolean, isSelected?: boolean) =>
+    cn(
+        "relative flex items-center px-3 py-[5px] text-sm cursor-pointer select-none outline-none rounded-sm",
+        isSelected
+            ? // 选中状态：浅蓝背景 + 主色文字
+              "bg-[var(--vort-primary-bg)] text-[var(--vort-primary)] font-medium"
+            : // 未选中状态：hover 灰色背景
+              "hover:bg-black/4",
+        disabled && "text-black/25 cursor-not-allowed pointer-events-none"
+    );
+
+// 图标尺寸
+const iconSize = computed(() => {
+    const sizes = {
+        large: "w-4 h-4",
+        middle: "w-3.5 h-3.5",
+        small: "w-3 h-3"
+    };
+    return sizes[props.size];
+});
+</script>
+
+<template>
+    <SelectRoot ref="selectRef" v-model:open="isOpen" :model-value="internalValue" @update:model-value="handleValueChange">
+        <SelectTrigger :class="triggerClasses" :disabled="disabled">
+            <!-- 完全自定义渲染，不使用 SelectValue -->
+            <span class="flex-1 text-left truncate">
+                <span v-if="selectedLabel">{{ selectedLabel }}</span>
+                <span v-else style="color: rgba(0, 0, 0, 0.25)">{{ placeholder }}</span>
+            </span>
+            <ChevronDown
+                :class="cn(iconSize, 'text-black/45 transition-transform duration-200', isOpen && 'rotate-180')"
+            />
+        </SelectTrigger>
+
+        <SelectPortal>
+            <SelectContent
+                v-if="shouldMount"
+                :class="contentClasses"
+                position="popper"
+                :side-offset="4"
+                :body-lock="false"
+                :disable-outside-pointer-events="false"
+            >
+                <SelectScrollUpButton class="flex items-center justify-center h-6 cursor-default bg-white">
+                    <ChevronUp class="w-4 h-4 text-black/45" />
+                </SelectScrollUpButton>
+
+                <SelectViewport class="p-1">
+                    <SelectItem
+                        v-for="option in options"
+                        :key="option.value"
+                        :value="option.value.toString()"
+                        :disabled="option.disabled"
+                        :class="getItemClasses(option.disabled, option.value.toString() === internalValue)"
+                    >
+                        <SelectItemText>{{ option.label }}</SelectItemText>
+                        <SelectItemIndicator class="absolute right-3">
+                            <Check class="w-4 h-4 text-[var(--vort-primary)]" />
+                        </SelectItemIndicator>
+                    </SelectItem>
+                </SelectViewport>
+
+                <SelectScrollDownButton class="flex items-center justify-center h-6 cursor-default bg-white">
+                    <ChevronDown class="w-4 h-4 text-black/45" />
+                </SelectScrollDownButton>
+            </SelectContent>
+        </SelectPortal>
+    </SelectRoot>
+</template>
+
