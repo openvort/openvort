@@ -416,6 +416,37 @@ async def get_system_info(request: Request, instance_id: str):
     return await _run_client(instance_id, member_id, handler)
 
 
+@router.get("/instances/{instance_id}/queue")
+async def get_queue(request: Request, instance_id: str):
+    member_id = _get_member_id(request)
+
+    async def handler(client: JenkinsClient):
+        data = await client.get_queue_info()
+        items = []
+        for item in data.get("items", []):
+            task = item.get("task") or {}
+            items.append({
+                "id": item.get("id"),
+                "task_name": task.get("name", ""),
+                "task_url": task.get("url", ""),
+                "why": item.get("why", ""),
+                "stuck": item.get("stuck", False),
+            })
+        return {"items": items}
+
+    return await _run_client(instance_id, member_id, handler)
+
+
+@router.get("/instances/{instance_id}/executors")
+async def get_executors(request: Request, instance_id: str):
+    member_id = _get_member_id(request)
+
+    async def handler(client: JenkinsClient):
+        return await client.get_executors()
+
+    return await _run_client(instance_id, member_id, handler)
+
+
 @router.get("/instances/{instance_id}/jobs")
 async def list_jobs(
     request: Request,

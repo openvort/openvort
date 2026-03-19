@@ -27,11 +27,10 @@
                         <span class="text-gray-700 truncate block">{{ job.name }}</span>
                     </button>
                     <BuildProgress
-                        v-if="isPinnedJobBuilding(job)"
-                        :timestamp="job.last_build!.timestamp"
-                        :estimated-duration="job.last_build!.estimatedDuration || 0"
-                        :build-number="job.last_build!.number"
-                        @click="handleViewBuildLog(job)"
+                        v-if="isJobBuilding(job)"
+                        :timestamp="getBuildProgress(job).timestamp"
+                        :estimated-duration="getBuildProgress(job).estimatedDuration"
+                        @click="job.last_build?.building ? handleViewBuildLog(job) : undefined"
                     />
                     <span v-else-if="job.description" class="text-xs text-gray-400 truncate block">{{ job.description }}</span>
                 </div>
@@ -74,19 +73,26 @@
 
         <!-- Main content -->
         <div v-else class="flex gap-4 min-h-0" style="min-height: 540px;">
-            <!-- Card 1: Instance list -->
-            <div class="w-56 shrink-0 bg-white rounded-xl overflow-hidden">
-                <InstanceList
-                    :instances="instCtx.instances.value"
-                    :selected-id="instCtx.selectedInstance.value?.id ?? null"
-                    :loading="instCtx.loading.value"
-                    :is-admin="isAdmin"
-                    @select="handleSelectInstance"
-                    @add="openInstanceForm(null)"
-                    @edit="openInstanceForm"
-                    @delete="handleDeleteInstance"
-                    @verify="(inst) => instCtx.verifyInstance(inst.id)"
-                    @set-default="handleSetDefault"
+            <!-- Left sidebar -->
+            <div class="w-56 shrink-0 flex flex-col gap-4">
+                <div class="bg-white rounded-xl overflow-hidden">
+                    <InstanceList
+                        :instances="instCtx.instances.value"
+                        :selected-id="instCtx.selectedInstance.value?.id ?? null"
+                        :loading="instCtx.loading.value"
+                        :is-admin="isAdmin"
+                        @select="handleSelectInstance"
+                        @add="openInstanceForm(null)"
+                        @edit="openInstanceForm"
+                        @delete="handleDeleteInstance"
+                        @verify="(inst) => instCtx.verifyInstance(inst.id)"
+                        @set-default="handleSetDefault"
+                    />
+                </div>
+                <BuildStatus
+                    v-if="instCtx.credentialConfigured.value === true && !authFailed"
+                    :queue="buildQueue"
+                    :executors="buildExecutors"
                 />
             </div>
 
@@ -169,6 +175,7 @@
                             :instance-id="instCtx.selectedInstance.value?.id ?? ''"
                             :active-view="jobCtx.activeView.value"
                             :pinned-jobs="pinnedJobSet"
+                            :local-building-jobs="localBuildingJobs"
                             @enter-folder="handleEnterFolder"
                             @view-detail="handleViewDetail"
                             @trigger-build="handleTriggerBuild"
@@ -255,7 +262,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from "vue";
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { Loader2, HardDrive, KeyRound, AlertTriangle, Settings, Plus, Play, PinOff } from "lucide-vue-next";
 import { AiAssistButton } from "@/components/vort-biz/ai-assist-button";
@@ -263,6 +270,7 @@ import { useUserStore } from "@/stores";
 
 import StatusIcon from "./components/StatusIcon.vue";
 import BuildProgress from "./components/BuildProgress.vue";
+import BuildStatus from "./components/BuildStatus.vue";
 import InstanceList from "./components/InstanceList.vue";
 import InstanceFormDialog from "./components/InstanceFormDialog.vue";
 import CredentialDialog from "./components/CredentialDialog.vue";
@@ -273,6 +281,7 @@ import JobDetailDrawer from "./components/JobDetailDrawer.vue";
 import BuildLogViewer from "./components/BuildLogViewer.vue";
 import ConfigDialog from "./components/ConfigDialog.vue";
 
+import { getJenkinsQueue, getJenkinsExecutors } from "@/api/jenkins";
 import { useJenkinsInstances } from "./composables/useJenkinsInstances";
 import { useJenkinsJobs } from "./composables/useJenkinsJobs";
 import { useJenkinsBuild } from "./composables/useJenkinsBuild";
@@ -298,6 +307,21 @@ const pageState = computed(() => {
 const currentInstanceId = computed(() => instCtx.selectedInstance.value?.id ?? "");
 
 const authFailed = ref(false);
+
+const buildQueue = ref<any[]>([]);
+const buildExecutors = ref<any[]>([]);
+
+async function loadBuildStatus() {
+    if (!currentInstanceId.value) return;
+    try {
+        const [qRes, eRes] = await Promise.all([
+            getJenkinsQueue(currentInstanceId.value).catch(() => ({ items: [] })),
+            getJenkinsExecutors(currentInstanceId.value).catch(() => ({ executors: [] })),
+        ]);
+        buildQueue.value = (qRes as any).items || [];
+        buildExecutors.value = (eRes as any).executors || [];
+    } catch { /* ignore */ }
+}
 
 // Pinned jobs (per instance, localStorage)
 const PINNED_JOBS_KEY = "openvort.jenkins.pinned-jobs";
@@ -378,7 +402,9 @@ async function loadInstanceData(silent = true) {
     const jobResult = await jobCtx.loadJobs(currentInstanceId.value, silent);
     if (jobResult === "auth_error") {
         authFailed.value = true;
+        return;
     }
+    loadBuildStatus();
 }
 
 const instanceFormOpen = ref(false);
@@ -532,6 +558,8 @@ function handleDetailTriggerBuild() {
     buildDialogOpen.value = true;
 }
 
+const localBuildingJobs = reactive(new Map<string, { timestamp: number; estimatedDuration: number; previousBuildNumber: number }>());
+
 async function handleBuildConfirm(params: Record<string, any>) {
     if (!currentInstanceId.value) return;
     const hasParams = buildJobParams.value.length > 0;
@@ -542,25 +570,41 @@ async function handleBuildConfirm(params: Record<string, any>) {
     );
     if (ok) {
         buildDialogOpen.value = false;
-        refreshJobs();
-        waitForBuildStart(buildJobFullName.value);
+        const jobKey = buildJobFullName.value;
+        const job = jobCtx.jobs.value.find(j => (j.full_name || j.name) === jobKey);
+        const est = job?.last_build?.estimatedDuration || job?.last_build?.duration || 60000;
+        const prevNum = job?.last_build?.number || 0;
+        localBuildingJobs.set(jobKey, { timestamp: Date.now(), estimatedDuration: est, previousBuildNumber: prevNum });
+        startBuildPoll();
     }
 }
 
 let buildWatchTimer: ReturnType<typeof setTimeout> | null = null;
 
-function waitForBuildStart(jobFullName: string) {
+function startBuildPoll() {
     stopBuildWatch();
-    let attempts = 0;
     const poll = async () => {
-        attempts++;
-        if (!currentInstanceId.value || attempts > 10) { stopBuildWatch(); return; }
+        if (!currentInstanceId.value) { stopBuildWatch(); return; }
         await jobCtx.loadJobs(currentInstanceId.value, true);
-        const job = jobCtx.jobs.value.find(j => (j.full_name || j.name) === jobFullName);
-        if (job?.color?.endsWith("_anime")) { stopBuildWatch(); return; }
-        buildWatchTimer = setTimeout(poll, 2000);
+        for (const [key, data] of [...localBuildingJobs.entries()]) {
+            const job = jobCtx.jobs.value.find(j => (j.full_name || j.name) === key);
+            if (!job) continue;
+            const serverNum = job.last_build?.number || 0;
+            if (serverNum > data.previousBuildNumber) {
+                localBuildingJobs.delete(key);
+            } else if (Date.now() - data.timestamp > 30000) {
+                localBuildingJobs.delete(key);
+            }
+        }
+        loadBuildStatus();
+        const anyBuilding = localBuildingJobs.size > 0 || jobCtx.jobs.value.some(j => j.color?.endsWith("_anime"));
+        if (anyBuilding) {
+            buildWatchTimer = setTimeout(poll, 3000);
+        } else {
+            stopBuildWatch();
+        }
     };
-    buildWatchTimer = setTimeout(poll, 2000);
+    buildWatchTimer = setTimeout(poll, 3000);
 }
 
 function stopBuildWatch() {
@@ -575,8 +619,15 @@ const logJobName = ref("");
 const buildAborting = ref(false);
 let logPollTimer: ReturnType<typeof setInterval> | null = null;
 
-function isPinnedJobBuilding(job: JenkinsJob): boolean {
-    return !!job.color?.endsWith("_anime") && !!job.last_build?.building;
+function isJobBuilding(job: JenkinsJob): boolean {
+    const key = job.full_name || job.name;
+    return localBuildingJobs.has(key) || (!!job.color?.endsWith("_anime") && !!job.last_build?.building);
+}
+
+function getBuildProgress(job: JenkinsJob) {
+    if (job.last_build?.building) return { timestamp: job.last_build.timestamp, estimatedDuration: job.last_build.estimatedDuration || 0 };
+    const local = localBuildingJobs.get(job.full_name || job.name);
+    return local || { timestamp: Date.now(), estimatedDuration: 0 };
 }
 
 function handleViewBuildLog(job: JenkinsJob) {

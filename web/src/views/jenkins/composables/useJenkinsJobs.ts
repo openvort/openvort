@@ -47,7 +47,7 @@ export function useJenkinsJobs() {
     }
 
     async function loadJobs(instanceId: string, silent = false): Promise<LoadResult> {
-        loading.value = true;
+        if (!silent) loading.value = true;
         try {
             const params: Record<string, any> = {
                 include_folders: true,

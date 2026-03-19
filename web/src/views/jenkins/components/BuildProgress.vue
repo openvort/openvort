@@ -12,7 +12,7 @@
             </div>
         </div>
         <span class="text-xs text-gray-400 group-hover:text-blue-600 whitespace-nowrap shrink-0">
-            #{{ buildNumber }}
+            构建中
         </span>
     </div>
 </template>
@@ -23,7 +23,6 @@ import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 const props = defineProps<{
     timestamp: number;
     estimatedDuration: number;
-    buildNumber: number;
 }>();
 
 defineEmits<{
@@ -33,8 +32,10 @@ defineEmits<{
 const now = ref(Date.now());
 let timer: ReturnType<typeof setInterval> | null = null;
 
+const indeterminate = computed(() => !props.estimatedDuration || props.estimatedDuration <= 0);
+
 const progress = computed(() => {
-    if (!props.timestamp || !props.estimatedDuration || props.estimatedDuration <= 0) return 0;
+    if (indeterminate.value) return 30;
     const elapsed = now.value - props.timestamp;
     return Math.min(99, Math.max(0, Math.floor((elapsed / props.estimatedDuration) * 100)));
 });

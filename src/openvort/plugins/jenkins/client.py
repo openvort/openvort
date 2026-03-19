@@ -655,6 +655,24 @@ class JenkinsClient:
                 pass
         return {"view": view_name, "added": added}
 
+    async def get_executors(self) -> dict:
+        tree = "computer[displayName,idle,executors[idle,progress,currentExecutable[url,number,fullDisplayName]]]"
+        data = await self._get_json(f"/computer/api/json?tree={tree}")
+        executors: list[dict] = []
+        for computer in data.get("computer", []):
+            for executor in computer.get("executors", []):
+                current = executor.get("currentExecutable")
+                executors.append({
+                    "idle": executor.get("idle", True),
+                    "progress": executor.get("progress", -1),
+                    "current_build": {
+                        "url": current.get("url", ""),
+                        "number": current.get("number", 0),
+                        "display_name": current.get("fullDisplayName", ""),
+                    } if current else None,
+                })
+        return {"executors": executors}
+
     async def get_queue_info(self) -> dict:
         tree = "items[id,task[name,url],why,inQueueSince,stuck,blocked,buildable,params,url]"
         return await self._get_json(f"/queue/api/json?tree={tree}")

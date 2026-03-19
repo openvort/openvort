@@ -39,6 +39,15 @@ export function deleteJenkinsInstance(id: string) {
     return request.delete(`/jenkins/instances/${id}`);
 }
 
+// Build status (queue & executors)
+export function getJenkinsQueue(id: string) {
+    return request.get(`/jenkins/instances/${id}/queue`);
+}
+
+export function getJenkinsExecutors(id: string) {
+    return request.get(`/jenkins/instances/${id}/executors`);
+}
+
 // Jenkins operations
 export function verifyJenkinsInstance(id: string) {
     return request.post(`/jenkins/instances/${id}/verify`);

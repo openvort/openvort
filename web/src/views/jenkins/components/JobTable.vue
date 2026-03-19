@@ -56,10 +56,9 @@
                                 <p v-if="!isBuilding(row) && row.description" class="text-xs text-gray-400 mt-0.5 line-clamp-1">{{ row.description }}</p>
                                 <BuildProgress
                                     v-if="isBuilding(row)"
-                                    :timestamp="row.last_build!.timestamp"
-                                    :estimated-duration="row.last_build!.estimatedDuration || 0"
-                                    :build-number="row.last_build!.number"
-                                    @click="$emit('viewBuildLog', row)"
+                                    :timestamp="getBuildProgress(row).timestamp"
+                                    :estimated-duration="getBuildProgress(row).estimatedDuration"
+                                    @click="row.last_build?.building ? $emit('viewBuildLog', row) : undefined"
                                 />
                             </div>
                         </div>
@@ -184,6 +183,7 @@ const props = defineProps<{
     instanceId: string;
     activeView: string;
     pinnedJobs: Set<string>;
+    localBuildingJobs: Map<string, { timestamp: number; estimatedDuration: number }>;
 }>();
 
 function buildInstanceContext(): string {
@@ -220,7 +220,14 @@ const aiPrompts = computed<AiAssistPromptItem[]>(() => {
 });
 
 function isBuilding(job: JenkinsJob): boolean {
-    return !!job.color?.endsWith("_anime") && !!job.last_build?.building;
+    const key = job.full_name || job.name;
+    return props.localBuildingJobs.has(key) || (!!job.color?.endsWith("_anime") && !!job.last_build?.building);
+}
+
+function getBuildProgress(job: JenkinsJob) {
+    if (job.last_build?.building) return { timestamp: job.last_build.timestamp, estimatedDuration: job.last_build.estimatedDuration || 0 };
+    const local = props.localBuildingJobs.get(job.full_name || job.name);
+    return local || { timestamp: Date.now(), estimatedDuration: 0 };
 }
 
 defineEmits<{
