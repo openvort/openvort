@@ -3,8 +3,39 @@ import { watch, onBeforeUnmount } from "vue";
 import { useEditor, EditorContent } from "@tiptap/vue-3";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
-import Image from "@tiptap/extension-image";
+import BaseImage from "@tiptap/extension-image";
 import { Markdown } from "tiptap-markdown";
+
+const Image = BaseImage.extend({
+    addStorage() {
+        return {
+            ...this.parent?.(),
+            markdown: {
+                serialize(state: any, node: any) {
+                    const src = node.attrs?.src ?? "";
+                    const alt = node.attrs?.alt ?? "";
+                    const title = node.attrs?.title ?? "";
+                    const width = node.attrs?.width;
+                    const height = node.attrs?.height;
+                    if (width || height) {
+                        const parts = [`src="${src}"`, `alt="${alt}"`];
+                        if (title) parts.push(`title="${title}"`);
+                        if (width) parts.push(`width="${width}"`);
+                        if (height) parts.push(`height="${height}"`);
+                        state.write(`<img ${parts.join(" ")} />`);
+                        state.closeBlock(node);
+                    } else {
+                        state.write(
+                            `![${state.esc(alt)}](${src}${title ? ` "${title.replace(/"/g, '\\"')}"` : ""})`
+                        );
+                        state.closeBlock(node);
+                    }
+                },
+                parse: {},
+            },
+        };
+    },
+});
 import {
     Bold, Italic, Strikethrough, Code, Heading1, Heading2, Heading3,
     List, ListOrdered, Quote, Minus, Undo2, Redo2, CodeSquare,
@@ -55,6 +86,17 @@ const editor = useEditor({
             inline: false,
             allowBase64: true,
             HTMLAttributes: { class: "vort-editor-image" },
+            resize: {
+                enabled: true,
+                directions: [
+                    "top-left", "top", "top-right",
+                    "left", "right",
+                    "bottom-left", "bottom", "bottom-right",
+                ],
+                minWidth: 50,
+                minHeight: 50,
+                alwaysPreserveAspectRatio: true,
+            },
         }),
         Markdown,
         Placeholder.configure({ placeholder: props.placeholder }),
@@ -283,4 +325,39 @@ const toolbarItems: ToolItem[] = [
 .vort-editor__content .tiptap strong { font-weight: 700; }
 .vort-editor__content .tiptap em { font-style: italic; }
 .vort-editor__content .tiptap s { text-decoration: line-through; }
+
+[data-resize-wrapper] {
+    display: inline-block;
+    max-width: 100%;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    transition: border-color 0.15s;
+}
+[data-resize-wrapper]:hover,
+[data-resize-wrapper].resizing {
+    border-color: #3b82f6;
+}
+[data-resize-wrapper]:hover [data-resize-handle],
+[data-resize-wrapper].resizing [data-resize-handle] {
+    opacity: 1;
+}
+[data-resize-handle] {
+    width: 8px;
+    height: 8px;
+    background: #fff;
+    border: 1.5px solid #3b82f6;
+    border-radius: 50%;
+    opacity: 0;
+    transition: opacity 0.15s;
+    z-index: 10;
+    transform: translate(-50%, -50%);
+}
+[data-resize-handle="top-left"]     { cursor: nwse-resize; top: 0 !important; left: 0 !important; right: auto !important; bottom: auto !important; }
+[data-resize-handle="top"]          { cursor: ns-resize;   top: 0 !important; left: 50% !important; right: auto !important; bottom: auto !important; }
+[data-resize-handle="top-right"]    { cursor: nesw-resize; top: 0 !important; right: 0 !important; left: auto !important; bottom: auto !important; transform: translate(50%, -50%); }
+[data-resize-handle="left"]         { cursor: ew-resize;   top: 50% !important; left: 0 !important; right: auto !important; bottom: auto !important; }
+[data-resize-handle="right"]        { cursor: ew-resize;   top: 50% !important; right: 0 !important; left: auto !important; bottom: auto !important; transform: translate(50%, -50%); }
+[data-resize-handle="bottom-left"]  { cursor: nesw-resize; bottom: 0 !important; left: 0 !important; right: auto !important; top: auto !important; transform: translate(-50%, 50%); }
+[data-resize-handle="bottom"]       { cursor: ns-resize;   bottom: 0 !important; left: 50% !important; right: auto !important; top: auto !important; transform: translate(-50%, 50%); }
+[data-resize-handle="bottom-right"] { cursor: nwse-resize; bottom: 0 !important; right: 0 !important; left: auto !important; top: auto !important; transform: translate(50%, 50%); }
 </style>

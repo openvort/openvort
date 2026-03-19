@@ -5,7 +5,7 @@ import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMember
 import WorkItemStatus from "@/components/vort-biz/work-item/WorkItemStatus.vue";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
 import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
-import { Copy, Pencil } from "lucide-vue-next";
+import { Copy, SquarePen, FileText } from "lucide-vue-next";
 import { useWorkItemCommon } from "./useWorkItemCommon";
 import WorkItemLinkPanel from "./WorkItemLinkPanel.vue";
 import TestCaseLinkPanel from "./TestCaseLinkPanel.vue";
@@ -511,6 +511,7 @@ const loadProjectLinkedOptions = async (projectId?: string) => {
 
 // ---- Inline edit: click-to-edit pattern ----
 type EditableField =
+    | "title"
     | "planTime"
     | "iteration"
     | "type"
@@ -528,6 +529,39 @@ const stopEditing = () => {
     editingField.value = null;
 };
 const isEditing = (field: EditableField) => editingField.value === field;
+
+const titleDraft = ref("");
+const titleInputRef = ref<HTMLInputElement | null>(null);
+const startEditingTitle = () => {
+    if (!record.value) return;
+    titleDraft.value = record.value.title;
+    startEditing("title");
+    nextTick(() => titleInputRef.value?.focus());
+};
+const saveTitle = () => {
+    if (!record.value) return;
+    const trimmed = titleDraft.value.trim();
+    if (trimmed && trimmed !== record.value.title) {
+        record.value.title = trimmed;
+        emit("update", { title: trimmed });
+        appendDetailLog("修改了名称");
+    }
+    titleDraft.value = "";
+    stopEditing();
+};
+const cancelTitleEdit = () => {
+    titleDraft.value = "";
+    stopEditing();
+};
+const handleTitleKeydown = (e: KeyboardEvent) => {
+    if (e.key === "Enter") {
+        e.preventDefault();
+        saveTitle();
+    } else if (e.key === "Escape") {
+        cancelTitleEdit();
+    }
+};
+
 const canEditProject = computed(() => record.value?.type === "需求");
 const canEditIteration = computed(() => record.value?.type === "需求" || record.value?.type === "任务");
 const canEditVersion = computed(() => record.value?.type === "需求");
@@ -606,10 +640,29 @@ watch(() => props.initialData, (value) => {
                 </div>
                 <div class="story-child-node">
                     <div class="tree-line"></div>
-                    <h2 class="bug-detail-title" style="margin-bottom: 0;">{{ record.title }}</h2>
+                    <input
+                        v-if="isEditing('title')"
+                        ref="titleInputRef"
+                        v-model="titleDraft"
+                        class="bug-detail-title-input"
+                        style="margin-bottom: 0;"
+                        @blur="saveTitle"
+                        @keydown="handleTitleKeydown"
+                    />
+                    <h2 v-else class="bug-detail-title bug-detail-title-editable" style="margin-bottom: 0;" @click="startEditingTitle">{{ record.title }}</h2>
                 </div>
             </div>
-            <h2 v-else class="bug-detail-title">{{ record.title }}</h2>
+            <template v-else>
+                <input
+                    v-if="isEditing('title')"
+                    ref="titleInputRef"
+                    v-model="titleDraft"
+                    class="bug-detail-title-input"
+                    @blur="saveTitle"
+                    @keydown="handleTitleKeydown"
+                />
+                <h2 v-else class="bug-detail-title bug-detail-title-editable" @click="startEditingTitle">{{ record.title }}</h2>
+            </template>
             <p class="bug-detail-sub" :style="isHierarchyRecord && parentRecord ? 'margin-top: 8px;' : ''">
                 {{ record.owner || "未指派" }}，创建于 {{ record.createdAt }}，最近更新于 {{ record.createdAt }}
             </p>
@@ -928,7 +981,7 @@ watch(() => props.initialData, (value) => {
                     <div class="bug-detail-desc-head">
                         <h4>描述</h4>
                         <VortButton class="bug-detail-desc-edit-btn" variant="text" size="small" @click="openDetailDescEditor">
-                            <Pencil :size="14" />
+                            <SquarePen :size="14" />
                         </VortButton>
                     </div>
                     <template v-if="detailDescEditing">
@@ -1023,7 +1076,10 @@ watch(() => props.initialData, (value) => {
                 <p v-else class="bug-detail-empty">暂无关联测试用例</p>
             </div>
             <div class="bug-detail-panel" v-else>
-                <p class="bug-detail-empty">暂无关联文档</p>
+                <div class="bug-detail-empty">
+                    <FileText :size="32" class="bug-detail-empty-icon" />
+                    <span>暂无关联文档</span>
+                </div>
             </div>
         </main>
         <div v-else class="p-4 text-center text-gray-500">加载中...</div>
@@ -1144,6 +1200,34 @@ watch(() => props.initialData, (value) => {
     color: var(--vort-text);
     margin: 0 0 8px 0;
     line-height: 1.4;
+}
+
+.bug-detail-title-editable {
+    cursor: text;
+    border-radius: 4px;
+    padding: 2px 6px;
+    margin-left: -6px;
+    transition: background 0.15s;
+}
+
+.bug-detail-title-editable:hover {
+    background: var(--vort-bg-hover, rgba(0, 0, 0, 0.04));
+}
+
+.bug-detail-title-input {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--vort-text);
+    margin: 0 0 8px 0;
+    line-height: 1.4;
+    padding: 2px 6px;
+    margin-left: -6px;
+    width: 100%;
+    border: 1px solid var(--vort-primary);
+    border-radius: 4px;
+    outline: none;
+    background: var(--vort-bg);
+    box-shadow: 0 0 0 2px rgba(var(--vort-primary-rgb, 59, 130, 246), 0.15);
 }
 
 .bug-detail-sub {
@@ -1543,7 +1627,7 @@ watch(() => props.initialData, (value) => {
 .bug-detail-desc-head {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 4px;
     margin-bottom: 12px;
 }
 
@@ -1555,12 +1639,7 @@ watch(() => props.initialData, (value) => {
 }
 
 .bug-detail-desc-edit-btn {
-    opacity: 0;
-    transition: opacity 0.2s;
-}
-
-.bug-detail-desc:hover .bug-detail-desc-edit-btn {
-    opacity: 1;
+    color: var(--vort-text-secondary);
 }
 
 .bug-detail-desc-content {
@@ -1624,10 +1703,18 @@ watch(() => props.initialData, (value) => {
 }
 
 .bug-detail-empty {
-    text-align: center;
-    padding: 40px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 48px 20px;
     color: var(--vort-text-tertiary);
     font-size: 14px;
+}
+
+.bug-detail-empty-icon {
+    color: var(--vort-text-quaternary, #d0d5dd);
 }
 
 .story-children-list {

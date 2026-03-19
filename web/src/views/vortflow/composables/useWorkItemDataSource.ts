@@ -306,6 +306,12 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
                 } else if (field === "milestone") {
                     const vals = fv.value as string[];
                     if (vals?.length && !vals.includes(row.milestone || "")) return false;
+                } else if (field === "creator") {
+                    const vals = fv.value as string[];
+                    if (vals?.length && !vals.includes(String(row.creator || "").trim())) return false;
+                } else if (field === "type") {
+                    const vals = fv.value as string[];
+                    if (vals?.length && !vals.includes(row.type || "")) return false;
                 } else if (field === "createdAt" || field === "planTime" || field === "updatedAt" || field === "startAt" || field === "endAt") {
                     const dateFieldMap: Record<string, string> = {
                         createdAt: row.createdAt,
@@ -377,6 +383,12 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
             } else if (field === "milestone") {
                 va = a.milestone || "";
                 vb = b.milestone || "";
+            } else if (field === "creator") {
+                va = a.creator || "";
+                vb = b.creator || "";
+            } else if (field === "type") {
+                va = a.type || "";
+                vb = b.type || "";
             } else if (field === "startAt") {
                 va = a.startAt || "";
                 vb = b.startAt || "";

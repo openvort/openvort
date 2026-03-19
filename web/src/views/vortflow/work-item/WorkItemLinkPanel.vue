@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
-import { Plus, X, Search, ChevronDown, Check } from "lucide-vue-next";
+import { Plus, X, Search, ChevronDown, Check, Link2 } from "lucide-vue-next";
 import { message } from "@/components/vort";
 import {
     getVortflowStories,
@@ -333,8 +333,11 @@ watch(
             </button>
         </div>
 
-        <div v-if="loading" class="bug-detail-empty">加载中...</div>
-        <div v-else-if="linkedItems.length === 0 && !adding" class="bug-detail-empty">暂无关联工作项</div>
+        <div v-if="loading" class="wi-link-empty">加载中...</div>
+        <div v-else-if="linkedItems.length === 0 && !adding" class="wi-link-empty">
+            <Link2 :size="32" class="wi-link-empty-icon" />
+            <span>暂无关联工作项</span>
+        </div>
         <div v-else class="wi-link-list">
             <div
                 v-for="item in linkedItems"
@@ -735,5 +738,20 @@ watch(
 .wi-link-remove-btn:hover {
     color: #dc2626;
     background: #fee2e2;
+}
+
+.wi-link-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 48px 20px;
+    color: var(--vort-text-tertiary);
+    font-size: 14px;
+}
+
+.wi-link-empty-icon {
+    color: var(--vort-text-quaternary, #d0d5dd);
 }
 </style>

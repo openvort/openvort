@@ -7,6 +7,7 @@ import { useNotificationStore } from "@/stores/modules/notification";
 import { pinyin } from "pinyin-pro";
 import type { Contact, MentionMember } from "./types";
 import AiEmployeeBadge from "./AiEmployeeBadge.vue";
+import aiAvatarUrl from "@/assets/brand/ai-avatar.png";
 
 const props = defineProps<{
     activeContactId: string;
@@ -393,7 +394,7 @@ defineExpose({ refreshContacts, loadContacts });
                         <!-- Avatar -->
                         <div class="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center overflow-hidden"
                             :class="c.type === 'ai' ? 'bg-blue-50' : 'bg-gray-100'">
-                            <Bot v-if="c.type === 'ai'" :size="20" class="text-blue-600" />
+                            <img v-if="c.type === 'ai'" :src="aiAvatarUrl" class="w-full h-full object-cover" />
                             <img v-else-if="c.avatar_url" :src="c.avatar_url" class="w-full h-full object-cover" />
                             <span v-else class="text-sm font-medium text-gray-500">{{ c.name.charAt(0) }}</span>
                         </div>

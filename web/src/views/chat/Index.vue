@@ -38,6 +38,7 @@ import SessionSwitcher from "./SessionSwitcher.vue";
 import MemberProfile from "./MemberProfile.vue";
 import AiEmployeeBadge from "./AiEmployeeBadge.vue";
 import WorkspaceViewer from "./WorkspaceViewer.vue";
+import aiAvatarUrl from "@/assets/brand/ai-avatar.png";
 import type { ChatMessage, ChatSession, Contact, Draft, ActionButton } from "./types";
 import { shouldShowTimestamp, formatTimeDivider } from "./utils";
 import { useChatImages } from "./composables/useChatImages";
@@ -708,7 +709,7 @@ defineExpose({ currentSessionId, inputText, handleReset, switchSession, handleNe
                     </button>
                     <!-- AI mode: session switcher -->
                     <template v-if="isAiMode">
-                        <Bot :size="embedded ? 16 : 20" class="text-blue-600 mr-2" />
+                        <img :src="aiAvatarUrl" :class="embedded ? 'w-4 h-4 mr-1.5' : 'w-5 h-5 mr-2'" class="rounded-full object-cover" />
                         <SessionSwitcher
                             ref="sessionSwitcherRef"
                             :current-session-id="currentSessionId"
@@ -888,13 +889,13 @@ defineExpose({ currentSessionId, inputText, handleReset, switchSession, handleNe
                 <VortImagePreviewGroup class="space-y-6">
                     <!-- 无会话状态 -->
                     <div v-if="!currentSessionId && isAiMode" class="flex flex-col items-center justify-center flex-1 text-gray-400">
-                        <Bot :size="48" class="mb-4 text-gray-300" />
+                        <img :src="aiAvatarUrl" class="w-12 h-12 rounded-full object-cover mb-4" />
                         <p class="text-sm">你好，我是 OpenVort AI 助手</p>
                         <p class="text-xs mt-1">开始新的对话吧</p>
                     </div>
                     <!-- 空消息状态 -->
                     <div v-else-if="messages.length === 0 && !loading" class="flex flex-col items-center justify-center flex-1 text-gray-400">
-                        <Bot v-if="isAiMode" :size="48" class="mb-4 text-gray-300" />
+                        <img v-if="isAiMode" :src="aiAvatarUrl" class="w-12 h-12 rounded-full object-cover mb-4" />
                         <div v-else class="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mb-4">
                             <span class="text-lg font-medium text-gray-400">{{ (activeContact?.name || '?')[0] }}</span>
                         </div>
@@ -931,9 +932,9 @@ defineExpose({ currentSessionId, inputText, handleReset, switchSession, handleNe
                                         !isAiMode ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''
                                     ]"
                                     @click="!isAiMode && (memberProfileOpen = true)">
-                                    <!-- AI 模式：显示 Bot 图标 -->
+                                    <!-- AI 模式：显示头像 -->
                                     <template v-if="isAiMode">
-                                        <Bot :size="16" class="text-blue-600" />
+                                        <img :src="aiAvatarUrl" class="w-full h-full object-cover" />
                                     </template>
                                     <!-- 成员聊天模式：显示成员头像 -->
                                     <template v-else>

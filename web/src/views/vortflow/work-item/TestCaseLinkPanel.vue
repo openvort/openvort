@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
-import { Plus, X, Search } from "lucide-vue-next";
+import { Plus, X, Search, ClipboardCheck } from "lucide-vue-next";
 import { message } from "@/components/vort";
 import {
     getVortflowTestCases,
@@ -159,8 +159,11 @@ watch(() => props.entityId, () => { adding.value = false; loadLinks(); }, { imme
             </button>
         </div>
 
-        <div v-if="loading" class="bug-detail-empty">加载中...</div>
-        <div v-else-if="linkedCases.length === 0 && !adding" class="bug-detail-empty">暂无关联测试用例</div>
+        <div v-if="loading" class="tcl-empty">加载中...</div>
+        <div v-else-if="linkedCases.length === 0 && !adding" class="tcl-empty">
+            <ClipboardCheck :size="32" class="tcl-empty-icon" />
+            <span>暂无关联测试用例</span>
+        </div>
         <div v-else class="tcl-list">
             <div v-for="item in linkedCases" :key="item.link_id" class="tcl-item">
                 <div class="tcl-item-main">
@@ -275,4 +278,19 @@ watch(() => props.entityId, () => { adding.value = false; loadLinks(); }, { imme
 }
 .tcl-item:hover .tcl-remove-btn { opacity: 1; }
 .tcl-remove-btn:hover { color: #dc2626; background: #fee2e2; }
+
+.tcl-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 48px 20px;
+    color: var(--vort-text-tertiary);
+    font-size: 14px;
+}
+
+.tcl-empty-icon {
+    color: var(--vort-text-quaternary, #d0d5dd);
+}
 </style>

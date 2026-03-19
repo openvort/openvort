@@ -359,6 +359,33 @@ const priorityFilterConfig = computed<ColumnFilterConfig>(() => ({
     sortLabels: ["低 → 紧急", "紧急 → 低"] as [string, string],
 }));
 
+const creatorFilterConfig = computed<ColumnFilterConfig>(() => ({
+    type: "enum",
+    options: memberOptions.value.map(m => ({
+        label: m.name || m.id,
+        value: m.name || m.id,
+        avatarUrl: getMemberAvatarUrl(m.name || ""),
+        avatarLabel: getAvatarLabel(m.name || m.id || ""),
+        avatarBg: getAvatarBg(m.name || m.id || ""),
+    })),
+    sortLabels: ["A → Z", "Z → A"] as [string, string],
+}));
+
+const TYPE_DOT_COLOR_MAP: Record<string, string> = {
+    "需求": "#3b82f6",
+    "任务": "#10b981",
+    "缺陷": "#ef4444",
+};
+
+const typeFilterConfig = computed<ColumnFilterConfig>(() => ({
+    type: "enum",
+    options: (["需求", "任务", "缺陷"] as const).map(t => ({
+        label: t,
+        value: t,
+        dotColor: TYPE_DOT_COLOR_MAP[t],
+    })),
+}));
+
 const handleColumnSort = (field: string, order: "ascend" | "descend" | null) => {
     columnSortField.value = order ? field : "";
     columnSortOrder.value = order;
@@ -1609,6 +1636,14 @@ onMounted(async () => {
 
                 <template #header-milestone="{ column }">
                     <ColumnFilterPopover field="milestone" :title="column.title || ''" :config="milestoneFilterConfig" :sort-order="columnSortField === 'milestone' ? columnSortOrder : null" :filter-value="columnFilters['milestone']" @sort="(o) => handleColumnSort('milestone', o)" @filter="(v) => handleColumnFilter('milestone', v)">{{ column.title }}</ColumnFilterPopover>
+                </template>
+
+                <template #header-creator="{ column }">
+                    <ColumnFilterPopover field="creator" :title="column.title || ''" :config="creatorFilterConfig" :sort-order="columnSortField === 'creator' ? columnSortOrder : null" :filter-value="columnFilters['creator']" @sort="(o) => handleColumnSort('creator', o)" @filter="(v) => handleColumnFilter('creator', v)">{{ column.title }}</ColumnFilterPopover>
+                </template>
+
+                <template #header-type="{ column }">
+                    <ColumnFilterPopover field="type" :title="column.title || ''" :config="typeFilterConfig" :sort-order="columnSortField === 'type' ? columnSortOrder : null" :filter-value="columnFilters['type']" @sort="(o) => handleColumnSort('type', o)" @filter="(v) => handleColumnFilter('type', v)">{{ column.title }}</ColumnFilterPopover>
                 </template>
 
                 <template #workNo="{ text }">
