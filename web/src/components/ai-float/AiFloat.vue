@@ -75,7 +75,7 @@ watch(pendingPrompt, (prompt) => {
         >
             <transition name="ai-float-icon" mode="out-in">
                 <X v-if="panelOpen" :size="18" class="text-white" key="close" />
-                <AiIcon v-else key="ai" :size="20" :animated="true" class="text-white" />
+                <AiIcon v-else key="ai" :size="38" :animated="true" />
             </transition>
         </button>
     </div>
@@ -90,23 +90,20 @@ watch(pendingPrompt, (prompt) => {
 }
 
 .ai-float-btn {
-    width: 40px;
-    height: 40px;
+    width: 44px;
+    height: 44px;
     border-radius: 50%;
-    background: linear-gradient(135deg, #6366f1, #8b5cf6, #a855f7, #d946ef);
-    background-size: 200% 200%;
-    animation: ai-float-gradient 4s ease infinite;
-    box-shadow: 0 3px 14px rgba(139, 92, 246, 0.35), 0 1px 6px rgba(139, 92, 246, 0.15);
+    background: transparent;
+    box-shadow: 0 4px 20px rgba(99, 102, 241, 0.3), 0 0 30px rgba(139, 92, 246, 0.12);
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
     border: none;
-    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    transition: transform 0.3s ease, box-shadow 0.3s ease, background 0.3s ease;
     position: relative;
     overflow: visible;
 }
-/* Spinning conic border */
 .ai-float-btn::before {
     content: "";
     position: absolute;
@@ -115,56 +112,52 @@ watch(pendingPrompt, (prompt) => {
     background: conic-gradient(
         from 0deg,
         transparent 0%,
-        rgba(139, 92, 246, 0.45) 20%,
-        transparent 40%,
-        rgba(168, 85, 247, 0.3) 60%,
-        transparent 80%,
-        rgba(99, 102, 241, 0.45) 95%,
+        rgba(120, 217, 255, 0.35) 15%,
+        transparent 30%,
+        rgba(139, 92, 246, 0.4) 50%,
+        transparent 65%,
+        rgba(67, 209, 250, 0.3) 80%,
         transparent 100%
     );
-    animation: ai-border-spin 3s linear infinite;
+    animation: ai-border-spin 4s linear infinite;
     z-index: -1;
-    mask: radial-gradient(circle, transparent 45%, black 50%);
-    -webkit-mask: radial-gradient(circle, transparent 45%, black 50%);
+    mask: radial-gradient(circle, transparent 48%, black 52%);
+    -webkit-mask: radial-gradient(circle, transparent 48%, black 52%);
 }
-/* Pulse ring */
 .ai-float-btn::after {
     content: "";
     position: absolute;
-    inset: -3px;
+    inset: -4px;
     border-radius: 50%;
-    border: 1.5px solid rgba(139, 92, 246, 0.2);
-    animation: ai-pulse-ring 3s ease-out infinite;
+    border: 1.5px solid rgba(120, 217, 255, 0.15);
+    animation: ai-pulse-ring 3.5s ease-out infinite;
     pointer-events: none;
 }
 .ai-float-btn:hover {
-    transform: scale(1.08);
-    box-shadow: 0 4px 18px rgba(139, 92, 246, 0.4), 0 2px 8px rgba(139, 92, 246, 0.2);
+    transform: scale(1.1);
+    box-shadow: 0 6px 28px rgba(99, 102, 241, 0.4), 0 0 40px rgba(120, 217, 255, 0.15);
 }
-.ai-float-btn:active { transform: scale(0.95); }
+.ai-float-btn:active { transform: scale(0.93); }
 .ai-float-btn-active {
+    width: 40px;
+    height: 40px;
     background: linear-gradient(135deg, #6366f1, #7c3aed);
-    animation: none;
 }
 .ai-float-btn-active::before,
 .ai-float-btn-active::after { display: none; }
 
-@keyframes ai-float-gradient {
-    0%, 100% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
-}
 @keyframes ai-border-spin {
     to { transform: rotate(360deg); }
 }
 @keyframes ai-pulse-ring {
-    0% { transform: scale(1); opacity: 0.45; }
-    70% { transform: scale(1.25); opacity: 0; }
-    100% { transform: scale(1.25); opacity: 0; }
+    0% { transform: scale(1); opacity: 0.4; }
+    70% { transform: scale(1.3); opacity: 0; }
+    100% { transform: scale(1.3); opacity: 0; }
 }
 
 .ai-float-panel {
     position: absolute;
-    bottom: 52px;
+    bottom: 56px;
     right: 0;
     height: 600px;
     background: #fff;
