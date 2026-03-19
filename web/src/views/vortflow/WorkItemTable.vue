@@ -846,6 +846,7 @@ const {
     itemChildrenMap,
     getMemberIdByName,
     getMemberNameById,
+    loadMemberOptions,
     mapBackendStateToStatus,
     mapBackendPriority,
     getBackendStatesByDisplayStatus,

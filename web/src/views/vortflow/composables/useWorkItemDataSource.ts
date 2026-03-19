@@ -50,6 +50,7 @@ export interface UseWorkItemDataSourceOptions {
     itemChildrenMap: Record<string, RowItem[]>;
     getMemberIdByName: (name: string) => string;
     getMemberNameById: (id: string) => string;
+    loadMemberOptions?: () => Promise<void>;
     mapBackendStateToStatus: (type: WorkItemType, state: string) => Status;
     mapBackendPriority: (item: any, type: WorkItemType) => any;
     getBackendStatesByDisplayStatus: (type: WorkItemType, status: Status | string) => string[] | undefined;
@@ -80,6 +81,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
         itemChildrenMap,
         getMemberIdByName,
         getMemberNameById,
+        loadMemberOptions,
         mapBackendStateToStatus,
         mapBackendPriority,
         getBackendStatesByDisplayStatus,
@@ -392,6 +394,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
     };
 
     const request = async (params: ProTableRequestParams): Promise<ProTableResponse<RowItem>> => {
+        await loadMemberOptions?.();
         const kw = String(params.keyword ?? "").trim().toLowerCase();
         const ownerValue = String(params.owner ?? "").trim();
         const { ownerMemberId, matchOwner } = createOwnerMatcher(ownerValue);
