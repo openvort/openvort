@@ -64,6 +64,10 @@ export function triggerJenkinsBuild(id: string, data: { job_name: string; parame
     return request.post(`/jenkins/instances/${id}/jobs/build`, data);
 }
 
+export function abortJenkinsBuild(id: string, jobName: string, buildNumber: number) {
+    return request.post(`/jenkins/instances/${id}/builds/abort`, null, { params: { job_name: jobName, build_number: buildNumber } });
+}
+
 export function getJenkinsBuildStatus(id: string, jobName: string, buildNumber: number) {
     return request.get(`/jenkins/instances/${id}/builds/status`, { params: { job_name: jobName, build_number: buildNumber } });
 }

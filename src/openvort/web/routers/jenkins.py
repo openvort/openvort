@@ -548,6 +548,24 @@ async def trigger_build(request: Request, instance_id: str, req: TriggerBuildReq
     return await _run_client(instance_id, member_id, handler)
 
 
+@router.post("/instances/{instance_id}/builds/abort")
+async def abort_build(
+    request: Request, instance_id: str, job_name: str, build_number: int
+):
+    member_id = _get_member_id(request)
+
+    if not job_name.strip():
+        raise HTTPException(status_code=400, detail="job_name 不能为空")
+    if build_number <= 0:
+        raise HTTPException(status_code=400, detail="build_number 必须大于 0")
+
+    async def handler(client: JenkinsClient):
+        result = await client.abort_build(job_name.strip(), build_number)
+        return result
+
+    return await _run_client(instance_id, member_id, handler)
+
+
 @router.get("/instances/{instance_id}/builds/status")
 async def get_build_status(
     request: Request, instance_id: str, job_name: str, build_number: int

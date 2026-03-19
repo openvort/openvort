@@ -181,6 +181,14 @@ class JenkinsClient:
         queue_url = resp.headers.get("Location") or resp.headers.get("location") or ""
         return {"queued": True, "queue_url": queue_url}
 
+    async def abort_build(self, job_name: str, build_number: int) -> dict:
+        if not job_name:
+            raise JenkinsClientError("job_name 不能为空")
+        if build_number <= 0:
+            raise JenkinsClientError("build_number 必须大于 0")
+        await self._request("POST", f"{self._job_path(job_name)}/{build_number}/stop")
+        return {"aborted": True, "job_name": job_name, "build_number": build_number}
+
     async def get_build_status(self, job_name: str, build_number: int) -> dict:
         if not job_name:
             raise JenkinsClientError("job_name 不能为空")

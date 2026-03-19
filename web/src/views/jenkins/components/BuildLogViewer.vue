@@ -27,6 +27,16 @@
                 </div>
                 <div class="flex items-center gap-2">
                     <VortButton
+                        v-if="building"
+                        variant="text"
+                        size="small"
+                        danger
+                        :loading="aborting"
+                        @click="$emit('abort')"
+                    >
+                        <StopCircle v-if="!aborting" :size="14" class="mr-1" /> 中断构建
+                    </VortButton>
+                    <VortButton
                         v-if="truncated && !building"
                         variant="text"
                         size="small"
@@ -58,7 +68,7 @@
 
 <script setup lang="ts">
 import { ref, watch, nextTick } from "vue";
-import { CheckCircle2, XCircle, CircleDot, Copy, Loader2 } from "lucide-vue-next";
+import { CheckCircle2, XCircle, CircleDot, Copy, Loader2, StopCircle } from "lucide-vue-next";
 import { Dialog, message } from "@/components/vort";
 
 const props = defineProps<{
@@ -66,6 +76,7 @@ const props = defineProps<{
     buildNumber: number;
     buildResult: string;
     building: boolean;
+    aborting: boolean;
     logContent: string;
     logLoading: boolean;
     truncated: boolean;
@@ -75,6 +86,7 @@ const props = defineProps<{
 defineEmits<{
     (e: "update:open", val: boolean): void;
     (e: "loadFull"): void;
+    (e: "abort"): void;
 }>();
 
 const logContainerRef = ref<HTMLElement | null>(null);

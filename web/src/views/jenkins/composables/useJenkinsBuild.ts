@@ -1,5 +1,5 @@
 import { ref } from "vue";
-import { triggerJenkinsBuild, getJenkinsBuildLog, getJenkinsBuildStatus } from "@/api/jenkins";
+import { triggerJenkinsBuild, getJenkinsBuildLog, getJenkinsBuildStatus, abortJenkinsBuild } from "@/api/jenkins";
 import { message } from "@/components/vort";
 
 export function useJenkinsBuild() {
@@ -36,6 +36,16 @@ export function useJenkinsBuild() {
         }
     }
 
+    async function abortBuild(instanceId: string, jobName: string, buildNumber: number) {
+        try {
+            await abortJenkinsBuild(instanceId, jobName, buildNumber);
+            message.success("已发送中断请求");
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
     async function checkBuildStatus(instanceId: string, jobName: string, buildNumber: number) {
         try {
             const res: any = await getJenkinsBuildStatus(instanceId, jobName, buildNumber);
@@ -52,6 +62,7 @@ export function useJenkinsBuild() {
         buildLogTruncated,
         buildLogLineCount,
         trigger,
+        abortBuild,
         loadBuildLog,
         checkBuildStatus,
     };

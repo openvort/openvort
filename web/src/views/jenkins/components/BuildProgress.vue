@@ -5,9 +5,11 @@
     >
         <div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden min-w-[80px]">
             <div
-                class="h-full bg-blue-500 rounded-full transition-all duration-1000 ease-linear"
+                class="h-full rounded-full transition-all duration-1000 ease-linear relative overflow-hidden bg-blue-500"
                 :style="{ width: `${progress}%` }"
-            />
+            >
+                <div class="absolute inset-0 shimmer" />
+            </div>
         </div>
         <span class="text-xs text-gray-400 group-hover:text-blue-600 whitespace-nowrap shrink-0">
             #{{ buildNumber }}
@@ -51,3 +53,21 @@ onUnmounted(stopTimer);
 
 watch(() => props.timestamp, () => { now.value = Date.now(); });
 </script>
+
+<style scoped>
+.shimmer {
+    background: linear-gradient(
+        90deg,
+        transparent 0%,
+        rgba(255, 255, 255, 0.4) 50%,
+        transparent 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+</style>

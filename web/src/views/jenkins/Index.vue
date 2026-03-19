@@ -242,12 +242,14 @@
             :build-number="logBuildNumber"
             :build-result="logBuildResult"
             :building="logBuilding"
+            :aborting="buildAborting"
             :log-content="buildCtx.buildLog.value"
             :log-loading="buildCtx.buildLogLoading.value"
             :truncated="buildCtx.buildLogTruncated.value"
             :line-count="buildCtx.buildLogLineCount.value"
             @update:open="handleBuildLogClose"
             @load-full="loadFullLog"
+            @abort="handleAbortBuild"
         />
     </div>
 </template>
@@ -549,6 +551,7 @@ const logBuildNumber = ref(0);
 const logBuildResult = ref("");
 const logBuilding = ref(false);
 const logJobName = ref("");
+const buildAborting = ref(false);
 let logPollTimer: ReturnType<typeof setInterval> | null = null;
 
 function isPinnedJobBuilding(job: JenkinsJob): boolean {
@@ -581,7 +584,14 @@ async function handleViewLog(buildNumber: number) {
 
 function handleBuildLogClose(open: boolean) {
     buildLogOpen.value = open;
-    if (!open) stopLogPolling();
+    if (!open) { stopLogPolling(); buildAborting.value = false; }
+}
+
+async function handleAbortBuild() {
+    if (!currentInstanceId.value || !logJobName.value || !logBuildNumber.value) return;
+    buildAborting.value = true;
+    await buildCtx.abortBuild(currentInstanceId.value, logJobName.value, logBuildNumber.value);
+    buildAborting.value = false;
 }
 
 function startLogPolling() {
