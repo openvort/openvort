@@ -49,7 +49,10 @@
                             @click="row.is_folder ? $emit('enterFolder', row.name) : $emit('viewDetail', row)"
                         >
                             <FolderClosed v-if="row.is_folder" class="w-4 h-4 text-amber-500 shrink-0" />
-                            <span :class="row.is_folder ? 'font-medium' : ''">{{ row.name }}</span>
+                            <div>
+                                <span :class="row.is_folder ? 'font-medium' : ''">{{ row.name }}</span>
+                                <p v-if="row.description" class="text-xs text-gray-400 mt-0.5 line-clamp-1">{{ row.description }}</p>
+                            </div>
                         </button>
                     </template>
                 </VortTableColumn>

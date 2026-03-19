@@ -70,7 +70,7 @@ class JenkinsClient:
         include_folders: bool = False,
         limit: int = 100,
     ) -> list[dict]:
-        tree = "jobs[name,fullName,url,color,_class,lastBuild[number,url,result,timestamp,building],inQueue]"
+        tree = "jobs[name,fullName,url,color,description,_class,lastBuild[number,url,result,timestamp,building],inQueue]"
         if view and folder:
             raise JenkinsClientError("view 和 folder 不能同时指定")
 
@@ -121,6 +121,7 @@ class JenkinsClient:
                         "full_name": full_name,
                         "url": item.get("url", ""),
                         "color": item.get("color", ""),
+                        "description": item.get("description") or "",
                         "in_queue": bool(item.get("inQueue", False)),
                         "last_build": item.get("lastBuild") or None,
                         "is_folder": is_folder,

@@ -22,6 +22,7 @@ export interface JenkinsJob {
     full_name: string;
     url: string;
     color: string;
+    description: string;
     in_queue: boolean;
     is_folder: boolean;
     class?: string;

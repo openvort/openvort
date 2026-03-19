@@ -22,16 +22,20 @@
                 class="inline-flex items-center gap-2 bg-white rounded-lg border border-gray-100 pl-3 pr-1.5 py-1.5 text-sm shadow-sm hover:shadow transition-shadow"
             >
                 <StatusIcon :color="job.color" />
-                <button class="text-gray-700 hover:text-blue-600 transition-colors" @click="handleViewDetail(job)">
-                    {{ job.name }}
+                <button class="text-left hover:text-blue-600 transition-colors max-w-[200px]" @click="handleViewDetail(job)">
+                    <span class="text-gray-700 truncate block">{{ job.name }}</span>
+                    <span v-if="job.description" class="text-xs text-gray-400 truncate block">{{ job.description }}</span>
                 </button>
                 <vort-divider type="vertical" />
                 <VortTooltip title="构建">
                     <button
-                        class="p-1 text-gray-400 rounded hover:bg-gray-100 hover:text-green-600 transition-colors"
+                        class="p-1 rounded transition-colors"
+                        :class="buildingJobName === job.name ? 'text-blue-500' : 'text-gray-400 hover:bg-gray-100 hover:text-green-600'"
+                        :disabled="!!buildingJobName"
                         @click="handleTriggerBuild(job)"
                     >
-                        <Play :size="13" />
+                        <Loader2 v-if="buildingJobName === job.name" :size="13" class="animate-spin" />
+                        <Play v-else :size="13" />
                     </button>
                 </VortTooltip>
                 <VortTooltip title="取消置顶">
