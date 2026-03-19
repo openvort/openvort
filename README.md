@@ -6,6 +6,8 @@
 [![Vue 3](https://img.shields.io/badge/Vue-3.5-brightgreen.svg)](https://vuejs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115%2B-009688.svg)](https://fastapi.tiangolo.com/)
 
+[官网](https://openvort.com) | [文档](https://openvort.com/docs) | [扩展市场](https://openvort.com/extensions) | [社区](https://openvort.com/community)
+
 开源 AI 员工平台 — 创建 AI 员工，让他们与真人一起在企业微信、钉钉、飞书里协作，就像多招了几个同事。
 
 > **Open-source AI Employee Platform** — Create AI employees that work alongside your real team in WeCom, DingTalk, and Feishu — taking requirements, writing code, reviewing PRs, running builds, and generating reports, just like hiring a few more colleagues.
@@ -122,11 +124,11 @@ src/openvort/
 web/                # 前端（Vue 3.5 + TypeScript 5.9 + Vite 7 + Tailwind CSS 4）
 ```
 
-详细架构设计参见项目 Wiki（即将发布）。
+详细架构设计参见[官方文档](https://openvort.com/docs)。
 
 ## 扩展市场
 
-从 [openvort.com](https://openvort.com/extensions) 安装和发布 Skill/Plugin。
+从[扩展市场](https://openvort.com/extensions)安装和发布 Skill/Plugin。浏览社区发布的 Skill 和插件，或将你的作品分享给其他用户。
 
 ### 安装扩展
 
@@ -168,6 +170,26 @@ make test      # pytest -v
 make lint      # ruff check
 make format    # ruff format
 ```
+
+## 文档
+
+完整的使用指南、部署教程、插件开发文档和 API 参考，请访问[官方文档](https://openvort.com/docs)。
+
+- [快速开始](https://openvort.com/docs/getting-started/introduction) — 安装、配置、首次运行
+- [AI 员工](https://openvort.com/docs/ai-workers/overview) — 创建和管理 AI 员工
+- [插件开发](https://openvort.com/docs/plugins/overview) — 开发自定义插件
+- [部署指南](https://openvort.com/docs/deployment/docker) — Docker 部署、Nginx 配置、生产环境
+- [API 参考](https://openvort.com/docs/api/rest) — REST / WebSocket / SSE 接口
+
+## 社区
+
+遇到问题或有好的想法？欢迎参与[社区讨论](https://openvort.com/community)。
+
+- 提问求助、分享使用经验
+- 提交功能建议
+- 发布教程和最佳实践
+
+Bug 反馈和功能请求也可以通过 [GitHub Issues](https://github.com/openvort/openvort/issues) 提交。
 
 ## 协议
 
