@@ -572,6 +572,80 @@ class JenkinsClient:
 
         return {"job_type": job_type, "sections": sections, "raw_xml_length": len(xml_text)}
 
+    async def create_view(self, name: str, *, include_regex: str = "") -> dict:
+        """Create a ListView on Jenkins."""
+        if not name:
+            raise JenkinsClientError("视图名称不能为空")
+
+        await self._ensure_crumb()
+        headers: dict[str, str] = {"Content-Type": "application/xml"}
+        if self._crumb_field and self._crumb_value:
+            headers[self._crumb_field] = self._crumb_value
+
+        regex_line = f"<includeRegex>{include_regex}</includeRegex>" if include_regex else ""
+        config_xml = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            "<hudson.model.ListView>"
+            f"<name>{name}</name>"
+            "<filterExecutors>false</filterExecutors>"
+            "<filterQueue>false</filterQueue>"
+            '<properties class="hudson.model.View$PropertyList"/>'
+            "<jobNames>"
+            '<comparator class="hudson.util.CaseInsensitiveComparator"/>'
+            "</jobNames>"
+            "<jobFilters/>"
+            "<columns>"
+            "<hudson.views.StatusColumn/>"
+            "<hudson.views.WeatherColumn/>"
+            "<hudson.views.JobColumn/>"
+            "<hudson.views.LastSuccessColumn/>"
+            "<hudson.views.LastFailureColumn/>"
+            "<hudson.views.LastDurationColumn/>"
+            "<hudson.views.BuildButtonColumn/>"
+            "</columns>"
+            f"{regex_line}"
+            "</hudson.model.ListView>"
+        )
+
+        url = f"{self._base_url}/createView?name={quote(name, safe='')}"
+        try:
+            resp = await self._client.post(url, content=config_xml.encode("utf-8"), headers=headers)
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            detail = e.response.text.strip()[:300]
+            if e.response.status_code == 400 and "already exists" in detail.lower():
+                raise JenkinsClientError(f"视图已存在: {name}") from e
+            raise JenkinsClientError(
+                f"创建视图失败: {e.response.status_code} {detail}"
+            ) from e
+        except Exception as e:
+            raise JenkinsClientError(f"创建视图异常: {e}") from e
+
+        return {"created": True, "name": name}
+
+    async def delete_view(self, name: str) -> dict:
+        """Delete a view from Jenkins."""
+        if not name:
+            raise JenkinsClientError("视图名称不能为空")
+        if name.lower() == "all":
+            raise JenkinsClientError("不能删除默认的 All 视图")
+
+        await self._request("POST", f"/view/{quote(name, safe='')}/doDelete")
+        return {"deleted": True, "name": name}
+
+    async def add_jobs_to_view(self, view_name: str, job_names: list[str]) -> dict:
+        """Add jobs to a ListView by posting to the view's addJobToView endpoint."""
+        if not view_name:
+            raise JenkinsClientError("视图名称不能为空")
+        added = []
+        for job in job_names:
+            try:
+                await self._request("POST", f"/view/{quote(view_name, safe='')}/addJobToView", data={"name": job})
+                added.append(job)
+            except JenkinsClientError:
+                pass
+        return {"view": view_name, "added": added}
+
     async def get_queue_info(self) -> dict:
         tree = "items[id,task[name,url],why,inQueueSince,stuck,blocked,buildable,params,url]"
         return await self._get_json(f"/queue/api/json?tree={tree}")

@@ -83,7 +83,7 @@
                     </template>
                 </VortTableColumn>
 
-                <VortTableColumn label="操作" :width="160" align="center" fixed="right">
+                <VortTableColumn label="操作" :width="190" align="center" fixed="right">
                     <template #default="{ row }">
                         <div v-if="!row.is_folder" class="inline-flex items-center gap-1">
                             <VortButton
@@ -110,6 +110,18 @@
                                     <Bot :size="14" />
                                 </button>
                             </VortTooltip>
+                            <VortTooltip :title="pinnedJobs.has(row.full_name || row.name) ? '取消置顶' : '置顶'">
+                                <button
+                                    class="p-1 rounded transition-colors"
+                                    :class="pinnedJobs.has(row.full_name || row.name)
+                                        ? 'text-blue-500 hover:bg-blue-50 hover:text-blue-600'
+                                        : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600'"
+                                    @click="$emit('togglePin', row.full_name || row.name)"
+                                >
+                                    <PinOff v-if="pinnedJobs.has(row.full_name || row.name)" :size="14" />
+                                    <Pin v-else :size="14" />
+                                </button>
+                            </VortTooltip>
                         </div>
                         <button
                             v-else
@@ -125,6 +137,11 @@
                     <div class="flex flex-col items-center py-12 text-gray-400">
                         <HardDrive :size="48" class="mb-3 text-gray-300" />
                         <p class="text-sm">暂无 Job</p>
+                        <p class="text-xs text-gray-300 mt-1 mb-4">可通过 AI 助手快速创建 Job</p>
+                        <AiAssistButton
+                            label="AI 创建 Job"
+                            :prompt="`我想在 Jenkins 上创建一个新的 Job。${buildInstanceContext()}请直接使用该实例引导我完成创建，请询问我 Job 类型（Freestyle/Pipeline）、构建步骤、参数化需求等信息。`"
+                        />
                     </div>
                 </template>
             </VortTable>
@@ -133,8 +150,9 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from "vue";
 import { useRouter } from "vue-router";
-import { Play, ChevronRight, FolderClosed, HardDrive, Settings, Bot } from "lucide-vue-next";
+import { Play, ChevronRight, FolderClosed, HardDrive, Settings, Bot, Pin, PinOff } from "lucide-vue-next";
 import { AiAssistButton } from "@/components/vort-biz/ai-assist-button";
 import type { AiAssistPromptItem } from "@/components/vort-biz/ai-assist-button";
 import StatusIcon from "./StatusIcon.vue";
@@ -143,32 +161,50 @@ import type { JenkinsJob } from "../types";
 
 const router = useRouter();
 
-const aiPrompts: AiAssistPromptItem[] = [
-    {
-        label: "新增 Job",
-        prompt: "我想在 Jenkins 上创建一个新的 Job，请先用 jenkins_manage_instance(action=list) 查看可用实例，然后引导我完成创建。请询问我 Job 类型（Freestyle/Pipeline）、构建步骤、参数化需求等信息。",
-    },
-    {
-        label: "编辑 Job 配置",
-        prompt: "我想修改一个 Jenkins Job 的配置，请先用 jenkins_manage_instance(action=list) 查看可用实例，然后用 jenkins_list_jobs 帮我找到目标 Job，获取它的当前配置并引导我完成修改。",
-    },
-    {
-        label: "复制 Job",
-        prompt: "我想复制一个 Jenkins Job，请先用 jenkins_manage_instance(action=list) 查看可用实例，然后用 jenkins_list_jobs 帮我找到要复制的源 Job，询问新名称和目标文件夹。",
-    },
-    {
-        label: "删除 Job",
-        prompt: "我想删除一个 Jenkins Job，请先用 jenkins_manage_instance(action=list) 查看可用实例，然后用 jenkins_list_jobs 帮我找到要删除的 Job，确认后执行删除。",
-    },
-];
-
-defineProps<{
+const props = defineProps<{
     jobs: JenkinsJob[];
     breadcrumbs: { label: string; path: string[] }[];
     keyword: string;
     loading: boolean;
     buildingJob: string;
+    instanceName: string;
+    instanceId: string;
+    activeView: string;
+    pinnedJobs: Set<string>;
 }>();
+
+function buildInstanceContext(): string {
+    const parts: string[] = [];
+    if (props.instanceName && props.instanceId) {
+        parts.push(`当前实例「${props.instanceName}」(ID: ${props.instanceId})`);
+    }
+    if (props.activeView && props.activeView.toLowerCase() !== "all") {
+        parts.push(`当前视图「${props.activeView}」`);
+    }
+    return parts.length > 0 ? parts.join("，") + "。" : "";
+}
+
+const aiPrompts = computed<AiAssistPromptItem[]>(() => {
+    const ctx = buildInstanceContext();
+    return [
+        {
+            label: "新增 Job",
+            prompt: `我想在 Jenkins 上创建一个新的 Job。${ctx}请直接使用该实例引导我完成创建，请询问我 Job 类型（Freestyle/Pipeline）、构建步骤、参数化需求等信息。`,
+        },
+        {
+            label: "编辑 Job 配置",
+            prompt: `我想修改一个 Jenkins Job 的配置。${ctx}请用 jenkins_list_jobs 在该实例上帮我找到目标 Job，获取它的当前配置并引导我完成修改。`,
+        },
+        {
+            label: "复制 Job",
+            prompt: `我想复制一个 Jenkins Job。${ctx}请用 jenkins_list_jobs 在该实例上帮我找到要复制的源 Job，询问新名称和目标文件夹。`,
+        },
+        {
+            label: "删除 Job",
+            prompt: `我想删除一个 Jenkins Job。${ctx}请用 jenkins_list_jobs 在该实例上帮我找到要删除的 Job，确认后执行删除。`,
+        },
+    ];
+});
 
 defineEmits<{
     (e: "enterFolder", folderName: string): void;
@@ -178,6 +214,7 @@ defineEmits<{
     (e: "navigateBreadcrumb", path: string[]): void;
     (e: "update:keyword", val: string): void;
     (e: "search"): void;
+    (e: "togglePin", jobKey: string): void;
 }>();
 
 function goAiEdit(job: JenkinsJob) {

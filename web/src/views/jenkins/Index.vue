@@ -6,15 +6,42 @@
                 <h2 class="text-lg font-semibold text-gray-800">Jenkins</h2>
                 <p class="text-sm text-gray-400 mt-0.5">管理 CI/CD 流水线，查看构建状态与日志</p>
             </div>
-            <div v-if="isAdmin && pageState !== 'loading'" class="flex items-center gap-2">
+            <div v-if="isAdmin && pageState === 'no-instances'">
                 <AiAssistButton
-                    v-if="pageState === 'no-instances'"
                     label="AI 助手配置"
                     prompt="我需要配置 Jenkins 实例，请引导我完成。请先询问我 Jenkins 服务器的地址、用户名和 API Token，然后帮我创建实例并验证连通性。"
                 />
-                <VortButton variant="primary" @click="openInstanceForm(null)">
-                    <Plus :size="14" class="mr-1" /> 添加实例
-                </VortButton>
+            </div>
+        </div>
+
+        <!-- Pinned jobs bar -->
+        <div v-if="pageState === 'ready' && pinnedJobs.length > 0" class="flex items-center gap-2 flex-wrap">
+            <div
+                v-for="job in pinnedJobs"
+                :key="job.full_name || job.name"
+                class="inline-flex items-center gap-2 bg-white rounded-lg border border-gray-100 pl-3 pr-1.5 py-1.5 text-sm shadow-sm hover:shadow transition-shadow"
+            >
+                <StatusIcon :color="job.color" />
+                <button class="text-gray-700 hover:text-blue-600 transition-colors" @click="handleViewDetail(job)">
+                    {{ job.name }}
+                </button>
+                <vort-divider type="vertical" />
+                <VortTooltip title="构建">
+                    <button
+                        class="p-1 text-gray-400 rounded hover:bg-gray-100 hover:text-green-600 transition-colors"
+                        @click="handleTriggerBuild(job)"
+                    >
+                        <Play :size="13" />
+                    </button>
+                </VortTooltip>
+                <VortTooltip title="取消置顶">
+                    <button
+                        class="p-1 text-gray-400 rounded hover:bg-gray-100 hover:text-red-500 transition-colors"
+                        @click="handleTogglePin(job.full_name || job.name)"
+                    >
+                        <PinOff :size="13" />
+                    </button>
+                </VortTooltip>
             </div>
         </div>
 
@@ -33,9 +60,9 @@
         </div>
 
         <!-- Main content -->
-        <div v-else class="bg-white rounded-xl overflow-hidden flex min-h-0" style="min-height: 540px;">
-            <!-- Left panel: Instance list -->
-            <div class="w-56 shrink-0 border-r border-gray-100">
+        <div v-else class="flex gap-4 min-h-0" style="min-height: 540px;">
+            <!-- Card 1: Instance list -->
+            <div class="w-56 shrink-0 bg-white rounded-xl overflow-hidden">
                 <InstanceList
                     :instances="instCtx.instances.value"
                     :selected-id="instCtx.selectedInstance.value?.id ?? null"
@@ -50,10 +77,10 @@
                 />
             </div>
 
-            <!-- Right panel -->
-            <div class="flex-1 flex flex-col min-w-0">
+            <!-- Right column -->
+            <div class="flex-1 flex flex-col gap-4 min-w-0">
                 <!-- Per-instance credential not configured -->
-                <div v-if="instCtx.credentialConfigured.value === false" class="flex-1 flex items-center justify-center">
+                <div v-if="instCtx.credentialConfigured.value === false" class="bg-white rounded-xl flex-1 flex items-center justify-center">
                     <div class="text-center max-w-sm">
                         <KeyRound class="w-12 h-12 text-gray-300 mx-auto mb-4" />
                         <h3 class="text-base font-medium text-gray-600 mb-2">凭证未配置</h3>
@@ -65,7 +92,7 @@
                 </div>
 
                 <!-- Auth failed -->
-                <div v-else-if="instCtx.credentialConfigured.value === true && authFailed" class="flex-1 flex items-center justify-center">
+                <div v-else-if="instCtx.credentialConfigured.value === true && authFailed" class="bg-white rounded-xl flex-1 flex items-center justify-center">
                     <div class="text-center max-w-sm">
                         <AlertTriangle class="w-12 h-12 text-amber-400 mx-auto mb-4" />
                         <h3 class="text-base font-medium text-gray-600 mb-2">凭证认证失败</h3>
@@ -81,40 +108,68 @@
 
                 <!-- Credential OK: show jobs -->
                 <template v-else-if="instCtx.credentialConfigured.value === true && !authFailed">
-                    <div class="flex items-center border-b border-gray-100 overflow-hidden">
-                        <ViewTabs
-                            class="flex-1 min-w-0 !border-b-0"
-                            :views="jobCtx.views.value"
-                            :active-view="jobCtx.activeView.value"
-                            @switch="handleSwitchView"
-                        />
-                        <VortTooltip title="修改凭证">
-                            <button
-                                class="shrink-0 px-3 py-2 mr-2 text-gray-400 hover:text-gray-600 transition-colors"
-                                @click="credentialDialogOpen = true"
-                            >
-                                <Settings class="w-4 h-4" />
-                            </button>
-                        </VortTooltip>
+                    <!-- Card 2: View tabs -->
+                    <div class="bg-white rounded-xl overflow-hidden px-4">
+                        <vort-tabs
+                            :active-key="jobCtx.activeView.value"
+                            :bordered="false"
+                            hide-content
+                            @change="handleSwitchView"
+                        >
+                            <vort-tab-pane
+                                v-for="view in jobCtx.views.value"
+                                :key="view.name"
+                                :tab-key="view.name"
+                                :tab="view.name"
+                            />
+                            <template #tabBarExtraContent>
+                                <div class="flex items-center gap-1">
+                                    <VortTooltip title="添加视图">
+                                        <button
+                                            class="shrink-0 p-1.5 text-gray-400 hover:text-blue-600 transition-colors rounded"
+                                            @click="createViewDialogOpen = true"
+                                        >
+                                            <Plus class="w-4 h-4" />
+                                        </button>
+                                    </VortTooltip>
+                                    <VortTooltip title="修改凭证">
+                                        <button
+                                            class="shrink-0 p-1.5 text-gray-400 hover:text-gray-600 transition-colors rounded"
+                                            @click="credentialDialogOpen = true"
+                                        >
+                                            <Settings class="w-4 h-4" />
+                                        </button>
+                                    </VortTooltip>
+                                </div>
+                            </template>
+                        </vort-tabs>
                     </div>
-                    <JobTable
-                        :jobs="jobCtx.jobs.value"
-                        :breadcrumbs="jobCtx.breadcrumbs.value"
-                        :keyword="jobCtx.keyword.value"
-                        :loading="jobCtx.loading.value"
-                        :building-job="buildingJobName"
-                        @enter-folder="handleEnterFolder"
-                        @view-detail="handleViewDetail"
-                        @trigger-build="handleTriggerBuild"
-                        @view-config="handleViewConfig"
-                        @navigate-breadcrumb="handleNavigateBreadcrumb"
-                        @update:keyword="jobCtx.keyword.value = $event"
-                        @search="refreshJobs"
-                    />
+                    <!-- Card 3: Job table -->
+                    <div class="bg-white rounded-xl overflow-hidden flex-1">
+                        <JobTable
+                            :jobs="jobCtx.jobs.value"
+                            :breadcrumbs="jobCtx.breadcrumbs.value"
+                            :keyword="jobCtx.keyword.value"
+                            :loading="jobCtx.loading.value"
+                            :building-job="buildingJobName"
+                            :instance-name="instCtx.selectedInstance.value?.name ?? ''"
+                            :instance-id="instCtx.selectedInstance.value?.id ?? ''"
+                            :active-view="jobCtx.activeView.value"
+                            :pinned-jobs="pinnedJobSet"
+                            @enter-folder="handleEnterFolder"
+                            @view-detail="handleViewDetail"
+                            @trigger-build="handleTriggerBuild"
+                            @view-config="handleViewConfig"
+                            @navigate-breadcrumb="handleNavigateBreadcrumb"
+                            @update:keyword="jobCtx.keyword.value = $event"
+                            @search="refreshJobs"
+                            @toggle-pin="handleTogglePin"
+                        />
+                    </div>
                 </template>
 
                 <!-- Checking credential -->
-                <div v-else class="flex-1 flex items-center justify-center">
+                <div v-else class="bg-white rounded-xl flex-1 flex items-center justify-center">
                     <Loader2 class="w-5 h-5 animate-spin text-gray-400" />
                 </div>
             </div>
@@ -134,6 +189,12 @@
             :initial-username="instCtx.credentialUsername.value"
             @update:open="credentialDialogOpen = $event"
             @submit="handleCredentialSubmit"
+        />
+
+        <CreateViewDialog
+            :open="createViewDialogOpen"
+            @update:open="createViewDialogOpen = $event"
+            @submit="handleCreateViewSubmit"
         />
 
         <BuildDialog
@@ -179,14 +240,15 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { Loader2, HardDrive, Plus, KeyRound, AlertTriangle, Settings } from "lucide-vue-next";
+import { Loader2, HardDrive, KeyRound, AlertTriangle, Settings, Plus, Play, PinOff } from "lucide-vue-next";
 import { AiAssistButton } from "@/components/vort-biz/ai-assist-button";
 import { useUserStore } from "@/stores";
 
+import StatusIcon from "./components/StatusIcon.vue";
 import InstanceList from "./components/InstanceList.vue";
 import InstanceFormDialog from "./components/InstanceFormDialog.vue";
 import CredentialDialog from "./components/CredentialDialog.vue";
-import ViewTabs from "./components/ViewTabs.vue";
+import CreateViewDialog from "./components/CreateViewDialog.vue";
 import JobTable from "./components/JobTable.vue";
 import BuildDialog from "./components/BuildDialog.vue";
 import JobDetailDrawer from "./components/JobDetailDrawer.vue";
@@ -218,6 +280,47 @@ const pageState = computed(() => {
 const currentInstanceId = computed(() => instCtx.selectedInstance.value?.id ?? "");
 
 const authFailed = ref(false);
+
+// Pinned jobs (per instance, localStorage)
+const PINNED_JOBS_KEY = "openvort.jenkins.pinned-jobs";
+
+function loadPinnedJobs(): string[] {
+    try {
+        const all = JSON.parse(localStorage.getItem(PINNED_JOBS_KEY) || "{}");
+        return all[currentInstanceId.value] ?? [];
+    } catch { return []; }
+}
+
+function savePinnedJobs(jobs: string[]) {
+    try {
+        const all = JSON.parse(localStorage.getItem(PINNED_JOBS_KEY) || "{}");
+        all[currentInstanceId.value] = jobs;
+        localStorage.setItem(PINNED_JOBS_KEY, JSON.stringify(all));
+    } catch {}
+}
+
+const pinnedJobNames = ref<string[]>([]);
+const pinnedJobSet = computed(() => new Set(pinnedJobNames.value));
+
+const pinnedJobs = computed(() =>
+    pinnedJobNames.value
+        .map((name) => jobCtx.jobs.value.find((j) => (j.full_name || j.name) === name))
+        .filter((j): j is JenkinsJob => !!j),
+);
+
+function handleTogglePin(jobKey: string) {
+    const idx = pinnedJobNames.value.indexOf(jobKey);
+    if (idx >= 0) {
+        pinnedJobNames.value.splice(idx, 1);
+    } else {
+        pinnedJobNames.value.push(jobKey);
+    }
+    savePinnedJobs(pinnedJobNames.value);
+}
+
+watch(currentInstanceId, () => {
+    pinnedJobNames.value = loadPinnedJobs();
+});
 
 const JENKINS_STATE_KEY = "openvort.jenkins.nav-state";
 
@@ -296,6 +399,25 @@ function handleSelectInstance(inst: JenkinsInstance) {
 }
 
 const credentialDialogOpen = ref(false);
+const createViewDialogOpen = ref(false);
+
+async function handleCreateViewSubmit(data: { name: string; include_regex: string }) {
+    if (!currentInstanceId.value) return;
+    try {
+        await jobCtx.addView(currentInstanceId.value, data);
+        createViewDialogOpen.value = false;
+        refreshJobs();
+    } catch { /* error handled by interceptor */ }
+}
+
+async function handleDeleteView(viewName: string) {
+    if (!currentInstanceId.value) return;
+    if (!confirm(`确定要删除视图「${viewName}」吗？这不会删除视图中的 Job。`)) return;
+    try {
+        await jobCtx.removeView(currentInstanceId.value, viewName);
+        refreshJobs();
+    } catch { /* error handled by interceptor */ }
+}
 
 async function handleCredentialSubmit(data: { username: string; api_token: string }) {
     if (!instCtx.selectedInstance.value) return;
@@ -457,6 +579,7 @@ onMounted(async () => {
     }
 
     if (currentInstanceId.value) {
+        pinnedJobNames.value = loadPinnedJobs();
         await instCtx.checkCredential(currentInstanceId.value);
     }
 

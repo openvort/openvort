@@ -124,7 +124,7 @@ class JenkinsManageInstanceTool(JenkinsToolBase):
         
         # 正常流程
         if action == "list":
-            return await self._list()
+            return await self._list(member_id=params.get("_member_id", ""))
         if action == "create":
             # 先检查参数是否完整
             missing = self._check_create_params(params)
@@ -230,7 +230,7 @@ class JenkinsManageInstanceTool(JenkinsToolBase):
             "instance_name": instance_name,
         }, ensure_ascii=False)
 
-    async def _list(self) -> str:
+    async def _list(self, member_id: str = "") -> str:
         sf = get_session_factory()
         async with sf() as session:
             result = await session.execute(
@@ -238,13 +238,17 @@ class JenkinsManageInstanceTool(JenkinsToolBase):
             )
             instances = result.scalars().all()
 
+        user_cred_map: dict[str, bool] = {}
+        if member_id:
+            user_cred_map = await self._check_user_credentials(member_id, [it.id for it in instances])
+
         data = [
             {
                 "id": it.id,
                 "name": it.name,
                 "url": it.url,
-                "username": it.username,
-                "has_token": bool(it.api_token),
+                "has_instance_token": bool(it.api_token),
+                "user_credential_configured": user_cred_map.get(it.id, None),
                 "verify_ssl": bool(it.verify_ssl),
                 "is_default": bool(it.is_default),
             }
@@ -255,10 +259,49 @@ class JenkinsManageInstanceTool(JenkinsToolBase):
                 "ok": True,
                 "count": len(data),
                 "instances": data,
-                "hint": "使用 create 添加实例；使用 verify 测试连通性。",
+                "hint": "使用 create 添加实例；使用 verify 测试连通性。"
+                "user_credential_configured 表示当前用户是否已为该实例配置个人凭证（Web 面板使用）；"
+                "has_instance_token 表示实例级共享凭证（IM 通道使用）。",
             },
             ensure_ascii=False,
         )
+
+    @staticmethod
+    async def _check_user_credentials(member_id: str, instance_ids: list[str]) -> dict[str, bool]:
+        """Check per-user credential status for each instance."""
+        if not instance_ids:
+            return {}
+
+        from openvort.db.models import MemberPluginSetting
+
+        plugin_names = [f"jenkins:{iid}" for iid in instance_ids]
+        sf = get_session_factory()
+        async with sf() as session:
+            result = await session.execute(
+                select(MemberPluginSetting.plugin_name, MemberPluginSetting.settings_data).where(
+                    MemberPluginSetting.member_id == member_id,
+                    MemberPluginSetting.plugin_name.in_(plugin_names),
+                )
+            )
+            rows = result.all()
+
+        configured: dict[str, bool] = {}
+        for plugin_name, settings_data in rows:
+            iid = plugin_name.removeprefix("jenkins:")
+            if settings_data and settings_data != "{}":
+                try:
+                    data = json.loads(settings_data)
+                    configured[iid] = bool(data.get("username") and data.get("api_token"))
+                except (json.JSONDecodeError, TypeError):
+                    configured[iid] = False
+            else:
+                configured[iid] = False
+
+        for iid in instance_ids:
+            if iid not in configured:
+                configured[iid] = False
+
+        return configured
 
     async def _create(self, params: dict) -> str:
         name = str(params.get("name", "") or "").strip()

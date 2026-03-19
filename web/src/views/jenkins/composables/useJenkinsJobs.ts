@@ -1,5 +1,6 @@
 import { ref, computed } from "vue";
-import { getJenkinsJobs, getJenkinsSystemInfo, getJenkinsJobInfo, getJenkinsJobConfigSummary } from "@/api/jenkins";
+import { getJenkinsJobs, getJenkinsSystemInfo, getJenkinsJobInfo, getJenkinsJobConfigSummary, createJenkinsView, deleteJenkinsView } from "@/api/jenkins";
+import { message } from "@/components/vort";
 import type { JenkinsJob, JenkinsView, JenkinsJobDetail, JenkinsConfigSummary } from "../types";
 
 export type LoadResult = "ok" | "auth_error" | "error";
@@ -90,6 +91,22 @@ export function useJenkinsJobs() {
         folderPath.value = [];
     }
 
+    async function addView(instanceId: string, data: { name: string; include_regex?: string }) {
+        await createJenkinsView(instanceId, data);
+        message.success(`视图「${data.name}」创建成功`);
+        await loadViews(instanceId);
+        activeView.value = data.name;
+    }
+
+    async function removeView(instanceId: string, viewName: string) {
+        await deleteJenkinsView(instanceId, viewName);
+        message.success(`视图「${viewName}」已删除`);
+        if (activeView.value === viewName) {
+            activeView.value = "All";
+        }
+        await loadViews(instanceId);
+    }
+
     function resetNavigation() {
         jobs.value = [];
         views.value = [];
@@ -142,6 +159,8 @@ export function useJenkinsJobs() {
         keyword,
         loadViews,
         loadJobs,
+        addView,
+        removeView,
         enterFolder,
         navigateBreadcrumb,
         switchView,

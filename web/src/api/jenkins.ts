@@ -13,6 +13,15 @@ export function deleteJenkinsInstanceCredential(instanceId: string) {
     return request.delete(`/jenkins/instances/${instanceId}/credential`);
 }
 
+// View management
+export function createJenkinsView(instanceId: string, data: { name: string; include_regex?: string }) {
+    return request.post(`/jenkins/instances/${instanceId}/views`, data);
+}
+
+export function deleteJenkinsView(instanceId: string, viewName: string) {
+    return request.delete(`/jenkins/instances/${instanceId}/views/${encodeURIComponent(viewName)}`);
+}
+
 // Instance CRUD
 export function getJenkinsInstances() {
     return request.get("/jenkins/instances");

@@ -14,6 +14,7 @@ from openvort.plugins.jenkins.tools import (
     JobInfoTool,
     ListJobsTool,
     ManageJobTool,
+    ManageViewTool,
     SystemInfoTool,
     TriggerBuildTool,
 )
@@ -40,6 +41,7 @@ class JenkinsPlugin(BasePlugin):
             BuildLogTool(),
             SystemInfoTool(),
             ManageJobTool(),
+            ManageViewTool(),
         ]
 
     def get_prompts(self) -> list[str]:

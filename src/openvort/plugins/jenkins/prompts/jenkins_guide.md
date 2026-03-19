@@ -4,16 +4,18 @@
 
 1. 实例管理（多 Jenkins）：
    - `jenkins_manage_instance`：管理 Jenkins 实例，支持 `list/create/update/delete/verify`。
-2. 查询：
+2. 视图管理：
+   - `jenkins_manage_view`：管理 Jenkins 视图，支持 `list/create/delete`。可通过 `include_regex` 按正则自动过滤 Job。
+3. 查询：
    - `jenkins_system_info`：查看 Jenkins 基本状态、队列和 Job 统计。
    - `jenkins_list_jobs`：列出 Job，可用 `keyword` 过滤。
    - `jenkins_job_info`：查看某个 Job 的参数定义与最近构建。
-3. 执行：
+4. 执行：
    - `jenkins_trigger_build`：触发构建；如需参数化构建，传入 `parameters`。
-4. 跟踪：
+5. 跟踪：
    - `jenkins_build_status`：查询指定构建号的状态和结果。
    - `jenkins_build_log`：拉取构建日志（默认返回尾部日志）。
-5. Job 管理（增删改）：
+6. Job 管理（增删改）：
    - `jenkins_manage_job`：管理 Job 配置，支持 `get_config/create/update_config/delete/copy/enable/disable`。
      - `get_config`：获取 Job 的 XML 配置（理解现有配置后再修改）
      - `create`：创建新 Job，需提供 `job_name` 和 `config_xml`，可指定 `folder`
@@ -79,7 +81,7 @@
 
 **需要确认的操作**：新增实例（create）、修改实例（update）、删除实例（delete）、触发构建（trigger_build）、创建 Job（create）、更新 Job 配置（update_config）、删除 Job（delete）
 
-**查询操作无需确认**：list、verify、job_info、build_status、build_log、get_config、copy、enable、disable 等
+**查询操作无需确认**：list、verify、job_info、build_status、build_log、get_config、copy、enable、disable、视图 list/create/delete 等
 
 **确认规则**：
 1. 当用户发起需要确认的操作时，**先与用户核对参数**，确认参数正确后再进入确认阶段

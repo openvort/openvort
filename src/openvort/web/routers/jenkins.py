@@ -143,6 +143,11 @@ class SaveCredentialRequest(BaseModel):
     api_token: str
 
 
+class CreateViewRequest(BaseModel):
+    name: str
+    include_regex: str = ""
+
+
 # ---------------------------------------------------------------------------
 # Per-instance credential management
 # ---------------------------------------------------------------------------
@@ -581,5 +586,38 @@ async def get_build_log(
             job_name.strip(), build_number, tail_lines=min(max(1, tail_lines), 5000)
         )
         return data
+
+    return await _run_client(instance_id, member_id, handler)
+
+
+# ---------------------------------------------------------------------------
+# View management
+# ---------------------------------------------------------------------------
+
+@router.post("/instances/{instance_id}/views")
+async def create_view(request: Request, instance_id: str, req: CreateViewRequest):
+    member_id = _get_member_id(request)
+
+    name = req.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="视图名称不能为空")
+
+    async def handler(client: JenkinsClient):
+        result = await client.create_view(name, include_regex=req.include_regex.strip())
+        return {"ok": True, "message": f"视图「{name}」创建成功", **result}
+
+    return await _run_client(instance_id, member_id, handler)
+
+
+@router.delete("/instances/{instance_id}/views/{view_name}")
+async def delete_view(request: Request, instance_id: str, view_name: str):
+    member_id = _get_member_id(request)
+
+    if not view_name.strip():
+        raise HTTPException(status_code=400, detail="视图名称不能为空")
+
+    async def handler(client: JenkinsClient):
+        result = await client.delete_view(view_name.strip())
+        return {"ok": True, "message": f"视图「{view_name}」已删除", **result}
 
     return await _run_client(instance_id, member_id, handler)

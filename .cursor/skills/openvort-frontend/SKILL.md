@@ -1,10 +1,15 @@
+---
+name: openvort-frontend
+description: OpenVort 前端开发规范。涉及 vort 组件库用法、表单校验、弹窗按钮、组件命名、页面布局、CSS 约定等前端编码时必须遵循。新增或修改任何前端页面、组件时使用。
+---
+
 # OpenVort 前端开发规范
 
 ## !!! 强制规则（违反即为 BUG，必须最先阅读）
 
-### 规则 1：必须使用 vort 组件库，禁止写原生 HTML 控件
+### 规则 1：优先使用 vort 组件库，或基于 vort 组合新组件
 
-所有 UI 元素必须使用 vort 组件库，**禁止**用原生 HTML 或自己拼 Tailwind 实现以下任何一个：
+所有 UI 元素优先使用 vort 组件库；需要自定义时，也应基于 vort 组件进行组合封装，而非用原生 HTML 或自己拼 Tailwind：
 
 | 需求 | 必须用 | 禁止用 |
 |------|--------|--------|
@@ -66,65 +71,15 @@ import { Button, Input, Switch } from "@/components/vort";  // 禁止！
 <vort-button @click="save">保存</vort-button>
 ```
 
-### 规则 4：弹窗表单必须用 VortForm + zod 校验
+### 规则 4 & 5：弹窗/抽屉表单规范
 
-弹窗内有表单时，**必须**用 `vort-form` + zod rules + `formRef.validate()`。**禁止**手动 `if (!xxx) { message.warning(...); return; }` 校验。
+> 完整规范见 **openvort-dialog-form** Skill，以下仅列要点。
 
-```vue
-<script setup lang="ts">
-import { ref } from "vue";
-import { Dialog } from "@/components/vort";
-import { z } from "zod";
-
-const formRef = ref();
-const saving = ref(false);
-const form = ref({ name: "", url: "" });
-const rules = z.object({
-    name: z.string().min(1, "请输入名称"),
-    url: z.string().min(1, "请输入 URL"),
-});
-
-async function handleSave() {
-    try { await formRef.value?.validate(); } catch { return; }
-    saving.value = true;
-    // ... API 调用
-}
-</script>
-<template>
-    <Dialog :open="open" title="添加" :confirm-loading="saving" ok-text="保存" @ok="handleSave" @update:open="$emit('update:open', $event)">
-        <vort-form ref="formRef" :model="form" :rules="rules" label-width="100px">
-            <vort-form-item label="名称" name="name" required>
-                <vort-input v-model="form.name" placeholder="请输入名称" />
-            </vort-form-item>
-            <vort-form-item label="URL" name="url" required>
-                <vort-input v-model="form.url" placeholder="请输入 URL" />
-            </vort-form-item>
-        </vort-form>
-    </Dialog>
-</template>
-```
-
-**要点：**
-- `vort-form-item` 必须设 `name`（对应 rules key），否则校验不生效
-- `required` 显示红色星号
-- Dialog 用 `@ok` + `:confirm-loading`，不要自己在 body 里放按钮
-
-### 规则 5：Dialog 按钮永远在 footer，不在 body
-
-三种方式按优先级：
-1. **首选：** 内置 props（`@ok` + `:confirm-loading` + `ok-text`）
-2. **自定义：** `#footer` 插槽
-3. **纯展示弹窗：** `:footer="false"`
-
-```vue
-<!-- 禁止！在 body 内部放按钮 -->
-<VortDialog :open="open" :footer="false">
-    <form>
-        <vort-input v-model="name" />
-        <vort-button @click="save">保存</vort-button>  <!-- 禁止！ -->
-    </form>
-</VortDialog>
-```
+- 表单必须用 `vort-form` + `vort-form-item` + zod rules + `formRef.validate()`，**禁止**原生 `<form>`/`<label>`/手动 if 校验
+- Dialog 按钮用内置 `@ok` + `:confirm-loading` + `ok-text`，**禁止**在 body 内放按钮
+- Drawer 按钮放 `#footer` 插槽
+- **禁止**用底层 `VortDialogContent`/`VortDialogFooter` 拼装，必须用 `Dialog` from `@/components/vort`
+- 弹窗必须是独立 `.vue` 文件，不内联在页面中
 
 ### 规则 6：vort-switch 用 v-model:checked，不是 v-model
 
@@ -305,72 +260,9 @@ const { loading, formState, isEdit, isAdd, onSubmit } =
 </template>
 ```
 
-### 弹窗表单（标准模板）
+### 弹窗表单 & 抽屉表单（标准模板）
 
-```vue
-<!-- XxxEditDialog.vue -->
-<script setup lang="ts">
-import { ref, watch } from "vue";
-import { Dialog } from "@/components/vort";
-import { z } from "zod";
-
-const props = defineProps<{ open: boolean; editData: XxxItem | null }>();
-const emit = defineEmits<{ (e: "update:open", val: boolean): void; (e: "saved"): void }>();
-
-const formRef = ref();
-const saving = ref(false);
-const form = ref({ name: "", desc: "" });
-const rules = z.object({ name: z.string().min(1, "请输入名称") });
-
-watch(() => props.open, (val) => {
-    if (val) {
-        form.value = props.editData ? { ...props.editData } : { name: "", desc: "" };
-        saving.value = false;
-    }
-});
-
-async function handleSave() {
-    try { await formRef.value?.validate(); } catch { return; }
-    saving.value = true;
-    try {
-        // await createXxx(form.value) or updateXxx(...)
-        emit("saved");
-        emit("update:open", false);
-    } finally { saving.value = false; }
-}
-</script>
-<template>
-    <Dialog :open="open" :title="editData ? '编辑' : '新增'" :confirm-loading="saving" ok-text="保存" @ok="handleSave" @update:open="$emit('update:open', $event)">
-        <vort-form ref="formRef" :model="form" :rules="rules" label-width="80px">
-            <vort-form-item label="名称" name="name" required>
-                <vort-input v-model="form.name" placeholder="请输入名称" />
-            </vort-form-item>
-            <vort-form-item label="描述">
-                <vort-textarea v-model="form.desc" placeholder="请输入描述" :rows="3" />
-            </vort-form-item>
-        </vort-form>
-    </Dialog>
-</template>
-```
-
-### 抽屉（查看/编辑/新增三合一）
-
-```vue
-<vort-drawer v-model:open="drawerVisible" :title="drawerTitle" :width="550">
-    <div v-if="drawerMode === 'view'" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div><span class="text-sm text-gray-400">名称</span><div class="text-sm text-gray-800 mt-1">{{ row.name }}</div></div>
-    </div>
-    <template v-else>
-        <vort-form label-width="80px">
-            <vort-form-item label="名称" required><vort-input v-model="row.name" /></vort-form-item>
-        </vort-form>
-        <div class="flex justify-end gap-3 mt-6">
-            <vort-button @click="drawerVisible = false">取消</vort-button>
-            <vort-button variant="primary" @click="handleSave">确定</vort-button>
-        </div>
-    </template>
-</vort-drawer>
-```
+> Dialog / Drawer 表单的完整模板、检查清单见 **openvort-dialog-form** Skill。
 
 ### 详情展示
 
@@ -407,7 +299,7 @@ async function handleSave() {
 | 危险操作 | `a.text-sm.text-red-500.cursor-pointer` |
 | 字段标签 | `span.text-sm.text-gray-400` |
 | 字段值 | `div.text-sm.text-gray-800.mt-1` |
-| 抽屉底部按钮 | `div.flex.justify-end.gap-3.mt-6` |
+| 抽屉底部按钮 | `#footer` 插槽内 `div.flex.justify-end.gap-3` |
 
 ## 其他易错点
 

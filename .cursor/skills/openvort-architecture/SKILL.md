@@ -1,3 +1,8 @@
+---
+name: openvort-architecture
+description: OpenVort 项目架构变动时同步更新架构文档。新增模块、修改目录结构、调整技术栈或核心依赖时使用。
+---
+
 # OpenVort 架构维护 Skill
 
 当对 OpenVort 项目进行架构变动时，必须同步更新架构文档。
