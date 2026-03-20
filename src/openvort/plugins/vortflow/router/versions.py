@@ -7,10 +7,10 @@ from sqlalchemy import func, select, delete as sa_delete
 
 from openvort.db.engine import get_session_factory
 from openvort.plugins.vortflow.models import (
-    FlowVersion, FlowVersionStory, FlowStory,
+    FlowVersion, FlowVersionStory, FlowVersionBug, FlowStory, FlowBug,
 )
-from .helpers import _log_event, _parse_dt, _story_dict, _version_dict
-from .schemas import VersionCreate, VersionUpdate, VersionStoryBody
+from .helpers import _log_event, _parse_dt, _story_dict, _bug_dict, _version_dict
+from .schemas import VersionCreate, VersionUpdate, VersionStoryBody, VersionBugBody
 
 sub_router = APIRouter()
 
@@ -213,5 +213,52 @@ async def remove_version_story(version_id: str, story_id: str):
         )
         await _log_event(session, "version", version_id, "story_removed",
                          {"story_id": story_id})
+        await session.commit()
+    return {"ok": True}
+
+
+# ---- Version Bugs ----
+
+@sub_router.post("/versions/{version_id}/bugs")
+async def add_version_bug(version_id: str, body: VersionBugBody):
+    sf = get_session_factory()
+    async with sf() as session:
+        version = await session.get(FlowVersion, version_id)
+        if not version:
+            return {"error": "版本不存在"}
+        bug = await session.get(FlowBug, body.bug_id)
+        if not bug:
+            return {"error": "缺陷不存在"}
+        existing = await session.execute(
+            select(FlowVersionBug).where(
+                FlowVersionBug.version_id == version_id,
+                FlowVersionBug.bug_id == body.bug_id,
+            )
+        )
+        if existing.scalar_one_or_none():
+            return {"error": "缺陷已在版本中"}
+        link = FlowVersionBug(
+            version_id=version_id, bug_id=body.bug_id,
+            bug_order=body.bug_order,
+        )
+        session.add(link)
+        await _log_event(session, "version", version_id, "bug_added",
+                         {"bug_id": body.bug_id})
+        await session.commit()
+    return {"ok": True}
+
+
+@sub_router.delete("/versions/{version_id}/bugs/{bug_id}")
+async def remove_version_bug(version_id: str, bug_id: str):
+    sf = get_session_factory()
+    async with sf() as session:
+        await session.execute(
+            sa_delete(FlowVersionBug).where(
+                FlowVersionBug.version_id == version_id,
+                FlowVersionBug.bug_id == bug_id,
+            )
+        )
+        await _log_event(session, "version", version_id, "bug_removed",
+                         {"bug_id": bug_id})
         await session.commit()
     return {"ok": True}

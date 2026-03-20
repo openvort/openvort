@@ -37,9 +37,10 @@ import {
     getVortflowProjects, createVortflowStory, createVortflowTask, createVortflowBug,
     deleteVortflowStory, deleteVortflowTask, deleteVortflowBug,
     updateVortflowStory, updateVortflowTask, updateVortflowBug,
-    addVortflowIterationStory, addVortflowIterationTask,
-    removeVortflowIterationStory, removeVortflowIterationTask,
+    addVortflowIterationStory, addVortflowIterationTask, addVortflowIterationBug,
+    removeVortflowIterationStory, removeVortflowIterationTask, removeVortflowIterationBug,
     addVortflowVersionStory, removeVortflowVersionStory,
+    addVortflowVersionBug, removeVortflowVersionBug,
     getVortgitRepos, getVortgitRepoBranches,
     getVortflowTags,
 } from "@/api";
@@ -1034,7 +1035,7 @@ const handleDetailUpdate = async (data: Partial<RowItem>) => {
     }
     if (data.projectName !== undefined && data.projectId !== undefined) {
         const itemId = getRecordBackendId(rec);
-        if (itemId && rec.type === "需求") {
+        if (itemId) {
             await syncRecordUpdateToApi(rec, { project_id: data.projectId || null });
         }
     }
@@ -1046,24 +1047,28 @@ const handleDetailUpdate = async (data: Partial<RowItem>) => {
             if (prevIter && prevIter !== nextIter) {
                 if (rec.type === "需求") await removeVortflowIterationStory(prevIter, itemId).catch(() => {});
                 else if (rec.type === "任务") await removeVortflowIterationTask(prevIter, itemId).catch(() => {});
+                else if (rec.type === "缺陷") await removeVortflowIterationBug(prevIter, itemId).catch(() => {});
             }
             if (nextIter && nextIter !== prevIter) {
                 if (rec.type === "需求") await addVortflowIterationStory(nextIter, { story_id: itemId }).catch(() => {});
                 else if (rec.type === "任务") await addVortflowIterationTask(nextIter, { task_id: itemId }).catch(() => {});
+                else if (rec.type === "缺陷") await addVortflowIterationBug(nextIter, { bug_id: itemId }).catch(() => {});
             }
             rec._prevIteration = nextIter;
         }
     }
-    if ((data.versionId !== undefined || data.version !== undefined) && rec.type === "需求") {
+    if (data.versionId !== undefined || data.version !== undefined) {
         const itemId = getRecordBackendId(rec);
         if (itemId) {
             const prevVer = rec._prevVersion || "";
             const nextVer = data.versionId ?? rec.versionId ?? "";
             if (prevVer && prevVer !== nextVer) {
-                await removeVortflowVersionStory(prevVer, itemId).catch(() => {});
+                if (rec.type === "需求") await removeVortflowVersionStory(prevVer, itemId).catch(() => {});
+                else if (rec.type === "缺陷") await removeVortflowVersionBug(prevVer, itemId).catch(() => {});
             }
             if (nextVer && nextVer !== prevVer) {
-                await addVortflowVersionStory(nextVer, { story_id: itemId }).catch(() => {});
+                if (rec.type === "需求") await addVortflowVersionStory(nextVer, { story_id: itemId }).catch(() => {});
+                else if (rec.type === "缺陷") await addVortflowVersionBug(nextVer, { bug_id: itemId }).catch(() => {});
             }
             rec._prevVersion = nextVer;
         }
@@ -1145,6 +1150,7 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
                 }
             } else if (type === "任务") {
                 createdItem = await createVortflowTask({
+                    project_id: formData.projectId || createProjectId.value || resolveCreateProjectId() || undefined,
                     story_id: formData.storyId || undefined,
                     parent_id: formData.parentId || undefined,
                     title,
@@ -1157,6 +1163,7 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
                 });
             } else {
                 createdItem = await createVortflowBug({
+                    project_id: formData.projectId || createProjectId.value || resolveCreateProjectId() || undefined,
                     story_id: formData.storyId || undefined,
                     title,
                     description: formData.description || defaultDescriptionTemplate,

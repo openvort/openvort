@@ -46,6 +46,7 @@ class StoryUpdate(BaseModel):
     branch: str | None = None
 
 class TaskCreate(BaseModel):
+    project_id: str | None = None
     story_id: str | None = None
     parent_id: str | None = None
     title: str
@@ -75,6 +76,7 @@ class TaskUpdate(BaseModel):
     branch: str | None = None
 
 class BugCreate(BaseModel):
+    project_id: str | None = None
     story_id: str | None = None
     task_id: str | None = None
     title: str
@@ -175,10 +177,18 @@ class IterationTaskBody(BaseModel):
     task_order: int = 0
 
 
+class IterationBugBody(BaseModel):
+    bug_id: str
+    bug_order: int = 0
+
 class VersionStoryBody(BaseModel):
     story_id: str
     added_reason: str = ""
     story_order: int = 0
+
+class VersionBugBody(BaseModel):
+    bug_id: str
+    bug_order: int = 0
 
 
 class ViewCreate(BaseModel):

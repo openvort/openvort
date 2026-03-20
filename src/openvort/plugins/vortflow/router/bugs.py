@@ -70,8 +70,12 @@ async def list_bugs(
             count_stmt = count_stmt.where(FlowBug.story_id.in_(iter_story_ids))
         if project_id:
             project_story_ids = select(FlowStory.id).where(FlowStory.project_id == project_id)
-            stmt = stmt.where(FlowBug.story_id.in_(project_story_ids))
-            count_stmt = count_stmt.where(FlowBug.story_id.in_(project_story_ids))
+            project_cond = or_(
+                FlowBug.project_id == project_id,
+                FlowBug.story_id.in_(project_story_ids),
+            )
+            stmt = stmt.where(project_cond)
+            count_stmt = count_stmt.where(project_cond)
         if story_id:
             stmt = stmt.where(FlowBug.story_id == story_id)
             count_stmt = count_stmt.where(FlowBug.story_id == story_id)
@@ -118,7 +122,13 @@ async def create_bug(body: BugCreate, request: Request):
     member_id = payload.get("sub", "")
     sf = get_session_factory()
     async with sf() as session:
+        project_id = body.project_id or None
+        if not project_id and body.story_id:
+            story = await session.get(FlowStory, body.story_id)
+            if story:
+                project_id = story.project_id
         b = FlowBug(
+            project_id=project_id,
             story_id=body.story_id, task_id=body.task_id,
             title=body.title, description=body.description,
             severity=body.severity, assignee_id=body.assignee_id,

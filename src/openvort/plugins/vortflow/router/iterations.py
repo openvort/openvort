@@ -5,12 +5,12 @@ from sqlalchemy import func, select, delete as sa_delete
 
 from openvort.db.engine import get_session_factory
 from openvort.plugins.vortflow.models import (
-    FlowIteration, FlowIterationStory, FlowIterationTask,
-    FlowStory, FlowTask,
+    FlowIteration, FlowIterationStory, FlowIterationTask, FlowIterationBug,
+    FlowStory, FlowTask, FlowBug,
 )
-from .helpers import _iteration_dict, _log_event, _parse_dt, _story_dict, _task_dict
+from .helpers import _iteration_dict, _log_event, _parse_dt, _story_dict, _task_dict, _bug_dict
 from .schemas import (
-    IterationCreate, IterationUpdate, IterationStoryBody, IterationTaskBody,
+    IterationCreate, IterationUpdate, IterationStoryBody, IterationTaskBody, IterationBugBody,
 )
 
 sub_router = APIRouter()
@@ -155,6 +155,7 @@ async def delete_iteration(iteration_id: str):
             return {"error": "迭代不存在"}
         await session.execute(sa_delete(FlowIterationStory).where(FlowIterationStory.iteration_id == iteration_id))
         await session.execute(sa_delete(FlowIterationTask).where(FlowIterationTask.iteration_id == iteration_id))
+        await session.execute(sa_delete(FlowIterationBug).where(FlowIterationBug.iteration_id == iteration_id))
         await session.delete(i)
         await _log_event(session, "iteration", iteration_id, "deleted", {"name": i.name})
         await session.commit()
@@ -293,5 +294,52 @@ async def remove_iteration_task(iteration_id: str, task_id: str):
         )
         await _log_event(session, "iteration", iteration_id, "task_removed",
                          {"task_id": task_id})
+        await session.commit()
+    return {"ok": True}
+
+
+# ---- Iteration Bugs ----
+
+@sub_router.post("/iterations/{iteration_id}/bugs")
+async def add_iteration_bug(iteration_id: str, body: IterationBugBody):
+    sf = get_session_factory()
+    async with sf() as session:
+        iteration = await session.get(FlowIteration, iteration_id)
+        if not iteration:
+            return {"error": "迭代不存在"}
+        bug = await session.get(FlowBug, body.bug_id)
+        if not bug:
+            return {"error": "缺陷不存在"}
+        existing = await session.execute(
+            select(FlowIterationBug).where(
+                FlowIterationBug.iteration_id == iteration_id,
+                FlowIterationBug.bug_id == body.bug_id,
+            )
+        )
+        if existing.scalar_one_or_none():
+            return {"error": "缺陷已在迭代中"}
+        link = FlowIterationBug(
+            iteration_id=iteration_id, bug_id=body.bug_id,
+            bug_order=body.bug_order,
+        )
+        session.add(link)
+        await _log_event(session, "iteration", iteration_id, "bug_added",
+                         {"bug_id": body.bug_id})
+        await session.commit()
+    return {"ok": True}
+
+
+@sub_router.delete("/iterations/{iteration_id}/bugs/{bug_id}")
+async def remove_iteration_bug(iteration_id: str, bug_id: str):
+    sf = get_session_factory()
+    async with sf() as session:
+        await session.execute(
+            sa_delete(FlowIterationBug).where(
+                FlowIterationBug.iteration_id == iteration_id,
+                FlowIterationBug.bug_id == bug_id,
+            )
+        )
+        await _log_event(session, "iteration", iteration_id, "bug_removed",
+                         {"bug_id": bug_id})
         await session.commit()
     return {"ok": True}

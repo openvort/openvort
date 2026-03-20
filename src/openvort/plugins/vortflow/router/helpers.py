@@ -91,6 +91,7 @@ def _task_dict(r: FlowTask) -> dict:
     return {
         "id": r.id, "title": r.title, "description": r.description,
         "state": r.state, "task_type": r.task_type,
+        "project_id": r.project_id,
         "story_id": r.story_id, "parent_id": r.parent_id,
         "assignee_id": r.assignee_id, "creator_id": r.creator_id,
         "tags": _parse_json_list(r.tags_json),
@@ -109,6 +110,7 @@ def _bug_dict(r: FlowBug) -> dict:
     return {
         "id": r.id, "title": r.title, "description": r.description,
         "state": r.state, "severity": r.severity,
+        "project_id": r.project_id,
         "story_id": r.story_id, "task_id": r.task_id,
         "reporter_id": r.reporter_id, "assignee_id": r.assignee_id,
         "developer_id": r.developer_id,
@@ -414,16 +416,14 @@ async def _resolve_task_story_and_parent(
         if parent_task.parent_id:
             return None, None, "父任务不能是子任务"
 
-        if normalized_story_id and normalized_story_id != parent_task.story_id:
+        if normalized_story_id and parent_task.story_id and normalized_story_id != parent_task.story_id:
             return None, None, "子任务必须和父任务属于同一个需求"
-        normalized_story_id = parent_task.story_id
+        normalized_story_id = normalized_story_id or parent_task.story_id
 
-    if not normalized_story_id:
-        return None, None, "关联需求不能为空"
-
-    story = await session.get(FlowStory, normalized_story_id)
-    if not story:
-        return None, None, "关联需求不存在"
+    if normalized_story_id:
+        story = await session.get(FlowStory, normalized_story_id)
+        if not story:
+            return None, None, "关联需求不存在"
 
     return normalized_story_id, normalized_parent_id, None
 

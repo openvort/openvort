@@ -716,6 +716,32 @@ async def init_db(database_url: str) -> None:
             "ALTER TABLE IF EXISTS chat_sessions ADD COLUMN IF NOT EXISTS context_reset_at TIMESTAMP"
         ))
 
+    # VortFlow: add project_id to flow_tasks & flow_bugs (direct project association)
+    async with _engine.begin() as conn:
+        for tbl in ("flow_tasks", "flow_bugs"):
+            await conn.execute(text(
+                f"ALTER TABLE IF EXISTS {tbl} ADD COLUMN IF NOT EXISTS project_id VARCHAR(32) REFERENCES flow_projects(id)"
+            ))
+            await conn.execute(text(
+                f"CREATE INDEX IF NOT EXISTS ix_{tbl}_project_id ON {tbl}(project_id)"
+            ))
+        await conn.execute(text("""
+            UPDATE flow_tasks
+            SET project_id = s.project_id
+            FROM flow_stories s
+            WHERE flow_tasks.story_id = s.id
+              AND flow_tasks.project_id IS NULL
+              AND s.project_id IS NOT NULL
+        """))
+        await conn.execute(text("""
+            UPDATE flow_bugs
+            SET project_id = s.project_id
+            FROM flow_stories s
+            WHERE flow_bugs.story_id = s.id
+              AND flow_bugs.project_id IS NULL
+              AND s.project_id IS NOT NULL
+        """))
+
     # Report module: template description + rule workdays_only
     async with _engine.begin() as conn:
         await conn.execute(text(

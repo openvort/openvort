@@ -66,7 +66,8 @@ class FlowTask(Base):
     __tablename__ = "flow_tasks"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
-    story_id: Mapped[str] = mapped_column(String(32), ForeignKey("flow_stories.id"), index=True)
+    project_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("flow_projects.id"), nullable=True, index=True)
+    story_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("flow_stories.id"), nullable=True, index=True)
     parent_id: Mapped[str | None] = mapped_column(
         String(32), ForeignKey("flow_tasks.id"), nullable=True, index=True
     )
@@ -95,6 +96,7 @@ class FlowBug(Base):
     __tablename__ = "flow_bugs"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    project_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("flow_projects.id"), nullable=True, index=True)
     story_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("flow_stories.id"), nullable=True, index=True)
     task_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("flow_tasks.id"), nullable=True)
     title: Mapped[str] = mapped_column(String(500))
@@ -255,6 +257,36 @@ class FlowIterationTask(Base):
     iteration_id: Mapped[str] = mapped_column(String(32), ForeignKey("flow_iterations.id"), index=True)
     task_id: Mapped[str] = mapped_column(String(32), ForeignKey("flow_tasks.id"), index=True)
     task_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class FlowIterationBug(Base):
+    """迭代-缺陷关联（多对多）"""
+
+    __tablename__ = "flow_iteration_bugs"
+    __table_args__ = (
+        UniqueConstraint("iteration_id", "bug_id", name="uq_iteration_bug"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    iteration_id: Mapped[str] = mapped_column(String(32), ForeignKey("flow_iterations.id"), index=True)
+    bug_id: Mapped[str] = mapped_column(String(32), ForeignKey("flow_bugs.id"), index=True)
+    bug_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class FlowVersionBug(Base):
+    """版本-缺陷关联（多对多）"""
+
+    __tablename__ = "flow_version_bugs"
+    __table_args__ = (
+        UniqueConstraint("version_id", "bug_id", name="uq_version_bug"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    version_id: Mapped[str] = mapped_column(String(32), ForeignKey("flow_versions.id"), index=True)
+    bug_id: Mapped[str] = mapped_column(String(32), ForeignKey("flow_bugs.id"), index=True)
+    bug_order: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 

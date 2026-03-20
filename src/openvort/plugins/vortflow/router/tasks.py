@@ -66,9 +66,14 @@ async def list_tasks(
             stmt = stmt.where(FlowTask.id.in_(iter_task_ids))
             count_stmt = count_stmt.where(FlowTask.id.in_(iter_task_ids))
         if project_id:
+            from sqlalchemy import or_
             project_story_ids = select(FlowStory.id).where(FlowStory.project_id == project_id)
-            stmt = stmt.where(FlowTask.story_id.in_(project_story_ids))
-            count_stmt = count_stmt.where(FlowTask.story_id.in_(project_story_ids))
+            project_cond = or_(
+                FlowTask.project_id == project_id,
+                FlowTask.story_id.in_(project_story_ids),
+            )
+            stmt = stmt.where(project_cond)
+            count_stmt = count_stmt.where(project_cond)
         if story_id:
             stmt = stmt.where(FlowTask.story_id == story_id)
             count_stmt = count_stmt.where(FlowTask.story_id == story_id)
@@ -147,7 +152,17 @@ async def create_task(body: TaskCreate, request: Request):
         )
         if parent_error:
             return {"error": parent_error}
+        project_id = body.project_id or None
+        if not project_id and resolved_story_id:
+            story = await session.get(FlowStory, resolved_story_id)
+            if story:
+                project_id = story.project_id
+        if not project_id and normalized_parent_id:
+            parent = await session.get(FlowTask, normalized_parent_id)
+            if parent and parent.project_id:
+                project_id = parent.project_id
         t = FlowTask(
+            project_id=project_id,
             story_id=resolved_story_id, parent_id=normalized_parent_id, title=body.title,
             description=body.description, task_type=body.task_type,
             assignee_id=body.assignee_id, creator_id=member_id or body.creator_id,

@@ -95,7 +95,7 @@ export function getVortflowTask(id: string) {
     return request.get(`/vortflow/tasks/${id}`);
 }
 
-export function createVortflowTask(data: { story_id?: string; parent_id?: string; title: string; description?: string; task_type?: string; assignee_id?: string; tags?: string[]; collaborators?: string[]; estimate_hours?: number; deadline?: string }) {
+export function createVortflowTask(data: { project_id?: string; story_id?: string; parent_id?: string; title: string; description?: string; task_type?: string; assignee_id?: string; tags?: string[]; collaborators?: string[]; estimate_hours?: number; deadline?: string }) {
     return request.post("/vortflow/tasks", data);
 }
 
@@ -140,7 +140,7 @@ export function getVortflowBug(id: string) {
     return request.get(`/vortflow/bugs/${id}`);
 }
 
-export function createVortflowBug(data: { story_id?: string; task_id?: string; title: string; description?: string; severity?: number; assignee_id?: string; tags?: string[]; collaborators?: string[] }) {
+export function createVortflowBug(data: { project_id?: string; story_id?: string; task_id?: string; title: string; description?: string; severity?: number; assignee_id?: string; tags?: string[]; collaborators?: string[] }) {
     return request.post("/vortflow/bugs", data);
 }
 
@@ -290,6 +290,14 @@ export function removeVortflowIterationTask(iterationId: string, taskId: string)
     return request.delete(`/vortflow/iterations/${iterationId}/tasks/${taskId}`);
 }
 
+export function addVortflowIterationBug(iterationId: string, data: { bug_id: string; bug_order?: number }) {
+    return request.post(`/vortflow/iterations/${iterationId}/bugs`, data);
+}
+
+export function removeVortflowIterationBug(iterationId: string, bugId: string) {
+    return request.delete(`/vortflow/iterations/${iterationId}/bugs/${bugId}`);
+}
+
 // ---- Versions ----
 
 export function getVortflowVersions(params: { project_id?: string; status?: string; keyword?: string; owner_id?: string; page?: number; page_size?: number }) {
@@ -347,6 +355,14 @@ export function addVortflowVersionStory(versionId: string, data: { story_id: str
 
 export function removeVortflowVersionStory(versionId: string, storyId: string) {
     return request.delete(`/vortflow/versions/${versionId}/stories/${storyId}`);
+}
+
+export function addVortflowVersionBug(versionId: string, data: { bug_id: string; bug_order?: number }) {
+    return request.post(`/vortflow/versions/${versionId}/bugs`, data);
+}
+
+export function removeVortflowVersionBug(versionId: string, bugId: string) {
+    return request.delete(`/vortflow/versions/${versionId}/bugs/${bugId}`);
 }
 
 // ---- Comments & Activity ----

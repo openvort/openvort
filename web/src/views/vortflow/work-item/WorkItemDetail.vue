@@ -562,9 +562,9 @@ const handleTitleKeydown = (e: KeyboardEvent) => {
     }
 };
 
-const canEditProject = computed(() => record.value?.type === "需求");
-const canEditIteration = computed(() => record.value?.type === "需求" || record.value?.type === "任务");
-const canEditVersion = computed(() => record.value?.type === "需求");
+const canEditProject = computed(() => !!record.value);
+const canEditIteration = computed(() => !!record.value);
+const canEditVersion = computed(() => !!record.value);
 const canEditEstimateHours = computed(() => !!record.value);
 const detailEstimateRef = ref<any>(null);
 const startEditingEstimate = () => {
