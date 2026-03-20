@@ -54,8 +54,8 @@ class MarketplaceInstaller:
         5. Report download
         """
         data = await self.client.get_skill(slug, author=author)
-        skill_name = data.get("name", slug)
-        display_name = data.get("displayName", "") or skill_name
+        display_name = data.get("displayName", "") or data.get("name", slug)
+        skill_name = display_name
         bundle_url = data.get("bundleUrl")
         has_bundle = bool(bundle_url)
 
