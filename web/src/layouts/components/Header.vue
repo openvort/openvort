@@ -5,6 +5,7 @@ import { useUserStore, useAppStore } from "@/stores";
 import { LogOut, User, Menu, RefreshCw, ArrowUpCircle, X, Download, Loader2 } from "lucide-vue-next";
 import { getHealthStatus, getUpgradeStreamUrl } from "@/api";
 import ActiveTaskIndicator from "@/components/ActiveTaskIndicator.vue";
+import NotificationPopover from "./NotificationPopover.vue";
 
 defineProps<{ isScrolled: boolean; isMobile?: boolean }>();
 
@@ -229,6 +230,8 @@ const stepLabel = computed(() => {
                     @click.stop="handleRefreshHealth"
                 />
             </div>
+            <!-- 通知 -->
+            <NotificationPopover />
             <!-- 用户信息 -->
             <div class="relative">
                 <div
