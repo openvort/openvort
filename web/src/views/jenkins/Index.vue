@@ -22,18 +22,10 @@
                 class="inline-flex items-center gap-2 bg-white rounded-lg border border-gray-100 pl-3 pr-1.5 py-1.5 text-sm shadow-sm hover:shadow transition-shadow"
             >
                 <StatusIcon :color="job.color" />
-                <div class="text-left max-w-[200px]">
-                    <button class="hover:text-blue-600 transition-colors" @click="handleViewDetail(job)">
-                        <span class="text-gray-700 truncate block">{{ job.name }}</span>
-                    </button>
-                    <BuildProgress
-                        v-if="isJobBuilding(job)"
-                        :timestamp="getBuildProgress(job).timestamp"
-                        :estimated-duration="getBuildProgress(job).estimatedDuration"
-                        @click="job.last_build?.building ? handleViewBuildLog(job) : undefined"
-                    />
-                    <span v-else-if="job.description" class="text-xs text-gray-400 truncate block">{{ job.description }}</span>
-                </div>
+                <button class="text-left hover:text-blue-600 transition-colors max-w-[200px]" @click="handleViewDetail(job)">
+                    <span class="text-gray-700 truncate block">{{ job.name }}</span>
+                    <span v-if="job.description" class="text-xs text-gray-400 truncate block">{{ job.description }}</span>
+                </button>
                 <vort-divider type="vertical" />
                 <VortTooltip title="构建">
                     <button

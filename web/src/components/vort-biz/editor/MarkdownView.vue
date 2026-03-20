@@ -2,6 +2,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { marked } from "marked";
 import { X, ZoomIn, ZoomOut, RotateCw, RotateCcw, Maximize, Download, ChevronLeft, ChevronRight } from "lucide-vue-next";
+import { getVortTeleportTo } from "@/components/vort/composables";
 
 const props = defineProps<{
     content: string;
@@ -109,6 +110,8 @@ const handleKeydown = (e: KeyboardEvent) => {
     else if (e.key === "ArrowRight") nextImage();
 };
 
+const teleportTo = computed(() => getVortTeleportTo());
+
 watch(html, () => { nextTick(collectImages); });
 onMounted(() => {
     nextTick(collectImages);
@@ -127,7 +130,7 @@ onUnmounted(() => {
 <template>
     <div ref="contentRef" class="markdown-view" v-html="html" />
 
-    <Teleport to="body">
+    <Teleport :to="teleportTo">
         <div v-if="previewVisible" class="mv-preview-root">
             <div class="mv-preview-mask" @click="closePreview" />
             <div class="mv-preview-wrap" @wheel="handleWheel">
