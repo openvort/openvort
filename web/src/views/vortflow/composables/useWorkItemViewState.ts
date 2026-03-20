@@ -9,7 +9,7 @@ import type { Ref, ComputedRef } from "vue";
 export interface ViewSnapshot {
     keyword: string;
     owner: string;
-    status: string;
+    status: string[];
     columnFilters: Record<string, ColumnFilterValue | null>;
     sortField: string;
     sortOrder: "ascend" | "descend" | null;
@@ -21,7 +21,7 @@ export interface UseWorkItemViewStateOptions {
     currentViewId: ComputedRef<string>;
     keyword: Ref<string>;
     owner: Ref<string>;
-    status: Ref<string>;
+    status: Ref<string[]>;
     columnFilters: Record<string, ColumnFilterValue | null>;
     columnSortField: Ref<string>;
     columnSortOrder: Ref<"ascend" | "descend" | null>;
@@ -52,7 +52,7 @@ export function useWorkItemViewState(options: UseWorkItemViewStateOptions) {
     const takeViewSnapshot = (): ViewSnapshot => ({
         keyword: keyword.value,
         owner: owner.value,
-        status: status.value,
+        status: [...status.value],
         columnFilters: { ...columnFilters },
         sortField: columnSortField.value,
         sortOrder: columnSortOrder.value,
@@ -77,7 +77,7 @@ export function useWorkItemViewState(options: UseWorkItemViewStateOptions) {
         if (!base) return false;
         if (keyword.value !== base.keyword) return true;
         if (owner.value !== base.owner) return true;
-        if (status.value !== base.status) return true;
+        if (JSON.stringify(status.value) !== JSON.stringify(base.status)) return true;
         if (columnSortField.value !== base.sortField) return true;
         if (columnSortOrder.value !== base.sortOrder) return true;
         const currentFilterKeys = Object.keys(columnFilters);
@@ -114,7 +114,7 @@ export function useWorkItemViewState(options: UseWorkItemViewStateOptions) {
         const filters: Record<string, any> = {};
         if (keyword.value) filters.keyword = keyword.value;
         if (owner.value) filters.owner = owner.value;
-        if (status.value) filters.status = status.value;
+        if (status.value.length) filters.status = status.value;
         if (columnSortField.value) {
             filters.sortField = columnSortField.value;
             filters.sortOrder = columnSortOrder.value;
@@ -171,7 +171,7 @@ export function useWorkItemViewState(options: UseWorkItemViewStateOptions) {
     watch(currentViewId, () => {
         keyword.value = "";
         owner.value = "";
-        status.value = "";
+        status.value = [];
         columnSortField.value = "";
         columnSortOrder.value = null;
         for (const k of Object.keys(columnFilters)) {
@@ -182,7 +182,9 @@ export function useWorkItemViewState(options: UseWorkItemViewStateOptions) {
             const f = cv.filters;
             if (f.keyword) keyword.value = f.keyword;
             if (f.owner) owner.value = f.owner;
-            if (f.status) status.value = f.status;
+            if (f.status) {
+                status.value = Array.isArray(f.status) ? f.status : [f.status];
+            }
             if (f.sortField) columnSortField.value = f.sortField;
             if (f.sortOrder) columnSortOrder.value = f.sortOrder;
             if (f.columnFilters) {

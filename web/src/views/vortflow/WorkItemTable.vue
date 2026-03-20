@@ -140,7 +140,7 @@ const {
 const keyword = ref("");
 const owner = ref("");
 const type = ref<WorkItemType | "">(props.type ?? "");
-const status = ref("");
+const status = ref<string[]>([]);
 const totalCount = ref(0);
 const cacheDescDraftBeforeClose = () => {
     const comp = detailComponentRef.value;
@@ -908,7 +908,7 @@ const onReset = () => {
     keyword.value = "";
     owner.value = "";
     type.value = props.type ?? "";
-    status.value = "";
+    status.value = [];
     tableRef.value?.refresh?.();
 };
 

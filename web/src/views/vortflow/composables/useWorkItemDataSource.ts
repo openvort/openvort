@@ -37,7 +37,7 @@ export interface UseWorkItemDataSourceOptions {
     propViewFilters: ComputedRef<Record<string, any>> | Ref<Record<string, any>>;
     type: Ref<string>;
     owner: Ref<string>;
-    status: Ref<string>;
+    status: Ref<string[]>;
     columnFilters: Record<string, ColumnFilterValue | null>;
     columnSortField: Ref<string>;
     columnSortOrder: Ref<"ascend" | "descend" | null>;
@@ -242,7 +242,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
         return rows;
     };
 
-    const getVisibleChildRows = (rows: RowItem[], ownerValue = owner.value, statusValue = status.value) => {
+    const getVisibleChildRows = (rows: RowItem[], ownerValue = owner.value, statusValues: string[] = status.value) => {
         const currentType = String(propType ?? type.value ?? "").trim();
         if (!useApi.value || (currentType !== "需求" && currentType !== "任务")) return rows;
         const { matchOwner } = createOwnerMatcher(ownerValue);
@@ -252,7 +252,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
             const itemId = String(row.backendId || "").trim();
             if (!itemId || !expandedItemIds[itemId]) continue;
             const children = (itemChildrenMap[itemId] || [])
-                .filter((child) => !statusValue || child.status === statusValue)
+                .filter((child) => !statusValues.length || statusValues.includes(child.status))
                 .filter(matchOwner)
                 .map((child) => ({ ...child, isChild: true }));
             flattenedRows.push(...children);
@@ -411,7 +411,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
         const ownerValue = String(params.owner ?? "").trim();
         const { ownerMemberId, matchOwner } = createOwnerMatcher(ownerValue);
         const typeValue = String(propType ?? params.type ?? "").trim();
-        const statusValue = String(params.status ?? "").trim();
+        const statusValues: string[] = Array.isArray(params.status) ? params.status.filter(Boolean) : [];
         const current = Number(params.current || 1);
         const pageSize = Number(params.pageSize || 20);
 
@@ -424,8 +424,10 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
 
         if (useApi.value && (typeValue === "需求" || typeValue === "任务" || typeValue === "缺陷")) {
             const workType = typeValue as WorkItemType;
-            const backendStates = statusValue ? getBackendStatesByDisplayStatus(workType, statusValue as any) : undefined;
-            if (statusValue && (!backendStates || backendStates.length === 0)) {
+            const backendStates = statusValues.length
+                ? [...new Set(statusValues.flatMap(s => getBackendStatesByDisplayStatus(workType, s as any) || []))]
+                : undefined;
+            if (statusValues.length && (!backendStates || backendStates.length === 0)) {
                 totalCount.value = 0;
                 return { data: [], total: 0, current, pageSize };
             }
@@ -515,7 +517,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
                 }
                 const mergedItems = [...merged.values()];
                 const allRows = buildRowsFromItems(mergedItems)
-                    .filter((x) => !statusValue || x.status === statusValue)
+                    .filter((x) => !statusValues.length || statusValues.includes(x.status))
                     .filter(matchOwner);
                 totalFromApi = allRows.length;
                 const start = (current - 1) * pageSize;
@@ -525,7 +527,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
                 if (ownerValue && (workType === "需求" || ownerValue === "未指派" || !ownerMemberId)) {
                     const allItems = await fetchAllItemsByState(backendState);
                     const allRows = buildRowsFromItems(allItems)
-                        .filter((x) => !statusValue || x.status === statusValue)
+                        .filter((x) => !statusValues.length || statusValues.includes(x.status))
                         .filter(matchOwner);
                     totalFromApi = allRows.length;
                     const start = (current - 1) * pageSize;
@@ -533,7 +535,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
                 } else {
                     const res: any = await requestByState(backendState, current, pageSize);
                     rows = buildRowsFromItems((res as any)?.items || []);
-                    if (statusValue) rows = rows.filter((x) => x.status === statusValue);
+                    if (statusValues.length) rows = rows.filter((x) => statusValues.includes(x.status));
                     if (ownerValue) rows = rows.filter(matchOwner);
                     totalFromApi = Number((res as any)?.total || rows.length);
                 }
@@ -541,7 +543,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
 
             if (current === 1) {
                 let pinnedRows = pinnedRowsByType[workType] || [];
-                if (statusValue) pinnedRows = pinnedRows.filter((x) => x.status === statusValue);
+                if (statusValues.length) pinnedRows = pinnedRows.filter((x) => statusValues.includes(x.status));
                 if (ownerValue) pinnedRows = pinnedRows.filter(matchOwner);
                 const pinnedIds = new Set(pinnedRows.map((x) => x.backendId || x.workNo));
                 rows = [...pinnedRows, ...rows.filter((x) => !pinnedIds.has(x.backendId || x.workNo))];
@@ -559,7 +561,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
             if (rows.length < beforeFilterCount) {
                 totalFromApi = rows.length;
             }
-            const optionRows = workType === "需求" || workType === "任务" ? getVisibleChildRows(rows, ownerValue, statusValue) : rows;
+            const optionRows = workType === "需求" || workType === "任务" ? getVisibleChildRows(rows, ownerValue, statusValues) : rows;
             collectTagOptions(optionRows);
             collectEnumOptions(optionRows);
             totalCount.value = totalFromApi;

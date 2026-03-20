@@ -9,7 +9,7 @@ export interface WorkItemFiltersProps {
     keyword?: string;
     owner?: string;
     type?: WorkItemType | "";
-    status?: string;
+    status?: string[];
     pageTitle?: string;
     createButtonText?: string;
     totalCount?: number;
@@ -24,7 +24,7 @@ const props = withDefaults(defineProps<WorkItemFiltersProps>(), {
     keyword: "",
     owner: "",
     type: "",
-    status: "",
+    status: () => [],
     pageTitle: "缺陷",
     createButtonText: "+ 新建缺陷",
     totalCount: 0,
@@ -39,7 +39,7 @@ const emit = defineEmits<{
     "update:keyword": [value: string];
     "update:owner": [value: string];
     "update:type": [value: string];
-    "update:status": [value: string];
+    "update:status": [value: string[]];
     search: [];
     reset: [];
     create: [];
@@ -60,16 +60,13 @@ const type = computed({
     set: (val) => emit("update:type", val)
 });
 
-const status = computed({
-    get: () => props.status,
-    set: (val: string) => emit("update:status", val)
+const statusDisplayLabel = computed(() => {
+    if (!props.status.length) return "状态";
+    const opt = props.statusOptions.find(o => o.value === props.status[0]);
+    return opt?.label || props.status[0];
 });
 
-const statusDisplayText = computed(() => {
-    if (!status.value) return "状态";
-    const opt = props.statusOptions.find(o => o.value === status.value);
-    return opt?.label || status.value;
-});
+const statusExtraCount = computed(() => Math.max(0, props.status.length - 1));
 
 const ownerDropdownOpen = ref(false);
 const ownerKeyword = ref("");
@@ -102,10 +99,19 @@ const selectType = (value: WorkItemType) => {
     typeKeyword.value = "";
 };
 
-const selectStatus = (value: string) => {
-    status.value = value;
-    statusDropdownOpen.value = false;
-    statusKeyword.value = "";
+const toggleStatus = (value: string) => {
+    const current = [...props.status];
+    const idx = current.indexOf(value);
+    if (idx >= 0) {
+        current.splice(idx, 1);
+    } else {
+        current.push(value);
+    }
+    emit("update:status", current);
+};
+
+const selectAllStatus = () => {
+    emit("update:status", []);
 };
 
 const onSearch = () => emit("search");
@@ -216,10 +222,11 @@ const onCreate = () => emit("create");
                         tabindex="0"
                         @click.stop="statusDropdownOpen = !statusDropdownOpen"
                     >
-                        <div class="flex items-center w-full gap-2 min-w-0">
-                            <span class="filter-select-value text-sm truncate" :class="status ? 'text-[var(--vort-text,rgba(0,0,0,0.88))]' : 'text-[var(--vort-text-quaternary,rgba(0,0,0,0.25))]'">
-                                {{ statusDisplayText }}
+                        <div class="flex items-center w-full gap-1.5 min-w-0">
+                            <span class="filter-select-value text-sm truncate" :class="props.status.length ? 'text-[var(--vort-text,rgba(0,0,0,0.88))]' : 'text-[var(--vort-text-quaternary,rgba(0,0,0,0.25))]'">
+                                {{ statusDisplayLabel }}
                             </span>
+                            <span v-if="statusExtraCount > 0" class="status-extra-badge">(+{{ statusExtraCount }})</span>
                             <span class="vort-select-arrow ml-auto" :class="{ 'vort-select-arrow-open': open }">
                                 <DownOutlined />
                             </span>
@@ -230,14 +237,14 @@ const onCreate = () => emit("create");
                 <div class="p-2 pt-1">
                     <div
                         class="status-filter-row"
-                        :class="{ 'is-active': status === '' }"
-                        @click.stop="selectStatus('')"
+                        :class="{ 'is-active': !props.status.length }"
+                        @click.stop="selectAllStatus()"
                     >
                         <div class="flex items-center gap-3">
                             <vort-checkbox
-                                :checked="status === ''"
+                                :checked="!props.status.length"
                                 @click.stop
-                                @update:checked="selectStatus('')"
+                                @update:checked="selectAllStatus()"
                             />
                             <span class="text-sm text-gray-700 leading-5">全部</span>
                         </div>
@@ -246,14 +253,14 @@ const onCreate = () => emit("create");
                         v-for="opt in filteredStatusOptions"
                         :key="opt.value"
                         class="status-filter-row"
-                        :class="{ 'is-active': status === opt.value }"
-                        @click.stop="selectStatus(opt.value)"
+                        :class="{ 'is-active': props.status.includes(opt.value) }"
+                        @click.stop="toggleStatus(opt.value)"
                     >
                         <div class="flex items-center gap-3">
                             <vort-checkbox
-                                :checked="status === opt.value"
+                                :checked="props.status.includes(opt.value)"
                                 @click.stop
-                                @update:checked="selectStatus(opt.value)"
+                                @update:checked="toggleStatus(opt.value)"
                             />
                             <span class="text-sm text-gray-700 leading-5">{{ opt.label }}</span>
                         </div>
@@ -299,7 +306,7 @@ const onCreate = () => emit("create");
 }
 
 .filter-select-value {
-    flex: 1;
+    /* flex: 1; */
     min-width: 0;
 }
 
@@ -334,5 +341,12 @@ const onCreate = () => emit("create");
 
 .status-filter-row.is-active {
     background: #f1f5f9;
+}
+
+.status-extra-badge {
+    flex-shrink: 0;
+    margin-left: 2px;
+    font-size: 13px;
+    color: var(--vort-text, rgba(0, 0, 0, 0.88));
 }
 </style>
