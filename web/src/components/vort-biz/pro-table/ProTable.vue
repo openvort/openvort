@@ -576,6 +576,10 @@ const scrollStyle = computed<Record<string, string>>(() => {
   return style;
 });
 
+const emptyFixedWidth = computed(() =>
+  scrollContainerWidth.value > 0 ? `${scrollContainerWidth.value}px` : "100%",
+);
+
 // ==================== 列宽拖拽 ====================
 const columnWidths = ref<Record<string, number>>({});
 
@@ -787,6 +791,7 @@ const scrollState = ref({
   isScrollRight: true,
   hasScrollbar: false,
 });
+const scrollContainerWidth = ref(0);
 let contentResizeObserver: ResizeObserver | null = null;
 
 const updateScrollState = () => {
@@ -797,6 +802,7 @@ const updateScrollState = () => {
       isScrollRight: true,
       hasScrollbar: false,
     };
+    scrollContainerWidth.value = 0;
     return;
   }
 
@@ -806,6 +812,7 @@ const updateScrollState = () => {
     isScrollRight: wrapper.scrollLeft >= maxScrollLeft - 1,
     hasScrollbar: maxScrollLeft > 1,
   };
+  scrollContainerWidth.value = wrapper.clientWidth;
 };
 
 const handleTableWrapperScroll = () => {
@@ -1064,12 +1071,14 @@ defineExpose({
         <tbody class="vort-pro-table-tbody">
           <tr v-if="tableData.length === 0 && !internalLoading" class="vort-pro-table-empty-row">
             <td :colspan="(rowSelection ? 1 : 0) + leafColumns.length" class="vort-pro-table-empty-cell">
-              <slot name="empty">
-                <div class="vort-pro-table-empty">
-                  <EmptyOutlined class="vort-pro-table-empty-icon" />
-                  <span class="vort-pro-table-empty-text">暂无数据</span>
-                </div>
-              </slot>
+              <div class="vort-pro-table-empty-fixed" :style="{ width: emptyFixedWidth }">
+                <slot name="empty">
+                  <div class="vort-pro-table-empty">
+                    <EmptyOutlined class="vort-pro-table-empty-icon" />
+                    <span class="vort-pro-table-empty-text">暂无数据</span>
+                  </div>
+                </slot>
+              </div>
             </td>
           </tr>
 
@@ -1450,8 +1459,14 @@ defineExpose({
 }
 
 .vort-pro-table-empty-cell {
+  padding: 0;
+}
+
+.vort-pro-table-empty-fixed {
+  position: sticky;
+  left: 0;
+  overflow: hidden;
   padding: 80px 16px;
-  text-align: center;
 }
 
 .vort-pro-table-empty {
