@@ -553,9 +553,12 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
                 rows = rows.filter((x) => !completedStatuses.has(x.status));
                 totalFromApi = rows.length;
             }
+            const beforeFilterCount = rows.length;
             rows = applyColumnFilters(rows);
             rows = applyColumnSort(rows);
-            totalFromApi = rows.length;
+            if (rows.length < beforeFilterCount) {
+                totalFromApi = rows.length;
+            }
             const optionRows = workType === "需求" || workType === "任务" ? getVisibleChildRows(rows, ownerValue, statusValue) : rows;
             collectTagOptions(optionRows);
             collectEnumOptions(optionRows);

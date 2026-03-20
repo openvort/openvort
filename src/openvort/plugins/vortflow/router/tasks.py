@@ -200,6 +200,9 @@ async def update_task(task_id: str, body: TaskUpdate, request: Request):
             return {"error": "任务不存在"}
         old_assignee_id = t.assignee_id
         changes = {}
+        if body.project_id is not None:
+            t.project_id = body.project_id or None
+            changes["project_id"] = body.project_id
         for field in ["title", "description", "task_type", "state", "assignee_id", "estimate_hours", "actual_hours"]:
             val = getattr(body, field)
             if val is not None:

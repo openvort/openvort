@@ -100,6 +100,7 @@ export function createVortflowTask(data: { project_id?: string; story_id?: strin
 }
 
 export function updateVortflowTask(id: string, data: {
+    project_id?: string | null;
     title?: string;
     description?: string;
     task_type?: string;
@@ -145,6 +146,7 @@ export function createVortflowBug(data: { project_id?: string; story_id?: string
 }
 
 export function updateVortflowBug(id: string, data: {
+    project_id?: string | null;
     title?: string;
     description?: string;
     severity?: number;

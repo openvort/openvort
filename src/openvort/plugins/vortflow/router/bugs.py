@@ -159,6 +159,9 @@ async def update_bug(bug_id: str, body: BugUpdate, request: Request):
             return {"error": "缺陷不存在"}
         old_assignee_id = b.assignee_id
         changes = {}
+        if body.project_id is not None:
+            b.project_id = body.project_id or None
+            changes["project_id"] = body.project_id
         for field in ["title", "description", "severity", "state", "assignee_id", "estimate_hours", "actual_hours"]:
             val = getattr(body, field)
             if val is not None:

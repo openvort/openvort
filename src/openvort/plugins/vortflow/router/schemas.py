@@ -60,6 +60,7 @@ class TaskCreate(BaseModel):
     deadline: str | None = None
 
 class TaskUpdate(BaseModel):
+    project_id: str | None = None
     title: str | None = None
     description: str | None = None
     task_type: str | None = None
@@ -87,6 +88,7 @@ class BugCreate(BaseModel):
     assignee_id: str | None = None
 
 class BugUpdate(BaseModel):
+    project_id: str | None = None
     title: str | None = None
     description: str | None = None
     severity: int | None = None

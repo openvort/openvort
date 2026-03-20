@@ -630,6 +630,7 @@ const syncRecordUpdateToApi = async (
             end_at: patch.end_at,
             repo_id: patch.repo_id,
             branch: patch.branch,
+            project_id: patch.project_id,
         });
         return;
     }
@@ -648,6 +649,7 @@ const syncRecordUpdateToApi = async (
         end_at: patch.end_at,
         repo_id: patch.repo_id,
         branch: patch.branch,
+        project_id: patch.project_id,
     });
 };
 
@@ -1923,7 +1925,7 @@ onMounted(async () => {
                 </template>
 
                 <template #project="{ text, record }">
-                    <TableCell @click.stop="record.type === '需求' && (projectPickerOpenMap[getInteractiveCellKey(record)] = true)">
+                    <TableCell @click.stop="projectPickerOpenMap[getInteractiveCellKey(record)] = true">
                         <vort-select
                             :model-value="record.projectId || undefined"
                             :open="projectPickerOpenMap[getInteractiveCellKey(record)]"
