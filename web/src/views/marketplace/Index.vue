@@ -12,6 +12,7 @@ import { usePluginStore } from "@/stores/modules/plugin";
 import {
     Puzzle, BookOpen, Download, Star, Calendar,
     ArrowUpDown, ExternalLink, Github, Wrench, Package, Trash2,
+    FolderOpen, FileText, FileCode, FileJson, File as FileIcon, EyeOff,
 } from "lucide-vue-next";
 import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
 
@@ -49,6 +50,12 @@ interface InstalledItem {
     method?: string;
 }
 
+interface BundleFile {
+    name: string;
+    size: number;
+    content?: string;
+}
+
 interface ExtensionDetail extends MarketplaceItem {
     readme: string;
     content: string;
@@ -65,6 +72,7 @@ interface ExtensionDetail extends MarketplaceItem {
     bundleUrl: string;
     bundleHash: string;
     bundleSize: number;
+    bundleFiles: BundleFile[];
     createdAt: string;
     updatedAt: string;
 }
@@ -196,15 +204,29 @@ const drawerLoading = ref(false);
 const detail = ref<ExtensionDetail | null>(null);
 const detailTab = ref("readme");
 
+const selectedBundleFile = ref<BundleFile | null>(null);
+
+const bundleFileList = computed<BundleFile[]>(() => {
+    const raw = detail.value?.bundleFiles;
+    if (!raw?.length) return [];
+    return raw.map((f: any) => typeof f === "string" ? { name: f, size: 0 } : f);
+});
+
 async function openDetail(item: MarketplaceItem | InstalledItem) {
     drawerOpen.value = true;
     drawerLoading.value = true;
     detailTab.value = "readme";
     detail.value = null;
+    selectedBundleFile.value = null;
     try {
         const res: any = await marketplaceGetDetail(item.slug, (item as any).author || "");
         detail.value = res;
-        detailTab.value = res?.readme ? "readme" : (res?.type === "skill" && res?.content ? "content" : "readme");
+        const hasFiles = res?.bundleFiles?.length > 0;
+        detailTab.value = res?.readme ? "readme" : (res?.type === "skill" && res?.content ? "content" : (hasFiles ? "files" : "readme"));
+        if (hasFiles) {
+            const files: BundleFile[] = res.bundleFiles.map((f: any) => typeof f === "string" ? { name: f, size: 0 } : f);
+            selectedBundleFile.value = files.find(f => f.content) || files[0];
+        }
     } catch {
         message.error("加载详情失败");
     } finally {
@@ -215,6 +237,23 @@ async function openDetail(item: MarketplaceItem | InstalledItem) {
 function formatDate(date: string) {
     if (!date) return "-";
     return new Date(date).toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric" });
+}
+
+function formatFileSize(bytes: number): string {
+    if (!bytes) return "";
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+}
+
+const FILE_ICON_MAP: Record<string, any> = {
+    md: FileText, txt: FileText, py: FileCode, js: FileCode, ts: FileCode,
+    sh: FileCode, bash: FileCode, json: FileJson, yaml: FileJson, yml: FileJson,
+};
+
+function getFileIcon(name: string) {
+    const ext = name.split(".").pop()?.toLowerCase() || "";
+    return FILE_ICON_MAP[ext] || FileIcon;
 }
 
 const skillTypeLabel: Record<string, string> = { role: "角色入设", workflow: "工作流程", knowledge: "知识库" };
@@ -584,7 +623,7 @@ const skillTypeLabel: Record<string, string> = { role: "角色入设", workflow:
                         兼容 OpenVort {{ detail.compatVersion }}
                     </div>
 
-                    <div v-if="detail.readme || (detail.type === 'skill' && detail.content)" class="border-t border-gray-100 pt-4">
+                    <div v-if="detail.readme || (detail.type === 'skill' && detail.content) || bundleFileList.length > 0" class="border-t border-gray-100 pt-4">
                         <div class="flex gap-1 mb-4">
                             <button
                                 v-if="detail.readme"
@@ -602,6 +641,17 @@ const skillTypeLabel: Record<string, string> = { role: "角色入设", workflow:
                                     : 'text-gray-500 hover:bg-gray-50'"
                                 @click="detailTab = 'content'"
                             >Skill 内容</button>
+                            <button
+                                v-if="bundleFileList.length > 0"
+                                class="px-3 py-1.5 text-sm font-medium rounded-md transition-colors inline-flex items-center gap-1.5"
+                                :class="detailTab === 'files'
+                                    ? 'bg-blue-50 text-blue-600'
+                                    : 'text-gray-500 hover:bg-gray-50'"
+                                @click="detailTab = 'files'"
+                            >
+                                <FolderOpen :size="14" />
+                                Files ({{ bundleFileList.length }})
+                            </button>
                         </div>
 
                         <div v-if="detailTab === 'readme' && detail.readme">
@@ -613,6 +663,46 @@ const skillTypeLabel: Record<string, string> = { role: "角色入设", workflow:
                         <div v-if="detailTab === 'content' && detail.type === 'skill' && detail.content">
                             <div class="bg-gray-50 rounded-lg p-5">
                                 <MarkdownView :content="detail.content" />
+                            </div>
+                        </div>
+
+                        <div v-if="detailTab === 'files' && bundleFileList.length > 0">
+                            <div class="border border-gray-200 rounded-xl overflow-hidden flex" style="min-height: 380px; max-height: 520px;">
+                                <div class="w-2/5 border-r border-gray-200 overflow-y-auto bg-gray-50/50 shrink-0">
+                                    <button
+                                        v-for="f in bundleFileList"
+                                        :key="f.name"
+                                        class="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-left text-sm hover:bg-gray-100/60 transition-colors border-b border-gray-100 last:border-b-0"
+                                        :class="selectedBundleFile?.name === f.name ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-700'"
+                                        @click="selectedBundleFile = f"
+                                    >
+                                        <div class="flex items-center gap-2 min-w-0">
+                                            <component :is="getFileIcon(f.name)" :size="14" class="shrink-0 opacity-50" />
+                                            <span class="truncate font-mono text-xs">{{ f.name }}</span>
+                                        </div>
+                                        <span v-if="f.size" class="text-[11px] text-gray-400 shrink-0">{{ formatFileSize(f.size) }}</span>
+                                    </button>
+                                </div>
+                                <div class="w-3/5 overflow-y-auto bg-white">
+                                    <template v-if="selectedBundleFile">
+                                        <div class="sticky top-0 z-10 flex items-center gap-2 px-4 py-2 bg-gray-50/80 backdrop-blur-sm border-b border-gray-200">
+                                            <component :is="getFileIcon(selectedBundleFile.name)" :size="14" class="opacity-50" />
+                                            <span class="font-mono text-xs font-medium text-gray-700">{{ selectedBundleFile.name }}</span>
+                                            <span v-if="selectedBundleFile.size" class="text-[11px] text-gray-400 ml-auto">{{ formatFileSize(selectedBundleFile.size) }}</span>
+                                        </div>
+                                        <div class="px-4 py-3">
+                                            <pre v-if="selectedBundleFile.content" class="text-xs font-mono whitespace-pre-wrap break-words leading-relaxed text-gray-600">{{ selectedBundleFile.content }}</pre>
+                                            <div v-else class="flex flex-col items-center justify-center h-48 text-gray-400">
+                                                <EyeOff :size="32" class="mb-2 opacity-30" />
+                                                <p class="text-sm">Binary or large file</p>
+                                                <p class="text-xs mt-1">No preview available</p>
+                                            </div>
+                                        </div>
+                                    </template>
+                                    <div v-else class="flex items-center justify-center h-full text-gray-400 text-sm">
+                                        Select a file to preview
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -628,7 +718,7 @@ const skillTypeLabel: Record<string, string> = { role: "角色入设", workflow:
                         <VortButton @click="drawerOpen = false">关闭</VortButton>
                         <template v-if="detail">
                             <template v-if="installedSlugs.has(detail.slug)">
-                                <VortButton size="small" @click="goToManage(detail.type)">
+                                <VortButton @click="goToManage(detail.type)">
                                     前往管理
                                 </VortButton>
                                 <VortButton

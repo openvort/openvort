@@ -34,17 +34,6 @@ log = get_logger("skill.loader")
 
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
-# Skill name -> skill_type mapping for builtin skills
-BUILTIN_SKILL_TYPES: dict[str, str] = {
-    "developer": "role",
-    "pm": "role",
-    "qa": "role",
-    "designer": "role",
-    "assistant": "role",
-    "code-review": "workflow",
-    "daily-report": "workflow",
-}
-
 # skill_type -> tag label mapping (for migration from fixed categories to tags)
 SKILL_TYPE_TO_TAG: dict[str, str] = {
     "role": "角色人设",
@@ -55,41 +44,6 @@ SKILL_TYPE_TO_TAG: dict[str, str] = {
     "report": "输出模板",
     "system": "规范准则",
 }
-
-# Builtin skill name -> default tags
-BUILTIN_SKILL_TAGS: dict[str, list[str]] = {
-    "developer": ["角色人设"],
-    "pm": ["角色人设"],
-    "qa": ["角色人设"],
-    "designer": ["角色人设"],
-    "assistant": ["角色人设"],
-    "code-review": ["工作流程", "规范准则"],
-    "daily-report": ["工作流程", "输出模板"],
-}
-
-# 默认岗位-技能映射配置
-DEFAULT_POST_SKILLS = {
-    "developer": [
-        {"skill_name": "developer", "priority": 1},
-        {"skill_name": "code-review", "priority": 2},
-    ],
-    "pm": [
-        {"skill_name": "pm", "priority": 1},
-        {"skill_name": "daily-report", "priority": 2},
-    ],
-    "qa": [
-        {"skill_name": "qa", "priority": 1},
-    ],
-    "designer": [
-        {"skill_name": "designer", "priority": 1},
-    ],
-    "assistant": [
-        {"skill_name": "assistant", "priority": 1},
-    ],
-}
-
-# 保留旧名称的别名，保持向后兼容
-DEFAULT_ROLE_SKILLS = DEFAULT_POST_SKILLS
 
 
 @dataclass
@@ -364,18 +318,6 @@ class SkillLoader:
                 if "already exists" not in str(e).lower():
                     log.warning(f"Migration schedule_jobs.target_member_id: {e}")
 
-            # 6. 更新已有 builtin skill 的 skill_type
-            role_names = ", ".join(f"'{n}'" for n in BUILTIN_SKILL_TYPES if BUILTIN_SKILL_TYPES[n] == "role")
-            try:
-                await db.execute(text(
-                    f"UPDATE skills SET skill_type = 'role' WHERE scope = 'builtin' AND name IN ({role_names}) AND skill_type != 'role'"
-                ))
-                await db.commit()
-                log.info("Migration: updated builtin skill types")
-            except Exception as e:
-                await db.rollback()
-                log.warning(f"Migration update skill_type: {e}")
-
             # 7. 创建 virtual_roles 表
             try:
                 await db.execute(text("""
@@ -526,14 +468,34 @@ class SkillLoader:
         log.info(f"已加载 {count} 个内置 Skill（同步模式）")
 
     async def _sync_builtin_to_db(self) -> None:
-        """Scan builtin SKILL.md files and upsert into DB."""
+        """Scan builtin SKILL.md files and upsert into DB. Remove stale entries."""
         from openvort.db.models import Skill as SkillModel
 
         builtin_dir = SkillDirectoryManager.get_directory("builtin")
-        if not builtin_dir or not builtin_dir.path.exists():
+        has_files = builtin_dir and builtin_dir.path.exists() and any(
+            (d / "SKILL.md").exists() for d in builtin_dir.path.iterdir() if d.is_dir()
+        ) if builtin_dir else False
+
+        if has_files:
+            await self._sync_directory_to_db(builtin_dir.path, "builtin", builtin_dir.key)
             return
 
-        await self._sync_directory_to_db(builtin_dir.path, "builtin", SkillDirectoryManager.get_directory("builtin").key)
+        # No builtin skill files — clean up stale DB entries
+        async with self._session_factory() as db:
+            from openvort.db.models import MemberSkill, PostSkill as PostSkillModel
+            result = await db.execute(
+                select(SkillModel).where(SkillModel.scope == "builtin")
+            )
+            builtin_rows = result.scalars().all()
+            if builtin_rows:
+                builtin_ids = [r.id for r in builtin_rows]
+                from sqlalchemy import delete
+                await db.execute(delete(MemberSkill).where(MemberSkill.skill_id.in_(builtin_ids)))
+                await db.execute(delete(PostSkillModel).where(PostSkillModel.skill_id.in_(builtin_ids)))
+                for row in builtin_rows:
+                    await db.delete(row)
+                await db.commit()
+                log.info(f"已清理 {len(builtin_rows)} 个过时的内置 Skill")
 
     async def _sync_user_to_db(self) -> None:
         """Scan user SKILL.md files and upsert into DB."""
@@ -585,8 +547,8 @@ class SkillLoader:
             existing = {row.name: row for row in result.scalars().all()}
 
             for name, data in file_skills.items():
-                stype = BUILTIN_SKILL_TYPES.get(name, "workflow")
-                default_tags = BUILTIN_SKILL_TAGS.get(name) or [SKILL_TYPE_TO_TAG.get(stype, stype)]
+                stype = "workflow"
+                default_tags = [SKILL_TYPE_TO_TAG.get(stype, stype)]
                 requires = data.get("requires", {})
                 requires_str = _json.dumps(requires, ensure_ascii=False) if requires else ""
 
@@ -594,7 +556,6 @@ class SkillLoader:
                     row = existing[name]
                     row.description = data["description"]
                     row.content = data["content"]
-                    row.skill_type = stype
                     if requires_str:
                         row.requires_json = requires_str
                     if not row.tags or row.tags in ("", "[]"):
@@ -622,39 +583,8 @@ class SkillLoader:
         log.info(f"已同步 {dir_key} 目录 {len(file_skills)} 个 Skills 到 DB (scope={scope})")
 
     async def _sync_role_skills_to_db(self) -> None:
-        """同步岗位-技能映射到数据库"""
-        from openvort.db.models import PostSkill as PostSkillModel, Skill as SkillModel
-
-        async with self._session_factory() as db:
-            # 获取所有已存在的映射（使用 role 字段）
-            result = await db.execute(select(PostSkillModel))
-            existing = {(row.role, row.skill_id): row for row in result.scalars().all()}
-
-            # 遍历默认配置，创建映射
-            for post, skill_configs in DEFAULT_POST_SKILLS.items():
-                for config in skill_configs:
-                    skill_name = config["skill_name"]
-                    priority = config["priority"]
-
-                    # 查找对应的 Skill
-                    result = await db.execute(
-                        select(SkillModel).where(SkillModel.name == skill_name)
-                    )
-                    skill = result.scalar_one_or_none()
-                    if not skill:
-                        continue
-
-                    key = (post, skill.id)
-                    if key not in existing:
-                        db.add(PostSkillModel(
-                            role=post,  # 数据库使用 role 列
-                            post=post,  # 保留 post 字段
-                            skill_id=skill.id,
-                            priority=priority,
-                        ))
-
-            await db.commit()
-        log.info("岗位-技能映射已同步")
+        """No-op: builtin role-skill mappings have been removed."""
+        pass
 
     # 保留旧方法名，保持向后兼容
     async def _sync_posts_to_db(self) -> None:

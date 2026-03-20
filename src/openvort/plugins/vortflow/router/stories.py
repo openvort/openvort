@@ -191,6 +191,9 @@ async def update_story(story_id: str, body: StoryUpdate, request: Request):
         if not s:
             return {"error": "需求不存在"}
         old_pm_id = s.pm_id
+        old_priority = s.priority
+        old_collaborators = _parse_json_list(s.collaborators_json)
+        old_deadline = str(s.deadline) if s.deadline else None
         changes = {}
         if body.parent_id is not None:
             normalized_parent_id, parent_error = await _validate_story_parent(
@@ -233,9 +236,29 @@ async def update_story(story_id: str, body: StoryUpdate, request: Request):
             await _log_event(session, "story", story_id, "updated", changes)
         await session.commit()
         await session.refresh(s)
+        project_id = s.project_id or ""
+        collaborators = _parse_json_list(s.collaborators_json)
     if body.pm_id and body.pm_id != old_pm_id:
         asyncio.create_task(_notifier.notify_assignment(
             "story", story_id, s.title, actor_id, body.pm_id,
+            project_id=project_id,
+        ))
+    if body.collaborators is not None:
+        new_ids = [c for c in body.collaborators if c not in old_collaborators]
+        if new_ids:
+            asyncio.create_task(_notifier.notify_collaborator_added(
+                "story", story_id, s.title, project_id, actor_id, new_ids,
+            ))
+    field_changes: dict[str, tuple] = {}
+    if "priority" in changes and body.priority != old_priority:
+        field_changes["priority"] = (old_priority, body.priority)
+    if "deadline" in changes and str(body.deadline) != old_deadline:
+        field_changes["deadline"] = (old_deadline, body.deadline)
+    if field_changes:
+        asyncio.create_task(_notifier.notify_field_changes(
+            "story", story_id, s.title, project_id, actor_id, field_changes,
+            assignee_id=s.pm_id, creator_id=s.submitter_id,
+            collaborator_ids=collaborators,
         ))
     return _story_dict(s)
 
@@ -294,6 +317,7 @@ async def transition_story(story_id: str, body: TransitionBody, request: Request
         assignee_id=s.pm_id,
         collaborator_ids=collaborators,
         creator_id=s.submitter_id,
+        project_id=s.project_id or "",
     ))
     return _story_dict(s)
 

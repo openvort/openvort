@@ -751,6 +751,12 @@ async def init_db(database_url: str) -> None:
             "ALTER TABLE IF EXISTS report_rules ADD COLUMN IF NOT EXISTS workdays_only BOOLEAN DEFAULT TRUE"
         ))
 
+    # Notifications: add data_json for structured notification payload
+    async with _engine.begin() as conn:
+        await conn.execute(text(
+            "ALTER TABLE IF EXISTS notifications ADD COLUMN IF NOT EXISTS data_json TEXT DEFAULT '{}'"
+        ))
+
     log.info(f"数据库已初始化: {database_url.split('://')[0]}")
 
 

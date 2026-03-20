@@ -141,6 +141,7 @@ function doConnect() {
 
             const notificationStore = useNotificationStore();
             notificationStore.fetchUnreadCounts();
+            notificationStore.fetchVortflowUnreadCount();
 
             const reconnectHandlers = handlers.get("_reconnected");
             if (reconnectHandlers) {

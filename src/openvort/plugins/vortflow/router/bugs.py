@@ -142,7 +142,7 @@ async def create_bug(body: BugCreate, request: Request):
         await session.commit()
         await session.refresh(b)
     asyncio.create_task(_notifier.notify_item_created(
-        "bug", b.id, b.title, body.story_id or "", member_id,
+        "bug", b.id, b.title, project_id or "", member_id,
         assignee_id=body.assignee_id,
         collaborator_ids=body.collaborators,
     ))
@@ -158,6 +158,9 @@ async def update_bug(bug_id: str, body: BugUpdate, request: Request):
         if not b:
             return {"error": "缺陷不存在"}
         old_assignee_id = b.assignee_id
+        old_severity = b.severity
+        old_collaborators = _parse_json_list(b.collaborators_json)
+        old_deadline = str(b.deadline) if b.deadline else None
         changes = {}
         if body.project_id is not None:
             b.project_id = body.project_id or None
@@ -192,9 +195,29 @@ async def update_bug(bug_id: str, body: BugUpdate, request: Request):
             await _log_event(session, "bug", bug_id, "updated", changes)
         await session.commit()
         await session.refresh(b)
+        project_id = b.project_id or ""
+        collaborators = _parse_json_list(b.collaborators_json)
     if body.assignee_id and body.assignee_id != old_assignee_id:
         asyncio.create_task(_notifier.notify_assignment(
             "bug", bug_id, b.title, actor_id, body.assignee_id,
+            project_id=project_id,
+        ))
+    if body.collaborators is not None:
+        new_ids = [c for c in body.collaborators if c not in old_collaborators]
+        if new_ids:
+            asyncio.create_task(_notifier.notify_collaborator_added(
+                "bug", bug_id, b.title, project_id, actor_id, new_ids,
+            ))
+    field_changes: dict[str, tuple] = {}
+    if "severity" in changes and body.severity != old_severity:
+        field_changes["severity"] = (old_severity, body.severity)
+    if "deadline" in changes and str(body.deadline) != old_deadline:
+        field_changes["deadline"] = (old_deadline, body.deadline)
+    if field_changes:
+        asyncio.create_task(_notifier.notify_field_changes(
+            "bug", bug_id, b.title, project_id, actor_id, field_changes,
+            assignee_id=b.assignee_id, creator_id=b.reporter_id,
+            collaborator_ids=collaborators,
         ))
     return _bug_dict(b)
 
@@ -240,6 +263,7 @@ async def transition_bug(bug_id: str, body: TransitionBody, request: Request):
         assignee_id=b.assignee_id,
         collaborator_ids=collaborators,
         creator_id=b.reporter_id,
+        project_id=b.project_id or "",
     ))
     return _bug_dict(b)
 

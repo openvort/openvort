@@ -5,9 +5,9 @@ import uuid
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
-from openvort.db.models import Skill
+from openvort.db.models import MemberSkill, PostSkill, Skill
 from openvort.skill.directories import SkillDirectoryManager
 from openvort.web.deps import get_db_session_factory
 
@@ -177,6 +177,8 @@ async def delete_skill(skill_id: str):
         if row.scope == "personal":
             raise HTTPException(status_code=403, detail="请通过成员技能接口删除")
 
+        await db.execute(delete(MemberSkill).where(MemberSkill.skill_id == skill_id))
+        await db.execute(delete(PostSkill).where(PostSkill.skill_id == skill_id))
         await db.delete(row)
         await db.commit()
 

@@ -333,6 +333,7 @@ class Notification(Base):
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     summary: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(16), default="pending")  # pending / sent / read / cancelled
+    data_json: Mapped[str] = mapped_column(Text, default="{}")
     im_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     im_channel: Mapped[str] = mapped_column(String(32), default="")
     read_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
