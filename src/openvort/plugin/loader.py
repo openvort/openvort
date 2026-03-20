@@ -79,6 +79,11 @@ class PluginLoader:
                 for prompt in prompts:
                     self.registry.register_prompt(prompt, source=f"plugin:{plugin.name}")
 
+                # Load skills bundled with the plugin
+                module_file = inspect.getfile(cls)
+                if module_file:
+                    self._load_plugin_skills(Path(module_file).parent, plugin.name)
+
                 log.info(
                     f"已加载 Plugin: {plugin.name} ({plugin.display_name}) "
                     f"— {len(tools)} 个 Tool, {len(prompts)} 条 Prompt"
@@ -145,6 +150,8 @@ class PluginLoader:
                 for prompt in prompts:
                     self.registry.register_prompt(prompt, source=f"plugin:{plugin.name}")
 
+                self._load_plugin_skills(plugin_dir, plugin.name)
+
                 log.info(
                     f"已加载本地 Plugin: {plugin.name} ({plugin.display_name}) "
                     f"— {len(tools)} 个 Tool, {len(prompts)} 条 Prompt"
@@ -153,6 +160,30 @@ class PluginLoader:
                 self.registry.register_plugin(plugin)
             except Exception as e:
                 log.error(f"加载本地 Plugin '{plugin_dir.name}' 失败: {e}")
+
+    def _load_plugin_skills(self, plugin_dir: Path, plugin_name: str) -> None:
+        """Load SKILL.md files bundled inside a plugin's skills/ directory."""
+        skills_dir = plugin_dir / "skills"
+        if not skills_dir.exists() or not skills_dir.is_dir():
+            return
+
+        from openvort.skill.loader import _parse_skill_file, _apply_content_template
+
+        count = 0
+        for skill_subdir in sorted(skills_dir.iterdir()):
+            if not skill_subdir.is_dir():
+                continue
+            skill_file = skill_subdir / "SKILL.md"
+            if not skill_file.exists():
+                continue
+            parsed = _parse_skill_file(skill_file)
+            if parsed and parsed["enabled"] and parsed["content"]:
+                content = _apply_content_template(parsed["content"], skill_subdir)
+                self.registry.register_prompt(content, source=f"plugin:{plugin_name}")
+                count += 1
+
+        if count:
+            log.info(f"从 Plugin '{plugin_name}' 加载了 {count} 个 Skills")
 
     def _load_channels(self) -> None:
         """从 entry_points 加载 Channel 插件，并兜底注册内置通道"""

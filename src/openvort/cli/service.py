@@ -392,7 +392,10 @@ async def _start_service(web_flag: bool | None):
             ch.on_message(handle_message)
 
             # Bot mode runs alongside other modes (separate message source)
-            if ch.is_bot_configured():
+            bot_disabled = os.getenv("OPENVORT_WECOM_BOT_DISABLED", "").lower() in ("1", "true", "yes")
+            if bot_disabled:
+                log.info("OPENVORT_WECOM_BOT_DISABLED 已设置，跳过企微 Bot 消费模式")
+            elif ch.is_bot_configured():
                 async def bot_stream_handler(msg):
                     from openvort.core.setup import is_initialized as _is_init
                     if not await _is_init(session_factory):

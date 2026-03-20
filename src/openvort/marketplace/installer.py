@@ -87,6 +87,15 @@ class MarketplaceInstaller:
         else:
             content = data.get("content", "")
 
+        requires_json = ""
+        if has_bundle:
+            skill_md_path = _find_file(self.bundles_dir / "skills" / slug / "files", "SKILL.md")
+            if skill_md_path:
+                from openvort.skill.loader import _parse_skill_file
+                parsed = _parse_skill_file(skill_md_path)
+                if parsed and parsed.get("requires"):
+                    requires_json = json.dumps(parsed["requires"], ensure_ascii=False)
+
         async with self.session_factory() as session:
             session: AsyncSession
             existing = await session.execute(
@@ -102,6 +111,7 @@ class MarketplaceInstaller:
                 existing_skill.description = data.get("description", "")
                 existing_skill.skill_type = data.get("skillType", "workflow")
                 existing_skill.tags = json.dumps(data.get("tags", []))
+                existing_skill.requires_json = requires_json
                 existing_skill.marketplace_slug = slug
                 existing_skill.marketplace_author = data.get("author", author)
                 existing_skill.marketplace_version = data.get("version", "1.0.0")
@@ -117,6 +127,7 @@ class MarketplaceInstaller:
                     scope="marketplace",
                     skill_type=data.get("skillType", "workflow"),
                     tags=json.dumps(data.get("tags", [])),
+                    requires_json=requires_json,
                     enabled=True,
                     marketplace_slug=slug,
                     marketplace_author=data.get("author", author),
@@ -129,7 +140,12 @@ class MarketplaceInstaller:
             await session.commit()
 
         if content:
-            self.registry.register_prompt(content, f"skill:{skill_name}")
+            if has_bundle:
+                extract_dir = self.bundles_dir / "skills" / slug / "files"
+                content_for_prompt = content.replace("{baseDir}", str(extract_dir))
+            else:
+                content_for_prompt = content
+            self.registry.register_prompt(content_for_prompt, f"skill:{skill_name}")
 
         ext_id = data.get("id", slug)
         await self.client.report_download(ext_id)

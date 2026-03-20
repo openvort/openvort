@@ -152,6 +152,7 @@ class Skill(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     created_by: Mapped[str] = mapped_column(String(32), default="")
+    requires_json: Mapped[str] = mapped_column(Text, default="")  # JSON: {"bins":["pandoc"],"env":["API_KEY"],"packages":["docx"],"plugins":["name"]}
     marketplace_slug: Mapped[str] = mapped_column(String(128), default="", index=True)
     marketplace_author: Mapped[str] = mapped_column(String(128), default="")
     marketplace_version: Mapped[str] = mapped_column(String(32), default="")
