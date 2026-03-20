@@ -2,12 +2,31 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 from openvort.plugins.vortflow.aggregator import NotificationPayload, im_aggregator
 from openvort.utils.logging import get_logger
 
 log = get_logger("plugins.vortflow.notifier")
+
+_background_tasks: set[asyncio.Task] = set()
+
+
+def schedule_notification(coro) -> None:
+    """Fire-and-forget with strong reference + error logging."""
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_task_done)
+
+
+def _task_done(task: asyncio.Task) -> None:
+    _background_tasks.discard(task)
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc:
+        log.error("notification background task failed: %s", exc, exc_info=exc)
 
 
 _ENTITY_TYPE_LABEL = {

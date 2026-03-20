@@ -1,4 +1,3 @@
-import asyncio
 import json
 
 from fastapi import APIRouter, Query, Request
@@ -31,7 +30,7 @@ from openvort.plugins.vortflow.engine import (
     STORY_TRANSITIONS,
     StoryState,
 )
-from openvort.plugins.vortflow.notifier import notifier as _notifier
+from openvort.plugins.vortflow.notifier import notifier as _notifier, schedule_notification
 
 sub_router = APIRouter()
 
@@ -175,7 +174,7 @@ async def create_story(body: StoryCreate, request: Request):
         )
         await session.commit()
         await session.refresh(s)
-    asyncio.create_task(_notifier.notify_item_created(
+    schedule_notification(_notifier.notify_item_created(
         "story", s.id, s.title, s.project_id, member_id,
         collaborator_ids=body.collaborators,
     ))
@@ -239,14 +238,14 @@ async def update_story(story_id: str, body: StoryUpdate, request: Request):
         project_id = s.project_id or ""
         collaborators = _parse_json_list(s.collaborators_json)
     if body.pm_id and body.pm_id != old_pm_id:
-        asyncio.create_task(_notifier.notify_assignment(
+        schedule_notification(_notifier.notify_assignment(
             "story", story_id, s.title, actor_id, body.pm_id,
             project_id=project_id,
         ))
     if body.collaborators is not None:
         new_ids = [c for c in body.collaborators if c not in old_collaborators]
         if new_ids:
-            asyncio.create_task(_notifier.notify_collaborator_added(
+            schedule_notification(_notifier.notify_collaborator_added(
                 "story", story_id, s.title, project_id, actor_id, new_ids,
             ))
     field_changes: dict[str, tuple] = {}
@@ -255,7 +254,7 @@ async def update_story(story_id: str, body: StoryUpdate, request: Request):
     if "deadline" in changes and str(body.deadline) != old_deadline:
         field_changes["deadline"] = (old_deadline, body.deadline)
     if field_changes:
-        asyncio.create_task(_notifier.notify_field_changes(
+        schedule_notification(_notifier.notify_field_changes(
             "story", story_id, s.title, project_id, actor_id, field_changes,
             assignee_id=s.pm_id, creator_id=s.submitter_id,
             collaborator_ids=collaborators,
@@ -311,7 +310,7 @@ async def transition_story(story_id: str, body: TransitionBody, request: Request
                          {"from": old_state, "to": target.value})
         await session.commit()
         await session.refresh(s)
-    asyncio.create_task(_notifier.notify_state_change(
+    schedule_notification(_notifier.notify_state_change(
         "story", story_id, s.title, actor_id,
         old_state, target.value,
         assignee_id=s.pm_id,

@@ -1,4 +1,3 @@
-import asyncio
 import json
 
 from fastapi import APIRouter, Query, Request
@@ -13,7 +12,7 @@ from openvort.plugins.vortflow.models import (
     FlowTask,
     FlowBug,
 )
-from openvort.plugins.vortflow.notifier import notifier as _notifier
+from openvort.plugins.vortflow.notifier import notifier as _notifier, schedule_notification
 from openvort.web.app import require_auth
 
 from .helpers import _log_event, _parse_json_list
@@ -82,7 +81,7 @@ async def create_comment(entity_type: str, entity_id: str, body: CommentCreate, 
                          {"author_id": member_id, "preview": body.content[:100]})
         await session.commit()
         await session.refresh(c)
-    asyncio.create_task(_notifier.notify_comment(
+    schedule_notification(_notifier.notify_comment(
         entity_type, entity_id, item_title, item_project_id, member_id,
         content_preview=body.content[:50],
         mention_ids=body.mentions,

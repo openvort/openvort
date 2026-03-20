@@ -4,8 +4,10 @@ import { useRouter } from "vue-router";
 import { Bell, Clock, Bot, CheckCheck, Settings, ExternalLink, GitPullRequestArrow } from "lucide-vue-next";
 import { getNotifications, batchReadNotifications } from "@/api";
 import { message } from "@/components/vort";
+import { useNotificationStore } from "@/stores/modules/notification";
 
 const router = useRouter();
+const notificationStore = useNotificationStore();
 
 interface NotificationItem {
     id: number;
@@ -49,6 +51,7 @@ async function handleBatchRead() {
         message.success("已全部标为已读");
         unreadCount.value = 0;
         notifications.value = notifications.value.map(n => ({ ...n, status: "read" }));
+        notificationStore.fetchVortflowUnreadCount();
     } catch {
         message.error("操作失败");
     }
@@ -60,12 +63,23 @@ const _ENTITY_TYPE_ROUTE: Record<string, string> = {
     bug: "bugs",
 };
 
-function handleNotificationClick(n: NotificationItem) {
+async function handleNotificationClick(n: NotificationItem) {
     popoverRef.value?.hide();
+    if (n.status === "pending" || n.status === "sent") {
+        batchReadNotifications([n.id]).catch(() => {});
+        n.status = "read";
+        unreadCount.value = Math.max(0, unreadCount.value - 1);
+        if (n.source === "vortflow") {
+            notificationStore.fetchVortflowUnreadCount();
+        }
+    }
     if (n.source === "vortflow" && n.data?.entity_type && n.data?.entity_id) {
         const routeSegment = _ENTITY_TYPE_ROUTE[n.data.entity_type];
         if (routeSegment) {
-            const query: Record<string, string> = { item: n.data.entity_id };
+            const query: Record<string, string> = {
+                action: "detail",
+                id: n.data.entity_id,
+            };
             if (n.data.project_id) query.project = n.data.project_id;
             router.push({ path: `/vortflow/${routeSegment}`, query });
             return;

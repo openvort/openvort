@@ -1,4 +1,3 @@
-import asyncio
 import json
 
 from fastapi import APIRouter, Query, Request
@@ -28,7 +27,7 @@ from openvort.plugins.vortflow.engine import (
     BUG_TRANSITIONS,
     BugState,
 )
-from openvort.plugins.vortflow.notifier import notifier as _notifier
+from openvort.plugins.vortflow.notifier import notifier as _notifier, schedule_notification
 
 sub_router = APIRouter()
 
@@ -141,7 +140,7 @@ async def create_bug(body: BugCreate, request: Request):
         await _log_event(session, "bug", b.id, "created", {"title": body.title})
         await session.commit()
         await session.refresh(b)
-    asyncio.create_task(_notifier.notify_item_created(
+    schedule_notification(_notifier.notify_item_created(
         "bug", b.id, b.title, project_id or "", member_id,
         assignee_id=body.assignee_id,
         collaborator_ids=body.collaborators,
@@ -198,14 +197,14 @@ async def update_bug(bug_id: str, body: BugUpdate, request: Request):
         project_id = b.project_id or ""
         collaborators = _parse_json_list(b.collaborators_json)
     if body.assignee_id and body.assignee_id != old_assignee_id:
-        asyncio.create_task(_notifier.notify_assignment(
+        schedule_notification(_notifier.notify_assignment(
             "bug", bug_id, b.title, actor_id, body.assignee_id,
             project_id=project_id,
         ))
     if body.collaborators is not None:
         new_ids = [c for c in body.collaborators if c not in old_collaborators]
         if new_ids:
-            asyncio.create_task(_notifier.notify_collaborator_added(
+            schedule_notification(_notifier.notify_collaborator_added(
                 "bug", bug_id, b.title, project_id, actor_id, new_ids,
             ))
     field_changes: dict[str, tuple] = {}
@@ -214,7 +213,7 @@ async def update_bug(bug_id: str, body: BugUpdate, request: Request):
     if "deadline" in changes and str(body.deadline) != old_deadline:
         field_changes["deadline"] = (old_deadline, body.deadline)
     if field_changes:
-        asyncio.create_task(_notifier.notify_field_changes(
+        schedule_notification(_notifier.notify_field_changes(
             "bug", bug_id, b.title, project_id, actor_id, field_changes,
             assignee_id=b.assignee_id, creator_id=b.reporter_id,
             collaborator_ids=collaborators,
@@ -257,7 +256,7 @@ async def transition_bug(bug_id: str, body: TransitionBody, request: Request):
                          {"from": old_state, "to": target.value})
         await session.commit()
         await session.refresh(b)
-    asyncio.create_task(_notifier.notify_state_change(
+    schedule_notification(_notifier.notify_state_change(
         "bug", bug_id, b.title, actor_id,
         old_state, target.value,
         assignee_id=b.assignee_id,

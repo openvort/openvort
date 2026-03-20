@@ -96,11 +96,18 @@ function isUnread(status: string) {
     return status === "pending" || status === "sent";
 }
 
-function handleNotificationClick(n: NotificationItem) {
+async function handleNotificationClick(n: NotificationItem) {
+    if (isUnread(n.status)) {
+        batchReadNotifications([n.id]).catch(() => {});
+        n.status = "read";
+    }
     if (n.source === "vortflow" && n.data?.entity_type && n.data?.entity_id) {
         const routeSegment = _ENTITY_TYPE_ROUTE[n.data.entity_type];
         if (routeSegment) {
-            const query: Record<string, string> = { item: n.data.entity_id };
+            const query: Record<string, string> = {
+                action: "detail",
+                id: n.data.entity_id,
+            };
             if (n.data.project_id) query.project = n.data.project_id;
             router.push({ path: `/vortflow/${routeSegment}`, query });
             return;
