@@ -142,6 +142,13 @@ const owner = ref("");
 const type = ref<WorkItemType | "">(props.type ?? "");
 const status = ref("");
 const totalCount = ref(0);
+const cacheDescDraftBeforeClose = () => {
+    const comp = detailComponentRef.value;
+    if (comp?.detailDescEditing && detailSelectedWorkNo.value) {
+        detailDescDraftCache[detailSelectedWorkNo.value] = comp.detailDescDraft;
+    }
+};
+
 const createBugDrawerOpen = computed({
     get: () => {
         const action = route.query.action as string;
@@ -149,6 +156,7 @@ const createBugDrawerOpen = computed({
     },
     set: (val: boolean) => {
         if (!val) {
+            cacheDescDraftBeforeClose();
             router.replace({ query: { ...route.query, action: undefined, id: undefined, parentId: undefined } });
         }
     }
@@ -158,6 +166,7 @@ const detailActiveTab = ref("detail");
 const detailSelectedWorkNo = ref("");
 const detailDescEditing = ref(false);
 const detailDescDraft = ref("");
+const detailDescDraftCache = reactive<Record<string, string>>({});
 const detailBottomTab = ref<"comments" | "logs">("comments");
 const detailCommentDraft = ref("");
 const detailCommentsMap = reactive<Record<string, DetailComment[]>>({});
@@ -1250,6 +1259,7 @@ const removeCreateAttachment = (id: string) => {
 };
 
 const detailRecordSnapshot = ref<RowItem | null>(null);
+const detailComponentRef = ref<any>(null);
 
 const handleOpenBugDetail = async (record: RowItem) => {
     detailSelectedWorkNo.value = record.workNo;
@@ -1257,8 +1267,15 @@ const handleOpenBugDetail = async (record: RowItem) => {
     detailActiveTab.value = "detail";
     detailBottomTab.value = "comments";
     detailCommentDraft.value = "";
-    detailDescEditing.value = false;
-    detailDescDraft.value = "";
+    const cachedDraft = detailDescDraftCache[record.workNo];
+    if (cachedDraft !== undefined) {
+        detailDescEditing.value = true;
+        detailDescDraft.value = cachedDraft;
+        delete detailDescDraftCache[record.workNo];
+    } else {
+        detailDescEditing.value = false;
+        detailDescDraft.value = "";
+    }
     ensureDetailPanelsData(record);
     await syncDetailRelations(record);
 
@@ -1363,6 +1380,7 @@ const openDetailDescEditor = () => {
 const cancelDetailDescEditor = () => {
     detailDescEditing.value = false;
     detailDescDraft.value = "";
+    if (detailSelectedWorkNo.value) delete detailDescDraftCache[detailSelectedWorkNo.value];
 };
 
 const saveDetailDescEditor = async () => {
@@ -1379,6 +1397,7 @@ const saveDetailDescEditor = async () => {
         return;
     }
     detailDescEditing.value = false;
+    if (detailSelectedWorkNo.value) delete detailDescDraftCache[detailSelectedWorkNo.value];
     appendDetailLog("更新描述");
     message.success("描述已保存");
 };
@@ -2038,10 +2057,13 @@ onMounted(async () => {
             <template v-if="createBugDrawerMode === 'detail'">
                 <WorkItemDetail
                     v-if="detailCurrentRecord"
+                    ref="detailComponentRef"
                     :work-no="detailCurrentRecord.workNo"
                     :initial-data="detailCurrentRecord"
                     :parent-record="detailParentRecord"
                     :child-records="detailChildRecords"
+                    :initial-desc-editing="detailDescEditing"
+                    :initial-desc-draft="detailDescDraft"
                     @close="handleCancelCreateBug"
                     @update="handleDetailUpdate"
                     @open-related="handleOpenRelated"

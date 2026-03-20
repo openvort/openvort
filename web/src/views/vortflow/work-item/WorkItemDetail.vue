@@ -9,7 +9,8 @@ import { Copy, SquarePen, FileText } from "lucide-vue-next";
 import { useWorkItemCommon } from "./useWorkItemCommon";
 import WorkItemLinkPanel from "./WorkItemLinkPanel.vue";
 import TestCaseLinkPanel from "./TestCaseLinkPanel.vue";
-import { getVortflowProjects, getVortflowIterations, getVortflowVersions, getVortgitRepos, getVortgitRepoBranches } from "@/api";
+import { getVortflowProjects, getVortflowIterations, getVortflowVersions, getVortgitRepos, getVortgitRepoBranches, getVortflowComments, createVortflowComment, getVortflowActivity } from "@/api";
+import { useUserStore } from "@/stores";
 import type { WorkItemType, Status, DateRange, RowItem, DetailComment, DetailLog } from "@/components/vort-biz/work-item/WorkItemTable.types";
 
 interface Props {
@@ -17,6 +18,8 @@ interface Props {
     initialData?: RowItem;
     parentRecord?: RowItem | null;
     childRecords?: RowItem[];
+    initialDescDraft?: string;
+    initialDescEditing?: boolean;
 }
 
 const props = defineProps<Props>();
@@ -37,11 +40,13 @@ const {
     getAvatarLabel,
     getMemberAvatarUrl,
     loadMemberOptions,
+    getMemberNameById,
     getWorkItemTypeIconClass,
     getWorkItemTypeIconSymbol,
 } = useWorkItemCommon();
 
-const detailCurrentUser = "当前用户";
+const userStore = useUserStore();
+const detailCurrentUser = computed(() => userStore.userInfo.name || "未知用户");
 const loading = ref(false);
 const record = ref<RowItem | null>(props.initialData || null);
 const detailActiveTab = ref("detail");
@@ -51,8 +56,10 @@ const detailStatusKeyword = ref("");
 const detailAssigneeDropdownOpen = ref(false);
 const detailAssigneeKeyword = ref("");
 const detailAssigneeGroupOpen = reactive<Record<string, boolean>>({});
-const detailDescEditing = ref(false);
-const detailDescDraft = ref("");
+const detailDescEditing = ref(props.initialDescEditing || false);
+const detailDescDraft = ref(props.initialDescDraft ?? "");
+
+defineExpose({ detailDescEditing, detailDescDraft });
 const detailCommentDraft = ref("");
 const detailCommentsMap = reactive<Record<string, DetailComment[]>>({});
 const detailLogsMap = reactive<Record<string, DetailLog[]>>({});
@@ -121,12 +128,54 @@ const filteredDetailAssigneeGroups = computed(() => {
         .filter((g) => g.members.length > 0);
 });
 
-const ensureDetailPanelsData = () => {
-    if (!detailCommentsMap[props.workNo]) {
-        detailCommentsMap[props.workNo] = [];
+const formatTimeAgo = (isoStr: string): string => {
+    if (!isoStr) return "";
+    const d = new Date(isoStr);
+    const now = Date.now();
+    const diff = now - d.getTime();
+    if (diff < 60_000) return "刚刚";
+    if (diff < 3600_000) return `${Math.floor(diff / 60_000)}分钟前`;
+    if (diff < 86400_000) return `${Math.floor(diff / 3600_000)}小时前`;
+    const month = d.getMonth() + 1;
+    const day = d.getDate();
+    const h = String(d.getHours()).padStart(2, "0");
+    const m = String(d.getMinutes()).padStart(2, "0");
+    return `${month}月${day}日 ${h}:${m}`;
+};
+
+const ensureDetailPanelsData = async () => {
+    const entityId = record.value?.backendId;
+    if (!entityId) {
+        if (!detailCommentsMap[props.workNo]) detailCommentsMap[props.workNo] = [];
+        if (!detailLogsMap[props.workNo]) detailLogsMap[props.workNo] = [];
+        return;
     }
-    if (!detailLogsMap[props.workNo]) {
-        detailLogsMap[props.workNo] = [];
+    const entityType = getEntityTypeKey();
+    const [commentsRes, activityRes] = await Promise.allSettled([
+        getVortflowComments(entityType, entityId),
+        getVortflowActivity(entityType, entityId),
+    ]);
+    if (commentsRes.status === "fulfilled") {
+        const items = ((commentsRes.value as any)?.items || []) as any[];
+        detailCommentsMap[props.workNo] = items.map((c: any) => ({
+            id: String(c.id),
+            author: getMemberNameById(c.author_id) || c.author_id || "未知",
+            createdAt: formatTimeAgo(c.created_at),
+            content: c.content || "",
+        }));
+    } else {
+        if (!detailCommentsMap[props.workNo]) detailCommentsMap[props.workNo] = [];
+    }
+    if (activityRes.status === "fulfilled") {
+        const items = ((activityRes.value as any)?.items || []) as any[];
+        detailLogsMap[props.workNo] = items.map((e: any) => ({
+            id: String(e.id),
+            actor: getMemberNameById(e.actor_id) || e.actor_id || "系统",
+            createdAt: formatTimeAgo(e.created_at),
+            action: e.action || "",
+        }));
+    } else {
+        if (!detailLogsMap[props.workNo]) detailLogsMap[props.workNo] = [];
     }
 };
 
@@ -136,7 +185,7 @@ const appendDetailLog = (action: string) => {
     if (!logs) return;
     logs.unshift({
         id: `${props.workNo}-l-${Date.now()}`,
-        actor: detailCurrentUser,
+        actor: detailCurrentUser.value,
         createdAt: "刚刚",
         action
     });
@@ -229,24 +278,35 @@ const cancelDetailDescEditor = () => {
     detailDescDraft.value = "";
 };
 
-const submitDetailComment = () => {
+const getEntityTypeKey = (): string => {
+    const type = record.value?.type;
+    if (type === "需求") return "story";
+    if (type === "任务") return "task";
+    return "bug";
+};
+
+const submitDetailComment = async () => {
     const content = detailCommentDraft.value.trim();
     if (!content) {
         message.warning("请先输入评论内容");
         return;
     }
-    if (!detailCommentsMap[props.workNo]) detailCommentsMap[props.workNo] = [];
-    const comments = detailCommentsMap[props.workNo];
-    if (!comments) return;
-    comments.unshift({
-        id: `${props.workNo}-c-${Date.now()}`,
-        author: detailCurrentUser,
-        createdAt: "刚刚",
-        content
-    });
-    detailCommentDraft.value = "";
-    appendDetailLog("发布评论");
-    message.success("评论已发布");
+    const entityId = record.value?.backendId;
+    if (!entityId) return;
+    try {
+        const res: any = await createVortflowComment(getEntityTypeKey(), entityId, { content });
+        if (!detailCommentsMap[props.workNo]) detailCommentsMap[props.workNo] = [];
+        detailCommentsMap[props.workNo].unshift({
+            id: String(res?.id || `${props.workNo}-c-${Date.now()}`),
+            author: detailCurrentUser.value,
+            createdAt: "刚刚",
+            content,
+        });
+        detailCommentDraft.value = "";
+        message.success("评论已发布");
+    } catch (error: any) {
+        message.error(error?.message || "评论发布失败");
+    }
 };
 
 // ---- Editable field options ----
@@ -577,7 +637,7 @@ onMounted(async () => {
     await loadMemberOptions();
     await loadFieldOptions();
     detailAssigneeGroupOpen["全部成员"] = true;
-    ensureDetailPanelsData();
+    await ensureDetailPanelsData();
 });
 
 watch(() => props.initialData, (value) => {
@@ -1027,7 +1087,7 @@ watch(() => props.initialData, (value) => {
                                         <span class="author">{{ item.author }}</span>
                                         <span class="time">{{ item.createdAt }}</span>
                                     </div>
-                                    <div class="bug-detail-comment-content">{{ item.content }}</div>
+                                    <div class="bug-detail-comment-content"><MarkdownView :content="item.content" /></div>
                                 </div>
                             </div>
                         </div>
@@ -1036,7 +1096,6 @@ watch(() => props.initialData, (value) => {
                             <VortEditor v-model="detailCommentDraft" placeholder="发表您的看法（Ctrl/Command+Enter发送）" min-height="120px" />
                             <div class="bug-detail-desc-actions">
                                 <vort-button variant="primary" @click="submitDetailComment">评论</vort-button>
-                                <vort-button @click="detailCommentDraft = ''">取消</vort-button>
                             </div>
                         </div>
                     </div>
