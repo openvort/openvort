@@ -46,6 +46,20 @@ async def search_marketplace(
         raise HTTPException(status_code=502, detail=f"Marketplace request failed: {e}")
 
 
+@router.get("/detail/{slug}")
+async def get_extension_detail(slug: str, author: str = ""):
+    """Get full extension detail by slug."""
+    installer = get_marketplace_installer()
+    if not installer:
+        raise HTTPException(status_code=503, detail="Marketplace not configured")
+
+    try:
+        result = await installer.client.get_extension_detail(slug, author=author)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Marketplace request failed: {e}")
+
+
 @router.post("/install/skill")
 async def install_skill(req: InstallRequest):
     """Install a skill from the marketplace (supports content and bundle)."""

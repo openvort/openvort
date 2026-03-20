@@ -3,7 +3,7 @@
         class="flex items-center gap-2 mt-1 cursor-pointer group"
         @click.stop="$emit('click')"
     >
-        <div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden min-w-[80px]">
+        <div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden min-w-[80px] max-w-[200px]">
             <div
                 class="h-full rounded-full transition-all duration-1000 ease-linear relative overflow-hidden bg-blue-500"
                 :style="{ width: `${progress}%` }"

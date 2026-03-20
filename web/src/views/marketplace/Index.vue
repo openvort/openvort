@@ -562,10 +562,9 @@ const skillTypeLabel: Record<string, string> = { role: "角色入设", workflow:
                         </div>
                     </div>
 
-                    <div v-if="detail.homepage || detail.repository" class="flex flex-wrap gap-2">
+                    <div class="flex flex-wrap gap-2">
                         <a
-                            v-if="detail.homepage"
-                            :href="detail.homepage"
+                            :href="`https://openvort.com/${detail.author}/${detail.slug}`"
                             target="_blank"
                             class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-50 text-sm text-gray-600 hover:bg-gray-100 transition-colors"
                         >
