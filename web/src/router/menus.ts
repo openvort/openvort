@@ -21,7 +21,7 @@ export const menuConfig: MenuConfig[] = [
     {
         title: "扩展", icon: "blocks", requiredRole: "admin",
         children: [
-            { title: "应用管理", icon: "puzzle", path: "/plugins" },
+            { title: "插件管理", icon: "puzzle", path: "/plugins" },
             { title: "技能管理", icon: "book-open", path: "/skills" },
             { title: "扩展市场", icon: "store", path: "/marketplace" },
         ],

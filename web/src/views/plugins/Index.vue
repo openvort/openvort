@@ -244,8 +244,8 @@ onMounted(loadPlugins);
 <template>
     <div class="space-y-6">
         <div class="flex items-center gap-2">
-            <h2 class="text-lg font-medium text-gray-800">应用管理</h2>
-            <span class="text-xs text-gray-400">管理 AI 的应用模块，如项目管理、代码仓库、CI/CD 等完整功能</span>
+            <h2 class="text-lg font-medium text-gray-800">插件管理</h2>
+            <span class="text-xs text-gray-400">管理已安装的插件，启用的插件为 AI 提供工具、页面和系统集成能力</span>
         </div>
 
         <!-- Search & filter -->

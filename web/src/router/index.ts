@@ -57,7 +57,7 @@ const routes: RouteRecordRaw[] = [
             { path: "knowledge", name: "knowledge", component: () => import("@/views/knowledge/Index.vue"), meta: { title: "知识库" } },
             // 仅管理员
             { path: "contacts", name: "contacts", component: () => import("@/views/contacts/Index.vue"), meta: { title: "组织管理", requiredRole: "admin" } },
-            { path: "plugins", name: "plugins", component: () => import("@/views/plugins/Index.vue"), meta: { title: "应用管理", requiredRole: "admin" } },
+            { path: "plugins", name: "plugins", component: () => import("@/views/plugins/Index.vue"), meta: { title: "插件管理", requiredRole: "admin" } },
             { path: "skills", name: "skills", component: () => import("@/views/skills/Index.vue"), meta: { title: "技能管理", requiredRole: "admin" } },
             { path: "marketplace", name: "marketplace", component: () => import("@/views/marketplace/Index.vue"), meta: { title: "扩展市场", requiredRole: "admin" } },
             { path: "channels", name: "channels", component: () => import("@/views/channels/Index.vue"), meta: { title: "通道管理", requiredRole: "admin" } },
