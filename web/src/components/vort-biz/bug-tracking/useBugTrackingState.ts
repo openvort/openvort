@@ -17,15 +17,18 @@ import {
     statusIconMap,
     priorityClassMap,
     statusClassMap,
-    ownerGroups,
     tagOptions,
     createBugTagOptions,
     createBugProjectOptions,
     createBugRepoOptions,
     createBugBranchOptions
 } from "./types";
+import { useWorkItemCommon } from "@/views/vortflow/work-item/useWorkItemCommon";
 
 export function useBugTrackingState() {
+    const { ownerGroups, loadMemberOptions } = useWorkItemCommon();
+    loadMemberOptions();
+
     // ==================== 筛选状态 ====================
     const keyword = ref("");
     const owner = ref("");
@@ -108,31 +111,12 @@ export function useBugTrackingState() {
         任务: true,
         缺陷: true
     });
-    const ownerGroupOpen = reactive<Record<string, boolean>>({
-        项目成员: true,
-        企业成员: true,
-        离职人员: true
-    });
-    const ownerEditGroupOpen = reactive<Record<string, boolean>>({
-        项目成员: true,
-        企业成员: true,
-        离职人员: true
-    });
-    const collaboratorGroupOpen = reactive<Record<string, boolean>>({
-        项目成员: true,
-        企业成员: true,
-        离职人员: true
-    });
-    const detailAssigneeGroupOpen = reactive<Record<string, boolean>>({
-        项目成员: true,
-        企业成员: true,
-        离职人员: true
-    });
-    const createAssigneeGroupOpen = reactive<Record<string, boolean>>({
-        项目成员: true,
-        企业成员: true,
-        离职人员: true
-    });
+    const ownerGroupOpen = reactive<Record<string, boolean>>({});
+    const ownerEditGroupOpen = reactive<Record<string, boolean>>({});
+    const collaboratorGroupOpen = reactive<Record<string, boolean>>({});
+    const detailAssigneeGroupOpen = reactive<Record<string, boolean>>({});
+    const createAssigneeGroupOpen = reactive<Record<string, boolean>>({});
+    const isGroupOpen = (map: Record<string, boolean>, label: string) => map[label] !== false;
     const collaboratorsModel = reactive<Record<string, string[]>>({});
 
     // ==================== 常量 ====================
@@ -344,25 +328,25 @@ export function useBugTrackingState() {
 
     // ==================== 筛选方法 ====================
     const filteredOwnerGroups = computed(() => {
-        if (!ownerKeyword.value) return ownerGroups;
+        if (!ownerKeyword.value) return ownerGroups.value;
         const kw = ownerKeyword.value.toLowerCase();
-        return ownerGroups
+        return ownerGroups.value
             .map(g => ({ ...g, members: g.members.filter(m => m.toLowerCase().includes(kw)) }))
             .filter(g => g.members.length > 0);
     });
 
     const filteredOwnerEditGroups = computed(() => {
-        if (!ownerEditKeyword.value) return ownerGroups;
+        if (!ownerEditKeyword.value) return ownerGroups.value;
         const kw = ownerEditKeyword.value.toLowerCase();
-        return ownerGroups
+        return ownerGroups.value
             .map(g => ({ ...g, members: g.members.filter(m => m.toLowerCase().includes(kw)) }))
             .filter(g => g.members.length > 0);
     });
 
     const filteredCollaboratorGroups = computed(() => {
-        if (!collaboratorKeyword.value) return ownerGroups;
+        if (!collaboratorKeyword.value) return ownerGroups.value;
         const kw = collaboratorKeyword.value.toLowerCase();
-        return ownerGroups
+        return ownerGroups.value
             .map(g => ({ ...g, members: g.members.filter(m => m.toLowerCase().includes(kw)) }))
             .filter(g => g.members.length > 0);
     });
@@ -386,17 +370,17 @@ export function useBugTrackingState() {
     });
 
     const filteredDetailAssigneeGroups = computed(() => {
-        if (!detailAssigneeKeyword.value) return ownerGroups;
+        if (!detailAssigneeKeyword.value) return ownerGroups.value;
         const kw = detailAssigneeKeyword.value.toLowerCase();
-        return ownerGroups
+        return ownerGroups.value
             .map(g => ({ ...g, members: g.members.filter(m => m.toLowerCase().includes(kw)) }))
             .filter(g => g.members.length > 0);
     });
 
     const filteredCreateAssigneeGroups = computed(() => {
-        if (!createAssigneeKeyword.value) return ownerGroups;
+        if (!createAssigneeKeyword.value) return ownerGroups.value;
         const kw = createAssigneeKeyword.value.toLowerCase();
-        return ownerGroups
+        return ownerGroups.value
             .map(g => ({ ...g, members: g.members.filter(m => m.toLowerCase().includes(kw)) }))
             .filter(g => g.members.length > 0);
     });
@@ -409,12 +393,12 @@ export function useBugTrackingState() {
 
     const typeGroups = computed<WorkType[]>(() => ["缺陷", "需求", "任务"]);
 
-    const toggleOwnerGroup = (group: string) => { ownerGroupOpen[group] = !ownerGroupOpen[group]; };
-    const toggleOwnerEditGroup = (group: string) => { ownerEditGroupOpen[group] = !ownerEditGroupOpen[group]; };
-    const toggleCollaboratorGroup = (group: string) => { collaboratorGroupOpen[group] = !collaboratorGroupOpen[group]; };
+    const toggleOwnerGroup = (group: string) => { ownerGroupOpen[group] = !isGroupOpen(ownerGroupOpen, group); };
+    const toggleOwnerEditGroup = (group: string) => { ownerEditGroupOpen[group] = !isGroupOpen(ownerEditGroupOpen, group); };
+    const toggleCollaboratorGroup = (group: string) => { collaboratorGroupOpen[group] = !isGroupOpen(collaboratorGroupOpen, group); };
     const toggleTypeGroup = (group: WorkType) => { typeGroupOpen[group] = !typeGroupOpen[group]; };
-    const toggleDetailAssigneeGroup = (group: string) => { detailAssigneeGroupOpen[group] = !detailAssigneeGroupOpen[group]; };
-    const toggleCreateAssigneeGroup = (group: string) => { createAssigneeGroupOpen[group] = !createAssigneeGroupOpen[group]; };
+    const toggleDetailAssigneeGroup = (group: string) => { detailAssigneeGroupOpen[group] = !isGroupOpen(detailAssigneeGroupOpen, group); };
+    const toggleCreateAssigneeGroup = (group: string) => { createAssigneeGroupOpen[group] = !isGroupOpen(createAssigneeGroupOpen, group); };
 
     const selectOwner = (value: string) => {
         owner.value = value;
@@ -689,7 +673,7 @@ export function useBugTrackingState() {
         // 详情Drawer状态
         detailActiveTab, detailSelectedWorkNo, detailStatusDropdownOpen, detailStatusKeyword, detailAssigneeDropdownOpen, detailAssigneeKeyword, detailDescEditing, detailDescDraft, detailBottomTab, detailCommentDraft, detailCommentsMap, detailLogsMap,
         // 展开状态
-        typeGroupOpen, ownerGroupOpen, ownerEditGroupOpen, collaboratorGroupOpen, detailAssigneeGroupOpen, createAssigneeGroupOpen, collaboratorsModel,
+        ownerGroups, isGroupOpen, typeGroupOpen, ownerGroupOpen, ownerEditGroupOpen, collaboratorGroupOpen, detailAssigneeGroupOpen, createAssigneeGroupOpen, collaboratorsModel,
         // 辅助函数
         toWorkNo, getAvatarBg, getAvatarLabel, getTagColor, formatFileSize, getWorkTypeIconClass, getWorkTypeIconSymbol,
         // 行内编辑方法

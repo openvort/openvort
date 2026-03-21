@@ -9,7 +9,6 @@ import {
     statusIconMap,
     priorityClassMap,
     statusClassMap,
-    ownerGroups,
     createBugTagOptions
 } from "./types";
 

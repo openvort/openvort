@@ -1,13 +1,15 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import type { Priority, WorkType, DateRange, BugAttachment } from "./types";
 import {
     priorityOptions,
-    ownerGroups,
     createBugTagOptions,
     createBugProjectOptions,
     createBugRepoOptions,
     createBugBranchOptions
 } from "./types";
+
+const ownerGroups = computed(() => props.state.ownerGroups.value);
 
 interface Props {
     state: ReturnType<typeof import("./useBugTrackingState").useBugTrackingState>;
@@ -86,10 +88,10 @@ const handleSubmit = () => {
                             <div v-for="group in props.state.filteredCreateAssigneeGroups.value" :key="group.label + '-create'">
                                 <button class="w-full h-9 px-3 bg-slate-100 flex items-center justify-between text-left text-sm" @click.stop="props.state.toggleCreateAssigneeGroup(group.label)">
                                     <span class="text-gray-700">{{ group.label }}</span>
-                                    <span class="status-arrow-simple" :class="{ open: props.state.createAssigneeGroupOpen[group.label] }" />
+                                    <span class="status-arrow-simple" :class="{ open: props.state.isGroupOpen(props.state.createAssigneeGroupOpen, group.label) }" />
                                 </button>
                                 <button
-                                    v-for="member in (props.state.createAssigneeGroupOpen[group.label] ? group.members : [])"
+                                    v-for="member in (props.state.isGroupOpen(props.state.createAssigneeGroupOpen, group.label) ? group.members : [])"
                                     :key="group.label + member + '-create'"
                                     class="w-full h-9 px-3 flex items-center gap-2 text-left hover:bg-gray-50 text-sm"
                                     @click.stop="props.state.setCreateOwner(member)"

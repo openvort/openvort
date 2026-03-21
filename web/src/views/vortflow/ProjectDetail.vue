@@ -10,6 +10,7 @@ import {
     getVortflowProject, getVortflowStats, getVortflowStories,
     getVortflowTasks, getVortflowBugs, getVortflowProjectMembers,
     addVortflowProjectMember, removeVortflowProjectMember,
+    updateVortflowProjectMemberRole,
     getVortgitRepos, getVortgitCodeTasks, getVortflowIterations,
     updateVortgitRepo,
 } from "@/api";
@@ -23,7 +24,7 @@ const vortFlowStore = useVortFlowStore();
 const projectId = computed(() => route.params.id as string);
 
 const {
-    memberOptions, ownerGroups, getAvatarBg, getAvatarLabel,
+    memberOptions, getAvatarBg, getAvatarLabel,
     getMemberAvatarUrl, getMemberIdByName, getMemberNameById,
     loadMemberOptions,
 } = useWorkItemCommon();
@@ -48,17 +49,23 @@ const activeTab = ref("overview");
 
 const roleLabels: Record<string, string> = {
     owner: "负责人", pm: "产品经理", dev: "开发", tester: "测试",
+    ui: "UI设计", ops: "运维", qa: "质量保证", data: "数据分析",
     member: "成员", viewer: "观察者",
 };
 const roleColorMap: Record<string, string> = {
     owner: "orange", pm: "blue", dev: "green", tester: "purple",
+    ui: "pink", ops: "cyan", qa: "volcano", data: "geekblue",
     member: "default", viewer: "default",
 };
 const roleOptions = [
     { value: "owner", label: "负责人" },
     { value: "pm", label: "产品经理" },
     { value: "dev", label: "开发" },
+    { value: "ui", label: "UI设计" },
     { value: "tester", label: "测试" },
+    { value: "qa", label: "质量保证" },
+    { value: "ops", label: "运维" },
+    { value: "data", label: "数据分析" },
     { value: "member", label: "成员" },
     { value: "viewer", label: "观察者" },
 ];
@@ -188,19 +195,13 @@ const addingMembers = ref(false);
 
 const existingMemberIds = computed(() => new Set(members.value.map((m: any) => m.member_id)));
 
-const filteredAddGroups = computed(() => {
+const filteredAddMembers = computed(() => {
     const kw = memberSearchKeyword.value.trim().toLowerCase();
-    return ownerGroups.value
-        .map((group) => ({
-            ...group,
-            members: group.members.filter((name) => {
-                const id = getMemberIdByName(name);
-                if (id && existingMemberIds.value.has(id)) return false;
-                if (!kw) return true;
-                return name.toLowerCase().includes(kw);
-            }),
-        }))
-        .filter((group) => group.members.length > 0);
+    return memberOptions.value.filter((m) => {
+        if (existingMemberIds.value.has(m.id)) return false;
+        if (!kw) return true;
+        return m.name.toLowerCase().includes(kw);
+    });
 });
 
 const toggleMemberSelection = (name: string) => {
@@ -238,6 +239,26 @@ const handleAddMember = async () => {
 
 const handleRemoveMember = async (memberId: string) => {
     await removeVortflowProjectMember(projectId.value, memberId);
+    const res = await getVortflowProjectMembers(projectId.value);
+    members.value = (res as any)?.items || [];
+};
+
+const roleSortOrder: Record<string, number> = {
+    owner: 0, pm: 1, dev: 2, ui: 3, tester: 4, qa: 5, ops: 6, data: 7, member: 8, viewer: 9,
+};
+const sortedMembers = computed(() =>
+    [...members.value].sort((a: any, b: any) =>
+        (roleSortOrder[a.role] ?? 99) - (roleSortOrder[b.role] ?? 99)),
+);
+
+const roleDropdownMemberId = ref<string | null>(null);
+const toggleRoleDropdown = (memberId: string) => {
+    roleDropdownMemberId.value = roleDropdownMemberId.value === memberId ? null : memberId;
+};
+const closeRoleDropdown = () => { roleDropdownMemberId.value = null; };
+const handleChangeRole = async (memberId: string, newRole: string) => {
+    roleDropdownMemberId.value = null;
+    await updateVortflowProjectMemberRole(projectId.value, memberId, newRole);
     const res = await getVortflowProjectMembers(projectId.value);
     members.value = (res as any)?.items || [];
 };
@@ -359,12 +380,14 @@ onMounted(async () => {
     await loadMemberOptions();
     loadData();
     window.addEventListener("resize", handleResize);
+    document.addEventListener("click", closeRoleDropdown);
 });
 
 onBeforeUnmount(() => {
     chartInstance?.dispose();
     chartInstance = null;
     window.removeEventListener("resize", handleResize);
+    document.removeEventListener("click", closeRoleDropdown);
 });
 </script>
 
@@ -507,6 +530,51 @@ onBeforeUnmount(() => {
                     </div>
                 </div>
 
+                <!-- Members -->
+                <div class="bg-white rounded-xl p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-base font-medium text-gray-800">
+                            <Users :size="16" class="inline mr-1" /> 项目成员
+                            <span class="text-xs text-gray-400 font-normal ml-1">{{ members.length }}人</span>
+                        </h3>
+                        <vort-button size="small" @click="memberDialogVisible = true">
+                            <Plus :size="12" class="mr-1" /> 添加成员
+                        </vort-button>
+                    </div>
+                    <div v-if="members.length === 0" class="text-sm text-gray-400 py-4 text-center">暂无成员</div>
+                    <div v-else class="flex flex-wrap gap-2">
+                        <div v-for="m in sortedMembers" :key="m.id"
+                            class="flex items-center gap-2 pl-1 pr-2 py-1 rounded-full bg-gray-50 hover:bg-gray-100 transition-colors group relative">
+                            <div class="w-7 h-7 rounded-full flex items-center justify-center text-xs text-white font-medium flex-shrink-0"
+                                :style="{ backgroundColor: getAvatarBg(getMemberNameById(m.member_id) || m.member_id) }">
+                                <img v-if="getMemberAvatarUrl(getMemberNameById(m.member_id) || m.member_id)"
+                                    :src="getMemberAvatarUrl(getMemberNameById(m.member_id) || m.member_id)"
+                                    class="w-full h-full rounded-full object-cover" />
+                                <template v-else>{{ getAvatarLabel(getMemberNameById(m.member_id) || m.member_id) }}</template>
+                            </div>
+                            <span class="text-sm text-gray-700">{{ getMemberNameById(m.member_id) || m.member_id }}</span>
+                            <vort-tag size="small" :color="roleColorMap[m.role] || 'default'"
+                                class="cursor-pointer" @click.stop="toggleRoleDropdown(m.member_id)">
+                                {{ roleLabels[m.role] || m.role }}
+                            </vort-tag>
+                            <div v-if="roleDropdownMemberId === m.member_id"
+                                class="absolute top-full left-1/2 -translate-x-1/2 mt-1 z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[100px]">
+                                <div v-for="opt in roleOptions" :key="opt.value"
+                                    class="px-3 py-1 text-xs cursor-pointer hover:bg-gray-50 transition-colors whitespace-nowrap"
+                                    :class="opt.value === m.role ? 'text-blue-600 font-medium bg-blue-50' : 'text-gray-600'"
+                                    @click.stop="handleChangeRole(m.member_id, opt.value)">
+                                    {{ opt.label }}
+                                </div>
+                            </div>
+                            <vort-popconfirm title="确认移除该成员？" @confirm="handleRemoveMember(m.member_id)">
+                                <a class="text-gray-300 hover:text-red-500 cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <Trash2 :size="12" />
+                                </a>
+                            </vort-popconfirm>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Iterations section -->
                 <div class="bg-white rounded-xl p-6">
                     <div class="flex items-center justify-between mb-4">
@@ -596,39 +664,6 @@ onBeforeUnmount(() => {
                     </div>
                 </div>
 
-                <!-- Members -->
-                <div class="bg-white rounded-xl p-6">
-                    <div class="flex items-center justify-between mb-4">
-                        <h3 class="text-base font-medium text-gray-800">
-                            <Users :size="16" class="inline mr-1" /> 项目成员
-                        </h3>
-                        <vort-button size="small" @click="memberDialogVisible = true">
-                            <Plus :size="12" class="mr-1" /> 添加成员
-                        </vort-button>
-                    </div>
-                    <div v-if="members.length === 0" class="text-sm text-gray-400 py-4 text-center">暂无成员</div>
-                    <div v-else class="flex flex-wrap gap-2">
-                        <div v-for="m in members" :key="m.id"
-                            class="flex items-center gap-2 pl-1 pr-2 py-1 rounded-full bg-gray-50 hover:bg-gray-100 transition-colors group">
-                            <div class="w-7 h-7 rounded-full flex items-center justify-center text-xs text-white font-medium flex-shrink-0"
-                                :style="{ backgroundColor: getAvatarBg(getMemberNameById(m.member_id) || m.member_id) }">
-                                <img v-if="getMemberAvatarUrl(getMemberNameById(m.member_id) || m.member_id)"
-                                    :src="getMemberAvatarUrl(getMemberNameById(m.member_id) || m.member_id)"
-                                    class="w-full h-full rounded-full object-cover" />
-                                <template v-else>{{ getAvatarLabel(getMemberNameById(m.member_id) || m.member_id) }}</template>
-                            </div>
-                            <span class="text-sm text-gray-700">{{ getMemberNameById(m.member_id) || m.member_id }}</span>
-                            <vort-tag size="small" :color="roleColorMap[m.role] || 'default'">
-                                {{ roleLabels[m.role] || m.role }}
-                            </vort-tag>
-                            <vort-popconfirm title="确认移除该成员？" @confirm="handleRemoveMember(m.member_id)">
-                                <a class="text-gray-300 hover:text-red-500 cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <Trash2 :size="12" />
-                                </a>
-                            </vort-popconfirm>
-                        </div>
-                    </div>
-                </div>
             </template>
 
             <!-- Work items tab -->
@@ -772,20 +807,18 @@ onBeforeUnmount(() => {
                     <input v-model="memberSearchKeyword" type="text" placeholder="搜索成员..."
                         class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400 transition-colors" />
                     <div class="mt-2 max-h-[240px] overflow-y-auto border border-gray-100 rounded-lg">
-                        <template v-if="filteredAddGroups.length">
-                            <div v-for="group in filteredAddGroups" :key="group.label">
-                                <div class="px-3 py-1.5 text-xs text-gray-400 bg-gray-50 sticky top-0">{{ group.label }}（{{ group.members.length }}）</div>
-                                <div v-for="name in group.members" :key="name"
-                                    class="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-gray-50 transition-colors"
-                                    @click="toggleMemberSelection(name)">
-                                    <vort-checkbox :checked="selectedMemberNames.includes(name)" @click.stop @update:checked="toggleMemberSelection(name)" />
-                                    <span class="w-6 h-6 rounded-full flex items-center justify-center text-xs text-white flex-shrink-0"
-                                        :style="{ backgroundColor: getAvatarBg(name) }">
-                                        <img v-if="getMemberAvatarUrl(name)" :src="getMemberAvatarUrl(name)" class="w-full h-full rounded-full object-cover" />
-                                        <template v-else>{{ getAvatarLabel(name) }}</template>
-                                    </span>
-                                    <span class="text-sm text-gray-700">{{ name }}</span>
-                                </div>
+                        <template v-if="filteredAddMembers.length">
+                            <div class="px-3 py-1.5 text-xs text-gray-400 bg-gray-50 sticky top-0 z-10">企业成员（{{ filteredAddMembers.length }}）</div>
+                            <div v-for="m in filteredAddMembers" :key="m.id"
+                                class="flex items-center gap-2 px-3 py-1 cursor-pointer hover:bg-gray-50 transition-colors"
+                                @click="toggleMemberSelection(m.name)">
+                                <vort-checkbox :checked="selectedMemberNames.includes(m.name)" @click.stop @update:checked="toggleMemberSelection(m.name)" />
+                                <span class="w-6 h-6 rounded-full flex items-center justify-center text-xs text-white flex-shrink-0"
+                                    :style="{ backgroundColor: getAvatarBg(m.name) }">
+                                    <img v-if="m.avatarUrl" :src="m.avatarUrl" class="w-full h-full rounded-full object-cover" />
+                                    <template v-else>{{ getAvatarLabel(m.name) }}</template>
+                                </span>
+                                <span class="text-sm text-gray-700">{{ m.name }}</span>
                             </div>
                         </template>
                         <div v-else class="text-sm text-gray-400 text-center py-6">无可添加的成员</div>

@@ -44,6 +44,10 @@ export function addVortflowProjectMember(projectId: string, data: { member_id: s
     return request.post(`/vortflow/projects/${projectId}/members`, data);
 }
 
+export function updateVortflowProjectMemberRole(projectId: string, memberId: string, role: string) {
+    return request.put(`/vortflow/projects/${projectId}/members/${memberId}`, { member_id: memberId, role });
+}
+
 export function removeVortflowProjectMember(projectId: string, memberId: string) {
     return request.delete(`/vortflow/projects/${projectId}/members/${memberId}`);
 }

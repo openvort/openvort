@@ -229,6 +229,25 @@ async def add_project_member(project_id: str, body: ProjectMemberBody):
         await session.commit()
     return {"ok": True}
 
+@sub_router.put("/projects/{project_id}/members/{member_id}")
+async def update_project_member_role(project_id: str, member_id: str, body: ProjectMemberBody):
+    sf = get_session_factory()
+    async with sf() as session:
+        row = (await session.execute(
+            select(FlowProjectMember).where(
+                FlowProjectMember.project_id == project_id,
+                FlowProjectMember.member_id == member_id,
+            )
+        )).scalar_one_or_none()
+        if not row:
+            return {"error": "成员不存在"}, 404
+        old_role = row.role
+        row.role = body.role
+        await _log_event(session, "project", project_id, "member_role_changed",
+                         {"member_id": member_id, "old_role": old_role, "new_role": body.role})
+        await session.commit()
+    return {"ok": True}
+
 @sub_router.delete("/projects/{project_id}/members/{member_id}")
 async def remove_project_member(project_id: str, member_id: str):
     sf = get_session_factory()

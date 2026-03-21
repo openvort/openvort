@@ -10,7 +10,6 @@ import {
     statusIconMap,
     priorityClassMap,
     statusClassMap,
-    ownerGroups,
     tagOptions
 } from "./types";
 
@@ -159,10 +158,10 @@ const onReset = () => {
                             <div v-for="group in props.state.filteredOwnerGroups.value" :key="group.label">
                                 <button class="w-full h-10 px-3 bg-slate-100 flex items-center justify-between text-left" @click.stop="props.state.toggleOwnerGroup(group.label)">
                                     <span class="text-gray-700 text-sm">{{ group.label }}（{{ group.members.length }}）</span>
-                                    <span class="status-arrow-simple" :class="{ open: props.state.ownerGroupOpen[group.label] }" />
+                                    <span class="status-arrow-simple" :class="{ open: props.state.isGroupOpen(props.state.ownerGroupOpen, group.label) }" />
                                 </button>
                                 <button
-                                    v-for="member in (props.state.ownerGroupOpen[group.label] ? group.members : [])"
+                                    v-for="member in (props.state.isGroupOpen(props.state.ownerGroupOpen, group.label) ? group.members : [])"
                                     :key="group.label + member"
                                     class="w-full h-10 px-3 flex items-center gap-2 text-left hover:bg-gray-50"
                                     @click.stop="props.state.selectOwner(member)"
@@ -411,10 +410,10 @@ const onReset = () => {
                                 <div v-for="group in props.state.filteredOwnerEditGroups.value" :key="group.label + '-edit'">
                                     <button class="w-full h-10 px-3 bg-slate-100 flex items-center justify-between text-left" @click.stop="props.state.toggleOwnerEditGroup(group.label)">
                                         <span class="text-gray-700 text-sm">{{ group.label }}（{{ group.members.length }}）</span>
-                                        <span class="status-arrow-simple" :class="{ open: props.state.ownerEditGroupOpen[group.label] }" />
+                                        <span class="status-arrow-simple" :class="{ open: props.state.isGroupOpen(props.state.ownerEditGroupOpen, group.label) }" />
                                     </button>
                                     <button
-                                        v-for="member in (props.state.ownerEditGroupOpen[group.label] ? group.members : [])"
+                                        v-for="member in (props.state.isGroupOpen(props.state.ownerEditGroupOpen, group.label) ? group.members : [])"
                                         :key="group.label + member + '-edit'"
                                         class="w-full h-10 px-3 flex items-center gap-2 text-left hover:bg-gray-50"
                                         @click.stop="props.state.selectRowOwner(record, member)"
@@ -464,10 +463,10 @@ const onReset = () => {
                                 <div v-for="group in props.state.filteredCollaboratorGroups.value" :key="group.label + '-collab'">
                                     <button class="w-full h-10 px-3 bg-slate-100 flex items-center justify-between text-left" @click.stop="props.state.toggleCollaboratorGroup(group.label)">
                                         <span class="text-gray-700 text-sm">{{ group.label }}（{{ group.members.length }}）</span>
-                                        <span class="status-arrow-simple" :class="{ open: props.state.collaboratorGroupOpen[group.label] }" />
+                                        <span class="status-arrow-simple" :class="{ open: props.state.isGroupOpen(props.state.collaboratorGroupOpen, group.label) }" />
                                     </button>
                                     <button
-                                        v-for="member in (props.state.collaboratorGroupOpen[group.label] ? group.members : [])"
+                                        v-for="member in (props.state.isGroupOpen(props.state.collaboratorGroupOpen, group.label) ? group.members : [])"
                                         :key="group.label + member + '-collab'"
                                         class="w-full h-10 px-3 flex items-center gap-2 text-left hover:bg-gray-50"
                                         @click.stop="props.state.toggleRowCollaborator(record, member, text as string[])"

@@ -155,11 +155,6 @@ export const statusClassMap: Record<Status, string> = {
     暂时搁置: "bg-gray-100 text-gray-500 border-gray-200"
 };
 
-export const ownerGroups: MemberGroup[] = [
-    { label: "项目成员", members: ["代志祥", "陈艳", "陈曦", "祝璞", "刘洋", "甘洋", "邱锐", "熊纲强"] },
-    { label: "企业成员", members: ["apollo_Xuuu", "曾春红", "superdargon", "邱锐", "熊纲强"] },
-    { label: "离职人员", members: ["金杜森", "熊军", "杨旭"] }
-];
 
 export const tagOptions = ["客户需求", "演示站", "运营需求", "待开会确认", "已发布", "高优先", "稳定性", "UI优化"];
 

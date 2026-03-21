@@ -8,18 +8,7 @@ import type {
     StatusOption
 } from "@/components/vort-biz/work-item/WorkItemTable.types";
 
-const DEFAULT_OWNER_GROUPS = [
-    { label: "项目成员", members: ["代志祥", "陈艳", "陈曦", "祝璞", "刘洋", "甘洋", "邱锐", "熊纲强"] },
-    { label: "企业成员", members: ["apollo_Xuuu", "曾春红", "superdargon", "邱锐", "熊纲强"] },
-    { label: "离职人员", members: ["金杜森", "熊军", "杨旭"] }
-] as const;
-
-const cloneDefaultOwnerGroups = (): Array<{ label: string; members: string[] }> => (
-    DEFAULT_OWNER_GROUPS.map((group) => ({
-        label: group.label,
-        members: [...group.members]
-    }))
-);
+export type OwnerGroup = { label: string; members: string[] };
 
 interface ApiMemberRecord {
     id?: string;
@@ -43,9 +32,7 @@ const dedupeNames = (members: string[]): string[] => {
     return result;
 };
 
-const buildOwnerGroupsFromMembers = (members: ApiMemberRecord[]) => {
-    const defaultGroups = cloneDefaultOwnerGroups();
-    const defaultGroupMap = new Map(defaultGroups.map((group) => [group.label, new Set(group.members)]));
+const buildOwnerGroupsFromMembers = (members: ApiMemberRecord[]): OwnerGroup[] => {
     const activeNames: string[] = [];
     const inactiveNames: string[] = [];
 
@@ -60,35 +47,23 @@ const buildOwnerGroupsFromMembers = (members: ApiMemberRecord[]) => {
         }
     }
 
-    const projectSeedSet = defaultGroupMap.get("项目成员") || new Set<string>();
-    const enterpriseSeedSet = defaultGroupMap.get("企业成员") || new Set<string>();
-    const leaverSeedSet = defaultGroupMap.get("离职人员") || new Set<string>();
-
-    const projectMembers = dedupeNames(activeNames.filter((name) => projectSeedSet.has(name)));
-    const enterpriseMembers = dedupeNames([
-        ...activeNames.filter((name) => enterpriseSeedSet.has(name) && !projectSeedSet.has(name)),
-        ...activeNames.filter((name) => !projectSeedSet.has(name) && !enterpriseSeedSet.has(name))
-    ]);
-    const leaverMembers = dedupeNames([
-        ...inactiveNames,
-        ...activeNames.filter((name) => leaverSeedSet.has(name))
-    ]);
-
-    return [
-        { label: "项目成员", members: projectMembers },
-        { label: "企业成员", members: enterpriseMembers },
-        { label: "离职人员", members: leaverMembers }
-    ];
+    const groups: OwnerGroup[] = [];
+    if (activeNames.length > 0) {
+        groups.push({ label: "企业成员", members: dedupeNames(activeNames) });
+    }
+    if (inactiveNames.length > 0) {
+        groups.push({ label: "离职人员", members: dedupeNames(inactiveNames) });
+    }
+    return groups;
 };
 
 const sharedMemberOptions = ref<MemberOption[]>([]);
-const sharedOwnerGroups = ref<Array<{ label: string; members: string[] }>>(cloneDefaultOwnerGroups());
+const sharedOwnerGroups = ref<OwnerGroup[]>([]);
 let memberOptionsLoadTask: Promise<void> | null = null;
 
 export function useWorkItemCommon() {
     const memberOptions = sharedMemberOptions;
     const ownerGroups = sharedOwnerGroups;
-    const defaultOwnerGroups = cloneDefaultOwnerGroups();
 
     const bugStatusFilterOptions: StatusOption[] = [
         { label: "待确认", value: "待确认", icon: "○", iconClass: "text-gray-400" },
@@ -207,7 +182,7 @@ export function useWorkItemCommon() {
                 memberOptionsLoadTask = null;
             }
 
-            ownerGroups.value = cloneDefaultOwnerGroups();
+            ownerGroups.value = [];
         })();
 
         return memberOptionsLoadTask;
@@ -307,7 +282,6 @@ export function useWorkItemCommon() {
     return {
         memberOptions,
         ownerGroups,
-        defaultOwnerGroups,
         bugStatusFilterOptions,
         demandStatusFilterOptions,
         taskStatusFilterOptions,
