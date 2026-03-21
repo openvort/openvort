@@ -468,7 +468,7 @@ onBeforeUnmount(() => {
 
                 <!-- Stats with SVG ring -->
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div class="bg-white rounded-xl p-5 flex items-center gap-4">
+                    <div class="bg-white rounded-xl p-5 flex items-center gap-4 cursor-pointer hover:shadow-md transition-shadow" @click="router.push({ path: '/vortflow/stories', query: { project_id: projectId } })">
                         <div class="relative w-12 h-12 flex-shrink-0">
                             <svg viewBox="0 0 40 40" class="w-full h-full -rotate-90">
                                 <circle cx="20" cy="20" r="18" fill="none" stroke="#e5e7eb" stroke-width="3" />
@@ -483,12 +483,13 @@ onBeforeUnmount(() => {
                                 <span class="text-[10px] font-semibold text-blue-600">{{ storyProgress }}%</span>
                             </div>
                         </div>
-                        <div>
+                        <div class="flex-1 min-w-0">
                             <div class="text-xl font-bold text-gray-800">{{ stats.stories.total }}</div>
                             <div class="text-xs text-gray-400">需求 · 已完成 {{ stats.stories.done }}</div>
                         </div>
+                        <ArrowRight :size="14" class="text-gray-300 flex-shrink-0" />
                     </div>
-                    <div class="bg-white rounded-xl p-5 flex items-center gap-4">
+                    <div class="bg-white rounded-xl p-5 flex items-center gap-4 cursor-pointer hover:shadow-md transition-shadow" @click="router.push({ path: '/vortflow/tasks', query: { project_id: projectId } })">
                         <div class="relative w-12 h-12 flex-shrink-0">
                             <svg viewBox="0 0 40 40" class="w-full h-full -rotate-90">
                                 <circle cx="20" cy="20" r="18" fill="none" stroke="#e5e7eb" stroke-width="3" />
@@ -503,12 +504,13 @@ onBeforeUnmount(() => {
                                 <span class="text-[10px] font-semibold text-green-600">{{ taskProgress }}%</span>
                             </div>
                         </div>
-                        <div>
+                        <div class="flex-1 min-w-0">
                             <div class="text-xl font-bold text-gray-800">{{ stats.tasks.total }}</div>
                             <div class="text-xs text-gray-400">任务 · 已完成 {{ stats.tasks.done }}</div>
                         </div>
+                        <ArrowRight :size="14" class="text-gray-300 flex-shrink-0" />
                     </div>
-                    <div class="bg-white rounded-xl p-5 flex items-center gap-4">
+                    <div class="bg-white rounded-xl p-5 flex items-center gap-4 cursor-pointer hover:shadow-md transition-shadow" @click="router.push({ path: '/vortflow/bugs', query: { project_id: projectId } })">
                         <div class="relative w-12 h-12 flex-shrink-0">
                             <svg viewBox="0 0 40 40" class="w-full h-full -rotate-90">
                                 <circle cx="20" cy="20" r="18" fill="none" stroke="#e5e7eb" stroke-width="3" />
@@ -523,10 +525,11 @@ onBeforeUnmount(() => {
                                 <span class="text-[10px] font-semibold text-red-600">{{ bugCloseRate }}%</span>
                             </div>
                         </div>
-                        <div>
+                        <div class="flex-1 min-w-0">
                             <div class="text-xl font-bold text-gray-800">{{ stats.bugs.total }}</div>
                             <div class="text-xs text-gray-400">缺陷 · 已关闭 {{ stats.bugs.closed }}</div>
                         </div>
+                        <ArrowRight :size="14" class="text-gray-300 flex-shrink-0" />
                     </div>
                 </div>
 

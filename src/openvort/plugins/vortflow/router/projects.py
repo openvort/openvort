@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from sqlalchemy import func, select, delete as sa_delete, update as sa_update
+from sqlalchemy import func, select, delete as sa_delete, update as sa_update, or_
 
 from openvort.db.engine import get_session_factory
 from openvort.plugins.vortflow.router.helpers import (
@@ -33,31 +33,25 @@ async def list_projects():
         result = await session.execute(select(FlowProject).order_by(FlowProject.created_at.desc()))
         rows = result.scalars().all()
 
-        project_story_ids: dict[str, list[str]] = {}
         items = []
         for r in rows:
+            story_ids_sub = select(FlowStory.id).where(FlowStory.project_id == r.id)
+
             story_count = (await session.execute(
                 select(func.count()).select_from(FlowStory).where(FlowStory.project_id == r.id)
             )).scalar_one()
 
-            story_ids_result = (await session.execute(
-                select(FlowStory.id).where(FlowStory.project_id == r.id)
-            )).scalars().all()
-            project_story_ids[r.id] = list(story_ids_result)
+            task_count = (await session.execute(
+                select(func.count()).select_from(FlowTask).where(
+                    or_(FlowTask.project_id == r.id, FlowTask.story_id.in_(story_ids_sub))
+                )
+            )).scalar_one()
 
-            task_count = 0
-            bug_count = 0
-            if project_story_ids[r.id]:
-                task_count = (await session.execute(
-                    select(func.count()).select_from(FlowTask).where(
-                        FlowTask.story_id.in_(project_story_ids[r.id])
-                    )
-                )).scalar_one()
-                bug_count = (await session.execute(
-                    select(func.count()).select_from(FlowBug).where(
-                        FlowBug.story_id.in_(project_story_ids[r.id])
-                    )
-                )).scalar_one()
+            bug_count = (await session.execute(
+                select(func.count()).select_from(FlowBug).where(
+                    or_(FlowBug.project_id == r.id, FlowBug.story_id.in_(story_ids_sub))
+                )
+            )).scalar_one()
 
             items.append({
                 **_project_dict(r),

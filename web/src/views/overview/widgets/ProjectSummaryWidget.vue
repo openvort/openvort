@@ -21,7 +21,7 @@ onMounted(async () => {
             getVortflowProjects(),
         ]);
         if (statsRes) Object.assign(stats.value, statsRes);
-        if (projectsRes) projectCount.value = (projectsRes as any)?.projects?.length || 0;
+        if (projectsRes) projectCount.value = (projectsRes as any)?.items?.length || 0;
     } catch { /* ignore */ }
     finally { loading.value = false; }
 });

@@ -8,6 +8,9 @@ from openvort.plugins.vortflow.models import (
     FlowIteration, FlowIterationStory, FlowIterationTask, FlowIterationBug,
     FlowStory, FlowTask, FlowBug,
 )
+from openvort.plugins.vortflow.engine import (
+    STORY_DONE_STATES, TASK_DONE_STATES, BUG_CLOSED_STATES,
+)
 from .helpers import _iteration_dict, _log_event, _parse_dt, _story_dict, _task_dict, _bug_dict
 from .schemas import (
     IterationCreate, IterationUpdate, IterationStoryBody, IterationTaskBody, IterationBugBody,
@@ -63,7 +66,7 @@ async def list_iterations(
             for iter_id, cnt in (await session.execute(
                 select(FlowIterationStory.iteration_id, func.count())
                 .join(FlowStory, FlowIterationStory.story_id == FlowStory.id)
-                .where(FlowIterationStory.iteration_id.in_(iter_ids), FlowStory.state == "done")
+                .where(FlowIterationStory.iteration_id.in_(iter_ids), FlowStory.state.in_(STORY_DONE_STATES))
                 .group_by(FlowIterationStory.iteration_id)
             )):
                 story_stats.setdefault(iter_id, {"total": 0, "done": 0})["done"] = cnt
@@ -76,7 +79,7 @@ async def list_iterations(
             for iter_id, cnt in (await session.execute(
                 select(FlowIterationTask.iteration_id, func.count())
                 .join(FlowTask, FlowIterationTask.task_id == FlowTask.id)
-                .where(FlowIterationTask.iteration_id.in_(iter_ids), FlowTask.state == "done")
+                .where(FlowIterationTask.iteration_id.in_(iter_ids), FlowTask.state.in_(TASK_DONE_STATES))
                 .group_by(FlowIterationTask.iteration_id)
             )):
                 task_stats.setdefault(iter_id, {"total": 0, "done": 0})["done"] = cnt
@@ -89,7 +92,7 @@ async def list_iterations(
             for iter_id, cnt in (await session.execute(
                 select(FlowIterationBug.iteration_id, func.count())
                 .join(FlowBug, FlowIterationBug.bug_id == FlowBug.id)
-                .where(FlowIterationBug.iteration_id.in_(iter_ids), FlowBug.state == "closed")
+                .where(FlowIterationBug.iteration_id.in_(iter_ids), FlowBug.state.in_(BUG_CLOSED_STATES))
                 .group_by(FlowIterationBug.iteration_id)
             )):
                 bug_stats.setdefault(iter_id, {"total": 0, "done": 0})["done"] = cnt

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 const vortTheme = {
     token: {
-        colorPrimary: "#0f3eb9"
+        colorPrimary: "#0f3eb9",
+        borderRadius: 4
     }
 };
 </script>

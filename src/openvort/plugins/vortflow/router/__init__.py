@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter
 
+from .dashboard import sub_router as dashboard_router
 from .projects import sub_router as projects_router
 from .stories import sub_router as stories_router
 from .tasks import sub_router as tasks_router
@@ -18,6 +19,7 @@ from .test_plans import sub_router as test_plans_router
 
 router = APIRouter(prefix="/api/vortflow", tags=["vortflow"])
 
+router.include_router(dashboard_router)
 router.include_router(projects_router)
 router.include_router(stories_router)
 router.include_router(tasks_router)

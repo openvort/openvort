@@ -41,6 +41,13 @@ class BugState(str, Enum):
     CLOSED = "closed"
 
 
+# ============ 统计用完成态集合 ============
+
+STORY_DONE_STATES: set[str] = {StoryState.DONE.value}
+TASK_DONE_STATES: set[str] = {TaskState.DONE.value, TaskState.CLOSED.value}
+BUG_CLOSED_STATES: set[str] = {BugState.RESOLVED.value, BugState.VERIFIED.value, BugState.CLOSED.value}
+
+
 # ============ 合法转换表 ============
 
 STORY_TRANSITIONS: dict[StoryState, list[StoryState]] = {
