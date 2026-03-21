@@ -5,10 +5,19 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from openvort.db.engine import get_session_factory
-from openvort.plugins.vortflow.models import FlowComment, FlowEvent
+from openvort.plugins.vortflow.models import (
+    FlowComment,
+    FlowEvent,
+    FlowStory,
+    FlowTask,
+    FlowBug,
+)
+from openvort.plugins.vortflow.notifier import notifier as _notifier, schedule_notification
 from openvort.web.app import require_auth
 
 from .helpers import _log_event, _parse_json_list
+
+_ENTITY_MODEL = {"story": FlowStory, "task": FlowTask, "bug": FlowBug}
 
 sub_router = APIRouter()
 
@@ -45,7 +54,21 @@ async def create_comment(entity_type: str, entity_id: str, body: CommentCreate, 
     payload = require_auth(request)
     member_id = payload.get("sub", "")
     sf = get_session_factory()
+    item_title = ""
+    item_project_id = ""
+    item_assignee_id: str | None = None
+    item_creator_id: str | None = None
+    item_collaborators: list[str] = []
     async with sf() as session:
+        model = _ENTITY_MODEL.get(entity_type)
+        if model:
+            item = await session.get(model, entity_id)
+            if item:
+                item_title = getattr(item, "title", "")
+                item_project_id = getattr(item, "project_id", "") or ""
+                item_assignee_id = getattr(item, "assignee_id", None) or getattr(item, "pm_id", None)
+                item_creator_id = getattr(item, "creator_id", None) or getattr(item, "submitter_id", None) or getattr(item, "reporter_id", None)
+                item_collaborators = _parse_json_list(getattr(item, "collaborators_json", "[]"))
         c = FlowComment(
             entity_type=entity_type,
             entity_id=entity_id,
@@ -58,6 +81,14 @@ async def create_comment(entity_type: str, entity_id: str, body: CommentCreate, 
                          {"author_id": member_id, "preview": body.content[:100]})
         await session.commit()
         await session.refresh(c)
+    schedule_notification(_notifier.notify_comment(
+        entity_type, entity_id, item_title, item_project_id, member_id,
+        content_preview=body.content[:50],
+        mention_ids=body.mentions,
+        assignee_id=item_assignee_id,
+        creator_id=item_creator_id,
+        collaborator_ids=item_collaborators,
+    ))
     return {
         "id": c.id, "entity_type": c.entity_type, "entity_id": c.entity_id,
         "author_id": c.author_id, "content": c.content,

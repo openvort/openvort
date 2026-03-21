@@ -8,9 +8,17 @@ DB 驱动的三级 Skill 体系（builtin / public / personal）。
 - 内置目录 (skills/) - builtin scope
 - 用户目录 (~/.openvort/skills/) - personal scope
 - 企业目录 (/etc/openvort/skills/) - public scope
+
+辅助脚本：
+- Skill 文件夹内可包含任意辅助文件（脚本、配置等）
+- 在 SKILL.md 中使用 {baseDir} 引用 Skill 文件夹路径
+- 支持 requires 声明依赖（bins / env / packages / plugins）
 """
 
+import json as _json_mod
+import os
 import re
+import shutil
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -26,17 +34,6 @@ log = get_logger("skill.loader")
 
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
-# Skill name -> skill_type mapping for builtin skills
-BUILTIN_SKILL_TYPES: dict[str, str] = {
-    "developer": "role",
-    "pm": "role",
-    "qa": "role",
-    "designer": "role",
-    "assistant": "role",
-    "code-review": "workflow",
-    "daily-report": "workflow",
-}
-
 # skill_type -> tag label mapping (for migration from fixed categories to tags)
 SKILL_TYPE_TO_TAG: dict[str, str] = {
     "role": "角色人设",
@@ -48,41 +45,6 @@ SKILL_TYPE_TO_TAG: dict[str, str] = {
     "system": "规范准则",
 }
 
-# Builtin skill name -> default tags
-BUILTIN_SKILL_TAGS: dict[str, list[str]] = {
-    "developer": ["角色人设"],
-    "pm": ["角色人设"],
-    "qa": ["角色人设"],
-    "designer": ["角色人设"],
-    "assistant": ["角色人设"],
-    "code-review": ["工作流程", "规范准则"],
-    "daily-report": ["工作流程", "输出模板"],
-}
-
-# 默认岗位-技能映射配置
-DEFAULT_POST_SKILLS = {
-    "developer": [
-        {"skill_name": "developer", "priority": 1},
-        {"skill_name": "code-review", "priority": 2},
-    ],
-    "pm": [
-        {"skill_name": "pm", "priority": 1},
-        {"skill_name": "daily-report", "priority": 2},
-    ],
-    "qa": [
-        {"skill_name": "qa", "priority": 1},
-    ],
-    "designer": [
-        {"skill_name": "designer", "priority": 1},
-    ],
-    "assistant": [
-        {"skill_name": "assistant", "priority": 1},
-    ],
-}
-
-# 保留旧名称的别名，保持向后兼容
-DEFAULT_ROLE_SKILLS = DEFAULT_POST_SKILLS
-
 
 @dataclass
 class Skill:
@@ -92,15 +54,66 @@ class Skill:
     name: str = ""
     description: str = ""
     content: str = ""
-    scope: str = ""  # builtin / public / personal
+    scope: str = ""  # builtin / public / personal / marketplace
     owner_id: str = ""
     enabled: bool = True
     sort_order: int = 0
     path: Path = field(default_factory=lambda: Path())
+    requires_bins: list[str] = field(default_factory=list)
+    requires_env: list[str] = field(default_factory=list)
+    requires_packages: list[str] = field(default_factory=list)
+    requires_plugins: list[str] = field(default_factory=list)
+
+
+def _resolve_skill_base_dir(name: str, scope: str, marketplace_slug: str = "") -> Path:
+    """Resolve the filesystem base directory for a skill based on its scope."""
+    if scope == "builtin":
+        dir_info = SkillDirectoryManager.get_directory("builtin")
+        return dir_info.path / name if dir_info else Path()
+    elif scope == "personal":
+        dir_info = SkillDirectoryManager.get_directory("user")
+        return dir_info.path / name if dir_info else Path()
+    elif scope == "public":
+        dir_info = SkillDirectoryManager.get_directory("organization")
+        return dir_info.path / name if dir_info else Path()
+    elif scope == "marketplace":
+        slug = marketplace_slug or name
+        return Path.home() / ".openvort" / "marketplace" / "bundles" / "skills" / slug / "files"
+    return Path()
+
+
+def _apply_content_template(content: str, base_dir: Path) -> str:
+    """Replace {baseDir} placeholder in skill content with actual path."""
+    if not content or not base_dir:
+        return content
+    return content.replace("{baseDir}", str(base_dir))
+
+
+def _parse_yaml_list(val: str) -> list[str]:
+    """Parse a YAML inline list like '[a, b, c]' into a Python list."""
+    val = val.strip()
+    if val.startswith("[") and val.endswith("]"):
+        return [s.strip().strip("\"'") for s in val[1:-1].split(",") if s.strip()]
+    return [val] if val else []
+
+
+def _check_skill_requirements(requires: dict[str, list[str]]) -> tuple[bool, list[str]]:
+    """Check if skill requirements are satisfied. Returns (satisfied, missing_items)."""
+    missing: list[str] = []
+
+    for bin_name in requires.get("bins", []):
+        if not shutil.which(bin_name):
+            missing.append(f"bin:{bin_name}")
+
+    for env_name in requires.get("env", []):
+        if not os.environ.get(env_name):
+            missing.append(f"env:{env_name}")
+
+    return len(missing) == 0, missing
 
 
 def _parse_skill_file(skill_path: Path) -> dict | None:
-    """Parse SKILL.md, return dict with name/description/content."""
+    """Parse SKILL.md, return dict with name/description/content/requires."""
     try:
         raw = skill_path.read_text(encoding="utf-8")
     except Exception as e:
@@ -111,26 +124,41 @@ def _parse_skill_file(skill_path: Path) -> dict | None:
     description = ""
     enabled = True
     content = raw
+    requires: dict[str, list[str]] = {}
 
     match = _FRONTMATTER_RE.match(raw)
     if match:
         frontmatter = match.group(1)
         content = raw[match.end():]
-        for line in frontmatter.splitlines():
-            line = line.strip()
-            if line.startswith("name:"):
-                name = line.split(":", 1)[1].strip().strip("\"'")
-            elif line.startswith("description:"):
-                description = line.split(":", 1)[1].strip().strip("\"'")
-            elif line.startswith("enabled:"):
-                val = line.split(":", 1)[1].strip().lower()
+        lines = frontmatter.splitlines()
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            stripped = line.strip()
+            if stripped.startswith("name:"):
+                name = stripped.split(":", 1)[1].strip().strip("\"'")
+            elif stripped.startswith("description:"):
+                description = stripped.split(":", 1)[1].strip().strip("\"'")
+            elif stripped.startswith("enabled:"):
+                val = stripped.split(":", 1)[1].strip().lower()
                 enabled = val not in ("false", "no", "0", "off")
+            elif stripped.startswith("requires:"):
+                i += 1
+                while i < len(lines) and lines[i] and (lines[i][0] in (" ", "\t")):
+                    sub = lines[i].strip()
+                    if ":" in sub:
+                        key, val = sub.split(":", 1)
+                        requires[key.strip()] = _parse_yaml_list(val)
+                    i += 1
+                continue
+            i += 1
 
     return {
         "name": name,
         "description": description,
         "content": content.strip(),
         "enabled": enabled,
+        "requires": requires,
     }
 
 
@@ -162,19 +190,35 @@ class SkillLoader:
             from openvort.db.models import Skill as SkillModel
             result = await db.execute(
                 select(SkillModel).where(
-                    SkillModel.scope.in_(["builtin", "public"]),
+                    SkillModel.scope.in_(["builtin", "public", "marketplace"]),
                     SkillModel.enabled == True,  # noqa: E712
                 )
             )
             rows = result.scalars().all()
 
         enabled_count = 0
+        skipped_count = 0
         for row in rows:
-            if row.content:
-                self.registry.register_prompt(row.content, source=f"skill:{row.name}")
-                enabled_count += 1
+            if not row.content:
+                continue
 
-        log.info(f"已加载 {enabled_count} 个全局 Skill")
+            requires = _json_mod.loads(row.requires_json) if getattr(row, "requires_json", None) else {}
+            if requires:
+                satisfied, missing = _check_skill_requirements(requires)
+                if not satisfied:
+                    log.warning(f"Skill '{row.name}' 缺少依赖: {', '.join(missing)}，跳过")
+                    skipped_count += 1
+                    continue
+
+            base_dir = _resolve_skill_base_dir(row.name, row.scope, getattr(row, "marketplace_slug", ""))
+            content = _apply_content_template(row.content, base_dir)
+            self.registry.register_prompt(content, source=f"skill:{row.name}")
+            enabled_count += 1
+
+        msg = f"已加载 {enabled_count} 个全局 Skill"
+        if skipped_count:
+            msg += f"（{skipped_count} 个因缺少依赖跳过）"
+        log.info(msg)
 
         from openvort.skill.tools import SkillUseTool
         self.registry.register_tool(SkillUseTool())
@@ -273,18 +317,6 @@ class SkillLoader:
                 await db.rollback()
                 if "already exists" not in str(e).lower():
                     log.warning(f"Migration schedule_jobs.target_member_id: {e}")
-
-            # 6. 更新已有 builtin skill 的 skill_type
-            role_names = ", ".join(f"'{n}'" for n in BUILTIN_SKILL_TYPES if BUILTIN_SKILL_TYPES[n] == "role")
-            try:
-                await db.execute(text(
-                    f"UPDATE skills SET skill_type = 'role' WHERE scope = 'builtin' AND name IN ({role_names}) AND skill_type != 'role'"
-                ))
-                await db.commit()
-                log.info("Migration: updated builtin skill types")
-            except Exception as e:
-                await db.rollback()
-                log.warning(f"Migration update skill_type: {e}")
 
             # 7. 创建 virtual_roles 表
             try:
@@ -394,6 +426,18 @@ class SkillLoader:
                 if "already exists" not in str(e).lower():
                     log.warning(f"Migration marketplace_slug index: {e}")
 
+            # 12. skills 表添加 requires_json 字段（依赖声明）
+            try:
+                await db.execute(text(
+                    "ALTER TABLE skills ADD COLUMN IF NOT EXISTS requires_json TEXT DEFAULT ''"
+                ))
+                await db.commit()
+                log.info("Migration: added skills.requires_json")
+            except Exception as e:
+                await db.rollback()
+                if "already exists" not in str(e).lower():
+                    log.warning(f"Migration skills.requires_json: {e}")
+
     def load_all_sync(self) -> None:
         """Legacy sync loader for CLI commands without DB.
         Scans files only, registers to PluginRegistry.
@@ -408,20 +452,50 @@ class SkillLoader:
                 if not skill_file.exists():
                     continue
                 parsed = _parse_skill_file(skill_file)
-                if parsed and parsed["enabled"] and parsed["content"]:
-                    self.registry.register_prompt(parsed["content"], source=f"skill:{parsed['name']}")
-                    count += 1
+                if not parsed or not parsed["enabled"] or not parsed["content"]:
+                    continue
+
+                requires = parsed.get("requires", {})
+                if requires:
+                    satisfied, missing = _check_skill_requirements(requires)
+                    if not satisfied:
+                        log.warning(f"Skill '{parsed['name']}' 缺少依赖: {', '.join(missing)}，跳过")
+                        continue
+
+                content = _apply_content_template(parsed["content"], skill_dir)
+                self.registry.register_prompt(content, source=f"skill:{parsed['name']}")
+                count += 1
         log.info(f"已加载 {count} 个内置 Skill（同步模式）")
 
     async def _sync_builtin_to_db(self) -> None:
-        """Scan builtin SKILL.md files and upsert into DB."""
+        """Scan builtin SKILL.md files and upsert into DB. Remove stale entries."""
         from openvort.db.models import Skill as SkillModel
 
         builtin_dir = SkillDirectoryManager.get_directory("builtin")
-        if not builtin_dir or not builtin_dir.path.exists():
+        has_files = builtin_dir and builtin_dir.path.exists() and any(
+            (d / "SKILL.md").exists() for d in builtin_dir.path.iterdir() if d.is_dir()
+        ) if builtin_dir else False
+
+        if has_files:
+            await self._sync_directory_to_db(builtin_dir.path, "builtin", builtin_dir.key)
             return
 
-        await self._sync_directory_to_db(builtin_dir.path, "builtin", SkillDirectoryManager.get_directory("builtin").key)
+        # No builtin skill files — clean up stale DB entries
+        async with self._session_factory() as db:
+            from openvort.db.models import MemberSkill, PostSkill as PostSkillModel
+            result = await db.execute(
+                select(SkillModel).where(SkillModel.scope == "builtin")
+            )
+            builtin_rows = result.scalars().all()
+            if builtin_rows:
+                builtin_ids = [r.id for r in builtin_rows]
+                from sqlalchemy import delete
+                await db.execute(delete(MemberSkill).where(MemberSkill.skill_id.in_(builtin_ids)))
+                await db.execute(delete(PostSkillModel).where(PostSkillModel.skill_id.in_(builtin_ids)))
+                for row in builtin_rows:
+                    await db.delete(row)
+                await db.commit()
+                log.info(f"已清理 {len(builtin_rows)} 个过时的内置 Skill")
 
     async def _sync_user_to_db(self) -> None:
         """Scan user SKILL.md files and upsert into DB."""
@@ -473,14 +547,17 @@ class SkillLoader:
             existing = {row.name: row for row in result.scalars().all()}
 
             for name, data in file_skills.items():
-                stype = BUILTIN_SKILL_TYPES.get(name, "workflow")
-                default_tags = BUILTIN_SKILL_TAGS.get(name) or [SKILL_TYPE_TO_TAG.get(stype, stype)]
+                stype = "workflow"
+                default_tags = [SKILL_TYPE_TO_TAG.get(stype, stype)]
+                requires = data.get("requires", {})
+                requires_str = _json.dumps(requires, ensure_ascii=False) if requires else ""
 
                 if name in existing:
                     row = existing[name]
                     row.description = data["description"]
                     row.content = data["content"]
-                    row.skill_type = stype
+                    if requires_str:
+                        row.requires_json = requires_str
                     if not row.tags or row.tags in ("", "[]"):
                         row.tags = _json.dumps(default_tags, ensure_ascii=False)
                 else:
@@ -492,6 +569,7 @@ class SkillLoader:
                         scope=scope,
                         skill_type=stype,
                         tags=_json.dumps(default_tags, ensure_ascii=False),
+                        requires_json=requires_str,
                         enabled=data["enabled"],
                     ))
 
@@ -505,39 +583,8 @@ class SkillLoader:
         log.info(f"已同步 {dir_key} 目录 {len(file_skills)} 个 Skills 到 DB (scope={scope})")
 
     async def _sync_role_skills_to_db(self) -> None:
-        """同步岗位-技能映射到数据库"""
-        from openvort.db.models import PostSkill as PostSkillModel, Skill as SkillModel
-
-        async with self._session_factory() as db:
-            # 获取所有已存在的映射（使用 role 字段）
-            result = await db.execute(select(PostSkillModel))
-            existing = {(row.role, row.skill_id): row for row in result.scalars().all()}
-
-            # 遍历默认配置，创建映射
-            for post, skill_configs in DEFAULT_POST_SKILLS.items():
-                for config in skill_configs:
-                    skill_name = config["skill_name"]
-                    priority = config["priority"]
-
-                    # 查找对应的 Skill
-                    result = await db.execute(
-                        select(SkillModel).where(SkillModel.name == skill_name)
-                    )
-                    skill = result.scalar_one_or_none()
-                    if not skill:
-                        continue
-
-                    key = (post, skill.id)
-                    if key not in existing:
-                        db.add(PostSkillModel(
-                            role=post,  # 数据库使用 role 列
-                            post=post,  # 保留 post 字段
-                            skill_id=skill.id,
-                            priority=priority,
-                        ))
-
-            await db.commit()
-        log.info("岗位-技能映射已同步")
+        """No-op: builtin role-skill mappings have been removed."""
+        pass
 
     # 保留旧方法名，保持向后兼容
     async def _sync_posts_to_db(self) -> None:
@@ -785,7 +832,8 @@ class SkillLoader:
                 content = ms.custom_content or skill.content
                 if content and skill.id not in seen_ids:
                     seen_ids.add(skill.id)
-                    contents.append(content)
+                    base_dir = _resolve_skill_base_dir(skill.name, skill.scope, getattr(skill, "marketplace_slug", ""))
+                    contents.append(_apply_content_template(content, base_dir))
 
             # 2. Public skills: default all enabled, minus user opt-outs
             disabled_result = await db.execute(
@@ -809,7 +857,8 @@ class SkillLoader:
             for skill in result.scalars().all():
                 if skill.content and skill.id not in seen_ids:
                     seen_ids.add(skill.id)
-                    contents.append(skill.content)
+                    base_dir = _resolve_skill_base_dir(skill.name, skill.scope, getattr(skill, "marketplace_slug", ""))
+                    contents.append(_apply_content_template(skill.content, base_dir))
 
             # 3. Personal skills (scope=personal, owner_id=member_id)
             result = await db.execute(
@@ -822,7 +871,8 @@ class SkillLoader:
             for r in result.scalars().all():
                 if r.content and r.id not in seen_ids:
                     seen_ids.add(r.id)
-                    contents.append(r.content)
+                    base_dir = _resolve_skill_base_dir(r.name, r.scope, getattr(r, "marketplace_slug", ""))
+                    contents.append(_apply_content_template(r.content, base_dir))
 
         return contents
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from "vue";
+import { ref, onMounted } from "vue";
 import { useRouter } from "vue-router";
-import { Bell, CheckCircle, Clock, Bot, Filter, CheckCheck, Settings } from "lucide-vue-next";
+import { Bell, Clock, Bot, CheckCheck, Settings, BellOff, GitPullRequestArrow } from "lucide-vue-next";
 import { getNotifications, batchReadNotifications } from "@/api";
 import { message } from "@/components/vort";
 
@@ -16,6 +16,7 @@ interface NotificationItem {
     summary: string;
     status: string;
     im_channel: string;
+    data: Record<string, any>;
     created_at: string;
     read_at: string;
 }
@@ -23,10 +24,10 @@ interface NotificationItem {
 const notifications = ref<NotificationItem[]>([]);
 const loading = ref(false);
 const page = ref(1);
+const pageSize = ref(20);
 const total = ref(0);
 const statusFilter = ref("all");
 const sourceFilter = ref("");
-const limit = 20;
 
 const statusOptions = [
     { label: "全部", value: "all" },
@@ -43,6 +44,26 @@ const sourceOptions = [
     { label: "VortFlow", value: "vortflow" },
 ];
 
+const statusTagColor: Record<string, string> = {
+    pending: "orange",
+    sent: "blue",
+    read: "default",
+    cancelled: "default",
+};
+
+const statusLabelMap: Record<string, string> = {
+    pending: "待处理",
+    sent: "已发送",
+    read: "已读",
+    cancelled: "已取消",
+};
+
+const _ENTITY_TYPE_ROUTE: Record<string, string> = {
+    story: "stories",
+    task: "tasks",
+    bug: "bugs",
+};
+
 async function loadNotifications() {
     loading.value = true;
     try {
@@ -50,7 +71,7 @@ async function loadNotifications() {
             status: statusFilter.value,
             source: sourceFilter.value,
             page: page.value,
-            limit,
+            limit: pageSize.value,
         });
         notifications.value = res?.notifications || [];
         total.value = res?.total || 0;
@@ -71,9 +92,29 @@ async function handleBatchRead() {
     }
 }
 
-function goToChat(sessionId: string) {
-    if (sessionId) {
-        router.push({ path: "/chat", query: { session: sessionId } });
+function isUnread(status: string) {
+    return status === "pending" || status === "sent";
+}
+
+async function handleNotificationClick(n: NotificationItem) {
+    if (isUnread(n.status)) {
+        batchReadNotifications([n.id]).catch(() => {});
+        n.status = "read";
+    }
+    if (n.source === "vortflow" && n.data?.entity_type && n.data?.entity_id) {
+        const routeSegment = _ENTITY_TYPE_ROUTE[n.data.entity_type];
+        if (routeSegment) {
+            const query: Record<string, string> = {
+                action: "detail",
+                id: n.data.entity_id,
+            };
+            if (n.data.project_id) query.project = n.data.project_id;
+            router.push({ path: `/vortflow/${routeSegment}`, query });
+            return;
+        }
+    }
+    if (n.session_id) {
+        router.push({ path: "/chat", query: { session: n.session_id } });
     }
 }
 
@@ -89,27 +130,24 @@ function formatTime(iso: string): string {
     if (diff < 60000) return "刚刚";
     if (diff < 3600000) return `${Math.floor(diff / 60000)} 分钟前`;
     if (diff < 86400000) return `${Math.floor(diff / 3600000)} 小时前`;
-    return d.toLocaleDateString();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    const h = String(d.getHours()).padStart(2, "0");
+    const min = String(d.getMinutes()).padStart(2, "0");
+    if (y === now.getFullYear()) return `${m}-${day} ${h}:${min}`;
+    return `${y}-${m}-${day} ${h}:${min}`;
 }
 
-function getStatusColor(status: string): string {
-    switch (status) {
-        case "pending": return "text-orange-500";
-        case "sent": return "text-blue-500";
-        case "read": return "text-gray-400";
-        case "cancelled": return "text-gray-300";
-        default: return "text-gray-400";
-    }
+function handlePageChange() {
+    loadNotifications();
 }
 
-function getStatusLabel(status: string): string {
-    switch (status) {
-        case "pending": return "待处理";
-        case "sent": return "已发送";
-        case "read": return "已读";
-        case "cancelled": return "已取消";
-        default: return status;
-    }
+function applyFilter(type: "status" | "source", value: string) {
+    if (type === "status") statusFilter.value = value;
+    else sourceFilter.value = value;
+    page.value = 1;
+    loadNotifications();
 }
 
 onMounted(() => {
@@ -118,96 +156,93 @@ onMounted(() => {
 </script>
 
 <template>
-    <div class="max-w-4xl mx-auto">
-        <div class="flex items-center justify-between mb-6">
-            <div class="flex items-center gap-2">
-                <Bell :size="20" class="text-gray-600" />
-                <h2 class="text-lg font-semibold text-gray-800">通知中心</h2>
-            </div>
-            <div class="flex items-center gap-2">
-                <button
-                    class="flex items-center gap-1 px-3 py-1.5 text-xs text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
-                    @click="handleBatchRead"
-                >
-                    <CheckCheck :size="14" />
-                    全部已读
-                </button>
-                <button
-                    class="flex items-center gap-1 px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-md transition-colors"
-                    @click="goToSettings"
-                >
-                    <Settings :size="14" />
-                    通知设置
-                </button>
-            </div>
-        </div>
-
-        <!-- Filters -->
-        <div class="flex items-center gap-3 mb-4">
-            <div class="flex items-center gap-1 text-xs">
-                <Filter :size="12" class="text-gray-400" />
-                <span class="text-gray-400">状态:</span>
-                <button
-                    v-for="opt in statusOptions" :key="opt.value"
-                    class="px-2 py-0.5 rounded text-xs transition-colors"
-                    :class="statusFilter === opt.value ? 'bg-blue-100 text-blue-600' : 'text-gray-500 hover:bg-gray-100'"
-                    @click="statusFilter = opt.value; page = 1; loadNotifications()"
-                >{{ opt.label }}</button>
-            </div>
-            <div class="flex items-center gap-1 text-xs">
-                <span class="text-gray-400">来源:</span>
-                <button
-                    v-for="opt in sourceOptions" :key="opt.value"
-                    class="px-2 py-0.5 rounded text-xs transition-colors"
-                    :class="sourceFilter === opt.value ? 'bg-blue-100 text-blue-600' : 'text-gray-500 hover:bg-gray-100'"
-                    @click="sourceFilter = opt.value; page = 1; loadNotifications()"
-                >{{ opt.label }}</button>
-            </div>
-        </div>
-
-        <!-- Notification list -->
-        <div v-if="loading" class="py-12 text-center text-gray-400 text-sm">加载中...</div>
-        <div v-else-if="notifications.length === 0" class="py-12 text-center text-gray-400 text-sm">
-            暂无通知
-        </div>
-        <div v-else class="space-y-1">
-            <div
-                v-for="n in notifications" :key="n.id"
-                class="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors"
-                :class="n.status === 'pending' || n.status === 'sent' ? 'bg-blue-50/30' : ''"
-                @click="goToChat(n.session_id)"
-            >
-                <div class="flex-shrink-0 mt-0.5">
-                    <Clock v-if="n.source === 'schedule'" :size="16" class="text-blue-500" />
-                    <Bot v-else-if="n.source === 'ai_message'" :size="16" class="text-blue-500" />
-                    <Bell v-else :size="16" class="text-gray-400" />
+    <div class="space-y-4 max-w-4xl mx-auto">
+        <!-- Header card -->
+        <div class="bg-white rounded-xl p-6">
+            <div class="flex items-center justify-between mb-5">
+                <h3 class="text-base font-medium text-gray-800">通知中心</h3>
+                <div class="flex items-center gap-2">
+                    <vort-button size="small" @click="handleBatchRead">
+                        <CheckCheck :size="14" class="mr-1" />全部已读
+                    </vort-button>
+                    <vort-button size="small" @click="goToSettings">
+                        <Settings :size="14" class="mr-1" />通知设置
+                    </vort-button>
                 </div>
-                <div class="flex-1 min-w-0">
-                    <div class="flex items-center gap-2">
-                        <span class="text-sm font-medium text-gray-800 truncate">{{ n.title }}</span>
-                        <span class="text-[10px] px-1.5 py-0.5 rounded-full" :class="getStatusColor(n.status)">
-                            {{ getStatusLabel(n.status) }}
-                        </span>
+            </div>
+            <div class="flex flex-wrap items-center gap-x-6 gap-y-2">
+                <div class="flex items-center gap-1.5 text-sm">
+                    <span class="text-gray-400 text-xs">状态</span>
+                    <div class="flex items-center gap-0.5 ml-1">
+                        <button
+                            v-for="opt in statusOptions" :key="opt.value"
+                            class="px-2.5 py-1 rounded-md text-xs font-medium transition-colors"
+                            :class="statusFilter === opt.value ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-100'"
+                            @click="applyFilter('status', opt.value)"
+                        >{{ opt.label }}</button>
                     </div>
-                    <p v-if="n.summary" class="text-xs text-gray-500 mt-0.5 line-clamp-2">{{ n.summary }}</p>
                 </div>
-                <span class="text-[11px] text-gray-400 flex-shrink-0 whitespace-nowrap">{{ formatTime(n.created_at) }}</span>
+                <div class="flex items-center gap-1.5 text-sm">
+                    <span class="text-gray-400 text-xs">来源</span>
+                    <div class="flex items-center gap-0.5 ml-1">
+                        <button
+                            v-for="opt in sourceOptions" :key="opt.value"
+                            class="px-2.5 py-1 rounded-md text-xs font-medium transition-colors"
+                            :class="sourceFilter === opt.value ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-100'"
+                            @click="applyFilter('source', opt.value)"
+                        >{{ opt.label }}</button>
+                    </div>
+                </div>
             </div>
         </div>
 
-        <!-- Pagination -->
-        <div v-if="total > limit" class="flex justify-center gap-2 mt-6">
-            <button
-                class="px-3 py-1 text-xs rounded border"
-                :disabled="page <= 1"
-                @click="page--; loadNotifications()"
-            >上一页</button>
-            <span class="text-xs text-gray-400 leading-7">{{ page }} / {{ Math.ceil(total / limit) }}</span>
-            <button
-                class="px-3 py-1 text-xs rounded border"
-                :disabled="page >= Math.ceil(total / limit)"
-                @click="page++; loadNotifications()"
-            >下一页</button>
+        <!-- List card -->
+        <div class="bg-white rounded-xl p-6">
+            <vort-spin :spinning="loading">
+                <div v-if="!loading && notifications.length === 0" class="py-16 text-center">
+                    <BellOff :size="36" class="mx-auto text-gray-300 mb-3" />
+                    <p class="text-sm text-gray-400">暂无通知</p>
+                </div>
+                <div v-else class="divide-y divide-gray-50">
+                    <div
+                        v-for="n in notifications" :key="n.id"
+                        class="flex items-start gap-3 py-3.5 px-3 -mx-3 rounded-lg cursor-pointer transition-colors"
+                        :class="isUnread(n.status) ? 'hover:bg-blue-50/60' : 'hover:bg-gray-50'"
+                        @click="handleNotificationClick(n)"
+                    >
+                        <div class="flex-shrink-0 mt-1 w-8 h-8 rounded-full flex items-center justify-center"
+                            :class="isUnread(n.status) ? 'bg-blue-50' : 'bg-gray-50'"
+                        >
+                            <Clock v-if="n.source === 'schedule'" :size="16" class="text-blue-500" />
+                            <Bot v-else-if="n.source === 'ai_message'" :size="16" class="text-blue-500" />
+                            <GitPullRequestArrow v-else-if="n.source === 'vortflow'" :size="16" class="text-indigo-500" />
+                            <Bell v-else :size="16" class="text-gray-400" />
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center gap-2">
+                                <span
+                                    v-if="isUnread(n.status)"
+                                    class="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-blue-500"
+                                />
+                                <span class="text-sm text-gray-800 truncate" :class="isUnread(n.status) ? 'font-semibold' : 'font-normal'">{{ n.title }}</span>
+                                <vort-tag size="small" :color="statusTagColor[n.status] || 'default'">{{ statusLabelMap[n.status] || n.status }}</vort-tag>
+                            </div>
+                            <p v-if="n.summary" class="text-xs text-gray-400 mt-1 line-clamp-2 leading-relaxed">{{ n.summary }}</p>
+                        </div>
+                        <span class="text-[11px] text-gray-300 flex-shrink-0 whitespace-nowrap mt-1.5">{{ formatTime(n.created_at) }}</span>
+                    </div>
+                </div>
+            </vort-spin>
+
+            <div v-if="total > pageSize" class="flex justify-end mt-4 pt-4 border-t border-gray-50">
+                <vort-pagination
+                    v-model:current="page"
+                    v-model:page-size="pageSize"
+                    :total="total"
+                    show-total-info
+                    @change="handlePageChange"
+                />
+            </div>
         </div>
     </div>
 </template>

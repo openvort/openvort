@@ -1,4 +1,3 @@
-import asyncio
 import json
 
 from fastapi import APIRouter, Query, Request
@@ -29,7 +28,7 @@ from openvort.plugins.vortflow.engine import (
     TASK_TRANSITIONS,
     TaskState,
 )
-from openvort.plugins.vortflow.notifier import notifier as _notifier
+from openvort.plugins.vortflow.notifier import notifier as _notifier, schedule_notification
 
 sub_router = APIRouter()
 
@@ -182,8 +181,8 @@ async def create_task(body: TaskCreate, request: Request):
         )
         await session.commit()
         await session.refresh(t)
-    asyncio.create_task(_notifier.notify_item_created(
-        "task", t.id, t.title, resolved_story_id or "", member_id,
+    schedule_notification(_notifier.notify_item_created(
+        "task", t.id, t.title, project_id or "", member_id,
         assignee_id=body.assignee_id,
         collaborator_ids=body.collaborators,
     ))
@@ -199,6 +198,8 @@ async def update_task(task_id: str, body: TaskUpdate, request: Request):
         if not t:
             return {"error": "任务不存在"}
         old_assignee_id = t.assignee_id
+        old_collaborators = _parse_json_list(t.collaborators_json)
+        old_deadline = str(t.deadline) if t.deadline else None
         changes = {}
         if body.project_id is not None:
             t.project_id = body.project_id or None
@@ -233,9 +234,27 @@ async def update_task(task_id: str, body: TaskUpdate, request: Request):
             await _log_event(session, "task", task_id, "updated", changes)
         await session.commit()
         await session.refresh(t)
+        project_id = t.project_id or ""
+        collaborators = _parse_json_list(t.collaborators_json)
     if body.assignee_id and body.assignee_id != old_assignee_id:
-        asyncio.create_task(_notifier.notify_assignment(
+        schedule_notification(_notifier.notify_assignment(
             "task", task_id, t.title, actor_id, body.assignee_id,
+            project_id=project_id,
+        ))
+    if body.collaborators is not None:
+        new_ids = [c for c in body.collaborators if c not in old_collaborators]
+        if new_ids:
+            schedule_notification(_notifier.notify_collaborator_added(
+                "task", task_id, t.title, project_id, actor_id, new_ids,
+            ))
+    field_changes: dict[str, tuple] = {}
+    if "deadline" in changes and str(body.deadline) != old_deadline:
+        field_changes["deadline"] = (old_deadline, body.deadline)
+    if field_changes:
+        schedule_notification(_notifier.notify_field_changes(
+            "task", task_id, t.title, project_id, actor_id, field_changes,
+            assignee_id=t.assignee_id, creator_id=t.creator_id,
+            collaborator_ids=collaborators,
         ))
     return _task_dict(t)
 
@@ -286,12 +305,13 @@ async def transition_task(task_id: str, body: TransitionBody, request: Request):
                          {"from": old_state, "to": target.value})
         await session.commit()
         await session.refresh(t)
-    asyncio.create_task(_notifier.notify_state_change(
+    schedule_notification(_notifier.notify_state_change(
         "task", task_id, t.title, actor_id,
         old_state, target.value,
         assignee_id=t.assignee_id,
         collaborator_ids=collaborators,
         creator_id=t.creator_id,
+        project_id=t.project_id or "",
     ))
     return _task_dict(t)
 

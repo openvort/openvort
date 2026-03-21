@@ -1,0 +1,24 @@
+# Production deployment with bind mounts.
+# Usage:
+#   Initial:  docker build -f Dockerfile.base -t openvort-base:latest . && docker compose -f docker-compose.prod.yml up -d
+#   Deploy:   ./deploy.sh
+#   Rebuild:  ./deploy.sh --rebuild
+
+services:
+  openvort:
+    image: openvort-base:latest
+    container_name: openvort
+    ports:
+      - "10899:8090"
+    env_file: .env
+    environment:
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./src:/app/src:ro
+      - ./web/dist:/app/web/dist:ro
+      - ./alembic:/app/alembic:ro
+      - openvort_data:/root/.openvort
+    restart: unless-stopped
+
+volumes:
+  openvort_data:

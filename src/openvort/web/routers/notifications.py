@@ -1,5 +1,7 @@
 """Notification center API — list, filter, batch-read notifications."""
 
+import json
+
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
@@ -9,6 +11,13 @@ from openvort.utils.logging import get_logger
 log = get_logger("web.notifications")
 
 router = APIRouter()
+
+
+def _safe_json(raw: str) -> dict:
+    try:
+        return json.loads(raw) if raw else {}
+    except (json.JSONDecodeError, TypeError):
+        return {}
 
 
 @router.get("")
@@ -57,12 +66,40 @@ async def list_notifications(
                 "summary": n.summary,
                 "status": n.status,
                 "im_channel": n.im_channel,
+                "data": _safe_json(getattr(n, "data_json", "{}")),
                 "created_at": n.created_at.isoformat() if n.created_at else "",
                 "read_at": n.read_at.isoformat() if n.read_at else "",
             }
             for n in rows
         ],
     }
+
+
+@router.get("/unread-count")
+async def unread_count(request: Request, source: str = ""):
+    """Get unread notification count for the current user."""
+    payload = require_auth(request)
+    member_id = payload.get("sub", "")
+
+    from sqlalchemy import select, func
+    from openvort.db.models import Notification
+    from openvort.web.deps import get_db_session_factory
+
+    sf = get_db_session_factory()
+    async with sf() as db:
+        stmt = (
+            select(func.count())
+            .select_from(Notification)
+            .where(
+                Notification.recipient_id == member_id,
+                Notification.status.in_(["pending", "sent"]),
+            )
+        )
+        if source:
+            stmt = stmt.where(Notification.source == source)
+        total = (await db.execute(stmt)).scalar() or 0
+
+    return {"count": total}
 
 
 class BatchReadRequest(BaseModel):

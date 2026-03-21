@@ -79,7 +79,7 @@ class ConnectionManager:
 
     async def send_to(self, member_id: str, data: dict) -> None:
         """发送消息给指定用户的所有连接"""
-        clients = self._clients.get(member_id, [])
+        clients = list(self._clients.get(member_id, []))
         dead: list[ConnectedClient] = []
         for client in clients:
             try:
@@ -92,10 +92,10 @@ class ConnectionManager:
     async def broadcast(self, data: dict, exclude: str = "") -> None:
         """广播消息给所有连接的客户端"""
         dead: list[ConnectedClient] = []
-        for mid, clients in self._clients.items():
+        for mid, clients in list(self._clients.items()):
             if mid == exclude:
                 continue
-            for client in clients:
+            for client in list(clients):
                 try:
                     await client.ws.send_json(data)
                 except Exception:
@@ -107,7 +107,7 @@ class ConnectionManager:
         """广播在线状态"""
         online = [
             {"member_id": mid, "name": clients[0].name}
-            for mid, clients in self._clients.items()
+            for mid, clients in list(self._clients.items())
             if clients
         ]
         await self.broadcast({"type": "presence", "online": online})
@@ -123,7 +123,7 @@ class ConnectionManager:
         """获取在线成员列表"""
         return [
             {"member_id": mid, "name": clients[0].name, "connected_at": clients[0].connected_at}
-            for mid, clients in self._clients.items()
+            for mid, clients in list(self._clients.items())
             if clients
         ]
 

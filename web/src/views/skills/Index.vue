@@ -113,11 +113,12 @@ async function openDrawer(skill: SkillItem) {
     } finally { drawerLoading.value = false; }
 }
 
-function addTagToDrawer() {
-    if (!drawerSkill.value || !tagInput.value.trim()) return;
-    const tag = tagInput.value.trim();
-    if (!drawerSkill.value.tags.includes(tag)) {
-        drawerSkill.value.tags.push(tag);
+function addTagToDrawer(tag?: string) {
+    if (!drawerSkill.value) return;
+    const t = (tag || tagInput.value).trim();
+    if (!t) return;
+    if (!drawerSkill.value.tags.includes(t)) {
+        drawerSkill.value.tags.push(t);
     }
     tagInput.value = "";
 }
@@ -125,6 +126,15 @@ function addTagToDrawer() {
 function removeTagFromDrawer(tag: string) {
     if (!drawerSkill.value) return;
     drawerSkill.value.tags = drawerSkill.value.tags.filter(t => t !== tag);
+}
+
+function toggleDrawerTag(tag: string) {
+    if (!drawerSkill.value) return;
+    if (drawerSkill.value.tags.includes(tag)) {
+        removeTagFromDrawer(tag);
+    } else {
+        addTagToDrawer(tag);
+    }
 }
 
 async function handleSaveDrawer() {
@@ -173,16 +183,25 @@ function openCreateDialog() {
     createDialogOpen.value = true;
 }
 
-function addCreateTag() {
-    const tag = createTagInput.value.trim();
-    if (tag && !createForm.value.tags.includes(tag)) {
-        createForm.value.tags.push(tag);
+function addCreateTag(tag?: string) {
+    const t = (tag || createTagInput.value).trim();
+    if (!t) return;
+    if (!createForm.value.tags.includes(t)) {
+        createForm.value.tags.push(t);
     }
     createTagInput.value = "";
 }
 
 function removeCreateTag(tag: string) {
     createForm.value.tags = createForm.value.tags.filter(t => t !== tag);
+}
+
+function toggleCreateTag(tag: string) {
+    if (createForm.value.tags.includes(tag)) {
+        removeCreateTag(tag);
+    } else {
+        addCreateTag(tag);
+    }
 }
 
 async function handleCreate() {
@@ -345,7 +364,18 @@ onMounted(() => { loadSkills(); loadTags(); });
                         <VortFormItem label="标签">
                             <div class="space-y-2">
                                 <div class="flex flex-wrap gap-1.5">
-                                    <span v-for="tag in drawerSkill.tags" :key="tag"
+                                    <button
+                                        v-for="tag in allTags" :key="tag"
+                                        class="px-2 py-0.5 rounded-md text-xs font-medium transition-colors"
+                                        :class="drawerSkill.tags.includes(tag)
+                                            ? 'bg-blue-100 text-blue-700 ring-1 ring-blue-200'
+                                            : 'bg-gray-50 text-gray-500 hover:bg-gray-100'"
+                                        :disabled="drawerSkill.scope === 'builtin'"
+                                        @click="toggleDrawerTag(tag)"
+                                    >{{ tag }}</button>
+                                </div>
+                                <div class="flex flex-wrap gap-1.5" v-if="drawerSkill.tags.some(t => !allTags.includes(t))">
+                                    <span v-for="tag in drawerSkill.tags.filter(t => !allTags.includes(t))" :key="tag"
                                         class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 text-xs">
                                         {{ tag }}
                                         <button v-if="drawerSkill.scope !== 'builtin'"
@@ -354,17 +384,13 @@ onMounted(() => { loadSkills(); loadTags(); });
                                             <X :size="10" />
                                         </button>
                                     </span>
-                                    <span v-if="!drawerSkill.tags.length" class="text-xs text-gray-400">暂无标签</span>
                                 </div>
-                                <div v-if="drawerSkill.scope !== 'builtin'" class="flex gap-2">
-                                    <VortInput
-                                        v-model="tagInput"
-                                        class="flex-1"
-                                        placeholder="输入标签名，回车添加"
-                                        @press-enter="addTagToDrawer"
-                                    />
-                                    <VortButton size="small" @click="addTagToDrawer">添加</VortButton>
-                                </div>
+                                <VortInput
+                                    v-if="drawerSkill.scope !== 'builtin'"
+                                    v-model="tagInput"
+                                    placeholder="输入自定义标签，回车添加"
+                                    @press-enter="() => addTagToDrawer()"
+                                />
                             </div>
                         </VortFormItem>
                         <VortFormItem label="描述">
@@ -403,8 +429,18 @@ onMounted(() => { loadSkills(); loadTags(); });
                 </VortFormItem>
                 <VortFormItem label="标签">
                     <div class="space-y-2">
-                        <div class="flex flex-wrap gap-1.5" v-if="createForm.tags.length">
-                            <span v-for="tag in createForm.tags" :key="tag"
+                        <div class="flex flex-wrap gap-1.5">
+                            <button
+                                v-for="tag in allTags" :key="tag"
+                                class="px-2 py-0.5 rounded-md text-xs font-medium transition-colors"
+                                :class="createForm.tags.includes(tag)
+                                    ? 'bg-blue-100 text-blue-700 ring-1 ring-blue-200'
+                                    : 'bg-gray-50 text-gray-500 hover:bg-gray-100'"
+                                @click="toggleCreateTag(tag)"
+                            >{{ tag }}</button>
+                        </div>
+                        <div class="flex flex-wrap gap-1.5" v-if="createForm.tags.some(t => !allTags.includes(t))">
+                            <span v-for="tag in createForm.tags.filter(t => !allTags.includes(t))" :key="tag"
                                 class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 text-xs">
                                 {{ tag }}
                                 <button class="text-blue-400 hover:text-red-500" @click="removeCreateTag(tag)">
@@ -412,15 +448,11 @@ onMounted(() => { loadSkills(); loadTags(); });
                                 </button>
                             </span>
                         </div>
-                        <div class="flex gap-2">
-                            <VortInput
-                                v-model="createTagInput"
-                                class="flex-1"
-                                placeholder="输入标签名，回车添加"
-                                @press-enter="addCreateTag"
-                            />
-                            <VortButton size="small" @click="addCreateTag">添加</VortButton>
-                        </div>
+                        <VortInput
+                            v-model="createTagInput"
+                            placeholder="输入自定义标签，回车添加"
+                            @press-enter="() => addCreateTag()"
+                        />
                     </div>
                 </VortFormItem>
                 <VortFormItem label="描述">

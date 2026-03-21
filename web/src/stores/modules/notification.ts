@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { ref, computed } from "vue";
-import { getChatUnreadCounts } from "@/api";
+import { getChatUnreadCounts, getNotificationUnreadCount } from "@/api";
 
 export const useNotificationStore = defineStore("notification", () => {
     const unreadCounts = ref<Record<string, number>>({});
@@ -60,6 +60,15 @@ export const useNotificationStore = defineStore("notification", () => {
         }
     }
 
+    async function fetchVortflowUnreadCount() {
+        try {
+            const res: any = await getNotificationUnreadCount("vortflow");
+            vortflowUnreadCount.value = res?.count || 0;
+        } catch {
+            // silent
+        }
+    }
+
     return {
         unreadCounts,
         taskStatuses,
@@ -73,5 +82,6 @@ export const useNotificationStore = defineStore("notification", () => {
         incrementVortflowUnread,
         clearVortflowUnread,
         fetchUnreadCounts,
+        fetchVortflowUnreadCount,
     };
 });

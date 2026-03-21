@@ -7,3 +7,7 @@ export function getNotifications(params?: { status?: string; source?: string; pa
 export function batchReadNotifications(notificationIds?: number[], all?: boolean) {
     return request.post("/notifications/batch-read", { notification_ids: notificationIds || [], all: all || false });
 }
+
+export function getNotificationUnreadCount(source?: string) {
+    return request.get("/notifications/unread-count", { params: source ? { source } : {} });
+}

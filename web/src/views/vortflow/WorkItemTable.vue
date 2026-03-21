@@ -1479,6 +1479,11 @@ const loadApiMetadata = async (withStories = false) => {
 };
 
 onMounted(async () => {
+    const queryProject = route.query.project as string;
+    if (queryProject && queryProject !== vortFlowStore.selectedProjectId) {
+        vortFlowStore.setProjectId(queryProject);
+    }
+
     const hasCachedColumns = !!vortFlowStore.getColumnSettings(props.type || "");
     if (hasCachedColumns) {
         columnSettings.value = loadColumnSettingsFromStore();

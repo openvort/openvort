@@ -8,7 +8,7 @@ import asyncio
 from pathlib import Path
 
 from openvort.plugin.base import BasePlugin, BaseTool
-from openvort.plugins.vortflow.aggregator import im_aggregator
+from openvort.plugins.vortflow.aggregator import im_aggregator, send_im_to_member
 from openvort.plugins.vortflow.engine import FlowEngine
 from openvort.plugins.vortflow.notifier import notifier as _notifier_singleton
 from openvort.utils.logging import get_logger
@@ -32,6 +32,7 @@ class VortFlowPlugin(BasePlugin):
             self._notifier.set_ws_manager(ws_manager)
         except ImportError:
             pass
+        im_aggregator.set_channel_sender(send_im_to_member)
         asyncio.create_task(im_aggregator.start())
 
     def get_tools(self) -> list[BaseTool]:

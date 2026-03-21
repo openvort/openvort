@@ -54,8 +54,8 @@ class MarketplaceInstaller:
         5. Report download
         """
         data = await self.client.get_skill(slug, author=author)
-        skill_name = data.get("name", slug)
-        display_name = data.get("displayName", "") or skill_name
+        display_name = data.get("displayName", "") or data.get("name", slug)
+        skill_name = display_name
         bundle_url = data.get("bundleUrl")
         has_bundle = bool(bundle_url)
 
@@ -87,6 +87,15 @@ class MarketplaceInstaller:
         else:
             content = data.get("content", "")
 
+        requires_json = ""
+        if has_bundle:
+            skill_md_path = _find_file(self.bundles_dir / "skills" / slug / "files", "SKILL.md")
+            if skill_md_path:
+                from openvort.skill.loader import _parse_skill_file
+                parsed = _parse_skill_file(skill_md_path)
+                if parsed and parsed.get("requires"):
+                    requires_json = json.dumps(parsed["requires"], ensure_ascii=False)
+
         async with self.session_factory() as session:
             session: AsyncSession
             existing = await session.execute(
@@ -102,6 +111,7 @@ class MarketplaceInstaller:
                 existing_skill.description = data.get("description", "")
                 existing_skill.skill_type = data.get("skillType", "workflow")
                 existing_skill.tags = json.dumps(data.get("tags", []))
+                existing_skill.requires_json = requires_json
                 existing_skill.marketplace_slug = slug
                 existing_skill.marketplace_author = data.get("author", author)
                 existing_skill.marketplace_version = data.get("version", "1.0.0")
@@ -117,6 +127,7 @@ class MarketplaceInstaller:
                     scope="marketplace",
                     skill_type=data.get("skillType", "workflow"),
                     tags=json.dumps(data.get("tags", [])),
+                    requires_json=requires_json,
                     enabled=True,
                     marketplace_slug=slug,
                     marketplace_author=data.get("author", author),
@@ -129,7 +140,12 @@ class MarketplaceInstaller:
             await session.commit()
 
         if content:
-            self.registry.register_prompt(content, f"skill:{skill_name}")
+            if has_bundle:
+                extract_dir = self.bundles_dir / "skills" / slug / "files"
+                content_for_prompt = content.replace("{baseDir}", str(extract_dir))
+            else:
+                content_for_prompt = content
+            self.registry.register_prompt(content_for_prompt, f"skill:{skill_name}")
 
         ext_id = data.get("id", slug)
         await self.client.report_download(ext_id)
@@ -155,6 +171,16 @@ class MarketplaceInstaller:
         bundle_url = data.get("bundleUrl")
         package_name = data.get("packageName")
 
+        meta = {
+            "slug": slug,
+            "name": data.get("name", slug),
+            "displayName": data.get("displayName", "") or data.get("name", slug),
+            "description": data.get("description", ""),
+            "author": data.get("author", author),
+            "version": data.get("version", "1.0.0"),
+            "type": "plugin",
+        }
+
         if bundle_url:
             dest = self.plugins_local_dir / slug
             zip_path = self.bundles_dir / "plugins" / slug / "bundle.zip"
@@ -172,6 +198,8 @@ class MarketplaceInstaller:
             with zipfile.ZipFile(zip_path) as zf:
                 zf.extractall(dest)
 
+            self._save_plugin_meta(slug, {**meta, "method": "bundle", "install_path": str(dest)})
+
             ext_id = data.get("id", slug)
             await self.client.report_download(ext_id)
 
@@ -180,8 +208,8 @@ class MarketplaceInstaller:
                 "action": "installed",
                 "method": "bundle",
                 "slug": slug,
-                "author": data.get("author", author),
-                "version": data.get("version", "1.0.0"),
+                "author": meta["author"],
+                "version": meta["version"],
                 "install_path": str(dest),
                 "restart_required": True,
             }
@@ -201,6 +229,8 @@ class MarketplaceInstaller:
             logger.error("pip install failed: %s", result.stderr)
             raise RuntimeError(f"pip install {package_name} failed: {result.stderr}")
 
+        self._save_plugin_meta(slug, {**meta, "method": "pip", "packageName": package_name})
+
         ext_id = data.get("id", slug)
         await self.client.report_download(ext_id)
 
@@ -210,8 +240,8 @@ class MarketplaceInstaller:
             "method": "pip",
             "packageName": package_name,
             "slug": slug,
-            "author": data.get("author", author),
-            "version": data.get("version", "1.0.0"),
+            "author": meta["author"],
+            "version": meta["version"],
             "restart_required": True,
         }
 
@@ -244,6 +274,23 @@ class MarketplaceInstaller:
 
         logger.info("Marketplace skill uninstalled: %s", slug)
         return {"action": "uninstalled", "slug": slug, "name": skill_name}
+
+    def _plugin_meta_path(self, slug: str) -> Path:
+        return self.bundles_dir / "plugins" / slug / "marketplace.json"
+
+    def _save_plugin_meta(self, slug: str, meta: dict[str, Any]) -> None:
+        path = self._plugin_meta_path(slug)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def _load_plugin_meta(self, slug: str) -> dict[str, Any]:
+        path = self._plugin_meta_path(slug)
+        if path.exists():
+            try:
+                return json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        return {}
 
     async def uninstall_plugin(self, slug: str) -> dict[str, Any]:
         """Remove a marketplace-installed plugin bundle."""
@@ -285,11 +332,16 @@ class MarketplaceInstaller:
         if self.plugins_local_dir.exists():
             for d in self.plugins_local_dir.iterdir():
                 if d.is_dir():
+                    meta = self._load_plugin_meta(d.name)
                     items.append({
-                        "name": d.name,
+                        "name": meta.get("displayName") or meta.get("name") or d.name,
+                        "displayName": meta.get("displayName") or meta.get("name") or d.name,
+                        "description": meta.get("description", ""),
                         "slug": d.name,
+                        "author": meta.get("author", ""),
+                        "version": meta.get("version", ""),
                         "type": "plugin",
-                        "method": "bundle",
+                        "method": meta.get("method", "bundle"),
                         "install_path": str(d),
                         "scope": "marketplace",
                     })

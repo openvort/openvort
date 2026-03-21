@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from "vue";
 import { useRouter } from "vue-router";
-import { Bell, Clock, Bot, CheckCheck, Settings, ExternalLink } from "lucide-vue-next";
+import { Bell, Clock, Bot, CheckCheck, Settings, ExternalLink, GitPullRequestArrow } from "lucide-vue-next";
 import { getNotifications, batchReadNotifications } from "@/api";
 import { message } from "@/components/vort";
+import { useNotificationStore } from "@/stores/modules/notification";
 
 const router = useRouter();
+const notificationStore = useNotificationStore();
 
 interface NotificationItem {
     id: number;
@@ -16,6 +18,7 @@ interface NotificationItem {
     summary: string;
     status: string;
     im_channel: string;
+    data: Record<string, any>;
     created_at: string;
     read_at: string;
 }
@@ -48,13 +51,40 @@ async function handleBatchRead() {
         message.success("已全部标为已读");
         unreadCount.value = 0;
         notifications.value = notifications.value.map(n => ({ ...n, status: "read" }));
+        notificationStore.fetchVortflowUnreadCount();
     } catch {
         message.error("操作失败");
     }
 }
 
-function goToChat(n: NotificationItem) {
+const _ENTITY_TYPE_ROUTE: Record<string, string> = {
+    story: "stories",
+    task: "tasks",
+    bug: "bugs",
+};
+
+async function handleNotificationClick(n: NotificationItem) {
     popoverRef.value?.hide();
+    if (n.status === "pending" || n.status === "sent") {
+        batchReadNotifications([n.id]).catch(() => {});
+        n.status = "read";
+        unreadCount.value = Math.max(0, unreadCount.value - 1);
+        if (n.source === "vortflow") {
+            notificationStore.fetchVortflowUnreadCount();
+        }
+    }
+    if (n.source === "vortflow" && n.data?.entity_type && n.data?.entity_id) {
+        const routeSegment = _ENTITY_TYPE_ROUTE[n.data.entity_type];
+        if (routeSegment) {
+            const query: Record<string, string> = {
+                action: "detail",
+                id: n.data.entity_id,
+            };
+            if (n.data.project_id) query.project = n.data.project_id;
+            router.push({ path: `/vortflow/${routeSegment}`, query });
+            return;
+        }
+    }
     if (n.session_id) {
         router.push({ path: "/chat", query: { session: n.session_id } });
     }
@@ -141,11 +171,12 @@ onMounted(() => {
                             :key="n.id"
                             class="flex items-start gap-2.5 px-2 py-2.5 -mx-2 rounded-lg cursor-pointer transition-colors"
                             :class="n.status === 'pending' || n.status === 'sent' ? 'hover:bg-blue-50/60 bg-blue-50/30' : 'hover:bg-gray-50'"
-                            @click="goToChat(n)"
+                            @click="handleNotificationClick(n)"
                         >
                             <div class="flex-shrink-0 mt-0.5">
                                 <Clock v-if="n.source === 'schedule'" :size="15" class="text-blue-500" />
                                 <Bot v-else-if="n.source === 'ai_message'" :size="15" class="text-blue-500" />
+                                <GitPullRequestArrow v-else-if="n.source === 'vortflow'" :size="15" class="text-indigo-500" />
                                 <Bell v-else :size="15" class="text-gray-400" />
                             </div>
                             <div class="flex-1 min-w-0">

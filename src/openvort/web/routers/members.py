@@ -170,9 +170,8 @@ async def delete_role(role_id: int):
 async def create_member(req: CreateMemberRequest):
     """手动新增成员"""
     import json as _json
-    from pathlib import Path
     from openvort.contacts.models import Member
-    from openvort.skill.loader import _parse_skill_file
+    from openvort.db.models import Post as PostModel
 
     session_factory = get_db_session_factory()
 
@@ -180,12 +179,13 @@ async def create_member(req: CreateMemberRequest):
     role_key = member_posts[0] if member_posts else ""
     virtual_system_prompt = ""
     if req.is_virtual and role_key:
-        builtin_dir = Path(__file__).parent.parent.parent / "skills"
-        skill_file = builtin_dir / role_key / "SKILL.md"
-        if skill_file.exists():
-            parsed = _parse_skill_file(skill_file)
-            if parsed:
-                virtual_system_prompt = parsed.get("content", "")
+        async with session_factory() as _db:
+            post_row = await _db.execute(
+                select(PostModel).where(PostModel.key == role_key)
+            )
+            post = post_row.scalar_one_or_none()
+            if post and post.default_persona:
+                virtual_system_prompt = post.default_persona
 
     async with session_factory() as session:
         member = Member(
@@ -442,9 +442,7 @@ async def get_member(member_id: str):
 async def update_member(member_id: str, req: UpdateMemberRequest):
     """编辑成员基本信息"""
     import json as _json
-    from pathlib import Path
     from openvort.contacts.models import Member
-    from openvort.skill.loader import _parse_skill_file
 
     session_factory = get_db_session_factory()
 
@@ -475,14 +473,14 @@ async def update_member(member_id: str, req: UpdateMemberRequest):
             member.post = role_key
             member.virtual_role = role_key
             member.skills = _json.dumps(role_key_list) if role_key_list else "[]"
-            # 重新加载角色模板
             if role_key:
-                builtin_dir = Path(__file__).parent.parent.parent / "skills"
-                skill_file = builtin_dir / role_key / "SKILL.md"
-                if skill_file.exists():
-                    parsed = _parse_skill_file(skill_file)
-                    if parsed:
-                        member.virtual_system_prompt = parsed.get("content", "")
+                from openvort.db.models import Post as PostModel
+                post_result = await session.execute(
+                    select(PostModel).where(PostModel.key == role_key)
+                )
+                post = post_result.scalar_one_or_none()
+                if post and post.default_persona:
+                    member.virtual_system_prompt = post.default_persona
             else:
                 member.virtual_system_prompt = ""
         elif req.skills is not None:
