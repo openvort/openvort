@@ -311,12 +311,8 @@ const visibleMembers = (group: MemberGroup) => {
                 class="member-picker-avatar"
                 :style="{ backgroundColor: getAvatarBg(member) }"
               >
-                <img
-                  v-if="getAvatarUrl(member)"
-                  :src="getAvatarUrl(member)"
-                  class="w-full h-full object-cover"
-                />
-                <template v-else>{{ getAvatarLabel(member) }}</template>
+                {{ getAvatarLabel(member) }}
+                <img v-if="getAvatarUrl(member)" :src="getAvatarUrl(member)" class="absolute inset-0 w-full h-full object-cover" @error="$event.target.style.display = 'none'" />
               </span>
               <span class="member-picker-name">{{ member }}</span>
             </div>
@@ -363,12 +359,8 @@ const visibleMembers = (group: MemberGroup) => {
                 class="member-picker-avatar"
                 :style="{ backgroundColor: getAvatarBg(member) }"
               >
-                <img
-                  v-if="getAvatarUrl(member)"
-                  :src="getAvatarUrl(member)"
-                  class="w-full h-full object-cover"
-                />
-                <template v-else>{{ getAvatarLabel(member) }}</template>
+                {{ getAvatarLabel(member) }}
+                <img v-if="getAvatarUrl(member)" :src="getAvatarUrl(member)" class="absolute inset-0 w-full h-full object-cover" @error="$event.target.style.display = 'none'" />
               </span>
               <span class="member-picker-name">{{ member }}</span>
             </div>
@@ -446,6 +438,7 @@ const visibleMembers = (group: MemberGroup) => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  position: relative;
   width: 24px;
   height: 24px;
   border-radius: 9999px;

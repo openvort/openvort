@@ -220,6 +220,11 @@ const descriptionTemplates: Record<WorkItemType, string> = {
 
 const getDescriptionTemplate = (type: WorkItemType): string => descriptionTemplates[type] ?? "";
 
+const onAvatarError = (e: Event) => {
+    const el = e.target as HTMLImageElement | null;
+    if (el) el.style.display = "none";
+};
+
 const createInitialBugForm = (): NewBugForm => ({
     title: "",
     owner: "",
@@ -1819,11 +1824,11 @@ onMounted(async () => {
                                     class="h-8 max-w-[150px] px-2 rounded-md bg-transparent flex items-center gap-2 cursor-pointer"
                                 >
                                     <span
-                                        class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center shrink-0 overflow-hidden"
+                                        class="w-6 h-6 rounded-full text-white text-[12px] flex items-center justify-center shrink-0 overflow-hidden relative"
                                         :style="{ backgroundColor: getAvatarBg(getRowOwner(record, text)) }"
                                     >
-                                        <img v-if="getMemberAvatarUrl(getRowOwner(record, text))" :src="getMemberAvatarUrl(getRowOwner(record, text))" class="w-full h-full object-cover" />
-                                        <template v-else>{{ getAvatarLabel(getRowOwner(record, text)) }}</template>
+                                        {{ getAvatarLabel(getRowOwner(record, text)) }}
+                                        <img v-if="getMemberAvatarUrl(getRowOwner(record, text))" :src="getMemberAvatarUrl(getRowOwner(record, text))" class="absolute inset-0 w-full h-full object-cover" @error="onAvatarError" />
                                     </span>
                                     <span class="text-sm text-gray-700 truncate">{{ getRowOwner(record, text) }}</span>
                                 </div>
@@ -1868,12 +1873,12 @@ onMounted(async () => {
                                         <div
                                             v-for="(name, idx) in getRowCollaborators(record, text)"
                                             :key="record.workNo + '-c-' + name + idx"
-                                            class="-ml-1 first:ml-0 w-6 h-6 rounded-full border border-white text-white text-[11px] flex items-center justify-center overflow-hidden"
+                                            class="-ml-1 first:ml-0 w-6 h-6 rounded-full border border-white text-white text-[11px] flex items-center justify-center overflow-hidden relative"
                                             :style="{ backgroundColor: getAvatarBg(name) }"
                                             :title="name"
                                         >
-                                            <img v-if="getMemberAvatarUrl(name)" :src="getMemberAvatarUrl(name)" class="w-full h-full object-cover" />
-                                            <template v-else>{{ getAvatarLabel(name) }}</template>
+                                            {{ getAvatarLabel(name) }}
+                                            <img v-if="getMemberAvatarUrl(name)" :src="getMemberAvatarUrl(name)" class="absolute inset-0 w-full h-full object-cover" @error="onAvatarError" />
                                         </div>
                                     </div>
                                 </div>

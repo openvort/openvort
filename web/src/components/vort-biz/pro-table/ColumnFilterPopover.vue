@@ -253,8 +253,8 @@ const handleClear = () => {
                                     class="enum-avatar"
                                     :style="{ background: opt.avatarBg || '#94a3b8' }"
                                 >
-                                    <img v-if="opt.avatarUrl" :src="opt.avatarUrl" class="enum-avatar-img" />
-                                    <template v-else>{{ opt.avatarLabel }}</template>
+                                    {{ opt.avatarLabel }}
+                                    <img v-if="opt.avatarUrl" :src="opt.avatarUrl" class="enum-avatar-img absolute inset-0" @error="$event.target.style.display = 'none'" />
                                 </span>
                                 <span v-else-if="opt.icon" class="enum-icon" :class="opt.iconClass">{{ opt.icon }}</span>
                                 <span class="enum-label">{{ opt.label }}</span>
@@ -419,6 +419,7 @@ const handleClear = () => {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    position: relative;
     overflow: hidden;
     color: #fff;
     font-size: 11px;
