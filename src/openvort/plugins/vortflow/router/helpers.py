@@ -10,7 +10,6 @@ from openvort.plugins.vortflow.models import (
     FlowIteration,
     FlowIterationStory,
     FlowIterationTask,
-    FlowMilestone,
     FlowProject,
     FlowStatus,
     FlowStory,
@@ -127,16 +126,6 @@ def _bug_dict(r: FlowBug) -> dict:
         "updated_at": r.updated_at.isoformat() if r.updated_at else None,
     }
 
-def _milestone_dict(r: FlowMilestone) -> dict:
-    return {
-        "id": r.id, "name": r.name, "project_id": r.project_id,
-        "story_id": r.story_id,
-        "due_date": r.due_date.isoformat() if r.due_date else None,
-        "completed_at": r.completed_at.isoformat() if r.completed_at else None,
-        "created_at": r.created_at.isoformat() if r.created_at else None,
-        "description": getattr(r, "description", ""),
-    }
-
 
 def _iteration_dict(r: FlowIteration) -> dict:
     return {
@@ -243,7 +232,7 @@ _LINK_TYPE_DICT = {"story": _story_dict, "task": _task_dict, "bug": _bug_dict}
 
 
 # ---------------------------------------------------------------------------
-# Attach iteration / version / milestone links to item lists
+# Attach iteration / version links to item lists
 # ---------------------------------------------------------------------------
 
 async def _attach_story_links(session, items: list[dict]) -> list[dict]:
@@ -273,27 +262,14 @@ async def _attach_story_links(session, items: list[dict]) -> list[dict]:
         if sid and sid not in story_version_map:
             story_version_map[sid] = (str(version_id or ""), str(version_name or ""))
 
-    milestone_rows = await session.execute(
-        select(FlowMilestone.story_id, FlowMilestone.id, FlowMilestone.name)
-        .where(FlowMilestone.story_id.in_(story_ids))
-    )
-    story_milestone_map: dict[str, tuple[str, str]] = {}
-    for ms_story_id, ms_id, ms_name in milestone_rows.all():
-        msid = str(ms_story_id or "")
-        if msid and msid not in story_milestone_map:
-            story_milestone_map[msid] = (str(ms_id or ""), str(ms_name or ""))
-
     for item in items:
         sid = str(item.get("id") or "").strip()
         iteration = story_iteration_map.get(sid)
         version = story_version_map.get(sid)
-        milestone = story_milestone_map.get(sid)
         item["iteration_id"] = iteration[0] if iteration else ""
         item["iteration_name"] = iteration[1] if iteration else ""
         item["version_id"] = version[0] if version else ""
         item["version_name"] = version[1] if version else ""
-        item["milestone_id"] = milestone[0] if milestone else ""
-        item["milestone_name"] = milestone[1] if milestone else ""
     return items
 
 

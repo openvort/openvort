@@ -363,11 +363,6 @@ const versionFilterConfig = computed<ColumnFilterConfig>(() => ({
     options: dynamicVersionOptions.value.map(o => ({ label: o.name, value: o.name })),
 }));
 
-const milestoneFilterConfig = computed<ColumnFilterConfig>(() => ({
-    type: "enum",
-    options: dynamicMilestoneOptions.value.map(o => ({ label: o.name, value: o.name })),
-}));
-
 const PRIORITY_DOT_COLOR_MAP: Record<string, string> = {
     "紧急": "#ef4444",
     "高": "#f59e0b",
@@ -536,20 +531,16 @@ const collectTagOptions = (rows: RowItem[]) => {
 
 const dynamicIterationOptions = ref<Array<{ id: string; name: string }>>([]);
 const dynamicVersionOptions = ref<Array<{ id: string; name: string }>>([]);
-const dynamicMilestoneOptions = ref<Array<{ id: string; name: string }>>([]);
 
 const collectEnumOptions = (rows: RowItem[]) => {
     const iterMap = new Map<string, string>();
     const verMap = new Map<string, string>();
-    const msMap = new Map<string, string>();
     for (const row of rows) {
         if (row.iterationId && row.iteration) iterMap.set(row.iterationId, row.iteration);
         if (row.versionId && row.version) verMap.set(row.versionId, row.version);
-        if (row.milestoneId && row.milestone) msMap.set(row.milestoneId, row.milestone);
     }
     dynamicIterationOptions.value = [...iterMap.entries()].map(([id, name]) => ({ id, name }));
     dynamicVersionOptions.value = [...verMap.entries()].map(([id, name]) => ({ id, name }));
-    dynamicMilestoneOptions.value = [...msMap.entries()].map(([id, name]) => ({ id, name }));
 };
 
 const detailCurrentUser = "当前用户";
@@ -1694,10 +1685,6 @@ onMounted(async () => {
                     <ColumnFilterPopover field="endAt" :title="column.title || ''" :config="dateFilterConfig" :sort-order="columnSortField === 'endAt' ? columnSortOrder : null" :filter-value="columnFilters['endAt']" @sort="(o) => handleColumnSort('endAt', o)" @filter="(v) => handleColumnFilter('endAt', v)">{{ column.title }}</ColumnFilterPopover>
                 </template>
 
-                <template #header-milestone="{ column }">
-                    <ColumnFilterPopover field="milestone" :title="column.title || ''" :config="milestoneFilterConfig" :sort-order="columnSortField === 'milestone' ? columnSortOrder : null" :filter-value="columnFilters['milestone']" @sort="(o) => handleColumnSort('milestone', o)" @filter="(v) => handleColumnFilter('milestone', v)">{{ column.title }}</ColumnFilterPopover>
-                </template>
-
                 <template #header-creator="{ column }">
                     <ColumnFilterPopover field="creator" :title="column.title || ''" :config="creatorFilterConfig" :sort-order="columnSortField === 'creator' ? columnSortOrder : null" :filter-value="columnFilters['creator']" @sort="(o) => handleColumnSort('creator', o)" @filter="(v) => handleColumnFilter('creator', v)">{{ column.title }}</ColumnFilterPopover>
                 </template>
@@ -1967,13 +1954,6 @@ onMounted(async () => {
                     </TableCell>
                 </template>
 
-
-                <template #milestone="{ text }">
-                    <TableCell>
-                        <span v-if="text" class="text-sm text-gray-700">{{ text }}</span>
-                        <span v-else class="text-sm text-gray-300">-</span>
-                    </TableCell>
-                </template>
 
                 <template #project="{ text, record }">
                     <TableCell @click.stop="projectPickerOpenMap[getInteractiveCellKey(record)] = true">

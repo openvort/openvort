@@ -90,7 +90,6 @@ class VortFlowPlugin(BasePlugin):
                     {"label": "需求列表", "path": "/vortflow/stories", "icon": "list-checks"},
                     {"label": "任务管理", "path": "/vortflow/tasks", "icon": "check-square"},
                     {"label": "缺陷跟踪", "path": "/vortflow/bugs", "icon": "bug"},
-                    {"label": "里程碑", "path": "/vortflow/milestones", "icon": "milestone"},
                 ],
             }],
             "dashboard_widgets": [

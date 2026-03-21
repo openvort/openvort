@@ -20,7 +20,7 @@ const emit = defineEmits<{
 import {
     Send, Bot, Loader2, Wrench, X, ImagePlus, FileText, MonitorPlay, Smile,
     Settings, Check, Brain, PackageMinus, RotateCcw, Zap, StopCircle, Square,
-    Hash, Bug, ListTodo, BookOpen, Milestone, GitBranch, ChevronDown, ChevronRight,
+    Hash, Bug, ListTodo, BookOpen, GitBranch, ChevronDown, ChevronRight,
     Copy, RefreshCw, Search, Clock, Pause, ChevronUp, Trash2, Paperclip, File,
     Maximize2, PanelLeftOpen, PanelLeftClose
 } from "lucide-vue-next";
@@ -1246,8 +1246,7 @@ defineExpose({ currentSessionId, inputText, handleReset, switchSession, handleNe
                                             :class="cat.key === 'bug' ? 'bg-red-50 text-red-500' : cat.key === 'task' ? 'bg-blue-50 text-blue-500' : cat.key === 'story' ? 'bg-green-50 text-green-500' : 'bg-purple-50 text-purple-500'">
                                             <Bug v-if="cat.key === 'bug'" :size="14" />
                                             <ListTodo v-else-if="cat.key === 'task'" :size="14" />
-                                            <BookOpen v-else-if="cat.key === 'story'" :size="14" />
-                                            <Milestone v-else :size="14" />
+                                            <BookOpen v-else :size="14" />
                                         </div>
                                         <div class="min-w-0 flex-1">
                                             <div class="text-sm text-gray-800 font-medium">{{ cat.label }}</div>

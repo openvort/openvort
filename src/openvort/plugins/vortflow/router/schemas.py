@@ -104,19 +104,6 @@ class BugUpdate(BaseModel):
     repo_id: str | None = None
     branch: str | None = None
 
-class MilestoneCreate(BaseModel):
-    project_id: str
-    name: str
-    description: str = ""
-    due_date: str | None = None
-    story_id: str | None = None
-
-class MilestoneUpdate(BaseModel):
-    name: str | None = None
-    description: str | None = None
-    due_date: str | None = None
-    completed_at: str | None = None
-
 class TransitionBody(BaseModel):
     target_state: str
 

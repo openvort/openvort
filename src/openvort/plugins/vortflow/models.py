@@ -119,19 +119,6 @@ class FlowBug(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
-class FlowMilestone(Base):
-    """里程碑"""
-
-    __tablename__ = "flow_milestones"
-
-    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
-    project_id: Mapped[str] = mapped_column(String(32), ForeignKey("flow_projects.id"), index=True)
-    story_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("flow_stories.id"), nullable=True)
-    name: Mapped[str] = mapped_column(String(200))
-    due_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-
 
 class FlowEvent(Base):
     """事件日志（审计追踪）"""
