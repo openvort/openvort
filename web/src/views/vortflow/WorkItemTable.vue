@@ -90,9 +90,9 @@ const onViewChange = (viewId: string) => {
 const viewManageOpen = ref(false);
 const viewCreateOpen = ref(false);
 
-const { views: mergedViews } = currentWorkItemType.value
+const { views: mergedViews, activeViewFilters: builtInViewFilters } = currentWorkItemType.value
     ? useVortFlowViews(currentWorkItemType.value)
-    : { views: computed(() => SYSTEM_VIEWS) };
+    : { views: computed(() => SYSTEM_VIEWS), activeViewFilters: computed(() => ({})) };
 
 const handleCreateViewFromDialog = async (data: { name: string; scope: "personal" | "shared" }) => {
     const { filters, cols } = collectCurrentViewState();
@@ -869,7 +869,10 @@ const {
     propType: props.type || "",
     propProjectId: computed(() => props.projectId || ""),
     propIterationId: computed(() => props.iterationId || ""),
-    propViewFilters: computed(() => props.viewFilters || {}),
+    propViewFilters: computed(() => ({
+        ...builtInViewFilters.value,
+        ...(props.viewFilters || {}),
+    })),
     type,
     owner,
     status,
@@ -918,6 +921,10 @@ watch(() => props.projectId, () => {
 });
 
 watch(() => props.viewFilters, () => {
+    tableRef.value?.refresh?.();
+}, { deep: true });
+
+watch(builtInViewFilters, () => {
     tableRef.value?.refresh?.();
 }, { deep: true });
 
@@ -1003,6 +1010,9 @@ const handleDetailUpdate = async (data: Partial<RowItem>) => {
 
     if (!props.useApi || !rec.backendId) return;
 
+    if (data.title !== undefined) {
+        await syncRecordUpdateToApi(rec, { title: data.title });
+    }
     if (data.status !== undefined) {
         await syncRecordStatusToApi(rec, data.status);
     }

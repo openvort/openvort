@@ -52,6 +52,7 @@ async def list_iterations(
         iter_ids = [r.id for r in rows]
         story_stats: dict[str, dict[str, int]] = {}
         task_stats: dict[str, dict[str, int]] = {}
+        bug_stats: dict[str, dict[str, int]] = {}
         if iter_ids:
             for iter_id, cnt in (await session.execute(
                 select(FlowIterationStory.iteration_id, func.count())
@@ -79,14 +80,28 @@ async def list_iterations(
                 .group_by(FlowIterationTask.iteration_id)
             )):
                 task_stats.setdefault(iter_id, {"total": 0, "done": 0})["done"] = cnt
+            for iter_id, cnt in (await session.execute(
+                select(FlowIterationBug.iteration_id, func.count())
+                .where(FlowIterationBug.iteration_id.in_(iter_ids))
+                .group_by(FlowIterationBug.iteration_id)
+            )):
+                bug_stats.setdefault(iter_id, {"total": 0, "done": 0})["total"] = cnt
+            for iter_id, cnt in (await session.execute(
+                select(FlowIterationBug.iteration_id, func.count())
+                .join(FlowBug, FlowIterationBug.bug_id == FlowBug.id)
+                .where(FlowIterationBug.iteration_id.in_(iter_ids), FlowBug.state == "closed")
+                .group_by(FlowIterationBug.iteration_id)
+            )):
+                bug_stats.setdefault(iter_id, {"total": 0, "done": 0})["done"] = cnt
 
         items = []
         for r in rows:
             d = _iteration_dict(r)
             s = story_stats.get(r.id, {"total": 0, "done": 0})
             t = task_stats.get(r.id, {"total": 0, "done": 0})
-            d["work_item_total"] = s["total"] + t["total"]
-            d["work_item_done"] = s["done"] + t["done"]
+            b = bug_stats.get(r.id, {"total": 0, "done": 0})
+            d["work_item_total"] = s["total"] + t["total"] + b["total"]
+            d["work_item_done"] = s["done"] + t["done"] + b["done"]
             items.append(d)
     return {"total": total, "items": items}
 

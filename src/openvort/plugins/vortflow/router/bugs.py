@@ -23,6 +23,7 @@ from openvort.plugins.vortflow.models import (
     FlowBug,
     FlowStory,
     FlowIterationStory,
+    FlowIterationBug,
 )
 from openvort.plugins.vortflow.engine import (
     BUG_TRANSITIONS,
@@ -57,17 +58,23 @@ async def list_bugs(
         count_stmt = select(func.count()).select_from(FlowBug)
         if iteration_id == "__unplanned__":
             planned_story_ids = select(FlowIterationStory.story_id)
+            planned_bug_ids = select(FlowIterationBug.bug_id)
             unplanned_cond = or_(
                 FlowBug.story_id.is_(None),
                 FlowBug.story_id == "",
                 ~FlowBug.story_id.in_(planned_story_ids),
             )
-            stmt = stmt.where(unplanned_cond)
-            count_stmt = count_stmt.where(unplanned_cond)
+            stmt = stmt.where(unplanned_cond, ~FlowBug.id.in_(planned_bug_ids))
+            count_stmt = count_stmt.where(unplanned_cond, ~FlowBug.id.in_(planned_bug_ids))
         elif iteration_id:
             iter_story_ids = select(FlowIterationStory.story_id).where(FlowIterationStory.iteration_id == iteration_id)
-            stmt = stmt.where(FlowBug.story_id.in_(iter_story_ids))
-            count_stmt = count_stmt.where(FlowBug.story_id.in_(iter_story_ids))
+            direct_bug_ids = select(FlowIterationBug.bug_id).where(FlowIterationBug.iteration_id == iteration_id)
+            iter_cond = or_(
+                FlowBug.story_id.in_(iter_story_ids),
+                FlowBug.id.in_(direct_bug_ids),
+            )
+            stmt = stmt.where(iter_cond)
+            count_stmt = count_stmt.where(iter_cond)
         if project_id:
             project_story_ids = select(FlowStory.id).where(FlowStory.project_id == project_id)
             project_cond = or_(
@@ -104,6 +111,17 @@ async def list_bugs(
         rows = (await session.execute(stmt)).scalars().all()
         items = [_bug_dict(r) for r in rows]
         await _attach_bug_links(session, items)
+
+        bug_ids = [i["id"] for i in items if i.get("id")]
+        if bug_ids:
+            iter_links = (await session.execute(
+                select(FlowIterationBug.bug_id, FlowIterationBug.iteration_id)
+                .where(FlowIterationBug.bug_id.in_(bug_ids))
+            )).all()
+            bug_iter_map = {link.bug_id: link.iteration_id for link in iter_links}
+            for item in items:
+                item["iteration_id"] = bug_iter_map.get(item["id"], "")
+
     return {"total": total, "items": items}
 
 @sub_router.get("/bugs/{bug_id}")
@@ -114,6 +132,10 @@ async def get_bug(bug_id: str):
         if not r:
             return {"error": "缺陷不存在"}
         items = await _attach_bug_links(session, [_bug_dict(r)])
+        iter_link = (await session.execute(
+            select(FlowIterationBug.iteration_id).where(FlowIterationBug.bug_id == bug_id).limit(1)
+        )).scalar_one_or_none()
+        items[0]["iteration_id"] = iter_link or ""
     return items[0]
 
 @sub_router.post("/bugs")
