@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from sqlalchemy import func, select, delete as sa_delete
+from sqlalchemy import func, select, delete as sa_delete, update as sa_update
 
 from openvort.db.engine import get_session_factory
 from openvort.plugins.vortflow.router.helpers import (
@@ -19,6 +19,7 @@ from openvort.plugins.vortflow.models import (
     FlowTask,
     FlowBug,
 )
+from openvort.plugins.vortgit.models import GitRepo
 
 sub_router = APIRouter()
 
@@ -86,12 +87,25 @@ async def create_project(body: ProjectCreate):
     sf = get_session_factory()
     async with sf() as session:
         p = FlowProject(
-            name=body.name, description=body.description,
+            name=body.name, code=body.code, color=body.color,
+            description=body.description,
             product=body.product, iteration=body.iteration, version=body.version,
+            owner_id=body.owner_id or None,
             start_date=_parse_dt(body.start_date), end_date=_parse_dt(body.end_date),
         )
         session.add(p)
         await session.flush()
+
+        for mid in body.member_ids:
+            session.add(FlowProjectMember(project_id=p.id, member_id=mid, role="member"))
+
+        if body.repo_ids:
+            await session.execute(
+                sa_update(GitRepo)
+                .where(GitRepo.id.in_(body.repo_ids))
+                .values(project_id=p.id)
+            )
+
         await _log_event(session, "project", p.id, "created", {"name": body.name})
         await session.commit()
         await session.refresh(p)
@@ -105,11 +119,14 @@ async def update_project(project_id: str, body: ProjectUpdate):
         if not p:
             return {"error": "项目不存在"}
         changes = {}
-        for field in ["name", "description", "product", "iteration", "version"]:
+        for field in ["name", "code", "color", "description", "product", "iteration", "version"]:
             val = getattr(body, field)
             if val is not None:
                 changes[field] = val
                 setattr(p, field, val)
+        if body.owner_id is not None:
+            p.owner_id = body.owner_id or None
+            changes["owner_id"] = body.owner_id
         if body.start_date is not None:
             p.start_date = _parse_dt(body.start_date)
             changes["start_date"] = body.start_date

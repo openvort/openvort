@@ -14,6 +14,7 @@ from .work_item_links import sub_router as work_item_links_router
 from .tags import sub_router as tags_router
 from .statuses import sub_router as statuses_router
 from .test_cases import sub_router as test_cases_router
+from .test_plans import sub_router as test_plans_router
 
 router = APIRouter(prefix="/api/vortflow", tags=["vortflow"])
 
@@ -29,3 +30,4 @@ router.include_router(work_item_links_router)
 router.include_router(tags_router)
 router.include_router(statuses_router)
 router.include_router(test_cases_router)
+router.include_router(test_plans_router)

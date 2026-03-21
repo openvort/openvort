@@ -4,21 +4,26 @@ import { z } from "zod";
 import { useRouter } from "vue-router";
 import {
     FolderKanban, ListChecks, CheckSquare, Bug, Plus, Settings,
-    Trash2, Repeat, Filter, ArrowRight, User, Calendar,
+    Trash2, Repeat, Filter, ArrowRight, User, Calendar, X,
 } from "lucide-vue-next";
 import { useDirtyCheck } from "@/hooks";
 import { useVortFlowStore } from "@/stores";
 import { useWorkItemCommon } from "./work-item/useWorkItemCommon";
+import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMemberPicker.vue";
+import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
 import {
     getVortflowStats, getVortflowProjects, createVortflowProject,
     updateVortflowProject, deleteVortflowProject,
     getVortgitRepos,
     getVortflowIterations, getVortflowVersions,
+    addVortflowProjectMember,
 } from "@/api";
 
 interface ProjectItem {
     id: string;
     name: string;
+    code: string;
+    color: string;
     description: string;
     product: string;
     iteration: string;
@@ -40,11 +45,15 @@ interface VortgitRepoItem {
     project_id: string | null;
     name: string;
     full_name: string;
+    is_private?: boolean;
 }
 
 const router = useRouter();
 const vortFlowStore = useVortFlowStore();
-const { getMemberNameById, loadMemberOptions } = useWorkItemCommon();
+const {
+    memberOptions, ownerGroups, getMemberNameById, getMemberIdByName,
+    getAvatarBg, getAvatarLabel, getMemberAvatarUrl, loadMemberOptions,
+} = useWorkItemCommon();
 const loading = ref(true);
 const stats = ref<DashboardStats>({ stories: { total: 0, done: 0 }, tasks: { total: 0, done: 0 }, bugs: { total: 0, closed: 0 } });
 const projects = ref<ProjectItem[]>([]);
@@ -139,25 +148,51 @@ const formRef = ref();
 const formLoading = ref(false);
 const { takeSnapshot, confirmClose } = useDirtyCheck(currentProject);
 
+const PROJECT_COLOR_PRESETS = [
+    "#3b82f6", "#ef4444", "#f97316", "#eab308", "#a3e635",
+    "#22c55e", "#14b8a6", "#06b6d4", "#6366f1", "#8b5cf6",
+    "#a855f7", "#d946ef",
+];
+
+const selectedOwnerName = ref("");
+const selectedMemberNames = ref<string[]>([]);
+const selectedRepoIds = ref<string[]>([]);
+const allRepos = ref<VortgitRepoItem[]>([]);
+
+const loadAllRepos = async () => {
+    try {
+        const res = await getVortgitRepos({ page: 1, page_size: 200 });
+        allRepos.value = ((res as any)?.items || []) as VortgitRepoItem[];
+    } catch { allRepos.value = []; }
+};
+
 const projectValidationSchema = z.object({
     name: z.string().min(1, '项目名称不能为空'),
+    code: z.string().optional().or(z.literal('')),
+    color: z.string().optional().or(z.literal('')),
     product: z.string().optional().or(z.literal('')),
-    iteration: z.string().optional().or(z.literal('')),
-    version: z.string().optional().or(z.literal('')),
     start_date: z.string().optional().or(z.literal('')),
     end_date: z.string().optional().or(z.literal('')),
     description: z.string().optional().or(z.literal('')),
 });
 
-const handleAddProject = () => {
-    drawerMode.value = "add";
-    drawerTitle.value = "新增项目";
-    currentProject.value = {};
-    drawerVisible.value = true;
-    takeSnapshot();
+const resetDrawerExtras = () => {
+    selectedOwnerName.value = "";
+    selectedMemberNames.value = [];
+    selectedRepoIds.value = [];
 };
 
-const handleEditProject = (p: ProjectItem) => {
+const handleAddProject = async () => {
+    drawerMode.value = "add";
+    drawerTitle.value = "新增项目";
+    currentProject.value = { color: "#3b82f6" };
+    resetDrawerExtras();
+    drawerVisible.value = true;
+    takeSnapshot();
+    await Promise.all([loadMemberOptions(), loadAllRepos()]);
+};
+
+const handleEditProject = async (p: ProjectItem) => {
     drawerMode.value = "edit";
     drawerTitle.value = "编辑项目";
     currentProject.value = {
@@ -165,8 +200,15 @@ const handleEditProject = (p: ProjectItem) => {
         start_date: p.start_date ? p.start_date.split("T")[0] : "",
         end_date: p.end_date ? p.end_date.split("T")[0] : "",
     };
+    resetDrawerExtras();
+    if (p.owner_id) {
+        selectedOwnerName.value = getMemberNameById(p.owner_id) || "";
+    }
+    const linkedRepos = projectRepos(p.id);
+    selectedRepoIds.value = linkedRepos.map((r) => r.id);
     drawerVisible.value = true;
     takeSnapshot();
+    await Promise.all([loadMemberOptions(), loadAllRepos()]);
 };
 
 const handleViewProject = (p: ProjectItem) => {
@@ -179,17 +221,24 @@ const handleSaveProject = async () => {
     const r = currentProject.value;
     formLoading.value = true;
     try {
+        const ownerId = getMemberIdByName(selectedOwnerName.value) || undefined;
         if (drawerMode.value === "add") {
+            const memberIds = selectedMemberNames.value
+                .map((n) => getMemberIdByName(n))
+                .filter(Boolean) as string[];
             await createVortflowProject({
-                name: r.name!, description: r.description,
-                product: r.product, iteration: r.iteration, version: r.version,
+                name: r.name!, code: r.code, color: r.color,
+                description: r.description, product: r.product,
                 start_date: r.start_date || undefined, end_date: r.end_date || undefined,
+                owner_id: ownerId, member_ids: memberIds,
+                repo_ids: selectedRepoIds.value.length ? selectedRepoIds.value : undefined,
             });
         } else {
             await updateVortflowProject(r.id!, {
-                name: r.name, description: r.description,
-                product: r.product, iteration: r.iteration, version: r.version,
+                name: r.name, code: r.code, color: r.color,
+                description: r.description, product: r.product,
                 start_date: r.start_date || undefined, end_date: r.end_date || undefined,
+                owner_id: ownerId,
             });
         }
         drawerVisible.value = false;
@@ -384,10 +433,14 @@ watch(() => vortFlowStore.selectedProjectId, () => {
                     >
                         <div class="flex items-start justify-between mb-2">
                             <div class="flex items-center gap-2 min-w-0 flex-1">
-                                <div class="w-8 h-8 rounded-lg bg-blue-500 flex items-center justify-center text-white text-sm font-medium flex-shrink-0">
-                                    {{ (p.name || '?')[0] }}
+                                <div class="w-8 h-8 rounded-lg flex items-center justify-center text-white text-sm font-medium flex-shrink-0"
+                                    :style="{ backgroundColor: p.color || '#3b82f6' }">
+                                    {{ (p.code || p.name || '?')[0] }}
                                 </div>
-                                <h4 class="font-medium text-gray-800 truncate">{{ p.name }}</h4>
+                                <div class="min-w-0">
+                                    <h4 class="font-medium text-gray-800 truncate">{{ p.name }}</h4>
+                                    <span v-if="p.code" class="text-xs text-gray-400">{{ p.code }}</span>
+                                </div>
                             </div>
                             <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2" @click.stop>
                                 <vort-tooltip title="编辑">
@@ -410,7 +463,6 @@ watch(() => vortFlowStore.selectedProjectId, () => {
                                 {{ formatDate(p.start_date) }} ~ {{ formatDate(p.end_date) }}
                             </vort-tag>
                             <vort-tag v-if="p.product" size="small" color="default">{{ p.product }}</vort-tag>
-                            <vort-tag v-if="p.version" size="small" color="blue">v{{ p.version }}</vort-tag>
                         </div>
 
                         <div v-if="p.owner_id" class="flex items-center gap-1.5 text-xs text-gray-500 mb-3">
@@ -502,18 +554,112 @@ watch(() => vortFlowStore.selectedProjectId, () => {
 
         <!-- Project Drawer -->
         <vort-drawer :open="drawerVisible" :title="drawerTitle" :width="900" @update:open="(val: boolean) => { if (!val) { confirmClose(() => { drawerVisible = false }) } else { drawerVisible = val } }">
-            <vort-form ref="formRef" :model="currentProject" :rules="projectValidationSchema" label-width="80px">
+            <vort-form ref="formRef" :model="currentProject" :rules="projectValidationSchema" label-width="100px">
                 <vort-form-item label="项目名称" name="name" required has-feedback>
                     <vort-input v-model="currentProject.name" placeholder="请输入项目名称" />
+                </vort-form-item>
+                <vort-form-item label="项目编号" name="code">
+                    <vort-input v-model="currentProject.code" placeholder="方便记忆的名称或代号（可选）" />
+                </vort-form-item>
+                <vort-form-item label="颜色" name="color">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <button
+                            v-for="c in PROJECT_COLOR_PRESETS" :key="c"
+                            type="button"
+                            class="w-7 h-7 rounded-md border-2 transition-all flex items-center justify-center"
+                            :class="currentProject.color === c ? 'border-gray-700 scale-110' : 'border-transparent hover:scale-105'"
+                            :style="{ backgroundColor: c }"
+                            @click="currentProject.color = c"
+                        >
+                            <svg v-if="currentProject.color === c" class="w-4 h-4 text-white" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                            </svg>
+                        </button>
+                    </div>
                 </vort-form-item>
                 <vort-form-item label="产品" name="product">
                     <vort-input v-model="currentProject.product" placeholder="产品名称（可选）" />
                 </vort-form-item>
-                <vort-form-item label="迭代" name="iteration">
-                    <vort-input v-model="currentProject.iteration" placeholder="迭代名称（可选）" />
+                <vort-form-item label="关联仓库">
+                    <vort-select
+                        v-model="selectedRepoIds"
+                        mode="multiple"
+                        placeholder="请选择关联仓库"
+                        class="w-full"
+                        :allow-clear="true"
+                        :max-tag-count="3"
+                    >
+                        <vort-select-option v-for="repo in allRepos" :key="repo.id" :value="repo.id">
+                            <div class="flex items-center justify-between w-full">
+                                <span class="truncate">{{ repo.full_name || repo.name }}</span>
+                                <span class="text-xs text-gray-400 ml-2 flex-shrink-0">{{ repo.is_private ? '私有' : '外部开源' }}</span>
+                            </div>
+                        </vort-select-option>
+                    </vort-select>
                 </vort-form-item>
-                <vort-form-item label="版本" name="version">
-                    <vort-input v-model="currentProject.version" placeholder="版本号（可选）" />
+                <vort-form-item label="项目负责人">
+                    <WorkItemMemberPicker
+                        mode="owner"
+                        :owner="selectedOwnerName"
+                        :groups="ownerGroups"
+                        :get-avatar-bg="getAvatarBg"
+                        :get-avatar-label="getAvatarLabel"
+                        :get-avatar-url="getMemberAvatarUrl"
+                        placeholder="请选择负责人"
+                        :bordered="true"
+                        :dropdown-width="380"
+                        @update:owner="selectedOwnerName = $event"
+                    >
+                        <template #trigger="{ open: triggerOpen }">
+                            <div class="border rounded-lg px-3 py-1.5 cursor-pointer hover:border-blue-400 transition-colors flex items-center gap-2 min-h-[34px]"
+                                :class="triggerOpen ? 'border-blue-400' : 'border-gray-200'">
+                                <template v-if="selectedOwnerName">
+                                    <div class="w-6 h-6 rounded-full flex items-center justify-center text-xs text-white flex-shrink-0"
+                                        :style="{ backgroundColor: getAvatarBg(selectedOwnerName) }">
+                                        <img v-if="getMemberAvatarUrl(selectedOwnerName)" :src="getMemberAvatarUrl(selectedOwnerName)" class="w-full h-full rounded-full object-cover" />
+                                        <template v-else>{{ getAvatarLabel(selectedOwnerName) }}</template>
+                                    </div>
+                                    <span class="text-sm text-gray-800">{{ selectedOwnerName }}</span>
+                                </template>
+                                <span v-else class="text-sm text-gray-400">请选择负责人</span>
+                            </div>
+                        </template>
+                    </WorkItemMemberPicker>
+                </vort-form-item>
+                <vort-form-item v-if="drawerMode === 'add'" label="成员">
+                    <WorkItemMemberPicker
+                        mode="collaborators"
+                        :collaborators="selectedMemberNames"
+                        :groups="ownerGroups"
+                        :get-avatar-bg="getAvatarBg"
+                        :get-avatar-label="getAvatarLabel"
+                        :get-avatar-url="getMemberAvatarUrl"
+                        placeholder="请选择企业成员，可多选"
+                        :bordered="true"
+                        :dropdown-width="380"
+                        @update:collaborators="selectedMemberNames = $event"
+                    >
+                        <template #trigger="{ open: triggerOpen }">
+                            <div class="border rounded-lg px-3 py-1.5 cursor-pointer hover:border-blue-400 transition-colors flex items-center gap-2 min-h-[34px] flex-wrap"
+                                :class="triggerOpen ? 'border-blue-400' : 'border-gray-200'">
+                                <template v-if="selectedMemberNames.length">
+                                    <span v-for="name in selectedMemberNames" :key="name"
+                                        class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-blue-50 text-blue-700 border border-blue-200">
+                                        <span class="w-4 h-4 rounded-full flex items-center justify-center text-[10px] text-white flex-shrink-0"
+                                            :style="{ backgroundColor: getAvatarBg(name) }">
+                                            <img v-if="getMemberAvatarUrl(name)" :src="getMemberAvatarUrl(name)" class="w-full h-full rounded-full object-cover" />
+                                            <template v-else>{{ getAvatarLabel(name) }}</template>
+                                        </span>
+                                        {{ name }}
+                                        <button type="button" class="ml-0.5 text-blue-400 hover:text-blue-600" @click.stop="selectedMemberNames = selectedMemberNames.filter(n => n !== name)">
+                                            <X :size="10" />
+                                        </button>
+                                    </span>
+                                </template>
+                                <span v-else class="text-sm text-gray-400">请选择企业成员，可多选</span>
+                            </div>
+                        </template>
+                    </WorkItemMemberPicker>
                 </vort-form-item>
                 <vort-form-item label="开始日期" name="start_date">
                     <vort-date-picker v-model="currentProject.start_date" value-format="YYYY-MM-DD" placeholder="请选择开始日期" class="w-full" />

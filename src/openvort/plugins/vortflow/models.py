@@ -20,6 +20,8 @@ class FlowProject(Base):
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(200))
+    code: Mapped[str] = mapped_column(String(64), default="")
+    color: Mapped[str] = mapped_column(String(32), default="#3b82f6")
     description: Mapped[str] = mapped_column(Text, default="")
     product: Mapped[str] = mapped_column(String(200), default="")
     iteration: Mapped[str] = mapped_column(String(200), default="")
@@ -406,6 +408,59 @@ class FlowTestCaseWorkItem(Base):
     entity_type: Mapped[str] = mapped_column(String(16), index=True)  # story/task/bug
     entity_id: Mapped[str] = mapped_column(String(32), index=True)
     created_by: Mapped[str | None] = mapped_column(String(32), ForeignKey("members.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class FlowTestPlan(Base):
+    """Test plan"""
+
+    __tablename__ = "flow_test_plans"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    project_id: Mapped[str] = mapped_column(String(32), ForeignKey("flow_projects.id"), index=True)
+    title: Mapped[str] = mapped_column(String(500))
+    description: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(32), default="in_progress")  # planning/in_progress/completed/suspended
+    owner_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("members.id"), nullable=True)
+    iteration_id: Mapped[str | None] = mapped_column(
+        String(32), ForeignKey("flow_iterations.id"), nullable=True
+    )
+    version_id: Mapped[str | None] = mapped_column(
+        String(32), ForeignKey("flow_versions.id"), nullable=True
+    )
+    start_date: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    end_date: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class FlowTestPlanCase(Base):
+    """Test plan - test case association"""
+
+    __tablename__ = "flow_test_plan_cases"
+    __table_args__ = (
+        UniqueConstraint("plan_id", "test_case_id", name="uq_testplan_case"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    plan_id: Mapped[str] = mapped_column(String(32), ForeignKey("flow_test_plans.id"), index=True)
+    test_case_id: Mapped[str] = mapped_column(String(32), ForeignKey("flow_test_cases.id"), index=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_by: Mapped[str | None] = mapped_column(String(32), ForeignKey("members.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class FlowTestPlanExecution(Base):
+    """Test plan execution result"""
+
+    __tablename__ = "flow_test_plan_executions"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    plan_case_id: Mapped[str] = mapped_column(String(32), ForeignKey("flow_test_plan_cases.id"), index=True)
+    result: Mapped[str] = mapped_column(String(32))  # passed/blocked/failed/skipped
+    executor_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("members.id"), nullable=True)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    bug_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 

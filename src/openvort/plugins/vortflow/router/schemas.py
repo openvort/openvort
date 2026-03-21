@@ -3,21 +3,29 @@ from pydantic import BaseModel
 
 class ProjectCreate(BaseModel):
     name: str
+    code: str = ""
+    color: str = "#3b82f6"
     description: str = ""
     product: str = ""
     iteration: str = ""
     version: str = ""
     start_date: str | None = None
     end_date: str | None = None
+    owner_id: str | None = None
+    member_ids: list[str] = []
+    repo_ids: list[str] = []
 
 class ProjectUpdate(BaseModel):
     name: str | None = None
+    code: str | None = None
+    color: str | None = None
     description: str | None = None
     product: str | None = None
     iteration: str | None = None
     version: str | None = None
     start_date: str | None = None
     end_date: str | None = None
+    owner_id: str | None = None
 
 class StoryCreate(BaseModel):
     project_id: str

@@ -42,6 +42,8 @@ const routes: RouteRecordRaw[] = [
                     { path: "tag-settings", redirect: "/vortflow/settings" },
                     { path: "status-settings", redirect: "/vortflow/settings" },
                     { path: "test-cases", name: "vortflow-test-cases", component: () => import("@/views/vortflow/TestCases.vue"), meta: { title: "测试用例" } },
+                    { path: "test-plans", name: "vortflow-test-plans", component: () => import("@/views/vortflow/TestPlans.vue"), meta: { title: "测试计划" } },
+                    { path: "test-plans/:id", name: "vortflow-test-plan-detail", component: () => import("@/views/vortflow/TestPlanDetail.vue"), meta: { title: "测试计划详情" } },
                     { path: "projects/:id", name: "vortflow-project-detail", component: () => import("@/views/vortflow/ProjectDetail.vue"), meta: { title: "项目详情" } },
                 ],
             },

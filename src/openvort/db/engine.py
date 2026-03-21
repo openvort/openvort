@@ -493,6 +493,64 @@ async def init_db(database_url: str) -> None:
             "CREATE INDEX IF NOT EXISTS ix_flow_tcwi_entity ON flow_test_case_work_items(entity_type, entity_id)"
         ))
 
+    # VortFlow: test plans / test plan cases / test plan executions
+    async with _engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS flow_test_plans (
+                id VARCHAR(32) PRIMARY KEY,
+                project_id VARCHAR(32) REFERENCES flow_projects(id),
+                title VARCHAR(500) NOT NULL,
+                description TEXT DEFAULT '',
+                status VARCHAR(32) DEFAULT 'in_progress',
+                owner_id VARCHAR(32),
+                iteration_id VARCHAR(32),
+                version_id VARCHAR(32),
+                start_date VARCHAR(20),
+                end_date VARCHAR(20),
+                created_at TIMESTAMP DEFAULT now(),
+                updated_at TIMESTAMP DEFAULT now()
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_flow_test_plans_project_id ON flow_test_plans(project_id)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_flow_test_plans_status ON flow_test_plans(status)"
+        ))
+
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS flow_test_plan_cases (
+                id VARCHAR(32) PRIMARY KEY,
+                plan_id VARCHAR(32) REFERENCES flow_test_plans(id),
+                test_case_id VARCHAR(32) REFERENCES flow_test_cases(id),
+                sort_order INTEGER DEFAULT 0,
+                created_by VARCHAR(32),
+                created_at TIMESTAMP DEFAULT now(),
+                CONSTRAINT uq_testplan_case UNIQUE (plan_id, test_case_id)
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_flow_tpc_plan_id ON flow_test_plan_cases(plan_id)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_flow_tpc_test_case_id ON flow_test_plan_cases(test_case_id)"
+        ))
+
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS flow_test_plan_executions (
+                id VARCHAR(32) PRIMARY KEY,
+                plan_case_id VARCHAR(32) REFERENCES flow_test_plan_cases(id),
+                result VARCHAR(32) NOT NULL,
+                executor_id VARCHAR(32),
+                notes TEXT DEFAULT '',
+                bug_id VARCHAR(32),
+                created_at TIMESTAMP DEFAULT now()
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_flow_tpe_plan_case_id ON flow_test_plan_executions(plan_case_id)"
+        ))
+
     # Group chat table (group-project binding)
     async with _engine.begin() as conn:
         await conn.execute(text("""
@@ -755,6 +813,15 @@ async def init_db(database_url: str) -> None:
     async with _engine.begin() as conn:
         await conn.execute(text(
             "ALTER TABLE IF EXISTS notifications ADD COLUMN IF NOT EXISTS data_json TEXT DEFAULT '{}'"
+        ))
+
+    # VortFlow: add code & color columns to flow_projects
+    async with _engine.begin() as conn:
+        await conn.execute(text(
+            "ALTER TABLE IF EXISTS flow_projects ADD COLUMN IF NOT EXISTS code VARCHAR(64) DEFAULT ''"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE IF EXISTS flow_projects ADD COLUMN IF NOT EXISTS color VARCHAR(32) DEFAULT '#3b82f6'"
         ))
 
     log.info(f"数据库已初始化: {database_url.split('://')[0]}")

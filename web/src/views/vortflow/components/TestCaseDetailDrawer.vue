@@ -22,9 +22,6 @@ const CASE_TYPE_LABELS: Record<string, string> = {
     security: "安全测试",
 };
 
-const REVIEW_LABELS: Record<string, string> = { pending: "待评审", passed: "通过", rejected: "不通过" };
-const REVIEW_COLORS: Record<string, string> = { pending: "default", passed: "green", rejected: "red" };
-
 interface CaseDetail {
     id: string;
     title: string;
@@ -35,7 +32,6 @@ interface CaseDetail {
     case_type: string;
     priority: number;
     maintainer_name: string;
-    review_result: string;
     steps: { order: number; description: string; expected_result: string }[];
     created_at: string;
     updated_at: string;
@@ -164,12 +160,6 @@ watch(() => props.open, (val) => {
 
                 <!-- Right Sidebar -->
                 <div class="tc-detail-sidebar">
-                    <div class="tc-detail-meta">
-                        <label>评审结果</label>
-                        <vort-tag :color="REVIEW_COLORS[detail.review_result] || 'default'" size="small">
-                            {{ REVIEW_LABELS[detail.review_result] || detail.review_result }}
-                        </vort-tag>
-                    </div>
                     <div class="tc-detail-meta">
                         <label>功能模块</label>
                         <span>{{ detail.module_name || "未分类" }}</span>

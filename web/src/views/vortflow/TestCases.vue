@@ -186,12 +186,11 @@ interface TestCaseItem {
     module_name: string;
     case_type: string;
     priority: number;
-    review_result: string;
     maintainer_name: string;
     created_at: string;
 }
 
-type FilterParams = { page: number; size: number; keyword: string; case_type: string; priority: string; review_result: string };
+type FilterParams = { page: number; size: number; keyword: string; case_type: string; priority: string };
 
 const CASE_TYPE_OPTIONS = [
     { label: "全部", value: "" },
@@ -210,18 +209,9 @@ const PRIORITY_OPTIONS = [
     { label: "P3", value: "3" },
 ];
 
-const REVIEW_OPTIONS = [
-    { label: "全部", value: "" },
-    { label: "待评审", value: "pending" },
-    { label: "通过", value: "passed" },
-    { label: "不通过", value: "rejected" },
-];
-
 const caseTypeLabel = (val: string) => CASE_TYPE_OPTIONS.find((o) => o.value === val)?.label || val;
 const priorityLabel = (val: number) => `P${val}`;
 const priorityColor = (val: number): string => ({ 0: "red", 1: "orange", 2: "blue", 3: "default" }[val] ?? "default");
-const reviewLabel = (val: string) => REVIEW_OPTIONS.find((o) => o.value === val)?.label || val;
-const reviewColor = (val: string): string => ({ pending: "default", passed: "green", rejected: "red" }[val] ?? "default");
 
 const fetchList = async (params: FilterParams) => {
     const apiParams: Record<string, any> = { page: params.page, page_size: params.size };
@@ -230,7 +220,6 @@ const fetchList = async (params: FilterParams) => {
     if (params.keyword) apiParams.keyword = params.keyword;
     if (params.case_type) apiParams.case_type = params.case_type;
     if (params.priority) apiParams.priority = parseInt(params.priority);
-    if (params.review_result) apiParams.review_result = params.review_result;
     const res = await getVortflowTestCases(apiParams);
     return { records: (res as any)?.items || [], total: (res as any)?.total || 0 };
 };
@@ -238,7 +227,7 @@ const fetchList = async (params: FilterParams) => {
 const { listData, loading, total, filterParams, showPagination, loadData, onSearchSubmit, resetParams } =
     useCrudPage<TestCaseItem, FilterParams>({
         api: fetchList,
-        defaultParams: { page: 1, size: 20, keyword: "", case_type: "", priority: "", review_result: "" },
+        defaultParams: { page: 1, size: 20, keyword: "", case_type: "", priority: "" },
     });
 
 // ============ Drawers ============
@@ -409,12 +398,6 @@ onMounted(() => { loadModules(); loadData(); });
                                 <vort-select-option v-for="opt in PRIORITY_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</vort-select-option>
                             </vort-select>
                         </div>
-                        <div class="flex items-center gap-2 w-full sm:w-auto">
-                            <span class="text-sm text-gray-500 whitespace-nowrap">评审</span>
-                            <vort-select v-model="filterParams.review_result" placeholder="全部" allow-clear class="flex-1 sm:w-[100px]" @change="onSearchSubmit">
-                                <vort-select-option v-for="opt in REVIEW_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</vort-select-option>
-                            </vort-select>
-                        </div>
                         <div class="flex items-center gap-2">
                             <vort-button variant="primary" @click="onSearchSubmit">查询</vort-button>
                             <vort-button @click="resetParams">重置</vort-button>
@@ -437,11 +420,6 @@ onMounted(() => { loadModules(); loadData(); });
                         <vort-table-column label="优先级" :width="80">
                             <template #default="{ row }">
                                 <vort-tag :color="priorityColor(row.priority)" size="small">{{ priorityLabel(row.priority) }}</vort-tag>
-                            </template>
-                        </vort-table-column>
-                        <vort-table-column label="评审结果" :width="100">
-                            <template #default="{ row }">
-                                <vort-tag :color="reviewColor(row.review_result)" size="small">{{ reviewLabel(row.review_result) }}</vort-tag>
                             </template>
                         </vort-table-column>
                         <vort-table-column label="维护人" prop="maintainer_name" :width="100" />

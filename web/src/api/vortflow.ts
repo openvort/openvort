@@ -16,11 +16,19 @@ export function getVortflowProject(id: string) {
     return request.get(`/vortflow/projects/${id}`);
 }
 
-export function createVortflowProject(data: { name: string; description?: string; product?: string; iteration?: string; version?: string; start_date?: string; end_date?: string }) {
+export function createVortflowProject(data: {
+    name: string; code?: string; color?: string; description?: string;
+    product?: string; start_date?: string; end_date?: string;
+    owner_id?: string; member_ids?: string[]; repo_ids?: string[];
+}) {
     return request.post("/vortflow/projects", data);
 }
 
-export function updateVortflowProject(id: string, data: { name?: string; description?: string; product?: string; iteration?: string; version?: string; start_date?: string; end_date?: string }) {
+export function updateVortflowProject(id: string, data: {
+    name?: string; code?: string; color?: string; description?: string;
+    product?: string; start_date?: string; end_date?: string;
+    owner_id?: string;
+}) {
     return request.put(`/vortflow/projects/${id}`, data);
 }
 
@@ -515,4 +523,89 @@ export function createVortflowTestCaseLink(data: {
 
 export function deleteVortflowTestCaseLink(linkId: string) {
     return request.delete(`/vortflow/test-case-links/${linkId}`);
+}
+
+// ---- Test Plans ----
+
+export function getVortflowTestPlans(params: {
+    project_id?: string;
+    status?: string;
+    keyword?: string;
+    page?: number;
+    page_size?: number;
+}) {
+    return request.get("/vortflow/test-plans", { params });
+}
+
+export function getVortflowTestPlan(id: string) {
+    return request.get(`/vortflow/test-plans/${id}`);
+}
+
+export function createVortflowTestPlan(data: {
+    project_id: string;
+    title: string;
+    description?: string;
+    status?: string;
+    owner_id?: string | null;
+    iteration_id?: string | null;
+    version_id?: string | null;
+    start_date?: string | null;
+    end_date?: string | null;
+}) {
+    return request.post("/vortflow/test-plans", data);
+}
+
+export function updateVortflowTestPlan(id: string, data: {
+    title?: string;
+    description?: string;
+    status?: string;
+    owner_id?: string | null;
+    iteration_id?: string | null;
+    version_id?: string | null;
+    start_date?: string | null;
+    end_date?: string | null;
+}) {
+    return request.put(`/vortflow/test-plans/${id}`, data);
+}
+
+export function deleteVortflowTestPlan(id: string) {
+    return request.delete(`/vortflow/test-plans/${id}`);
+}
+
+export function copyVortflowTestPlan(id: string) {
+    return request.post(`/vortflow/test-plans/${id}/copy`);
+}
+
+export function getVortflowTestPlanCases(planId: string, params?: {
+    module_id?: string;
+    keyword?: string;
+    case_type?: string;
+    priority?: string;
+    latest_result?: string;
+    sort_by?: string;
+    page?: number;
+    page_size?: number;
+}) {
+    return request.get(`/vortflow/test-plans/${planId}/cases`, { params });
+}
+
+export function addVortflowTestPlanCases(planId: string, data: { test_case_ids: string[] }) {
+    return request.post(`/vortflow/test-plans/${planId}/cases`, data);
+}
+
+export function removeVortflowTestPlanCase(planId: string, planCaseId: string) {
+    return request.delete(`/vortflow/test-plans/${planId}/cases/${planCaseId}`);
+}
+
+export function addVortflowTestPlanExecution(planId: string, planCaseId: string, data: {
+    result: string;
+    executor_id?: string | null;
+    notes?: string;
+    bug_id?: string | null;
+}) {
+    return request.post(`/vortflow/test-plans/${planId}/cases/${planCaseId}/executions`, data);
+}
+
+export function getVortflowTestPlanExecutions(planId: string, planCaseId: string) {
+    return request.get(`/vortflow/test-plans/${planId}/cases/${planCaseId}/executions`);
 }

@@ -18,6 +18,9 @@ from openvort.plugins.vortflow.models import (
     FlowTestCase,
     FlowTestCaseWorkItem,
     FlowTestModule,
+    FlowTestPlan,
+    FlowTestPlanCase,
+    FlowTestPlanExecution,
     FlowVersion,
     FlowVersionStory,
     FlowView,
@@ -60,7 +63,8 @@ def _parse_json_list(raw: str | None) -> list[str]:
 
 def _project_dict(r: FlowProject) -> dict:
     return {
-        "id": r.id, "name": r.name, "description": r.description,
+        "id": r.id, "name": r.name, "code": r.code, "color": r.color,
+        "description": r.description,
         "product": r.product, "iteration": r.iteration, "version": r.version,
         "owner_id": r.owner_id,
         "start_date": r.start_date.isoformat() if r.start_date else None,
@@ -220,6 +224,44 @@ def _test_case_dict(tc: FlowTestCase, *, maintainer_name: str = "", module_name:
         "steps": json.loads(tc.steps_json) if tc.steps_json else [],
         "created_at": tc.created_at.isoformat() if tc.created_at else None,
         "updated_at": tc.updated_at.isoformat() if tc.updated_at else None,
+    }
+
+
+def _test_plan_dict(
+    tp: FlowTestPlan,
+    *,
+    owner_name: str = "",
+    iteration_name: str = "",
+    version_name: str = "",
+    total_cases: int = 0,
+    executed_cases: int = 0,
+    passed: int = 0,
+    failed: int = 0,
+    blocked: int = 0,
+    skipped: int = 0,
+) -> dict:
+    return {
+        "id": tp.id,
+        "project_id": tp.project_id,
+        "title": tp.title,
+        "description": tp.description,
+        "status": tp.status,
+        "owner_id": tp.owner_id,
+        "owner_name": owner_name,
+        "iteration_id": tp.iteration_id,
+        "iteration_name": iteration_name,
+        "version_id": tp.version_id,
+        "version_name": version_name,
+        "start_date": tp.start_date,
+        "end_date": tp.end_date,
+        "total_cases": total_cases,
+        "executed_cases": executed_cases,
+        "passed": passed,
+        "failed": failed,
+        "blocked": blocked,
+        "skipped": skipped,
+        "created_at": tp.created_at.isoformat() if tp.created_at else None,
+        "updated_at": tp.updated_at.isoformat() if tp.updated_at else None,
     }
 
 

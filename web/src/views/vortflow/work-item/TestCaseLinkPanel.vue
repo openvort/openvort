@@ -18,7 +18,6 @@ const props = defineProps<Props>();
 
 const PRIORITY_LABELS: Record<number, string> = { 0: "P0", 1: "P1", 2: "P2", 3: "P3" };
 const PRIORITY_COLORS: Record<number, string> = { 0: "#ef4444", 1: "#f97316", 2: "#3b82f6", 3: "#94a3b8" };
-const REVIEW_LABELS: Record<string, string> = { pending: "待评审", passed: "通过", rejected: "不通过" };
 
 interface LinkedCase {
     link_id: string;
@@ -26,7 +25,6 @@ interface LinkedCase {
     title: string;
     priority: number;
     case_type: string;
-    review_result: string;
     maintainer: string;
 }
 
@@ -57,7 +55,6 @@ const loadLinks = async () => {
             title: item.test_case_title || "",
             priority: item.test_case_priority ?? 2,
             case_type: item.test_case_case_type || "",
-            review_result: item.test_case_review_result || "pending",
             maintainer: item.test_case_maintainer || "",
         }));
     } catch { linkedCases.value = []; }
@@ -171,7 +168,6 @@ watch(() => props.entityId, () => { adding.value = false; loadLinks(); }, { imme
                         {{ PRIORITY_LABELS[item.priority] || 'P2' }}
                     </span>
                     <span class="tcl-item-title">{{ item.title }}</span>
-                    <span class="tcl-item-review">{{ REVIEW_LABELS[item.review_result] || item.review_result }}</span>
                     <span class="tcl-item-maintainer">{{ item.maintainer }}</span>
                 </div>
                 <button type="button" class="tcl-remove-btn" title="取消关联" @click.stop="removeLink(item)">
@@ -260,10 +256,6 @@ watch(() => props.entityId, () => { adding.value = false; loadLinks(); }, { imme
 
 .tcl-item-title {
     flex: 1; font-size: 13px; color: var(--vort-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-
-.tcl-item-review {
-    flex-shrink: 0; font-size: 12px; color: var(--vort-text-secondary); padding: 1px 6px; border-radius: 4px; background: var(--vort-bg-secondary, #f5f5f5);
 }
 
 .tcl-item-maintainer {
