@@ -8,7 +8,7 @@ import {
     Home, BarChart2, FileText, FileBarChart, Table, File, AlertTriangle,
     CheckCircle, User, Settings, ChevronDown, PanelLeftClose, PanelLeftOpen,
     MessageSquare, Puzzle, Radio, Users, Clock, BookOpen, Webhook, GitBranch, Cpu,
-    Kanban, LayoutDashboard, ListChecks, CheckSquare, Bug, Milestone,
+    Kanban, LayoutDashboard, ListChecks, CheckSquare, Bug,
     Wrench, FolderGit2, Server, Shield, Sparkles, Library, Bot, Store, Bell,
     BookMarked, ExternalLink, HardDrive
 } from "lucide-vue-next";
@@ -82,7 +82,7 @@ const iconMap: Record<string, any> = {
     "message-square": MessageSquare, puzzle: Puzzle, radio: Radio, users: Users,
     clock: Clock, "book-open": BookOpen, webhook: Webhook, "git-branch": GitBranch, cpu: Cpu,
     kanban: Kanban, "layout-dashboard": LayoutDashboard, "list-checks": ListChecks,
-    "check-square": CheckSquare, bug: Bug, milestone: Milestone,
+    "check-square": CheckSquare, bug: Bug,
     wrench: Wrench, "folder-git-2": FolderGit2, server: Server, shield: Shield,
     sparkles: Sparkles, library: Library, bot: Bot, store: Store, bell: Bell,
     "book-marked": BookMarked, "external-link": ExternalLink, "hard-drive": HardDrive,

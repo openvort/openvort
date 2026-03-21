@@ -35,7 +35,6 @@ const SYSTEM_FIELDS: { key: string; title: string }[] = [
     { key: "planTime", title: "计划时间" },
     { key: "updatedAt", title: "更新时间" },
     { key: "repo", title: "关联仓库" },
-    { key: "milestone", title: "关联里程碑" },
     { key: "branch", title: "关联分支" },
     { key: "project", title: "关联项目" },
     { key: "version", title: "版本" },

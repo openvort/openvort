@@ -101,8 +101,6 @@ export interface RowItem {
     estimateHours?: number | string;
     loggedHours?: number | string;
     remainHours?: number | string;
-    milestoneId?: string;
-    milestone?: string;
     repoId?: string;
     repo?: string;
     branch?: string;

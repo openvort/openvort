@@ -156,8 +156,6 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
             estimateHours,
             loggedHours,
             remainHours,
-            milestoneId: item?.milestone_id ? String(item.milestone_id) : "",
-            milestone: item?.milestone_name ? String(item.milestone_name) : "",
             repoId: item?.repo_id ? String(item.repo_id) : "",
             repo: "",
             branch: item?.branch ? String(item.branch) : "",
@@ -303,9 +301,6 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
                 } else if (field === "version") {
                     const vals = fv.value as string[];
                     if (vals?.length && !vals.includes(row.version || "")) return false;
-                } else if (field === "milestone") {
-                    const vals = fv.value as string[];
-                    if (vals?.length && !vals.includes(row.milestone || "")) return false;
                 } else if (field === "creator") {
                     const vals = fv.value as string[];
                     if (vals?.length && !vals.includes(String(row.creator || "").trim())) return false;
@@ -380,9 +375,6 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
             } else if (field === "version") {
                 va = a.version || "";
                 vb = b.version || "";
-            } else if (field === "milestone") {
-                va = a.milestone || "";
-                vb = b.milestone || "";
             } else if (field === "creator") {
                 va = a.creator || "";
                 vb = b.creator || "";

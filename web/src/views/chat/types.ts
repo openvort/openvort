@@ -113,7 +113,7 @@ export interface Draft {
 }
 
 export interface HashTagCategory {
-    key: string;       // e.g. "bug", "task", "story", "milestone"
+    key: string;       // e.g. "bug", "task", "story"
     label: string;     // e.g. "#bug"
     description: string;
     icon?: string;

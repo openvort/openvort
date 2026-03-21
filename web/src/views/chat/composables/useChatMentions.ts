@@ -1,6 +1,6 @@
 import { ref, computed, watch, nextTick, type Ref } from "vue";
 import type { MentionMember, SlashCommand, HashTagCategory, HashTagItem } from "../types";
-import { getChatMembers, getVortflowBugs, getVortflowTasks, getVortflowStories, getVortflowMilestones } from "@/api";
+import { getChatMembers, getVortflowBugs, getVortflowTasks, getVortflowStories } from "@/api";
 import { pinyin } from "pinyin-pro";
 
 const slashCommands: SlashCommand[] = [
@@ -16,7 +16,6 @@ const allHashTagCategories: HashTagCategory[] = [
     { key: 'bug', label: '#bug', description: '缺陷跟踪', plugin: 'vortflow' },
     { key: 'task', label: '#task', description: '任务管理', plugin: 'vortflow' },
     { key: 'story', label: '#story', description: '需求列表', plugin: 'vortflow' },
-    { key: 'milestone', label: '#milestone', description: '里程碑', plugin: 'vortflow' },
 ];
 
 interface UseChatMentionsOptions {
@@ -325,12 +324,6 @@ export function useChatMentions(options: UseChatMentionsOptions) {
                     res = await getVortflowStories({ page: 1, page_size: 20 });
                     hashTagItems.value = (res?.items || res?.stories || []).map((s: any) => ({
                         id: s.id || s.story_id, title: s.title, state: s.state, priority: s.priority, category: 'story'
-                    }));
-                    break;
-                case 'milestone':
-                    res = await getVortflowMilestones({ page: 1, page_size: 20 });
-                    hashTagItems.value = (res?.items || res?.milestones || []).map((m: any) => ({
-                        id: m.id || m.milestone_id, title: m.name || m.title, state: m.status, category: 'milestone'
                     }));
                     break;
             }

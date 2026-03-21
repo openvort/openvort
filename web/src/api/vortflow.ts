@@ -191,32 +191,6 @@ export function deleteVortflowWorkItemLink(linkId: string) {
     return request.delete(`/vortflow/work-item-links/${linkId}`);
 }
 
-// ---- Milestones ----
-
-export function getVortflowMilestones(params: { project_id?: string; keyword?: string; page?: number; page_size?: number }) {
-    return request.get("/vortflow/milestones", { params });
-}
-
-export function getVortflowMilestone(id: string) {
-    return request.get(`/vortflow/milestones/${id}`);
-}
-
-export function createVortflowMilestone(data: { project_id: string; name: string; description?: string; due_date?: string; story_id?: string }) {
-    return request.post("/vortflow/milestones", data);
-}
-
-export function updateVortflowMilestone(id: string, data: { name?: string; description?: string; due_date?: string; completed_at?: string }) {
-    return request.put(`/vortflow/milestones/${id}`, data);
-}
-
-export function deleteVortflowMilestone(id: string) {
-    return request.delete(`/vortflow/milestones/${id}`);
-}
-
-export function completeVortflowMilestone(id: string) {
-    return request.post(`/vortflow/milestones/${id}/complete`);
-}
-
 // ---- Events ----
 
 export function getVortflowEvents(params: { entity_type?: string; entity_id?: string; page?: number; page_size?: number }) {

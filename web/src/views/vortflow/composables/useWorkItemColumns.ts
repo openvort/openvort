@@ -25,7 +25,6 @@ const ALL_COLUMN_DEFS: Array<ProTableColumn<RowItem> & { key: string }> = [
     { key: "version", title: "版本", dataIndex: "version", width: 120, align: "left", slot: "version" },
     { key: "estimateHours", title: "预估工时", dataIndex: "estimateHours", width: 100, sorter: true, align: "left", slot: "estimateHours" },
     { key: "repo", title: "关联仓库", dataIndex: "repo", width: 140, align: "left", slot: "repo" },
-    { key: "milestone", title: "关联里程碑", dataIndex: "milestone", width: 140, align: "left", slot: "milestone" },
     { key: "branch", title: "关联分支", dataIndex: "branch", width: 140, align: "left", slot: "branch" },
     { key: "project", title: "关联项目", dataIndex: "projectName", width: 140, sorter: true, align: "left", slot: "project" },
     { key: "startAt", title: "实际开始时间", dataIndex: "startAt", width: 150, align: "left", slot: "startAt" },

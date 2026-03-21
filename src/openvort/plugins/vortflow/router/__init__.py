@@ -6,7 +6,6 @@ from .projects import sub_router as projects_router
 from .stories import sub_router as stories_router
 from .tasks import sub_router as tasks_router
 from .bugs import sub_router as bugs_router
-from .milestones import sub_router as milestones_router
 from .iterations import sub_router as iterations_router
 from .versions import sub_router as versions_router
 from .views import sub_router as views_router
@@ -22,7 +21,6 @@ router.include_router(projects_router)
 router.include_router(stories_router)
 router.include_router(tasks_router)
 router.include_router(bugs_router)
-router.include_router(milestones_router)
 router.include_router(iterations_router)
 router.include_router(versions_router)
 router.include_router(views_router)
