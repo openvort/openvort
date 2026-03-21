@@ -4,13 +4,14 @@ import { useRoute, useRouter } from "vue-router";
 import {
     ArrowLeft, ArrowRight, Bug, Users, Plus,
     Trash2, FolderGit2, TerminalSquare, ExternalLink,
-    Repeat, User, Hash,
+    Repeat, User, Hash, Unlink,
 } from "lucide-vue-next";
 import {
     getVortflowProject, getVortflowStats, getVortflowStories,
     getVortflowTasks, getVortflowBugs, getVortflowProjectMembers,
     addVortflowProjectMember, removeVortflowProjectMember,
     getVortgitRepos, getVortgitCodeTasks, getVortflowIterations,
+    updateVortgitRepo,
 } from "@/api";
 import { useVortFlowStore } from "@/stores";
 import { useWorkItemCommon } from "./work-item/useWorkItemCommon";
@@ -239,6 +240,44 @@ const handleRemoveMember = async (memberId: string) => {
     await removeVortflowProjectMember(projectId.value, memberId);
     const res = await getVortflowProjectMembers(projectId.value);
     members.value = (res as any)?.items || [];
+};
+
+// Repo management
+const repoDialogVisible = ref(false);
+const allRepos = ref<any[]>([]);
+const selectedRepoIds = ref<string[]>([]);
+const addingRepos = ref(false);
+
+const linkableRepos = computed(() =>
+    allRepos.value.filter((r: any) => r.project_id !== projectId.value),
+);
+
+const openRepoDialog = async () => {
+    repoDialogVisible.value = true;
+    selectedRepoIds.value = [];
+    try {
+        const res = await getVortgitRepos({ page: 1, page_size: 200 });
+        allRepos.value = (res as any)?.items || [];
+    } catch { allRepos.value = []; }
+};
+
+const handleAddRepos = async () => {
+    if (selectedRepoIds.value.length === 0) return;
+    addingRepos.value = true;
+    try {
+        for (const rid of selectedRepoIds.value) {
+            await updateVortgitRepo(rid, { project_id: projectId.value });
+        }
+        repoDialogVisible.value = false;
+        const res = await getVortgitRepos({ project_id: projectId.value, page: 1, page_size: 20 });
+        repos.value = (res as any)?.items || [];
+    } finally { addingRepos.value = false; }
+};
+
+const handleUnlinkRepo = async (repoId: string) => {
+    await updateVortgitRepo(repoId, { project_id: "" });
+    const res = await getVortgitRepos({ project_id: projectId.value, page: 1, page_size: 20 });
+    repos.value = (res as any)?.items || [];
 };
 
 const codeTaskStatusColor = (s: string) => {
@@ -523,6 +562,40 @@ onBeforeUnmount(() => {
                     </vort-table>
                 </div>
 
+                <!-- Linked Repos -->
+                <div class="bg-white rounded-xl p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-base font-medium text-gray-800">
+                            <FolderGit2 :size="16" class="inline mr-1" /> 关联仓库
+                        </h3>
+                        <vort-button size="small" @click="openRepoDialog">
+                            <Plus :size="12" class="mr-1" /> 关联仓库
+                        </vort-button>
+                    </div>
+                    <div v-if="repos.length === 0" class="text-sm text-gray-400 py-4 text-center">暂无关联仓库</div>
+                    <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        <div v-for="r in repos" :key="r.id" class="border border-gray-100 rounded-lg p-3 hover:shadow-sm transition-shadow group relative">
+                            <div class="flex items-start justify-between mb-1">
+                                <h4 class="text-sm font-medium text-gray-800 truncate flex-1">{{ r.name }}</h4>
+                                <div class="flex items-center gap-1.5">
+                                    <vort-tag v-if="r.is_private" size="small" color="default">私有</vort-tag>
+                                    <vort-popconfirm title="取消关联该仓库？" @confirm="handleUnlinkRepo(r.id)">
+                                        <a class="text-gray-300 hover:text-red-500 cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <Unlink :size="13" />
+                                        </a>
+                                    </vort-popconfirm>
+                                </div>
+                            </div>
+                            <p class="text-xs text-gray-400 truncate mb-2">{{ r.full_name }}</p>
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <vort-tag v-if="r.language" size="small" color="processing">{{ r.language }}</vort-tag>
+                                <vort-tag size="small" :color="repoTypeColorMap[r.repo_type] || 'default'">{{ repoTypeLabels[r.repo_type] || r.repo_type }}</vort-tag>
+                                <span class="text-xs text-gray-400">{{ r.default_branch }}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Members -->
                 <div class="bg-white rounded-xl p-6">
                     <div class="flex items-center justify-between mb-4">
@@ -534,25 +607,24 @@ onBeforeUnmount(() => {
                         </vort-button>
                     </div>
                     <div v-if="members.length === 0" class="text-sm text-gray-400 py-4 text-center">暂无成员</div>
-                    <div v-else class="space-y-2">
-                        <div v-for="m in members" :key="m.id" class="flex items-center justify-between py-2.5 px-3 rounded-lg hover:bg-gray-50">
-                            <div class="flex items-center gap-3">
-                                <div class="w-8 h-8 rounded-full flex items-center justify-center text-sm text-white font-medium"
-                                    :style="{ backgroundColor: getAvatarBg(getMemberNameById(m.member_id) || m.member_id) }">
-                                    <img v-if="getMemberAvatarUrl(getMemberNameById(m.member_id) || m.member_id)"
-                                        :src="getMemberAvatarUrl(getMemberNameById(m.member_id) || m.member_id)"
-                                        class="w-full h-full rounded-full object-cover" />
-                                    <template v-else>{{ getAvatarLabel(getMemberNameById(m.member_id) || m.member_id) }}</template>
-                                </div>
-                                <div>
-                                    <span class="text-sm text-gray-800">{{ getMemberNameById(m.member_id) || m.member_id }}</span>
-                                    <vort-tag size="small" class="ml-2" :color="roleColorMap[m.role] || 'default'">
-                                        {{ roleLabels[m.role] || m.role }}
-                                    </vort-tag>
-                                </div>
+                    <div v-else class="flex flex-wrap gap-2">
+                        <div v-for="m in members" :key="m.id"
+                            class="flex items-center gap-2 pl-1 pr-2 py-1 rounded-full bg-gray-50 hover:bg-gray-100 transition-colors group">
+                            <div class="w-7 h-7 rounded-full flex items-center justify-center text-xs text-white font-medium flex-shrink-0"
+                                :style="{ backgroundColor: getAvatarBg(getMemberNameById(m.member_id) || m.member_id) }">
+                                <img v-if="getMemberAvatarUrl(getMemberNameById(m.member_id) || m.member_id)"
+                                    :src="getMemberAvatarUrl(getMemberNameById(m.member_id) || m.member_id)"
+                                    class="w-full h-full rounded-full object-cover" />
+                                <template v-else>{{ getAvatarLabel(getMemberNameById(m.member_id) || m.member_id) }}</template>
                             </div>
+                            <span class="text-sm text-gray-700">{{ getMemberNameById(m.member_id) || m.member_id }}</span>
+                            <vort-tag size="small" :color="roleColorMap[m.role] || 'default'">
+                                {{ roleLabels[m.role] || m.role }}
+                            </vort-tag>
                             <vort-popconfirm title="确认移除该成员？" @confirm="handleRemoveMember(m.member_id)">
-                                <a class="text-sm text-red-500 cursor-pointer"><Trash2 :size="14" /></a>
+                                <a class="text-gray-300 hover:text-red-500 cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <Trash2 :size="12" />
+                                </a>
                             </vort-popconfirm>
                         </div>
                     </div>
@@ -733,6 +805,36 @@ onBeforeUnmount(() => {
                     <vort-button @click="memberDialogVisible = false">取消</vort-button>
                     <vort-button variant="primary" :disabled="selectedMemberNames.length === 0" :loading="addingMembers" @click="handleAddMember">
                         确定{{ selectedMemberNames.length > 0 ? `（${selectedMemberNames.length}人）` : '' }}
+                    </vort-button>
+                </div>
+            </template>
+        </vort-dialog>
+
+        <!-- Add Repo Dialog -->
+        <vort-dialog :open="repoDialogVisible" title="关联仓库" :width="520" @update:open="v => { repoDialogVisible = v; }">
+            <div class="space-y-3">
+                <span class="text-sm text-gray-600">选择要关联到本项目的仓库</span>
+                <vort-select
+                    v-model="selectedRepoIds"
+                    mode="multiple"
+                    placeholder="请选择仓库"
+                    class="w-full"
+                    :allow-clear="true"
+                    :max-tag-count="3"
+                >
+                    <vort-select-option v-for="repo in linkableRepos" :key="repo.id" :value="repo.id">
+                        <div class="flex items-center justify-between w-full">
+                            <span class="truncate">{{ repo.full_name || repo.name }}</span>
+                            <span class="text-xs text-gray-400 ml-2 flex-shrink-0">{{ repo.is_private ? '私有' : '公开' }}</span>
+                        </div>
+                    </vort-select-option>
+                </vort-select>
+            </div>
+            <template #footer>
+                <div class="flex justify-end gap-3">
+                    <vort-button @click="repoDialogVisible = false">取消</vort-button>
+                    <vort-button variant="primary" :disabled="selectedRepoIds.length === 0" :loading="addingRepos" @click="handleAddRepos">
+                        确定{{ selectedRepoIds.length > 0 ? `（${selectedRepoIds.length}个）` : '' }}
                     </vort-button>
                 </div>
             </template>

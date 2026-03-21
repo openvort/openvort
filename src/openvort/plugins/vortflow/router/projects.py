@@ -96,8 +96,15 @@ async def create_project(body: ProjectCreate):
         session.add(p)
         await session.flush()
 
+        added_member_ids: set[str] = set()
+        if body.owner_id:
+            session.add(FlowProjectMember(project_id=p.id, member_id=body.owner_id, role="owner"))
+            added_member_ids.add(body.owner_id)
+
         for mid in body.member_ids:
-            session.add(FlowProjectMember(project_id=p.id, member_id=mid, role="member"))
+            if mid not in added_member_ids:
+                session.add(FlowProjectMember(project_id=p.id, member_id=mid, role="member"))
+                added_member_ids.add(mid)
 
         if body.repo_ids:
             await session.execute(
@@ -125,8 +132,33 @@ async def update_project(project_id: str, body: ProjectUpdate):
                 changes[field] = val
                 setattr(p, field, val)
         if body.owner_id is not None:
-            p.owner_id = body.owner_id or None
+            old_owner_id = p.owner_id
+            new_owner_id = body.owner_id or None
+            p.owner_id = new_owner_id
             changes["owner_id"] = body.owner_id
+
+            if old_owner_id and old_owner_id != new_owner_id:
+                await session.execute(
+                    sa_update(FlowProjectMember)
+                    .where(FlowProjectMember.project_id == project_id,
+                           FlowProjectMember.member_id == old_owner_id,
+                           FlowProjectMember.role == "owner")
+                    .values(role="member")
+                )
+
+            if new_owner_id:
+                existing = (await session.execute(
+                    select(FlowProjectMember).where(
+                        FlowProjectMember.project_id == project_id,
+                        FlowProjectMember.member_id == new_owner_id,
+                    )
+                )).scalar_one_or_none()
+                if existing:
+                    existing.role = "owner"
+                else:
+                    session.add(FlowProjectMember(
+                        project_id=project_id, member_id=new_owner_id, role="owner"))
+
         if body.start_date is not None:
             p.start_date = _parse_dt(body.start_date)
             changes["start_date"] = body.start_date
@@ -177,6 +209,21 @@ async def add_project_member(project_id: str, body: ProjectMemberBody):
             return {"error": "成员已存在"}
         m = FlowProjectMember(project_id=project_id, member_id=body.member_id, role=body.role)
         session.add(m)
+
+        if body.role == "owner":
+            p = await session.get(FlowProject, project_id)
+            if p:
+                old_owner_id = p.owner_id
+                p.owner_id = body.member_id
+                if old_owner_id and old_owner_id != body.member_id:
+                    await session.execute(
+                        sa_update(FlowProjectMember)
+                        .where(FlowProjectMember.project_id == project_id,
+                               FlowProjectMember.member_id == old_owner_id,
+                               FlowProjectMember.role == "owner")
+                        .values(role="member")
+                    )
+
         await _log_event(session, "project", project_id, "member_added",
                          {"member_id": body.member_id, "role": body.role})
         await session.commit()

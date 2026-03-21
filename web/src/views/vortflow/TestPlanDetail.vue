@@ -3,7 +3,7 @@ import { ref, computed, watch, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
     Plus, Search, ChevronRight, ChevronDown, FolderOpen, Folder,
-    Ellipsis, CheckCircle, XCircle, AlertCircle, SkipForward, Bug,
+    Ellipsis, CheckCircle, XCircle, AlertCircle, SkipForward, Bug, ChevronsUpDown,
 } from "lucide-vue-next";
 import { message, Dropdown, DropdownMenuItem } from "@/components/vort";
 import { useVortFlowStore } from "@/stores";
@@ -22,6 +22,7 @@ import {
     getVortflowVersions,
     createVortflowBug,
     createVortflowTestCaseLink,
+    getVortflowTestPlans,
 } from "@/api";
 import type { NewBugForm } from "@/components/vort-biz/work-item/WorkItemTable.types";
 
@@ -87,6 +88,35 @@ const loadPlan = async () => {
         plan.value = res;
     } finally {
         planLoading.value = false;
+    }
+};
+
+// ============ Plan Switcher ============
+
+const planSwitcherOpen = ref(false);
+const planSwitcherSearch = ref("");
+const planSwitcherList = ref<{ id: string; title: string; status: string }[]>([]);
+
+const filteredPlanList = computed(() => {
+    const kw = planSwitcherSearch.value.trim().toLowerCase();
+    if (!kw) return planSwitcherList.value;
+    return planSwitcherList.value.filter(p => p.title.toLowerCase().includes(kw));
+});
+
+const loadPlanSwitcherList = async () => {
+    const projectId = plan.value?.project_id;
+    if (!projectId) return;
+    const res = await getVortflowTestPlans({ project_id: projectId, page_size: 100 });
+    planSwitcherList.value = ((res as any).items || []).map((p: any) => ({
+        id: p.id, title: p.title, status: p.status,
+    }));
+};
+
+const handleSwitchPlan = (id: string) => {
+    planSwitcherOpen.value = false;
+    planSwitcherSearch.value = "";
+    if (id !== planId.value) {
+        router.push(`/vortflow/test-plans/${id}`);
     }
 };
 
@@ -384,7 +414,7 @@ const verStageLabels: Record<string, string> = { dev: "开发环境", staging: "
 onMounted(async () => {
     await loadMemberOptions();
     await loadPlan();
-    await Promise.all([loadModules(), loadCases(), loadLinkOptions()]);
+    await Promise.all([loadModules(), loadCases(), loadLinkOptions(), loadPlanSwitcherList()]);
 });
 
 watch(planId, async () => {
@@ -399,7 +429,40 @@ watch(planId, async () => {
         <div class="bg-white rounded-xl p-6">
             <vort-spin :spinning="planLoading">
                 <div class="flex items-start justify-between mb-3">
-                    <h2 class="text-lg font-semibold text-gray-800">{{ plan.title }}</h2>
+                    <Dropdown v-model:open="planSwitcherOpen" trigger="click">
+                        <h2 class="text-lg font-semibold text-gray-800 inline-flex items-center gap-1 cursor-pointer hover:text-blue-600 transition-colors">
+                            {{ plan.title }}
+                            <ChevronsUpDown :size="16" class="text-gray-400" />
+                        </h2>
+                        <template #overlay>
+                            <div class="p-2 w-[280px]">
+                                <vort-input-search
+                                    v-model="planSwitcherSearch"
+                                    placeholder="搜索测试计划..."
+                                    allow-clear
+                                    size="small"
+                                    class="mb-2"
+                                />
+                                <div class="max-h-[300px] overflow-y-auto">
+                                    <div
+                                        v-for="item in filteredPlanList"
+                                        :key="item.id"
+                                        class="px-3 py-2 text-sm cursor-pointer rounded hover:bg-gray-50 flex items-center justify-between"
+                                        :class="item.id === planId ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-700'"
+                                        @click="handleSwitchPlan(item.id)"
+                                    >
+                                        <span class="truncate mr-2">{{ item.title }}</span>
+                                        <vort-tag :color="statusColorMap[item.status] || 'default'" size="small">
+                                            {{ statusLabels[item.status] || item.status }}
+                                        </vort-tag>
+                                    </div>
+                                    <div v-if="!filteredPlanList.length" class="px-3 py-4 text-sm text-gray-400 text-center">
+                                        无匹配项
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </Dropdown>
                     <div class="flex items-center gap-2">
                         <vort-button v-if="plan.status !== 'completed'" @click="handleFinishPlan">结束测试计划</vort-button>
                         <Dropdown trigger="click" placement="bottomRight">

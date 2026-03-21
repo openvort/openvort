@@ -7,7 +7,7 @@ import {
     generateSkillContentPrompt,
 } from "@/api";
 import { message, dialog } from "@/components/vort";
-import { Plus, Trash2, Save, BookOpen, Bot, X, Tag, Search } from "lucide-vue-next";
+import { Plus, Trash2, Save, BookOpen, Bot, X, Tag, Search, Info, ArrowUpDown } from "lucide-vue-next";
 
 const router = useRouter();
 
@@ -22,10 +22,12 @@ interface SkillItem {
     content?: string;
 }
 
-// ---- Tag system ----
+// ---- Filters ----
 const allTags = ref<string[]>([]);
 const selectedTags = ref<string[]>([]);
 const searchKeyword = ref("");
+const selectedScope = ref("");
+const sortBy = ref<"name" | "scope">("name");
 
 async function loadTags() {
     try {
@@ -51,8 +53,25 @@ function clearTags() {
 const skills = ref<SkillItem[]>([]);
 const loading = ref(false);
 
+const scopeOptions = [
+    { label: "全部", value: "" },
+    { label: "内置", value: "builtin" },
+    { label: "公共", value: "public" },
+    { label: "市场", value: "marketplace" },
+];
+
+function scopeCount(scope: string): number {
+    if (!scope) return skills.value.length;
+    return skills.value.filter(s => s.scope === scope).length;
+}
+
+const SCOPE_ORDER: Record<string, number> = { builtin: 0, public: 1, marketplace: 2, personal: 3 };
+
 const filteredSkills = computed(() => {
     let list = skills.value;
+    if (selectedScope.value) {
+        list = list.filter(s => s.scope === selectedScope.value);
+    }
     if (selectedTags.value.length > 0) {
         list = list.filter(s =>
             s.tags && s.tags.some(t => selectedTags.value.includes(t))
@@ -65,8 +84,17 @@ const filteredSkills = computed(() => {
             (s.description || "").toLowerCase().includes(kw)
         );
     }
-    return list;
+    const sorted = [...list];
+    if (sortBy.value === "name") {
+        sorted.sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
+    } else {
+        sorted.sort((a, b) => (SCOPE_ORDER[a.scope] ?? 9) - (SCOPE_ORDER[b.scope] ?? 9));
+    }
+    return sorted;
 });
+
+const hasFilter = computed(() => !!searchKeyword.value || selectedTags.value.length > 0 || !!selectedScope.value);
+const enabledCount = computed(() => skills.value.filter(s => s.enabled).length);
 
 async function loadSkills() {
     loading.value = true;
@@ -155,7 +183,7 @@ async function handleSaveDrawer() {
     finally { saving.value = false; }
 }
 
-function handleDeletePublic(skill: SkillItem) {
+function handleDeleteSkill(skill: SkillItem) {
     dialog.confirm({
         title: `确认删除「${skill.name}」？`,
         content: "删除后不可恢复",
@@ -264,6 +292,20 @@ function scopeColor(scope: string): string {
     return "purple";
 }
 
+const SCOPE_BG: Record<string, string> = {
+    builtin: "bg-blue-500",
+    public: "bg-emerald-500",
+    marketplace: "bg-cyan-500",
+    personal: "bg-purple-500",
+};
+
+function scopeBgClass(scope: string): string {
+    return SCOPE_BG[scope] || "bg-gray-400";
+}
+
+const isEditable = (scope: string) => scope !== "builtin";
+const isDeletable = (scope: string) => scope === "public" || scope === "marketplace";
+
 onMounted(() => { loadSkills(); loadTags(); });
 
 </script>
@@ -272,21 +314,61 @@ onMounted(() => { loadSkills(); loadTags(); });
     <div class="space-y-4">
         <div class="bg-white rounded-xl p-6">
             <!-- Header -->
-            <div class="flex items-center justify-between mb-5">
+            <div class="flex items-center justify-between mb-2">
                 <div class="flex items-center gap-2">
                     <BookOpen :size="18" class="text-blue-600" />
                     <h3 class="text-base font-medium text-gray-800">技能库</h3>
                     <span class="text-xs text-gray-400">管理所有技能，启用的技能对全局 AI 对话生效</span>
                 </div>
+                <VortButton variant="primary" size="small" @click="openCreateDialog">
+                    <Plus :size="14" class="mr-1" /> 新建技能
+                </VortButton>
+            </div>
+
+            <!-- Stats -->
+            <div class="flex items-center gap-3 mb-5 text-xs">
+                <span class="text-gray-400">共 {{ skills.length }} 个技能</span>
+                <span class="text-emerald-500">{{ enabledCount }} 个已启用</span>
+            </div>
+
+            <!-- Scope filter + Sort + Search -->
+            <div class="flex items-center justify-between gap-4 mb-3">
+                <div class="flex items-center gap-1 bg-gray-50 rounded-lg p-0.5">
+                    <button
+                        v-for="opt in scopeOptions" :key="opt.value"
+                        class="px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+                        :class="selectedScope === opt.value
+                            ? 'bg-white text-gray-800 shadow-sm'
+                            : 'text-gray-500 hover:text-gray-700'"
+                        @click="selectedScope = opt.value"
+                    >{{ opt.label }}<span class="ml-1 text-[10px] text-gray-400">{{ scopeCount(opt.value) }}</span></button>
+                </div>
                 <div class="flex items-center gap-2">
-                    <VortButton variant="primary" size="small" @click="openCreateDialog">
-                        <Plus :size="14" class="mr-1" /> 新建技能
-                    </VortButton>
+                    <VortTooltip title="切换排序方式">
+                        <button
+                            class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs text-gray-500 hover:bg-gray-50 transition-colors whitespace-nowrap flex-shrink-0"
+                            @click="sortBy = sortBy === 'name' ? 'scope' : 'name'"
+                        >
+                            <ArrowUpDown :size="13" />
+                            {{ sortBy === 'name' ? '按名称' : '按来源' }}
+                        </button>
+                    </VortTooltip>
+                    <VortInput
+                        v-model="searchKeyword"
+                        size="small"
+                        allow-clear
+                        placeholder="搜索技能..."
+                        class="w-[200px]"
+                    >
+                        <template #prefix>
+                            <Search :size="14" class="text-gray-400" />
+                        </template>
+                    </VortInput>
                 </div>
             </div>
 
             <!-- Tag filter bar -->
-            <div class="flex items-center gap-2 mb-4 flex-wrap">
+            <div v-if="allTags.length" class="flex items-center gap-2 mb-4 flex-wrap">
                 <Tag :size="14" class="text-gray-400 flex-shrink-0" />
                 <button
                     class="px-2.5 py-1 rounded-full text-xs font-medium transition-colors"
@@ -303,45 +385,55 @@ onMounted(() => { loadSkills(); loadTags(); });
                         : 'bg-gray-100 text-gray-500 hover:bg-gray-200'"
                     @click="toggleTag(tag)"
                 >{{ tag }}</button>
-
-                <div class="ml-auto flex-shrink-0">
-                    <VortInput
-                        v-model="searchKeyword"
-                        size="small"
-                        allow-clear
-                        placeholder="搜索技能..."
-                        class="w-[180px]"
-                    >
-                        <template #prefix>
-                            <Search :size="14" class="text-gray-400" />
-                        </template>
-                    </VortInput>
-                </div>
             </div>
 
             <!-- Skills grid -->
             <VortSpin :spinning="loading">
-                <div v-if="filteredSkills.length === 0 && !loading" class="text-center py-12 text-gray-400 text-sm">
-                    {{ searchKeyword || selectedTags.length ? '没有匹配的技能' : '暂无技能' }}
+                <!-- Empty state -->
+                <div v-if="filteredSkills.length === 0 && !loading" class="flex flex-col items-center justify-center py-16">
+                    <BookOpen :size="48" class="text-gray-200 mb-4" />
+                    <p class="text-sm text-gray-400 mb-1">
+                        {{ hasFilter ? '没有匹配的技能' : '暂无技能' }}
+                    </p>
+                    <p v-if="!hasFilter" class="text-xs text-gray-300 mb-4">
+                        技能可以让 AI 获得特定领域的知识和工作流程
+                    </p>
+                    <VortButton v-if="!hasFilter" variant="primary" size="small" @click="openCreateDialog">
+                        <Plus :size="14" class="mr-1" /> 创建第一个技能
+                    </VortButton>
                 </div>
 
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                <!-- Match count hint -->
+                <div v-if="hasFilter && filteredSkills.length > 0" class="text-xs text-gray-400 mb-3">
+                    找到 {{ filteredSkills.length }} 个技能
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                     <div v-for="skill in filteredSkills" :key="skill.id"
-                        class="flex flex-col px-4 py-3 rounded-lg border border-gray-100 hover:border-[var(--vort-primary,#1456f0)] hover:shadow-sm transition-all cursor-pointer"
+                        class="group flex flex-col p-4 rounded-xl border transition-all cursor-pointer"
+                        :class="skill.enabled
+                            ? 'border-gray-100 hover:border-blue-200 hover:shadow-md bg-white'
+                            : 'border-gray-100 bg-gray-50/50 opacity-55 hover:opacity-80 hover:shadow-sm'"
                         @click="openDrawer(skill)">
-                        <div class="flex items-start justify-between">
-                            <div class="min-w-0 flex-1">
-                                <div class="text-sm font-medium text-gray-800 truncate">{{ skill.name }}</div>
-                                <div class="text-xs text-gray-400 truncate mt-0.5">{{ skill.description || '暂无描述' }}</div>
+                        <div class="flex items-start gap-3">
+                            <div class="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 text-xs font-bold text-white"
+                                :class="scopeBgClass(skill.scope)">
+                                {{ skill.name.charAt(0) }}
                             </div>
-                            <div class="flex items-center gap-2 flex-shrink-0 ml-3" @click.stop>
-                                <VortTag :color="scopeColor(skill.scope)" size="small">{{ scopeLabel(skill.scope) }}</VortTag>
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-sm font-semibold text-gray-800 truncate">{{ skill.name }}</span>
+                                    <VortTag :color="scopeColor(skill.scope)" size="small">{{ scopeLabel(skill.scope) }}</VortTag>
+                                </div>
+                                <div class="text-xs text-gray-400 line-clamp-2 mt-1 leading-relaxed">{{ skill.description || '暂无描述' }}</div>
+                            </div>
+                            <div class="flex-shrink-0" @click.stop>
                                 <VortSwitch :checked="skill.enabled" size="small" @change="handleToggle(skill)" />
                             </div>
                         </div>
-                        <div v-if="skill.tags?.length" class="flex flex-wrap gap-1 mt-2">
+                        <div v-if="skill.tags?.length" class="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-gray-100/60">
                             <span v-for="tag in skill.tags" :key="tag"
-                                class="px-1.5 py-0.5 rounded text-[10px] bg-gray-100 text-gray-500">{{ tag }}</span>
+                                class="px-2 py-0.5 rounded-md text-[11px] bg-gray-50 text-gray-500 group-hover:bg-gray-100 transition-colors">{{ tag }}</span>
                         </div>
                     </div>
                 </div>
@@ -352,9 +444,15 @@ onMounted(() => { loadSkills(); loadTags(); });
         <VortDrawer :open="drawerOpen" :title="drawerSkill?.name || '技能详情'" :width="640" @update:open="drawerOpen = $event">
             <VortSpin :spinning="drawerLoading">
                 <div v-if="drawerSkill" class="space-y-4">
+                    <div v-if="drawerSkill.scope === 'builtin'"
+                        class="flex items-center gap-2 px-3 py-2.5 bg-blue-50 rounded-lg text-xs text-blue-600">
+                        <Info :size="14" class="flex-shrink-0" />
+                        内置技能不可编辑，如需自定义请创建新的公共技能
+                    </div>
+
                     <VortForm label-width="80px">
                         <VortFormItem label="名称">
-                            <VortInput v-model="drawerSkill.name" :disabled="drawerSkill.scope === 'builtin'" />
+                            <VortInput v-model="drawerSkill.name" :disabled="!isEditable(drawerSkill.scope)" />
                         </VortFormItem>
                         <VortFormItem label="来源">
                             <VortTag :color="scopeColor(drawerSkill.scope)">
@@ -370,7 +468,7 @@ onMounted(() => { loadSkills(); loadTags(); });
                                         :class="drawerSkill.tags.includes(tag)
                                             ? 'bg-blue-100 text-blue-700 ring-1 ring-blue-200'
                                             : 'bg-gray-50 text-gray-500 hover:bg-gray-100'"
-                                        :disabled="drawerSkill.scope === 'builtin'"
+                                        :disabled="!isEditable(drawerSkill.scope)"
                                         @click="toggleDrawerTag(tag)"
                                     >{{ tag }}</button>
                                 </div>
@@ -378,7 +476,7 @@ onMounted(() => { loadSkills(); loadTags(); });
                                     <span v-for="tag in drawerSkill.tags.filter(t => !allTags.includes(t))" :key="tag"
                                         class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 text-xs">
                                         {{ tag }}
-                                        <button v-if="drawerSkill.scope !== 'builtin'"
+                                        <button v-if="isEditable(drawerSkill.scope)"
                                             class="text-blue-400 hover:text-red-500"
                                             @click="removeTagFromDrawer(tag)">
                                             <X :size="10" />
@@ -386,7 +484,7 @@ onMounted(() => { loadSkills(); loadTags(); });
                                     </span>
                                 </div>
                                 <VortInput
-                                    v-if="drawerSkill.scope !== 'builtin'"
+                                    v-if="isEditable(drawerSkill.scope)"
                                     v-model="tagInput"
                                     placeholder="输入自定义标签，回车添加"
                                     @press-enter="() => addTagToDrawer()"
@@ -394,10 +492,10 @@ onMounted(() => { loadSkills(); loadTags(); });
                             </div>
                         </VortFormItem>
                         <VortFormItem label="描述">
-                            <VortInput v-model="drawerSkill.description" :disabled="drawerSkill.scope === 'builtin'" placeholder="Skill 描述" />
+                            <VortInput v-model="drawerSkill.description" :disabled="!isEditable(drawerSkill.scope)" placeholder="Skill 描述" />
                         </VortFormItem>
                         <VortFormItem label="内容">
-                            <VortTextarea v-model="drawerSkill.content" :disabled="drawerSkill.scope === 'builtin'"
+                            <VortTextarea v-model="drawerSkill.content" :disabled="!isEditable(drawerSkill.scope)"
                                 placeholder="Markdown 格式的 Skill 内容" :rows="16"
                                 style="font-family: monospace; font-size: 13px;" />
                         </VortFormItem>
@@ -407,13 +505,13 @@ onMounted(() => { loadSkills(); loadTags(); });
             <template #footer>
                 <div class="flex items-center justify-between w-full">
                     <div>
-                        <VortButton v-if="drawerSkill?.scope === 'public'" danger @click="handleDeletePublic(drawerSkill!)">
+                        <VortButton v-if="drawerSkill && isDeletable(drawerSkill.scope)" danger @click="handleDeleteSkill(drawerSkill!)">
                             <Trash2 :size="14" class="mr-1" /> 删除
                         </VortButton>
                     </div>
                     <div class="flex items-center gap-2">
                         <VortButton @click="drawerOpen = false">关闭</VortButton>
-                        <VortButton v-if="drawerSkill?.scope !== 'builtin'" variant="primary" :loading="saving" @click="handleSaveDrawer">
+                        <VortButton v-if="drawerSkill && isEditable(drawerSkill.scope)" variant="primary" :loading="saving" @click="handleSaveDrawer">
                             <Save :size="14" class="mr-1" /> 保存
                         </VortButton>
                     </div>
