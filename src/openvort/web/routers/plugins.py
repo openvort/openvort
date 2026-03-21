@@ -51,7 +51,14 @@ async def list_plugins():
     result = []
     for p in plugins:
         db_config = await _get_plugin_config(p.name)
-        enabled = db_config.enabled if db_config else True
+        disabled_in_registry = registry.is_plugin_disabled(p.name)
+
+        if db_config:
+            installed = db_config.enabled
+        else:
+            installed = not disabled_in_registry
+
+        enabled = installed and not disabled_in_registry
         tools = [{"name": t.name, "description": t.description} for t in p.get_tools()]
         result.append({
             "name": p.name,
@@ -60,9 +67,9 @@ async def list_plugins():
             "version": p.version,
             "source": p.source,
             "core": p.core,
-            "status": "ready",
+            "status": "ready" if enabled else ("needs_config" if installed else "disabled"),
             "enabled": enabled,
-            "installed": enabled,
+            "installed": installed,
             "has_config": len(p.get_config_schema()) > 0,
             "tools": tools,
         })
@@ -191,7 +198,14 @@ async def get_plugin_detail(name: str):
         raise HTTPException(status_code=404, detail=f"插件 '{name}' 不存在")
 
     db_config = await _get_plugin_config(name)
-    enabled = db_config.enabled if db_config else True
+    disabled_in_registry = registry.is_plugin_disabled(name)
+
+    if db_config:
+        installed = db_config.enabled
+    else:
+        installed = not disabled_in_registry
+
+    enabled = installed and not disabled_in_registry
     tools = [{"name": t.name, "description": t.description} for t in plugin.get_tools()]
 
     return {
@@ -201,9 +215,9 @@ async def get_plugin_detail(name: str):
         "version": plugin.version,
         "source": plugin.source,
         "core": plugin.core,
-        "status": "ready",
+        "status": "ready" if enabled else ("needs_config" if installed else "disabled"),
         "enabled": enabled,
-        "installed": enabled,
+        "installed": installed,
         "config_schema": plugin.get_config_schema(),
         "config": plugin.get_current_config(),
         "tools": tools,
@@ -257,7 +271,14 @@ async def update_plugin(name: str, req: UpdatePluginRequest):
             config_row.config_data = json.dumps(full_config)
         await session.commit()
 
-    return {"success": True}
+    # 配置更新后，如果插件处于 disabled 状态且凭证现在有效，自动启用
+    enabled = False
+    if registry.is_plugin_disabled(name) and plugin.validate_credentials():
+        registry.enable_plugin(name)
+        enabled = True
+        log.info(f"Plugin '{name}' 配置更新后已自动启用")
+
+    return {"success": True, "enabled": enabled}
 
 
 @router.post("/{name}/install")
@@ -281,8 +302,11 @@ async def install_plugin_action(name: str):
             config_row.enabled = True
         await session.commit()
 
-    registry.enable_plugin(name)
-    return {"success": True, "installed": True}
+    if plugin.validate_credentials():
+        registry.enable_plugin(name)
+        return {"success": True, "installed": True, "enabled": True}
+
+    return {"success": True, "installed": True, "enabled": False, "needs_config": True}
 
 
 @router.post("/{name}/uninstall")

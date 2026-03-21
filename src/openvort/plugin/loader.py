@@ -66,7 +66,10 @@ class PluginLoader:
                     plugin.source = "pip"
 
                 if not plugin.validate_credentials():
-                    log.warning(f"Plugin '{plugin.name}' 凭证校验失败，跳过（请检查配置）")
+                    log.warning(f"Plugin '{plugin.name}' 凭证校验失败，跳过工具注册（请检查配置）")
+                    self._plugins.append(plugin)
+                    self.registry.register_plugin(plugin)
+                    self.registry.disable_plugin(plugin.name)
                     continue
 
                 # 注册 Plugin 的所有 Tools
@@ -139,7 +142,10 @@ class PluginLoader:
                 plugin.source = "local"
 
                 if not plugin.validate_credentials():
-                    log.warning(f"本地 Plugin '{plugin.name}' 凭证校验失败，跳过")
+                    log.warning(f"本地 Plugin '{plugin.name}' 凭证校验失败，跳过工具注册")
+                    self._plugins.append(plugin)
+                    self.registry.register_plugin(plugin)
+                    self.registry.disable_plugin(plugin.name)
                     continue
 
                 tools = plugin.get_tools()
@@ -378,6 +384,12 @@ class PluginLoader:
                     if config:
                         plugin.apply_config(config)
                         log.info(f"从数据库加载 Plugin 配置: {row.plugin_name}")
+
+                # 凭证校验失败的插件在应用 DB 配置后重新检查
+                if row.enabled and self.registry.is_plugin_disabled(row.plugin_name):
+                    if plugin.validate_credentials():
+                        self.registry.enable_plugin(row.plugin_name)
+                        log.info(f"Plugin '{row.plugin_name}' 在应用 DB 配置后已启用")
         except Exception as e:
             log.warning(f"从数据库加载 Plugin 配置失败（将使用环境变量）: {e}")
 

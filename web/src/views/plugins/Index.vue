@@ -104,10 +104,15 @@ const pluginStore = usePluginStore();
 
 const handleInstall = async (plugin: PluginInfo) => {
     try {
-        await installPlugin(plugin.name);
+        const res: any = await installPlugin(plugin.name);
         plugin.installed = true;
-        plugin.enabled = true;
-        message.success(`已安装「${plugin.display_name}」`);
+        plugin.enabled = res?.enabled ?? true;
+        plugin.status = plugin.enabled ? "ready" : "needs_config";
+        if (plugin.enabled) {
+            message.success(`已安装「${plugin.display_name}」`);
+        } else {
+            message.success(`已安装「${plugin.display_name}」，请完成配置后方可使用`);
+        }
         pluginStore.fetchExtensions();
     } catch {
         message.error("安装失败");
@@ -154,10 +159,15 @@ const openConfig = async (name: string) => {
 const handleSave = async () => {
     saving.value = true;
     try {
-        await updatePlugin(currentPlugin.value, configForm.value);
-        message.success("配置已保存");
+        const res: any = await updatePlugin(currentPlugin.value, configForm.value);
+        if (res?.enabled) {
+            message.success("配置已保存，插件已启用");
+        } else {
+            message.success("配置已保存");
+        }
         drawerOpen.value = false;
         loadPlugins();
+        pluginStore.fetchExtensions();
     } catch {
         message.error("保存失败");
     } finally {
@@ -233,8 +243,9 @@ onMounted(loadPlugins);
 
 <template>
     <div class="space-y-6">
-        <div class="flex items-center justify-between">
-            <h2 class="text-lg font-medium text-gray-800">插件中心</h2>
+        <div class="flex items-center gap-2">
+            <h2 class="text-lg font-medium text-gray-800">应用管理</h2>
+            <span class="text-xs text-gray-400">管理 AI 的应用模块，如项目管理、代码仓库、CI/CD 等完整功能</span>
         </div>
 
         <!-- Search & filter -->
@@ -273,13 +284,17 @@ onMounted(loadPlugins);
                         <vort-card v-for="plugin in installedPlugins" :key="plugin.name" class="masonry-item" :shadow="false" padding="small">
                             <div class="flex items-center justify-between mb-4">
                                 <div class="flex items-center">
-                                    <div class="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center mr-3">
-                                        <Puzzle :size="20" class="text-blue-600" />
+                                    <div
+                                        class="w-10 h-10 rounded-lg flex items-center justify-center mr-3"
+                                        :class="plugin.status === 'needs_config' ? 'bg-amber-50' : 'bg-blue-50'"
+                                    >
+                                        <Puzzle :size="20" :class="plugin.status === 'needs_config' ? 'text-amber-500' : 'text-blue-600'" />
                                     </div>
                                     <div>
                                         <h3 class="text-sm font-medium text-gray-800 flex items-center gap-1">
                                             {{ plugin.display_name }}
-                                            <VortTag v-if="plugin.core" color="volcano" size="small" :bordered="false">核心</VortTag>
+                                            <VortTag v-if="plugin.status === 'needs_config'" color="orange" size="small" :bordered="false">待配置</VortTag>
+                                            <VortTag v-else-if="plugin.core" color="volcano" size="small" :bordered="false">核心</VortTag>
                                             <VortTag v-else :color="{ builtin: 'blue', pip: 'cyan', local: 'purple' }[plugin.source] || 'default'" size="small" :bordered="false">
                                                 {{ { builtin: '内置', pip: 'pip', local: '本地' }[plugin.source] || plugin.source }}
                                             </VortTag>
@@ -288,11 +303,13 @@ onMounted(loadPlugins);
                                     </div>
                                 </div>
                                 <div class="flex items-center gap-1">
-                                    <VortButton v-if="plugin.has_config" size="small" @click="openConfig(plugin.name)">设置</VortButton>
-                                    <VortTooltip v-if="plugin.core" title="核心插件不可禁用">
-                                        <VortButton size="small" disabled>禁用</VortButton>
-                                    </VortTooltip>
-                                    <VortButton v-else size="small" @click="handleUninstall(plugin)">禁用</VortButton>
+                                    <VortButton v-if="plugin.has_config" size="small" :variant="plugin.status === 'needs_config' ? 'primary' : 'default'" @click="openConfig(plugin.name)">设置</VortButton>
+                                    <template v-if="plugin.status !== 'needs_config'">
+                                        <VortTooltip v-if="plugin.core" title="核心插件不可禁用">
+                                            <VortButton size="small" disabled>禁用</VortButton>
+                                        </VortTooltip>
+                                        <VortButton v-else size="small" @click="handleUninstall(plugin)">禁用</VortButton>
+                                    </template>
                                     <VortTooltip v-if="plugin.core" title="核心插件不可卸载">
                                         <VortButton size="small" disabled>卸载</VortButton>
                                     </VortTooltip>

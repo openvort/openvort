@@ -18,9 +18,14 @@ export const menuConfig: MenuConfig[] = [
     { title: "计划任务", icon: "clock", path: "/schedules" },
     { title: "汇报中心", icon: "file-bar-chart", path: "/reports" },
     { title: "知识库", icon: "library", path: "/knowledge" },
-    { title: "Plugins 插件", icon: "puzzle", path: "/plugins", requiredRole: "admin" },
-    { title: "Skills 技能", icon: "book-open", path: "/skills", requiredRole: "admin" },
-    { title: "扩展市场", icon: "store", path: "/marketplace", requiredRole: "admin" },
+    {
+        title: "扩展", icon: "blocks", requiredRole: "admin",
+        children: [
+            { title: "应用管理", icon: "puzzle", path: "/plugins" },
+            { title: "技能管理", icon: "book-open", path: "/skills" },
+            { title: "扩展市场", icon: "store", path: "/marketplace" },
+        ],
+    },
     {
         title: "VortFlow", icon: "kanban", label: "研发协作",
         children: [

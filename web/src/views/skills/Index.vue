@@ -7,7 +7,8 @@ import {
     generateSkillContentPrompt,
 } from "@/api";
 import { message, dialog } from "@/components/vort";
-import { Plus, Trash2, Save, BookOpen, Bot, X, Tag, Search, Info, ArrowUpDown } from "lucide-vue-next";
+import { Plus, Trash2, Save, BookOpen, Bot, X, Tag, Search, Info, ArrowUpDown, Pencil } from "lucide-vue-next";
+import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
 
 const router = useRouter();
 
@@ -124,10 +125,14 @@ const drawerSkill = ref<SkillItem | null>(null);
 const drawerLoading = ref(false);
 const saving = ref(false);
 const tagInput = ref("");
+const contentTab = ref<"edit" | "preview">("edit");
+const editing = ref(false);
 
 async function openDrawer(skill: SkillItem) {
     drawerLoading.value = true;
     drawerOpen.value = true;
+    contentTab.value = "edit";
+    editing.value = false;
     try {
         const res: any = await getSkill(skill.id);
         drawerSkill.value = {
@@ -317,8 +322,8 @@ onMounted(() => { loadSkills(); loadTags(); });
             <div class="flex items-center justify-between mb-2">
                 <div class="flex items-center gap-2">
                     <BookOpen :size="18" class="text-blue-600" />
-                    <h3 class="text-base font-medium text-gray-800">技能库</h3>
-                    <span class="text-xs text-gray-400">管理所有技能，启用的技能对全局 AI 对话生效</span>
+                    <h3 class="text-base font-medium text-gray-800">技能管理</h3>
+                    <span class="text-xs text-gray-400">管理 AI 的知识与工作流，通过知识、脚本和模板增强 AI 的专业能力</span>
                 </div>
                 <VortButton variant="primary" size="small" @click="openCreateDialog">
                     <Plus :size="14" class="mr-1" /> 新建技能
@@ -441,25 +446,78 @@ onMounted(() => { loadSkills(); loadTags(); });
         </div>
 
         <!-- Detail / edit drawer -->
-        <VortDrawer :open="drawerOpen" :title="drawerSkill?.name || '技能详情'" :width="640" @update:open="drawerOpen = $event">
+        <VortDrawer :open="drawerOpen" :title="drawerSkill?.name || '技能详情'" :width="720" @update:open="drawerOpen = $event">
             <VortSpin :spinning="drawerLoading">
-                <div v-if="drawerSkill" class="space-y-4">
+                <div v-if="drawerSkill" class="space-y-6">
+                    <!-- Builtin hint -->
                     <div v-if="drawerSkill.scope === 'builtin'"
                         class="flex items-center gap-2 px-3 py-2.5 bg-blue-50 rounded-lg text-xs text-blue-600">
                         <Info :size="14" class="flex-shrink-0" />
                         内置技能不可编辑，如需自定义请创建新的公共技能
                     </div>
 
-                    <VortForm label-width="80px">
-                        <VortFormItem label="名称">
-                            <VortInput v-model="drawerSkill.name" :disabled="!isEditable(drawerSkill.scope)" />
-                        </VortFormItem>
-                        <VortFormItem label="来源">
-                            <VortTag :color="scopeColor(drawerSkill.scope)">
-                                {{ scopeLabel(drawerSkill.scope) }}
-                            </VortTag>
-                        </VortFormItem>
-                        <VortFormItem label="标签">
+                    <!-- Hero header -->
+                    <div class="flex items-start gap-4">
+                        <div
+                            class="w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 text-lg font-bold text-white"
+                            :class="scopeBgClass(drawerSkill.scope)"
+                        >{{ drawerSkill.name.charAt(0) }}</div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center gap-2">
+                                <h3 class="text-lg font-semibold text-gray-800">{{ drawerSkill.name }}</h3>
+                                <VortTag :color="scopeColor(drawerSkill.scope)" size="small" :bordered="false">
+                                    {{ scopeLabel(drawerSkill.scope) }}
+                                </VortTag>
+                            </div>
+                            <p class="text-sm text-gray-500 mt-1">{{ drawerSkill.description || '暂无描述' }}</p>
+                            <div v-if="drawerSkill.tags?.length" class="flex flex-wrap items-center gap-1.5 mt-2">
+                                <VortTag
+                                    v-for="tag in drawerSkill.tags"
+                                    :key="tag"
+                                    color="default"
+                                    size="small"
+                                    :bordered="false"
+                                >{{ tag }}</VortTag>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2 flex-shrink-0">
+                            <VortSwitch :checked="drawerSkill.enabled" size="small" @change="handleToggle(drawerSkill!)" />
+                        </div>
+                    </div>
+
+                    <!-- Skill info card -->
+                    <div class="bg-blue-50/50 border border-blue-100 rounded-lg p-4">
+                        <h4 class="text-sm font-medium text-blue-700 mb-2">Skill 信息</h4>
+                        <div class="grid grid-cols-2 gap-3 text-sm">
+                            <div class="flex items-center justify-between">
+                                <span class="text-gray-500">类型</span>
+                                <VortTag color="blue" size="small" :bordered="false">{{ drawerSkill.skill_type || '通用' }}</VortTag>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-gray-500">来源</span>
+                                <VortTag :color="scopeColor(drawerSkill.scope)" size="small" :bordered="false">{{ scopeLabel(drawerSkill.scope) }}</VortTag>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Editable sections -->
+                    <template v-if="isEditable(drawerSkill.scope) && editing">
+                        <div class="border-t border-gray-100 pt-4">
+                            <h4 class="text-sm font-medium text-gray-700 mb-3">基本信息</h4>
+                            <div class="space-y-3">
+                                <div>
+                                    <label class="text-xs text-gray-500 mb-1 block">名称</label>
+                                    <VortInput v-model="drawerSkill.name" />
+                                </div>
+                                <div>
+                                    <label class="text-xs text-gray-500 mb-1 block">描述</label>
+                                    <VortInput v-model="drawerSkill.description" placeholder="Skill 描述" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="border-t border-gray-100 pt-4">
+                            <h4 class="text-sm font-medium text-gray-700 mb-3">标签</h4>
                             <div class="space-y-2">
                                 <div class="flex flex-wrap gap-1.5">
                                     <button
@@ -468,7 +526,6 @@ onMounted(() => { loadSkills(); loadTags(); });
                                         :class="drawerSkill.tags.includes(tag)
                                             ? 'bg-blue-100 text-blue-700 ring-1 ring-blue-200'
                                             : 'bg-gray-50 text-gray-500 hover:bg-gray-100'"
-                                        :disabled="!isEditable(drawerSkill.scope)"
                                         @click="toggleDrawerTag(tag)"
                                     >{{ tag }}</button>
                                 </div>
@@ -476,30 +533,55 @@ onMounted(() => { loadSkills(); loadTags(); });
                                     <span v-for="tag in drawerSkill.tags.filter(t => !allTags.includes(t))" :key="tag"
                                         class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 text-xs">
                                         {{ tag }}
-                                        <button v-if="isEditable(drawerSkill.scope)"
-                                            class="text-blue-400 hover:text-red-500"
-                                            @click="removeTagFromDrawer(tag)">
+                                        <button class="text-blue-400 hover:text-red-500" @click="removeTagFromDrawer(tag)">
                                             <X :size="10" />
                                         </button>
                                     </span>
                                 </div>
                                 <VortInput
-                                    v-if="isEditable(drawerSkill.scope)"
                                     v-model="tagInput"
                                     placeholder="输入自定义标签，回车添加"
                                     @press-enter="() => addTagToDrawer()"
                                 />
                             </div>
-                        </VortFormItem>
-                        <VortFormItem label="描述">
-                            <VortInput v-model="drawerSkill.description" :disabled="!isEditable(drawerSkill.scope)" placeholder="Skill 描述" />
-                        </VortFormItem>
-                        <VortFormItem label="内容">
-                            <VortTextarea v-model="drawerSkill.content" :disabled="!isEditable(drawerSkill.scope)"
-                                placeholder="Markdown 格式的 Skill 内容" :rows="16"
-                                style="font-family: monospace; font-size: 13px;" />
-                        </VortFormItem>
-                    </VortForm>
+                        </div>
+                    </template>
+
+                    <!-- Content section -->
+                    <div class="border-t border-gray-100 pt-4">
+                        <template v-if="isEditable(drawerSkill.scope) && editing">
+                            <div class="flex gap-1 mb-4">
+                                <button
+                                    class="px-3 py-1.5 text-sm font-medium rounded-md transition-colors"
+                                    :class="contentTab === 'edit' ? 'bg-blue-50 text-blue-600' : 'text-gray-500 hover:bg-gray-50'"
+                                    @click="contentTab = 'edit'"
+                                >编辑</button>
+                                <button
+                                    class="px-3 py-1.5 text-sm font-medium rounded-md transition-colors"
+                                    :class="contentTab === 'preview' ? 'bg-blue-50 text-blue-600' : 'text-gray-500 hover:bg-gray-50'"
+                                    @click="contentTab = 'preview'"
+                                >预览</button>
+                            </div>
+                            <VortTextarea
+                                v-if="contentTab === 'edit'"
+                                v-model="drawerSkill.content"
+                                placeholder="Markdown 格式的 Skill 内容"
+                                :rows="16"
+                                style="font-family: monospace; font-size: 13px;"
+                            />
+                            <div v-else class="bg-gray-50 rounded-lg p-5">
+                                <MarkdownView v-if="drawerSkill.content" :content="drawerSkill.content" />
+                                <p v-else class="text-sm text-gray-400">暂无内容</p>
+                            </div>
+                        </template>
+                        <template v-else>
+                            <h4 class="text-sm font-medium text-gray-700 mb-3">Skill 内容</h4>
+                            <div class="bg-gray-50 rounded-lg p-5">
+                                <MarkdownView v-if="drawerSkill.content" :content="drawerSkill.content" />
+                                <p v-else class="text-sm text-gray-400">暂无内容</p>
+                            </div>
+                        </template>
+                    </div>
                 </div>
             </VortSpin>
             <template #footer>
@@ -511,9 +593,14 @@ onMounted(() => { loadSkills(); loadTags(); });
                     </div>
                     <div class="flex items-center gap-2">
                         <VortButton @click="drawerOpen = false">关闭</VortButton>
-                        <VortButton v-if="drawerSkill && isEditable(drawerSkill.scope)" variant="primary" :loading="saving" @click="handleSaveDrawer">
-                            <Save :size="14" class="mr-1" /> 保存
-                        </VortButton>
+                        <template v-if="drawerSkill && isEditable(drawerSkill.scope)">
+                            <VortButton v-if="!editing" @click="editing = true">
+                                <Pencil :size="14" class="mr-1" /> 编辑
+                            </VortButton>
+                            <VortButton v-else variant="primary" :loading="saving" @click="handleSaveDrawer">
+                                <Save :size="14" class="mr-1" /> 保存
+                            </VortButton>
+                        </template>
                     </div>
                 </div>
             </template>
