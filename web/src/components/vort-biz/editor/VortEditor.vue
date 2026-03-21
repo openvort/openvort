@@ -57,23 +57,18 @@ const emit = defineEmits<{
     "update:modelValue": [value: string];
 }>();
 
-const fileToDataUrl = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result || ""));
-        reader.onerror = () => reject(reader.error);
-        reader.readAsDataURL(file);
-    });
-};
-
 const insertImageFromFile = async (file: File) => {
     if (!file.type.startsWith("image/")) return;
     try {
-        const src = await fileToDataUrl(file);
-        if (!src) return;
-        editor.value?.chain().focus().setImage({ src, alt: file.name || "image" }).run();
+        const { uploadEditorImage } = await import("@/api/uploads");
+        const res: any = await uploadEditorImage(file);
+        if (res?.success && res.url) {
+            editor.value?.chain().focus().setImage({ src: res.url, alt: file.name || "image" }).run();
+        } else {
+            console.error("[VortEditor] 上传失败:", res?.error || "unknown");
+        }
     } catch (error) {
-        console.error("[VortEditor] 读取图片失败:", error);
+        console.error("[VortEditor] 上传图片失败:", error);
     }
 };
 

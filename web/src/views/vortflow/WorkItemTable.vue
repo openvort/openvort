@@ -185,23 +185,40 @@ const currentProjectName = computed(() => {
 });
 
 
-const defaultDescriptionTemplate = [
-    "环境：请填写",
-    "",
-    "账号：请填写",
-    "",
-    "密码：请填写",
-    "",
-    "前置条件：请填写",
-    "",
-    "操作步骤：",
-    "步骤1：",
-    "步骤2：",
-    "",
-    "实际结果：请填写",
-    "",
-    "预期结果：请填写",
-].join("\n");
+const descriptionTemplates: Record<WorkItemType, string> = {
+    "需求": [
+        "## 需求背景",
+        "<!-- 描述需求的业务背景和目标 -->",
+        "",
+        "## 用户故事",
+        "作为 ___，我希望 ___，以便 ___。",
+        "",
+        "## 验收标准",
+        "1. ",
+        "2. ",
+        "3. ",
+    ].join("\n"),
+    "任务": "",
+    "缺陷": [
+        "环境：请填写",
+        "",
+        "账号：请填写",
+        "",
+        "密码：请填写",
+        "",
+        "前置条件：请填写",
+        "",
+        "操作步骤：",
+        "步骤1：",
+        "步骤2：",
+        "",
+        "实际结果：请填写",
+        "",
+        "预期结果：请填写",
+    ].join("\n"),
+};
+
+const getDescriptionTemplate = (type: WorkItemType): string => descriptionTemplates[type] ?? "";
 
 const createInitialBugForm = (): NewBugForm => ({
     title: "",
@@ -221,7 +238,7 @@ const createInitialBugForm = (): NewBugForm => ({
     startAt: "",
     endAt: "",
     remark: "",
-    description: defaultDescriptionTemplate
+    description: getDescriptionTemplate(props.type ?? "缺陷")
 });
 const createBugForm = reactive<NewBugForm>(createInitialBugForm());
 const apiProjects = ref<Array<{ id: string; name: string }>>([]);
@@ -1155,7 +1172,7 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
                 createdItem = await createVortflowStory({
                     project_id: defaultProject,
                     title,
-                    description: formData.description || defaultDescriptionTemplate,
+                    description: formData.description || getDescriptionTemplate("需求"),
                     priority: formData.priority === "urgent" ? 1 : formData.priority === "high" ? 2 : formData.priority === "medium" ? 3 : 4,
                     parent_id: formData.parentId || undefined,
                     tags: [...formData.tags],
@@ -1175,7 +1192,7 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
                     story_id: formData.storyId || undefined,
                     parent_id: formData.parentId || undefined,
                     title,
-                    description: formData.description || "",
+                    description: formData.description || getDescriptionTemplate("任务"),
                     task_type: "develop",
                     assignee_id: ownerId,
                     tags: [...formData.tags],
@@ -1187,7 +1204,7 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
                     project_id: formData.projectId || createProjectId.value || resolveCreateProjectId() || undefined,
                     story_id: formData.storyId || undefined,
                     title,
-                    description: formData.description || defaultDescriptionTemplate,
+                    description: formData.description || getDescriptionTemplate("缺陷"),
                     severity: formData.priority === "urgent" ? 1 : formData.priority === "high" ? 2 : formData.priority === "medium" ? 3 : 4,
                     assignee_id: ownerId,
                     tags: [...formData.tags],

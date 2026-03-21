@@ -13,6 +13,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from openvort.web.app import require_auth
 from openvort.web.deps import get_agent, get_session_store, get_build_context_fn
+from openvort.web.upload_utils import get_upload_url
 from openvort.utils.logging import get_logger
 
 log = get_logger("web.chat")
@@ -44,7 +45,7 @@ def _save_chat_image(data_b64: str, media_type: str) -> str:
     ext = MEDIA_EXT_MAP.get(media_type, "png")
     filename = f"{uuid.uuid4().hex}.{ext}"
     (upload_dir / filename).write_bytes(base64.b64decode(data_b64))
-    return f"/uploads/chat/{filename}"
+    return get_upload_url(f"/uploads/chat/{filename}")
 
 
 def _extract_file_text(file_bytes: bytes, ext: str) -> str:
@@ -211,7 +212,7 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
     file_id = uuid.uuid4().hex
     saved_name = f"{file_id}.{ext}" if ext else file_id
     (upload_dir / saved_name).write_bytes(file_bytes)
-    file_url = f"/uploads/chat/{saved_name}"
+    file_url = get_upload_url(f"/uploads/chat/{saved_name}")
 
     content_text = _extract_file_text(file_bytes, ext)
 

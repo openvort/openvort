@@ -210,6 +210,7 @@ class WebSettings(BaseSettings):
     host: str = "0.0.0.0"  # 监听地址
     default_password: str = "openvort"  # 所有成员的默认登录密码
     auto_check_update: bool = True  # 是否自动检查更新
+    site_url: str = ""  # 站点访问地址（如 http://your-domain:8090），用于 IM 通知中的跳转链接
 
 
 class Settings(BaseSettings):

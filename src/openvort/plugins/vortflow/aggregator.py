@@ -14,7 +14,6 @@ IM_PRIORITY = ["wecom", "dingtalk", "feishu"]
 
 async def send_im_to_member(member_id: str, text: str) -> None:
     """Send IM text to a member via first available channel (lazy resolution)."""
-    log.info("send_im_to_member called: member=%s, text_len=%d", member_id, len(text))
     try:
         from openvort.db.engine import get_session_factory
         from openvort.core.services.notification import get_notification_center
@@ -22,7 +21,6 @@ async def send_im_to_member(member_id: str, text: str) -> None:
         nc = get_notification_center()
         registry = nc._registry if nc else None
         if not registry:
-            log.warning("IM send skipped for %s: no channel registry (nc=%s)", member_id, nc is not None)
             return
 
         sf = get_session_factory()
@@ -54,7 +52,6 @@ async def send_im_to_member(member_id: str, text: str) -> None:
             platform_map = {}
 
         if not platform_map:
-            log.warning("IM send skipped for %s: no platform identities", member_id)
             return
 
         from openvort.plugin.base import Message as _Msg
@@ -65,7 +62,6 @@ async def send_im_to_member(member_id: str, text: str) -> None:
                 continue
             ch = registry.get_channel(channel_name)
             if not ch or not ch.is_configured():
-                log.debug("Channel %s not available for %s", channel_name, member_id)
                 continue
             try:
                 await ch.send(platform_uid, _Msg(content=text, channel=channel_name))
@@ -81,6 +77,7 @@ async def send_im_to_member(member_id: str, text: str) -> None:
 class NotificationPayload:
     title: str
     summary: str
+    im_text: str = ""
     source_id: str = ""
     entity_type: str = ""
     entity_id: str = ""
@@ -138,9 +135,6 @@ class NotificationAggregator:
             batch = dict(self._buffer)
             self._buffer.clear()
 
-        if batch:
-            log.info("Flushing %d user(s), sender=%s", len(batch), self._channel_sender is not None)
-
         for member_id, payloads in batch.items():
             if not payloads:
                 continue
@@ -148,8 +142,6 @@ class NotificationAggregator:
             try:
                 if self._channel_sender:
                     await self._channel_sender(member_id, text)
-                else:
-                    log.warning("IM flush skipped: no channel_sender set")
             except Exception:
                 log.warning("Failed to send IM notification to %s", member_id, exc_info=True)
 
@@ -157,12 +149,13 @@ class NotificationAggregator:
     def _format_batch(payloads: list[NotificationPayload]) -> str:
         if len(payloads) == 1:
             p = payloads[0]
-            return f"{p.title}\n{p.summary}"
-        lines = [f"你有 {len(payloads)} 条 VortFlow 通知："]
-        for p in payloads[:10]:
-            lines.append(f"  - {p.title}")
-        if len(payloads) > 10:
-            lines.append(f"  ... 还有 {len(payloads) - 10} 条")
+            return p.im_text or f"【{p.title}】\n{p.summary}"
+        lines = [f"你有 {len(payloads)} 条新通知：", ""]
+        limit = min(len(payloads), 5)
+        for i, p in enumerate(payloads[:limit], 1):
+            lines.append(f"{i}.【{p.title}】{p.summary}")
+        if len(payloads) > 5:
+            lines.append(f"... 还有 {len(payloads) - 5} 条通知")
         return "\n".join(lines)
 
 

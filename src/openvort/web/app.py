@@ -126,6 +126,10 @@ def create_app() -> FastAPI:
     app.include_router(remote_nodes_router, prefix="/api/admin/remote-nodes", tags=["admin-remote-nodes"], dependencies=[Depends(require_admin)])
     app.include_router(marketplace_router, prefix="/api/admin/marketplace", tags=["admin-marketplace"], dependencies=[Depends(require_admin)])
 
+    # 通用文件上传（登录用户可访问）
+    from openvort.web.routers.uploads import router as uploads_router
+    app.include_router(uploads_router, prefix="/api/uploads", tags=["uploads"], dependencies=[Depends(require_auth)])
+
     # Jenkins 管理（登录用户可访问，内部按角色区分管理员操作）
     app.include_router(jenkins_router, prefix="/api/jenkins", tags=["jenkins"], dependencies=[Depends(require_auth)])
 
@@ -252,7 +256,10 @@ def create_app() -> FastAPI:
 
     _chat_uploads = _uploads_root / "chat"
     _chat_uploads.mkdir(parents=True, exist_ok=True)
+    _editor_uploads = _uploads_root / "editor"
+    _editor_uploads.mkdir(parents=True, exist_ok=True)
     app.mount("/uploads/chat", StaticFiles(directory=str(_chat_uploads)), name="chat-uploads")
+    app.mount("/uploads/editor", StaticFiles(directory=str(_editor_uploads)), name="editor-uploads")
     app.mount("/uploads", StaticFiles(directory=str(_uploads_root)), name="uploads")
 
     # 尝试挂载前端静态文件（构建产物）+ SPA fallback

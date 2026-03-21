@@ -9,10 +9,11 @@ from pydantic import BaseModel
 from openvort.config.settings import get_settings
 from openvort.web.app import require_auth
 from openvort.web.deps import get_db_session_factory, get_auth_service, get_registry
+from openvort.web.upload_utils import get_upload_dir, get_upload_url
 
 router = APIRouter()
 
-UPLOAD_DIR = get_settings().data_dir / "uploads" / "avatars"
+UPLOAD_DIR = get_upload_dir("avatars")
 
 
 # ---- 辅助 ----
@@ -263,7 +264,7 @@ async def upload_avatar(request: Request, file: UploadFile = File(...)):
     filepath = UPLOAD_DIR / filename
     filepath.write_bytes(content)
 
-    avatar_url = f"/uploads/avatars/{filename}"
+    avatar_url = get_upload_url(f"/uploads/avatars/{filename}")
 
     # 更新数据库
     from sqlalchemy import select

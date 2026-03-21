@@ -55,21 +55,38 @@ const {
     getWorkItemTypeIconSymbol,
 } = useWorkItemCommon();
 
-const defaultDescriptionTemplate = [
-    "## 问题描述",
-    "<!-- 请详细描述发现的问题 -->",
-    "",
-    "## 复现步骤",
-    "1. ",
-    "2. ",
-    "3. ",
-    "",
-    "## 预期结果",
-    "<!-- 描述期望的行为 -->",
-    "",
-    "## 实际结果",
-    "<!-- 描述实际发生的情况 -->"
-].join("\n");
+const descriptionTemplates: Record<WorkItemType, string> = {
+    "需求": [
+        "## 需求背景",
+        "<!-- 描述需求的业务背景和目标 -->",
+        "",
+        "## 用户故事",
+        "作为 ___，我希望 ___，以便 ___。",
+        "",
+        "## 验收标准",
+        "1. ",
+        "2. ",
+        "3. ",
+    ].join("\n"),
+    "任务": "",
+    "缺陷": [
+        "## 问题描述",
+        "<!-- 请详细描述发现的问题 -->",
+        "",
+        "## 复现步骤",
+        "1. ",
+        "2. ",
+        "3. ",
+        "",
+        "## 预期结果",
+        "<!-- 描述期望的行为 -->",
+        "",
+        "## 实际结果",
+        "<!-- 描述实际发生的情况 -->",
+    ].join("\n"),
+};
+
+const getDescriptionTemplate = (type: WorkItemType): string => descriptionTemplates[type] ?? "";
 
 const createInitialBugForm = (): NewBugForm => ({
     title: "",
@@ -90,7 +107,7 @@ const createInitialBugForm = (): NewBugForm => ({
     startAt: "",
     endAt: "",
     remark: "",
-    description: defaultDescriptionTemplate
+    description: getDescriptionTemplate(props.type)
 });
 
 const createBugForm = reactive<NewBugForm>(createInitialBugForm());
@@ -608,7 +625,14 @@ watch(() => createBugForm.project, async (_value, oldValue) => {
     await loadProjectLinkedOptions(projectChanged);
 });
 
-watch(() => createBugForm.type, async (value) => {
+watch(() => createBugForm.type, async (value, oldValue) => {
+    if (oldValue) {
+        const oldTemplate = getDescriptionTemplate(oldValue as WorkItemType);
+        if (!createBugForm.description || createBugForm.description === oldTemplate) {
+            createBugForm.description = getDescriptionTemplate(value as WorkItemType);
+        }
+    }
+
     if (value === "需求") {
         createBugForm.storyId = "";
         await loadParentStoryOptions();

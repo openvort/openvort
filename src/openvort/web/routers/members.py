@@ -8,9 +8,10 @@ from sqlalchemy import select, func as sa_func
 
 from openvort.config.settings import get_settings
 from openvort.web.deps import get_db_session_factory, get_auth_service
+from openvort.web.upload_utils import get_upload_dir, get_upload_url
 
 router = APIRouter()
-UPLOAD_DIR = get_settings().data_dir / "uploads" / "avatars"
+UPLOAD_DIR = get_upload_dir("avatars")
 
 
 def _normalize_member_posts(posts: list[str] | None) -> list[str]:
@@ -525,7 +526,7 @@ async def upload_member_avatar(member_id: str, file: UploadFile = File(...)):
         if not member:
             return {"error": "成员不存在"}
 
-        avatar_url = f"/uploads/avatars/{filename}"
+        avatar_url = get_upload_url(f"/uploads/avatars/{filename}")
         member.avatar_url = avatar_url
         member.avatar_source = "manual"
         await session.commit()

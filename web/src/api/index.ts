@@ -12,3 +12,4 @@ export * from "./skills";
 export * from "./plugins";
 export * from "./settings";
 export * from "./ai-employees";
+export * from "./uploads";
