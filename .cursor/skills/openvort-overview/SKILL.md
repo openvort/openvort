@@ -437,6 +437,7 @@ DB 驱动的三级 Skill 体系：
 - DM 安全：配对码验证 + allowlist + 群聊 mention gating
 - WebSocket 实时通信：presence + typing indicator + 通知推送
 - Webhook 触发器：外部事件（CI/CD、GitHub/GitLab、OpenClaw IM 桥接）→ 绑定 AI 员工 → Agent 自动处理。支持 agent_chat/openclaw_bridge/notify 三种模式
+- MCP Server：所有已注册 Tool 自动通过 Streamable HTTP 暴露给 Cursor / Claude Desktop（`web/mcp_server.py`，挂载在 `/mcp`）
 - Docker 沙箱：非 main session 隔离执行
 - DB 配置服务：ConfigService 优先级 DB > .env > 默认值，支持运行时配置热更新
 - 系统升级：core/updater.py 版本检查 + pip 升级 + 前端静态包下载
