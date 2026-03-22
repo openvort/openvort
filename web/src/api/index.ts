@@ -13,3 +13,4 @@ export * from "./plugins";
 export * from "./settings";
 export * from "./ai-employees";
 export * from "./uploads";
+export * from "./channel-bots";

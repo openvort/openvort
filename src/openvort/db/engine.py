@@ -801,6 +801,29 @@ async def init_db(database_url: str) -> None:
             "ALTER TABLE IF EXISTS chat_sessions ADD COLUMN IF NOT EXISTS context_reset_at TIMESTAMP"
         ))
 
+    # Channel bots — per-AI-employee IM bot credentials
+    async with _engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS channel_bots (
+                id VARCHAR(32) PRIMARY KEY,
+                channel_type VARCHAR(32) NOT NULL,
+                member_id VARCHAR(32) NOT NULL REFERENCES members(id),
+                credentials TEXT DEFAULT '{}',
+                status VARCHAR(16) DEFAULT 'active',
+                last_test_at TIMESTAMP,
+                last_test_ok BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT now(),
+                updated_at TIMESTAMP DEFAULT now(),
+                CONSTRAINT uq_channel_bot_channel_member UNIQUE (channel_type, member_id)
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_channel_bots_channel_type ON channel_bots(channel_type)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_channel_bots_member_id ON channel_bots(member_id)"
+        ))
+
     # VortFlow: add project_id to flow_tasks & flow_bugs (direct project association)
     async with _engine.begin() as conn:
         for tbl in ("flow_tasks", "flow_bugs"):

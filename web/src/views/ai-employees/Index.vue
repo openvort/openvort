@@ -13,8 +13,10 @@ import "cropperjs/dist/cropper.min.css";
 import {
     Plus, Settings, Bot, MessageSquare, Trash2,
     Webhook, Cpu, Unlink, Pencil, Users, BarChart3, MessageCircle, Clock,
-    ChevronDown, ChevronUp,
+    ChevronDown, ChevronUp, Radio,
 } from "lucide-vue-next";
+import BotBindDialog from "./components/BotBindDialog.vue";
+import { getChannelBots, deleteChannelBot, testChannelBot, type ChannelBotItem } from "@/api";
 
 const router = useRouter();
 
@@ -136,6 +138,75 @@ const postLoading = ref(false);
 const postEditing = ref<Partial<PostItem> | null>(null);
 const postEditMode = ref<"add" | "edit">("add");
 const postSubmitting = ref(false);
+
+// ---- State: channel bots ----
+
+const allBots = ref<ChannelBotItem[]>([]);
+const memberBots = ref<ChannelBotItem[]>([]);
+const botBindDialogOpen = ref(false);
+const testingBotId = ref("");
+
+const botsByMember = computed(() => {
+    const map: Record<string, ChannelBotItem[]> = {};
+    for (const bot of allBots.value) {
+        (map[bot.member_id] ??= []).push(bot);
+    }
+    return map;
+});
+
+const CHANNEL_ICON_PATHS: Record<string, string> = {
+    wecom: "/icons/wecom.svg",
+    dingtalk: "/icons/dingtalk.svg",
+    feishu: "/icons/feishu.svg",
+};
+
+const CHANNEL_LABELS: Record<string, string> = {
+    wecom: "企业微信",
+    dingtalk: "钉钉",
+    feishu: "飞书",
+};
+
+async function loadAllBots() {
+    try {
+        const res: any = await getChannelBots();
+        allBots.value = res?.bots || [];
+    } catch { /* ignore */ }
+}
+
+async function loadMemberBots(memberId: string) {
+    try {
+        const res: any = await getChannelBots({ member_id: memberId });
+        memberBots.value = res?.bots || [];
+    } catch { memberBots.value = []; }
+}
+
+async function handleUnbindBot(botId: string) {
+    try {
+        await deleteChannelBot(botId);
+        message.success("已解除绑定");
+        if (currentEmployee.value) await loadMemberBots(currentEmployee.value.id);
+        await loadAllBots();
+    } catch { message.error("解除绑定失败"); }
+}
+
+async function handleTestBot(botId: string) {
+    testingBotId.value = botId;
+    try {
+        const res: any = await testChannelBot(botId);
+        if (res?.ok) {
+            message.success("连接测试通过");
+        } else {
+            message.warning(res?.message || "连接测试未通过");
+        }
+        if (currentEmployee.value) await loadMemberBots(currentEmployee.value.id);
+    } catch { message.error("测试请求失败"); }
+    finally { testingBotId.value = ""; }
+}
+
+async function handleBotBindSaved() {
+    if (currentEmployee.value) await loadMemberBots(currentEmployee.value.id);
+    await loadAllBots();
+}
 
 // ---- State: create wizard ----
 
@@ -266,6 +337,7 @@ async function openDetail(emp: AIEmployee) {
     detailOpen.value = true;
     detailLoading.value = true;
     memberWebhooks.value = [];
+    memberBots.value = [];
     try {
         const res: any = await getMember(emp.id);
         currentEmployee.value = res;
@@ -282,6 +354,7 @@ async function openDetail(emp: AIEmployee) {
             const all = Array.isArray(whRes) ? whRes : [];
             memberWebhooks.value = all.filter((w: any) => w.member_id === emp.id);
         } catch { /* ignore */ }
+        await loadMemberBots(emp.id);
     } catch { message.error("加载详情失败"); }
     finally { detailLoading.value = false; }
 }
@@ -460,6 +533,7 @@ onMounted(async () => {
     loadStats();
     loadRemoteNodes();
     loadAllWebhooks();
+    loadAllBots();
 });
 
 async function loadAllWebhooks() {
@@ -653,6 +727,20 @@ async function loadRemoteNodes() {
                                 </template>
                             </div>
                             <div class="flex items-center gap-1.5">
+                                <vort-tooltip
+                                    v-for="bot in (botsByMember[emp.id] || [])"
+                                    :key="bot.id"
+                                    :title="`${CHANNEL_LABELS[bot.channel_type] || bot.channel_type}: ${bot.last_test_ok ? '已连接' : '未测试'}`"
+                                >
+                                    <span class="flex items-center">
+                                        <img
+                                            v-if="CHANNEL_ICON_PATHS[bot.channel_type]"
+                                            :src="CHANNEL_ICON_PATHS[bot.channel_type]"
+                                            class="w-3.5 h-3.5 object-contain"
+                                            :class="bot.last_test_ok ? 'opacity-100' : 'opacity-40'"
+                                        />
+                                    </span>
+                                </vort-tooltip>
                                 <span
                                     v-if="webhooksByMember[emp.id]?.length"
                                     class="flex items-center text-indigo-400"
@@ -660,7 +748,7 @@ async function loadRemoteNodes() {
                                 >
                                     <Webhook :size="12" />
                                 </span>
-                                <vort-tip
+                                <vort-tooltip
                                     v-if="emp.remote_node_id && getNodeInfo(emp.remote_node_id)"
                                     :title="`工作节点: ${getNodeInfo(emp.remote_node_id)?.name || ''}`"
                                 >
@@ -670,7 +758,7 @@ async function loadRemoteNodes() {
                                     >
                                         <Cpu :size="12" />
                                     </span>
-                                </vort-tip>
+                                </vort-tooltip>
                             </div>
                         </div>
                         <VortButton
@@ -758,6 +846,65 @@ async function loadRemoteNodes() {
                                     </VortButton>
                                 </VortFormItem>
                             </VortForm>
+                        </div>
+                    </div>
+
+                    <!-- IM 身份 (Channel Bots) -->
+                    <div class="rounded-lg border border-gray-100 bg-white">
+                        <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50/60 rounded-t-lg">
+                            <div class="flex items-center gap-2">
+                                <Radio :size="15" class="text-gray-400" />
+                                <h4 class="text-sm font-semibold text-gray-700">IM 身份</h4>
+                            </div>
+                            <vort-button size="small" @click="botBindDialogOpen = true">
+                                <Plus :size="12" class="mr-1" /> 绑定
+                            </vort-button>
+                        </div>
+                        <div class="px-4 py-3">
+                            <div class="text-xs text-gray-400 mb-3">
+                                绑定独立的 IM 机器人后，该员工在 IM 中以自己的名字和头像出现，用户可直接与其对话。
+                            </div>
+                            <div v-if="memberBots.length" class="space-y-2">
+                                <div
+                                    v-for="bot in memberBots" :key="bot.id"
+                                    class="flex items-center justify-between p-3 rounded-lg bg-gray-50 border border-gray-100"
+                                >
+                                    <div class="flex items-center gap-3 min-w-0">
+                                        <img
+                                            v-if="CHANNEL_ICON_PATHS[bot.channel_type]"
+                                            :src="CHANNEL_ICON_PATHS[bot.channel_type]"
+                                            :alt="bot.channel_type"
+                                            class="w-6 h-6 object-contain flex-shrink-0"
+                                        />
+                                        <div class="min-w-0">
+                                            <div class="text-sm font-medium text-gray-700">{{ CHANNEL_LABELS[bot.channel_type] || bot.channel_type }}</div>
+                                            <div class="text-xs text-gray-400 mt-0.5">
+                                                <span
+                                                    class="inline-flex items-center gap-1"
+                                                    :class="bot.last_test_ok ? 'text-green-600' : 'text-gray-400'"
+                                                >
+                                                    <span class="w-1.5 h-1.5 rounded-full" :class="bot.last_test_ok ? 'bg-green-500' : 'bg-gray-300'" />
+                                                    {{ bot.last_test_ok ? '已连接' : '未测试' }}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center gap-1 flex-shrink-0">
+                                        <vort-button size="small" :loading="testingBotId === bot.id" @click="handleTestBot(bot.id)">
+                                            测试
+                                        </vort-button>
+                                        <vort-popconfirm title="确认解除该 IM 身份绑定？" @confirm="handleUnbindBot(bot.id)">
+                                            <vort-button size="small" danger>
+                                                <Unlink :size="12" />
+                                            </vort-button>
+                                        </vort-popconfirm>
+                                    </div>
+                                </div>
+                            </div>
+                            <div v-else class="py-4 text-center">
+                                <div class="text-sm text-gray-400 mb-2">暂未绑定 IM 身份</div>
+                                <div class="text-xs text-gray-300">绑定后该员工将拥有独立的机器人形象</div>
+                            </div>
                         </div>
                     </div>
 
@@ -945,6 +1092,16 @@ async function loadRemoteNodes() {
             default-member-type="virtual"
             @update:open="wizardOpen = $event"
             @complete="handleWizardComplete"
+        />
+
+        <!-- Bot bind dialog -->
+        <BotBindDialog
+            v-if="currentEmployee"
+            v-model:open="botBindDialogOpen"
+            :member-id="currentEmployee.id"
+            :member-name="currentEmployee.name"
+            :existing-bots="memberBots"
+            @saved="handleBotBindSaved"
         />
     </div>
 </template>

@@ -118,7 +118,7 @@ def create_app() -> FastAPI:
         member_skills_router, upgrade_router, posts_router,
         work_assignments_router, voice_providers_router,
         remote_nodes_router, marketplace_router,
-        jenkins_router,
+        jenkins_router, channel_bots_router,
     )
     from openvort.web.ws import ws_router
     from openvort.web.webhooks import webhooks_router
@@ -176,6 +176,9 @@ def create_app() -> FastAPI:
 
     # Jenkins 管理（登录用户可访问，内部按角色区分管理员操作）
     app.include_router(jenkins_router, prefix="/api/jenkins", tags=["jenkins"], dependencies=[Depends(require_auth)])
+
+    # Channel Bots — AI 员工独立 IM Bot 管理
+    app.include_router(channel_bots_router, prefix="/api/admin/channel-bots", tags=["admin-channel-bots"], dependencies=[Depends(require_admin)])
 
     # ---- 动态挂载已启用插件的 API Router ----
     try:

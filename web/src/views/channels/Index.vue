@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
-import { getChannels, getChannelDetail, updateChannel, toggleChannel, testChannel } from "@/api";
+import { getChannels, getChannelDetail, updateChannel, toggleChannel, testChannel, getChannelBots, getChannelBotSummary, type ChannelBotItem } from "@/api";
 import { message } from "@/components/vort";
-import { CheckCircle, XCircle, Settings, Zap, ChevronRight } from "lucide-vue-next";
+import { CheckCircle, XCircle, Settings, Zap, ChevronRight, Bot, Users } from "lucide-vue-next";
 import AiAssistButton from "@/components/vort-biz/ai-assist-button/AiAssistButton.vue";
 
 interface ConfigField {
@@ -219,7 +219,43 @@ const currentGuideHtml = computed(() => {
     return "";
 });
 
-onMounted(loadChannels);
+// ---- Bot summary ----
+
+const botCounts = ref<Record<string, number>>({});
+const botListOpen = ref(false);
+const botListChannel = ref("");
+const botListLoading = ref(false);
+const botListItems = ref<(ChannelBotItem & { member_name?: string })[]>([]);
+
+async function loadBotSummary() {
+    try {
+        const res: any = await getChannelBotSummary();
+        botCounts.value = res?.counts || {};
+    } catch { /* ignore */ }
+}
+
+async function openBotList(channelName: string) {
+    botListChannel.value = channelName;
+    botListOpen.value = true;
+    botListLoading.value = true;
+    try {
+        const res: any = await getChannelBots({ channel_type: channelName });
+        botListItems.value = res?.bots || [];
+    } catch { botListItems.value = []; }
+    finally { botListLoading.value = false; }
+}
+
+const CHANNEL_LABELS: Record<string, string> = {
+    wecom: "企业微信",
+    dingtalk: "钉钉",
+    feishu: "飞书",
+    openclaw: "OpenClaw",
+};
+
+onMounted(() => {
+    loadChannels();
+    loadBotSummary();
+});
 </script>
 
 <template>
@@ -260,6 +296,20 @@ onMounted(loadChannels);
                     </template>
                 </VortTableColumn>
                 <VortTableColumn label="标识" prop="name" :width="120" />
+                <VortTableColumn label="独立 Bot" :width="120">
+                    <template #default="{ row }">
+                        <div class="flex items-center gap-1.5">
+                            <template v-if="botCounts[row.name]">
+                                <vort-tag color="blue" size="small">
+                                    <Bot :size="11" class="mr-0.5" />
+                                    {{ botCounts[row.name] }}
+                                </vort-tag>
+                                <a class="text-xs text-blue-600 cursor-pointer hover:underline" @click.stop="openBotList(row.name)">查看</a>
+                            </template>
+                            <span v-else class="text-xs text-gray-300">-</span>
+                        </div>
+                    </template>
+                </VortTableColumn>
                 <VortTableColumn label="状态" prop="status" :width="100">
                     <template #default="{ row }">
                         <span class="flex items-center text-sm" :class="row.status === 'connected' ? 'text-green-600' : 'text-gray-400'">
@@ -439,6 +489,47 @@ onMounted(loadChannels);
                     </VortButton>
                 </div>
             </template>
+        </VortDrawer>
+        <!-- Bot 列表抽屉 -->
+        <VortDrawer
+            v-model:open="botListOpen"
+            :title="`${CHANNEL_LABELS[botListChannel] || botListChannel} 独立 Bot`"
+            :width="480"
+        >
+            <VortSpin :spinning="botListLoading">
+                <div v-if="botListItems.length" class="space-y-2">
+                    <div
+                        v-for="bot in botListItems" :key="bot.id"
+                        class="flex items-center justify-between p-3 rounded-lg border border-gray-100 hover:bg-gray-50"
+                    >
+                        <div class="flex items-center gap-3 min-w-0">
+                            <div class="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
+                                <Bot :size="16" class="text-blue-600" />
+                            </div>
+                            <div class="min-w-0">
+                                <div class="text-sm font-medium text-gray-700">{{ bot.member_id }}</div>
+                                <div class="text-xs text-gray-400 mt-0.5 flex items-center gap-1">
+                                    <span
+                                        class="w-1.5 h-1.5 rounded-full"
+                                        :class="bot.last_test_ok ? 'bg-green-500' : 'bg-gray-300'"
+                                    />
+                                    {{ bot.last_test_ok ? '已连接' : '未测试' }}
+                                </div>
+                            </div>
+                        </div>
+                        <vort-tag size="small" :color="bot.status === 'active' ? 'green' : 'default'">
+                            {{ bot.status === 'active' ? '启用' : '停用' }}
+                        </vort-tag>
+                    </div>
+                </div>
+                <div v-else class="text-center py-12 text-sm text-gray-400">
+                    <Users :size="32" class="mx-auto text-gray-300 mb-3" />
+                    该通道暂无独立 Bot 绑定
+                </div>
+                <div class="mt-4 text-xs text-gray-400 text-center">
+                    Bot 绑定在「AI 员工」详情中管理
+                </div>
+            </VortSpin>
         </VortDrawer>
     </div>
 </template>
