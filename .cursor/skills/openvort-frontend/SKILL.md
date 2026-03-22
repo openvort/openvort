@@ -93,7 +93,46 @@ import { Button, Input, Switch } from "@/components/vort";  // 禁止！
 
 同理 `vort-checkbox` 用 `v-model:checked`，`vort-tabs` 用 `v-model:activeKey`。
 
-### 规则 7：侧边栏新增菜单图标必须注册 iconMap
+### 规则 7：vort-dropdown 菜单内容必须用 `#overlay` 插槽
+
+`VortDropdown` 的下拉菜单内容必须放在 `#overlay` 插槽中，**禁止**使用 `#content`（不存在该插槽，内容不会渲染）。按钮触发器用默认插槽。
+
+```vue
+<!-- 正确 -->
+<vort-dropdown trigger="click" placement="bottomRight">
+    <vort-button>操作</vort-button>
+    <template #overlay>
+        <vort-dropdown-menu-item @click="handleEdit">编辑</vort-dropdown-menu-item>
+        <vort-dropdown-menu-separator />
+        <vort-dropdown-menu-item class="text-red-500" @click="handleDelete">删除</vort-dropdown-menu-item>
+    </template>
+</vort-dropdown>
+
+<!-- 错误 -- #content 不存在，下拉菜单不会显示！ -->
+<vort-dropdown>
+    <vort-button>操作</vort-button>
+    <template #content>
+        <vort-dropdown-menu-item>编辑</vort-dropdown-menu-item>
+    </template>
+</vort-dropdown>
+```
+
+表格操作列标准写法：
+
+```vue
+<vort-dropdown trigger="click" placement="bottomRight">
+    <button class="p-1 rounded hover:bg-gray-100">
+        <MoreHorizontal :size="16" class="text-gray-400" />
+    </button>
+    <template #overlay>
+        <vort-dropdown-menu-item @click="handleView(row)">查看</vort-dropdown-menu-item>
+    </template>
+</vort-dropdown>
+```
+
+**禁止**在触发器元素上使用 `@click.stop`！VortDropdown 内部结构为 `<span trigger> → <slot>`，`@click.stop` 会阻止事件冒泡到外层 trigger span，导致下拉菜单打不开。如需阻止行点击，应在 `<vort-table-column>` 层处理，不要在 dropdown 触发器上 stopPropagation。
+
+### 规则 8：侧边栏新增菜单图标必须注册 iconMap
 
 `menus.ts` 设置 `icon` 后，必须在 `Sidebar.vue` 中 import + iconMap 注册：
 
@@ -102,7 +141,7 @@ import { ..., HardDrive } from "lucide-vue-next";
 const iconMap = { ..., "hard-drive": HardDrive };
 ```
 
-### 规则 8：label-width 必须适配最长 label
+### 规则 9：label-width 必须适配最长 label
 
 | label 字数 | 推荐 label-width |
 |-----------|-----------------|
@@ -151,6 +190,7 @@ const iconMap = { ..., "hard-drive": HardDrive };
 | `vort-drawer` | `v-model:open`, `:title`, `:width` |
 | `vort-dialog` | `:open`, `:title`, `:width`, `:footer`(默认true), `:confirm-loading`, `ok-text`, `@update:open`, `@ok` |
 | `vort-tag` | `:color="green\|red\|blue\|orange\|default"`, `size="small"` |
+| `vort-dropdown` | `trigger="hover\|click\|contextMenu"`, `placement="bottomLeft\|bottomRight\|..."`, `#overlay`(菜单内容插槽，禁止用#content！) |
 | `vort-popconfirm` | `:title`, `@confirm` |
 | `vort-switch` | `v-model:checked`(注意！), `:disabled`, `:loading`, `size="small"` |
 | `vort-checkbox` | `v-model:checked`(注意！) |

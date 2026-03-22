@@ -24,7 +24,6 @@ EXCLUDED_TOOL_PREFIXES = (
 
 EXCLUDED_TOOLS = {
     "setup_complete",
-    "skill_use",
 }
 
 _mcp_instance: FastMCP | None = None

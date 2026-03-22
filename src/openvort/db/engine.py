@@ -577,9 +577,26 @@ async def init_db(database_url: str) -> None:
     try:
         async with _engine.begin() as conn:
             await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS kb_folders (
+                    id VARCHAR(32) PRIMARY KEY,
+                    name VARCHAR(200) NOT NULL,
+                    parent_id VARCHAR(32) DEFAULT '',
+                    description TEXT DEFAULT '',
+                    sort_order INTEGER DEFAULT 0,
+                    owner_id VARCHAR(32) DEFAULT '',
+                    created_at TIMESTAMP DEFAULT now(),
+                    updated_at TIMESTAMP DEFAULT now()
+                )
+            """))
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_kb_folders_parent_id ON kb_folders(parent_id)"
+            ))
+
+            await conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS kb_documents (
                     id VARCHAR(32) PRIMARY KEY,
                     title VARCHAR(200) NOT NULL,
+                    folder_id VARCHAR(32) DEFAULT '',
                     file_name VARCHAR(500) DEFAULT '',
                     file_type VARCHAR(20) NOT NULL,
                     file_size INTEGER DEFAULT 0,
@@ -597,6 +614,16 @@ async def init_db(database_url: str) -> None:
             ))
             await conn.execute(text(
                 "CREATE INDEX IF NOT EXISTS ix_kb_documents_file_type ON kb_documents(file_type)"
+            ))
+            # migrate: add folder_id column if missing (must run before creating index on it)
+            await conn.execute(text("""
+                DO $$ BEGIN
+                    ALTER TABLE kb_documents ADD COLUMN folder_id VARCHAR(32) DEFAULT '';
+                EXCEPTION WHEN duplicate_column THEN NULL;
+                END $$
+            """))
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_kb_documents_folder_id ON kb_documents(folder_id)"
             ))
 
             if _pgvector_available:

@@ -1,4 +1,4 @@
-"""Knowledge Base data models — kb_documents + kb_chunks (pgvector)."""
+"""Knowledge Base data models — kb_folders + kb_documents + kb_chunks (pgvector)."""
 
 import uuid
 from datetime import datetime
@@ -14,6 +14,21 @@ def _uuid() -> str:
     return uuid.uuid4().hex
 
 
+class KBFolder(Base):
+    """Knowledge base folder for organizing documents."""
+
+    __tablename__ = "kb_folders"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(200))
+    parent_id: Mapped[str] = mapped_column(String(32), default="", index=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    owner_id: Mapped[str] = mapped_column(String(32), default="", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 class KBDocument(Base):
     """Knowledge base document metadata."""
 
@@ -21,6 +36,7 @@ class KBDocument(Base):
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
     title: Mapped[str] = mapped_column(String(200))
+    folder_id: Mapped[str] = mapped_column(String(32), default="", index=True)
     file_name: Mapped[str] = mapped_column(String(500), default="")
     file_type: Mapped[str] = mapped_column(String(20), index=True)  # pdf / docx / md / txt / qa
     file_size: Mapped[int] = mapped_column(Integer, default=0)

@@ -5,6 +5,7 @@ export default {
 
     routes: [
         { path: "knowledge", name: "knowledge", component: () => import("./Index.vue"), meta: { title: "知识库" } },
+        { path: "knowledge/doc/:id", name: "knowledge-doc", component: () => import("./DocDetail.vue"), meta: { title: "文档详情" } },
     ],
 
     menus: [
