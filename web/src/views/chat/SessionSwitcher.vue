@@ -262,7 +262,7 @@ defineExpose({ loadSessions, sessions, syncSessions, upsertSession, updateSessio
     <div class="flex items-center">
         <!-- Session dropdown trigger -->
         <VortPopover v-model:open="dropdownOpen" trigger="click" placement="bottomLeft" :arrow="false">
-            <button :class="[compact ? 'gap-0.5 px-1.5 py-0.5' : 'gap-1 px-2 py-1', 'flex items-center rounded-md hover:bg-gray-50 transition-colors cursor-pointer max-w-[300px]']">
+            <button :class="[compact ? 'gap-0.5 px-1.5 py-0.5 max-w-[200px]' : 'gap-1 px-2 py-1 max-w-[300px]', 'flex items-center rounded-md hover:bg-gray-50 transition-colors cursor-pointer']">
                 <span :class="[compact ? 'text-xs' : 'text-base', 'font-medium text-gray-800 truncate']">{{ currentTitle || '新对话' }}</span>
                 <ChevronDown :size="compact ? 12 : 16" class="text-gray-400 flex-shrink-0" :class="dropdownOpen ? 'rotate-180' : ''" />
             </button>
