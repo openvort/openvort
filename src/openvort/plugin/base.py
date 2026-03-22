@@ -293,6 +293,15 @@ class BasePlugin(ABC):
         """应用新配置（运行时生效），子类实现具体逻辑"""
         pass
 
+    def get_extended_meta(self) -> dict:
+        """Return extra metadata for the plugin detail API (tags, readme, etc.).
+
+        Override in subclasses that carry richer metadata (e.g. _ManifestPlugin).
+        """
+        return {
+            "prompts_count": len(self.get_prompts()),
+        }
+
     # ---- UI 扩展与 API 路由 ----
 
     def get_ui_extensions(self) -> dict | None:

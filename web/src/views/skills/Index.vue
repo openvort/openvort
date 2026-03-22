@@ -327,7 +327,7 @@ onMounted(() => { loadSkills(); loadTags(); });
                 </div>
                 <div class="flex items-center gap-2">
                     <AiAssistButton prompt="我想创建一个新的技能（Skill），请引导我完成创建。请先询问我技能的名称、描述和用途，然后帮我生成专业的 Skill 内容并创建。" label="AI 助手创建" />
-                    <VortButton variant="primary" size="small" @click="openCreateDialog">
+                    <VortButton variant="primary" @click="openCreateDialog">
                         <Plus :size="14" class="mr-1" /> 新建技能
                     </VortButton>
                 </div>

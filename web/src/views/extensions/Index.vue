@@ -100,7 +100,7 @@ async function loadAll() {
                 id: p.name, name: p.name,
                 displayName: p.display_name || p.name,
                 description: p.description || "", source, kind: "plugin",
-                enabled: !p.disabled, tags: [],
+                enabled: p.enabled, tags: [],
                 toolsCount: p.tools_count || p.tools?.length || 0,
                 tools: p.tools || [],
                 hasConfig: p.has_config, core: p.core,
