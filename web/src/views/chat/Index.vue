@@ -53,12 +53,40 @@ const userStore = useUserStore();
 const pluginStore = usePluginStore();
 const notificationStore = useNotificationStore();
 
+// Restore persisted state synchronously to prevent flash on refresh
+let _restoredContact: Contact | null = null;
+let _restoredSessionId = '';
+if (!props.embedded) {
+    try {
+        const raw = localStorage.getItem('chat-last-contact');
+        if (raw) {
+            const c = JSON.parse(raw);
+            if (c?.type === 'member' && c.id) {
+                _restoredContact = {
+                    type: 'member', id: c.id, name: c.name || '',
+                    avatar_url: c.avatar_url || '', position: c.position || '',
+                    last_message: '', last_message_time: 0, unread: 0,
+                    session_id: c.session_id || '',
+                };
+                _restoredSessionId = c.session_id || '';
+            } else {
+                _restoredContact = {
+                    type: 'ai', id: 'ai', name: 'AI 助手',
+                    avatar_url: '', last_message: '', last_message_time: 0,
+                    unread: 0, pinned: true,
+                };
+                _restoredSessionId = localStorage.getItem('chat-last-session-id') || '';
+            }
+        }
+    } catch { /* ignore */ }
+}
+
 // ---- Shared state ----
 const messages = ref<ChatMessage[]>([]);
 const inputText = ref("");
 const loading = ref(false);
-const currentSessionId = ref<string>("");
-const activeContact = ref<Contact | null>(null);
+const currentSessionId = ref<string>(_restoredSessionId);
+const activeContact = ref<Contact | null>(_restoredContact);
 const sessions = ref<ChatSession[]>([]);
 const sessionTokens = ref({ input: 0, output: 0, messages: 0, cacheCreation: 0, cacheRead: 0 });
 const thinkingLevel = ref<string>("off");
