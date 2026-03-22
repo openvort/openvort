@@ -5,7 +5,8 @@ import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMember
 import WorkItemStatus from "@/components/vort-biz/work-item/WorkItemStatus.vue";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
 import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
-import { Copy, SquarePen, FileText } from "lucide-vue-next";
+import { Copy, SquarePen, FileText, Bot, Loader2 } from "lucide-vue-next";
+import { useInlineAi } from "@/hooks";
 import { useWorkItemCommon } from "./useWorkItemCommon";
 import WorkItemLinkPanel from "./WorkItemLinkPanel.vue";
 import TestCaseLinkPanel from "./TestCaseLinkPanel.vue";
@@ -276,6 +277,127 @@ const saveDetailDescEditor = () => {
 const cancelDetailDescEditor = () => {
     detailDescEditing.value = false;
     detailDescDraft.value = "";
+    descAi.clear();
+};
+
+// ---- AI enrich description ----
+const descAi = useInlineAi({ sessionName: "描述完善助手" });
+
+const descAiPhaseLabel = computed(() => {
+    switch (descAi.phase.value) {
+        case "thinking": return "思考中";
+        case "tool_running": return "正在查询项目信息";
+        case "generating": return "生成中";
+        default: return "处理中";
+    }
+});
+
+const aiEnrichBtnLabel = computed(() => {
+    const type = record.value?.type || "需求";
+    return `AI 完善${type}描述`;
+});
+
+const extractImageRefs = (content: string): string[] => {
+    const images: string[] = [];
+    const mdImg = /!\[[^\]]*\]\([^)]+\)/g;
+    let m: RegExpExecArray | null;
+    while ((m = mdImg.exec(content)) !== null) images.push(m[0]);
+    const htmlImg = /<img[^>]+>/gi;
+    while ((m = htmlImg.exec(content)) !== null) images.push(m[0]);
+    return images;
+};
+
+const getStructureByType = (type: string): string => {
+    switch (type) {
+        case "缺陷":
+            return `- **问题描述**：清晰描述缺陷的具体现象
+- **复现步骤**：列出重现该缺陷的详细操作步骤（1. 2. 3. ...）
+- **预期结果**：正常情况下应该出现的结果
+- **实际结果**：当前实际出现的错误现象
+- **影响范围**：该缺陷影响的功能模块和严重程度`;
+        case "任务":
+            return `- **任务目标**：明确说明本任务要达成的目标
+- **实现方案**：列出具体的实施步骤或技术方案
+- **完成标准**：明确可验证的交付标准
+- **依赖与注意事项**：前置依赖、风险点或需要注意的事项`;
+        default:
+            return `- **需求背景**：为什么需要做这个需求
+- **用户故事**：作为___，我希望___，以便___
+- **验收标准**：列出具体可验证的验收条件
+- **技术要点**：关键的技术实现方向（如果能判断）`;
+    }
+};
+
+const buildDescEnrichPrompt = () => {
+    if (!record.value) return "";
+    const title = record.value.title || "";
+    const desc = detailDescDraft.value || record.value.description || "";
+    const project = record.value.projectName || "";
+    const type = record.value.type || "需求";
+
+    const images = extractImageRefs(desc);
+    const imagePart = images.length > 0
+        ? `\n\n重要：原描述中包含 ${images.length} 张图片，你必须在输出中原样保留所有图片引用（不要修改图片语法或 URL），将它们放在最相关的段落位置：\n${images.map((img, i) => `${i + 1}. ${img}`).join("\n")}`
+        : "";
+
+    const descPart = desc.trim()
+        ? `当前已有描述：\n${desc}\n\n请在此基础上完善和补充。`
+        : "（暂无描述内容）";
+
+    const structure = getStructureByType(type);
+
+    return `请帮我完善以下${type}的描述内容。
+
+${type}标题：${title}
+所属项目：${project || "未设置"}
+${descPart}
+
+请生成一份结构清晰的${type}描述，可以包含以下结构（按需裁剪）：
+${structure}
+
+如果需要了解项目的业务背景，你可以查询项目信息或关联的代码仓库来获取更多上下文。${imagePart}
+请直接输出 Markdown 格式的描述内容，不要包含${type}标题。`;
+};
+
+const startAiEnrichDesc = () => {
+    if (!detailDescEditing.value) {
+        openDetailDescEditor();
+    }
+    const prompt = buildDescEnrichPrompt();
+    if (!prompt) return;
+    descAi.run(prompt);
+};
+
+const applyAiDesc = () => {
+    if (!descAi.text.value) return;
+    detailDescDraft.value = descAi.text.value;
+    descAi.clear();
+};
+
+// ---- AI supplement prompt builder ----
+const buildSupplementPrompt = () => {
+    if (!record.value) return "";
+    const r = record.value;
+    const fields = [
+        `负责人：${r.owner || "未指派"}`,
+        `计划时间：${r.planTime?.[0] && r.planTime?.[1] ? `${r.planTime[0]} ~ ${r.planTime[1]}` : "未设置"}`,
+        `迭代：${r.iteration || "未设置"}`,
+        `版本：${r.version || "未设置"}`,
+        `预估工时：${r.estimateHours != null ? r.estimateHours + " 小时" : "未设置"}`,
+    ].join("\n");
+
+    return `请帮我补充${r.type}「${r.title}」(${r.workNo}) 的详细信息。
+
+所属项目：${r.projectName || "未设置"}
+当前字段：
+${fields}
+
+请根据${r.type}标题、描述和项目上下文，帮我合理补充以上尚未设置的字段。你可以：
+1. 先查询项目信息了解团队成员、迭代计划、版本规划
+2. 查看关联的代码仓库了解技术背景
+3. 参考同项目其他${r.type}的设置
+
+然后使用工具逐个更新这些字段。每个字段请先简要说明理由再操作。`;
 };
 
 const getEntityTypeKey = (): string => {
@@ -735,6 +857,12 @@ watch(() => props.initialData, (value) => {
             </div>
 
             <div class="bug-detail-panel" v-if="detailActiveTab === 'detail'">
+                <div class="bug-detail-ai-bar">
+                    <AiAssistButton
+                        :prompt="buildSupplementPrompt()"
+                        label="AI 一键补充"
+                    />
+                </div>
                 <div class="bug-detail-top-grid">
                     <div class="bug-detail-left-col">
                         <div class="bug-detail-info-item bug-detail-info-item-row bug-detail-info-assignee" @click.stop>
@@ -1049,6 +1177,65 @@ watch(() => props.initialData, (value) => {
                         <div class="bug-detail-desc-actions">
                             <vort-button variant="primary" @click="saveDetailDescEditor">保存</vort-button>
                             <vort-button @click="cancelDetailDescEditor">取消</vort-button>
+                            <vort-button
+                                class="ml-auto"
+                                :loading="descAi.loading.value"
+                                @click="startAiEnrichDesc"
+                            >
+                                <Bot :size="14" class="mr-1" /> {{ aiEnrichBtnLabel }}
+                            </vort-button>
+                        </div>
+
+                        <!-- AI description result area -->
+                        <div v-if="descAi.html.value || descAi.loading.value" class="bug-detail-ai-desc">
+                            <div class="bug-detail-ai-desc-head">
+                                <h4 class="flex items-center gap-1.5">
+                                    <Bot :size="14" class="text-blue-500" /> AI 生成的描述
+                                </h4>
+                                <div class="flex items-center gap-2">
+                                    <button
+                                        v-if="!descAi.loading.value && descAi.html.value"
+                                        class="text-xs text-gray-400 hover:text-blue-500 transition-colors"
+                                        @click="startAiEnrichDesc"
+                                    >
+                                        重新生成
+                                    </button>
+                                    <button
+                                        v-if="descAi.loading.value"
+                                        class="text-xs text-gray-400 hover:text-red-500 transition-colors"
+                                        @click="descAi.abort()"
+                                    >
+                                        停止
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div v-if="descAi.loading.value && !descAi.html.value" class="flex items-center gap-2 py-4 text-sm text-gray-400">
+                                <Loader2 class="w-4 h-4 animate-spin" />
+                                <span>{{ descAiPhaseLabel }}...</span>
+                            </div>
+
+                            <div
+                                v-if="descAi.html.value"
+                                class="ai-content text-[13px] leading-[1.75] text-gray-700"
+                                v-html="descAi.html.value"
+                            />
+
+                            <div v-if="descAi.error.value" class="text-sm text-red-500 py-2">{{ descAi.error.value }}</div>
+
+                            <div v-if="descAi.loading.value && descAi.html.value" class="flex items-center gap-1.5 mt-2 text-xs text-gray-400">
+                                <Loader2 class="w-3 h-3 animate-spin" />
+                                <span>{{ descAiPhaseLabel }}...</span>
+                            </div>
+
+                            <div v-if="descAi.html.value && !descAi.loading.value" class="bug-detail-ai-desc-apply">
+                                <vort-button variant="primary" size="small" @click="applyAiDesc">
+                                    应用 AI 描述
+                                </vort-button>
+                                <vort-button size="small" @click="descAi.clear()">
+                                    忽略
+                                </vort-button>
+                            </div>
                         </div>
                     </template>
                     <template v-else>
@@ -1713,8 +1900,111 @@ watch(() => props.initialData, (value) => {
 
 .bug-detail-desc-actions {
     display: flex;
+    align-items: center;
     gap: 8px;
     margin-top: 12px;
+}
+
+.bug-detail-ai-bar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 8px;
+}
+
+.bug-detail-ai-desc {
+    margin-top: 16px;
+    padding: 16px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+}
+
+.bug-detail-ai-desc-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.bug-detail-ai-desc-head h4 {
+    font-size: 13px;
+    font-weight: 500;
+    color: #374151;
+    margin: 0;
+}
+
+.bug-detail-ai-desc-apply {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid #e2e8f0;
+}
+
+.ai-content :deep(h1),
+.ai-content :deep(h2),
+.ai-content :deep(h3),
+.ai-content :deep(h4) {
+    font-size: 13px;
+    font-weight: 600;
+    color: #374151;
+    margin-top: 1em;
+    margin-bottom: 0.4em;
+}
+.ai-content :deep(h1:first-child),
+.ai-content :deep(h2:first-child),
+.ai-content :deep(h3:first-child) {
+    margin-top: 0;
+}
+.ai-content :deep(p) {
+    margin: 0.4em 0;
+}
+.ai-content :deep(ul),
+.ai-content :deep(ol) {
+    margin: 0.3em 0;
+    padding-left: 1.5em;
+}
+.ai-content :deep(li) {
+    margin: 0.15em 0;
+}
+.ai-content :deep(pre) {
+    background: #f1f5f9;
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-size: 12px;
+    line-height: 1.6;
+    overflow-x: auto;
+    margin: 0.5em 0;
+}
+.ai-content :deep(code) {
+    font-size: 12px;
+    background: #f3f4f6;
+    border-radius: 3px;
+    padding: 1px 4px;
+}
+.ai-content :deep(pre code) {
+    background: none;
+    padding: 0;
+}
+.ai-content :deep(strong) {
+    font-weight: 600;
+    color: #1f2937;
+}
+.ai-content :deep(table) {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    margin: 0.5em 0;
+}
+.ai-content :deep(th),
+.ai-content :deep(td) {
+    border: 1px solid #e5e7eb;
+    padding: 4px 8px;
+    text-align: left;
+}
+.ai-content :deep(th) {
+    background: #f9fafb;
+    font-weight: 600;
 }
 
 .bug-detail-bottom-panel {

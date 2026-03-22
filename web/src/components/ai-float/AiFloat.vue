@@ -50,6 +50,7 @@ watch(pendingPrompt, (prompt) => {
 </script>
 
 <template>
+    <Teleport to="body">
     <div v-if="!isOnChatPage" class="ai-float-container">
         <transition name="ai-float-panel" type="animation">
             <div v-if="panelOpen" class="ai-float-panel" :style="{ width: showContacts ? '660px' : '420px' }">
@@ -79,6 +80,7 @@ watch(pendingPrompt, (prompt) => {
             </transition>
         </button>
     </div>
+    </Teleport>
 </template>
 
 <style scoped>
@@ -86,7 +88,7 @@ watch(pendingPrompt, (prompt) => {
     position: fixed;
     bottom: 24px;
     right: 24px;
-    z-index: 1000;
+    z-index: 2000;
 }
 
 .ai-float-btn {
