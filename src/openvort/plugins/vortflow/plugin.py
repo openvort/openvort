@@ -7,11 +7,16 @@ VortFlow 插件主类
 import asyncio
 from pathlib import Path
 
+from typing import TYPE_CHECKING
+
 from openvort.plugin.base import BasePlugin, BaseTool
 from openvort.plugins.vortflow.aggregator import im_aggregator, send_im_to_member
 from openvort.plugins.vortflow.engine import FlowEngine
 from openvort.plugins.vortflow.notifier import notifier as _notifier_singleton
 from openvort.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from openvort.plugin.api import PluginAPI
 
 log = get_logger("plugins.vortflow")
 
@@ -34,6 +39,11 @@ class VortFlowPlugin(BasePlugin):
             pass
         im_aggregator.set_channel_sender(send_im_to_member)
         asyncio.create_task(im_aggregator.start())
+
+    def activate(self, api: "PluginAPI") -> None:
+        super().activate(api)
+        from openvort.plugins.vortflow.provider import VortFlowProjectProvider
+        api.register_slot("project_provider", VortFlowProjectProvider(api.db))
 
     def get_tools(self) -> list[BaseTool]:
         from openvort.db.engine import get_session_factory

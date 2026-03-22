@@ -20,8 +20,9 @@ class ReportSubmitTool(BaseTool):
         "支持编辑草稿、提交给审阅人、撤回已提交的汇报。"
     )
 
-    def __init__(self, session_factory_getter):
+    def __init__(self, session_factory_getter, slot_getter=None):
         self._sf_getter = session_factory_getter
+        self._slot_getter = slot_getter
 
     def input_schema(self) -> dict:
         return {
@@ -224,33 +225,21 @@ class ReportSubmitTool(BaseTool):
         except Exception as e:
             log.debug(f"采集 Git 数据失败: {e}")
 
-        # Try VortFlow tasks
+        # Try VortFlow tasks via project_provider Slot
         try:
-            from sqlalchemy import select, func as sa_func
-            from openvort.plugins.vortflow.models import FlowTask, FlowBug
-
-            async with self._sf_getter()() as session:
-                tasks_done = 0
-                bugs_fixed = 0
-
-                if member_id:
-                    stmt = select(sa_func.count(FlowTask.id)).where(
-                        FlowTask.assignee_id == member_id,
-                        FlowTask.state.in_(["done", "closed"]),
-                    )
-                    result = await session.execute(stmt)
-                    tasks_done = result.scalar() or 0
-
-                    stmt = select(sa_func.count(FlowBug.id)).where(
-                        FlowBug.assignee_id == member_id,
-                        FlowBug.state.in_(["resolved", "closed"]),
-                    )
-                    result = await session.execute(stmt)
-                    bugs_fixed = result.scalar() or 0
-
+            provider = self._slot_getter("project_provider") if self._slot_getter else None
+            if provider:
+                since_dt = datetime.combine(date.fromisoformat(since), datetime.min.time())
+                until_dt = datetime.combine(date.fromisoformat(until), datetime.max.time())
+                summary = await provider.get_tasks_summary(
+                    project_id="",
+                    member_id=member_id,
+                    since=since_dt,
+                    until=until_dt,
+                )
                 data["vortflow"] = {
-                    "tasks_completed": tasks_done,
-                    "bugs_fixed": bugs_fixed,
+                    "tasks_completed": summary.tasks_done,
+                    "bugs_fixed": summary.bugs_fixed,
                 }
         except Exception as e:
             log.debug(f"采集 VortFlow 数据失败: {e}")

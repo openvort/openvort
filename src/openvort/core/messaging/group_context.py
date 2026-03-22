@@ -7,7 +7,7 @@
 import json
 from datetime import datetime
 
-from sqlalchemy import select, text
+from sqlalchemy import select
 
 from openvort.db.engine import get_session_factory
 from openvort.db.models import GroupChat
@@ -55,11 +55,11 @@ class GroupContextManager:
             if not group:
                 return {"ok": False, "message": "群聊记录不存在"}
 
-            proj_row = await session.execute(
-                text("SELECT id, name FROM flow_projects WHERE id = :pid"),
-                {"pid": project_id},
-            )
-            proj = proj_row.mappings().first()
+            try:
+                from openvort.plugins.vortflow.models import FlowProject
+                proj = await session.get(FlowProject, project_id)
+            except ImportError:
+                proj = None
             if not proj:
                 return {"ok": False, "message": f"项目 {project_id} 不存在"}
 
@@ -68,7 +68,7 @@ class GroupContextManager:
             group.bound_at = datetime.now()
             await session.commit()
 
-            project_name = proj["name"]
+            project_name = proj.name
             log.info(f"群聊 {chat_id} 已绑定项目: {project_name} ({project_id})")
             return {"ok": True, "message": f"已将此群关联到项目「{project_name}」", "project_name": project_name}
 
@@ -123,22 +123,22 @@ class GroupContextManager:
                 return self._build_unbound_prompt(group)
 
     async def _build_bound_prompt(self, session, group: GroupChat) -> str:
-        proj_row = await session.execute(
-            text("SELECT name, description FROM flow_projects WHERE id = :pid"),
-            {"pid": group.project_id},
-        )
-        proj = proj_row.mappings().first()
+        try:
+            from openvort.plugins.vortflow.models import FlowProject
+            proj = await session.get(FlowProject, group.project_id)
+        except ImportError:
+            proj = None
         if not proj:
             return self._build_unbound_prompt(group)
 
         name_line = f"群名: {group.name}\n" if group.name else ""
-        desc_line = f"项目描述: {proj['description']}\n" if proj["description"] else ""
+        desc_line = f"项目描述: {proj.description}\n" if proj.description else ""
 
         return (
             f"# 群聊上下文\n"
             f"当前对话发生在一个 IM 群聊中（群聊ID: {group.chat_id}）。\n"
             f"{name_line}"
-            f"已关联项目: {proj['name']} (ID: {group.project_id})\n"
+            f"已关联项目: {proj.name} (ID: {group.project_id})\n"
             f"{desc_line}\n"
             f"所有操作默认在此项目上下文中。查询需求/任务/缺陷时自动使用此项目 ID。\n"
             f"如需更换关联项目，可使用 group_bind_project 工具。"

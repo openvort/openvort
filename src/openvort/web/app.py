@@ -126,6 +126,10 @@ def create_app() -> FastAPI:
     app.include_router(remote_nodes_router, prefix="/api/admin/remote-nodes", tags=["admin-remote-nodes"], dependencies=[Depends(require_admin)])
     app.include_router(marketplace_router, prefix="/api/admin/marketplace", tags=["admin-marketplace"], dependencies=[Depends(require_admin)])
 
+    # Platform standard API (Slot-backed, for plugins to access core data)
+    from openvort.web.routers.platform import router as platform_router
+    app.include_router(platform_router, prefix="/api/platform", tags=["platform"], dependencies=[Depends(require_auth)])
+
     # 通用文件上传（登录用户可访问）
     from openvort.web.routers.uploads import router as uploads_router
     app.include_router(uploads_router, prefix="/api/uploads", tags=["uploads"], dependencies=[Depends(require_auth)])

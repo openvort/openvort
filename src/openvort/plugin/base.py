@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 if TYPE_CHECKING:
     from openvort.contacts.sync import ContactSyncProvider
+    from openvort.plugin.api import PluginAPI
 
 # ============ 消息模型 ============
 
@@ -200,6 +201,19 @@ class BasePlugin(ABC):
     version: str = "0.1.0"
     source: str = "builtin"       # 来源: "builtin" | "pip" | "local"
     core: bool = False            # 核心插件不可禁用
+
+    def activate(self, api: "PluginAPI") -> None:
+        """Register all capabilities via the PluginAPI.
+
+        Default implementation delegates to the legacy get_tools() / get_prompts()
+        methods for backward compatibility.  New plugins should override this
+        and call api.register_tool() / api.register_prompt() / api.register_slot()
+        directly.
+        """
+        for tool in self.get_tools():
+            api.register_tool(tool)
+        for prompt in self.get_prompts():
+            api.register_prompt(prompt, source=f"plugin:{self.name}")
 
     @abstractmethod
     def get_tools(self) -> list[BaseTool]:

@@ -19,6 +19,18 @@ class PluginRegistry:
         self._prompts: list[tuple[str, str]] = []  # (source, content)
         self._plugins: dict[str, "BasePlugin"] = {}
         self._disabled: set[str] = set()
+        self._slots: dict[str, object] = {}
+
+    # ---- Slot management ----
+
+    def register_slot(self, name: str, provider: object) -> None:
+        if name in self._slots:
+            log.warning(f"Slot '{name}' already registered, overwriting")
+        self._slots[name] = provider
+        log.info(f"Slot registered: {name}")
+
+    def get_slot(self, name: str) -> object | None:
+        return self._slots.get(name)
 
     # ---- Plugin 管理 ----
 

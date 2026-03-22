@@ -24,6 +24,18 @@ class PluginLoader:
         self.registry = registry
         self._plugins: list[BasePlugin] = []
         self._auth = auth_service
+        self._api: "PluginAPI | None" = None
+
+    @property
+    def api(self) -> "PluginAPI":
+        if self._api is None:
+            from openvort.core.events import event_bus
+            from openvort.plugin.api import PluginAPI
+            self._api = PluginAPI(
+                registry=self.registry,
+                event_bus=event_bus,
+            )
+        return self._api
 
     def load_all(self) -> None:
         """加载所有插件（entry_points + 本地目录）"""
@@ -72,21 +84,18 @@ class PluginLoader:
                     self.registry.disable_plugin(plugin.name)
                     continue
 
-                # 注册 Plugin 的所有 Tools
-                tools = plugin.get_tools()
-                for tool in tools:
-                    self.registry.register_tool(tool)
-
-                # 注册 Plugin 的领域知识 Prompts
-                prompts = plugin.get_prompts()
-                for prompt in prompts:
-                    self.registry.register_prompt(prompt, source=f"plugin:{plugin.name}")
+                # Call activate(api) — new plugins override this to register
+                # tools/prompts/slots via the PluginAPI directly.
+                # The default BasePlugin.activate() delegates to get_tools()/get_prompts().
+                plugin.activate(self.api)
 
                 # Load skills bundled with the plugin
                 module_file = inspect.getfile(cls)
                 if module_file:
                     self._load_plugin_skills(Path(module_file).parent, plugin.name)
 
+                tools = plugin.get_tools()
+                prompts = plugin.get_prompts()
                 log.info(
                     f"已加载 Plugin: {plugin.name} ({plugin.display_name}) "
                     f"— {len(tools)} 个 Tool, {len(prompts)} 条 Prompt"
@@ -148,16 +157,12 @@ class PluginLoader:
                     self.registry.disable_plugin(plugin.name)
                     continue
 
-                tools = plugin.get_tools()
-                for tool in tools:
-                    self.registry.register_tool(tool)
-
-                prompts = plugin.get_prompts()
-                for prompt in prompts:
-                    self.registry.register_prompt(prompt, source=f"plugin:{plugin.name}")
+                plugin.activate(self.api)
 
                 self._load_plugin_skills(plugin_dir, plugin.name)
 
+                tools = plugin.get_tools()
+                prompts = plugin.get_prompts()
                 log.info(
                     f"已加载本地 Plugin: {plugin.name} ({plugin.display_name}) "
                     f"— {len(tools)} 个 Tool, {len(prompts)} 条 Prompt"

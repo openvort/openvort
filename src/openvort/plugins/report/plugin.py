@@ -3,9 +3,13 @@ Report plugin — AI-driven enterprise reporting management.
 """
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from openvort.plugin.base import BasePlugin, BaseTool
 from openvort.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from openvort.plugin.api import PluginAPI
 
 log = get_logger("plugins.report")
 
@@ -17,6 +21,22 @@ class ReportPlugin(BasePlugin):
     display_name = "汇报管理"
     description = "通过 AI 对话管理汇报模板、规则，自动生成日报/周报/月报，支持催报和向上聚合"
     version = "0.1.0"
+
+    def activate(self, api: "PluginAPI") -> None:
+        from openvort.db.engine import get_session_factory
+        from openvort.plugins.report.tools.manage import ReportManageTool
+        from openvort.plugins.report.tools.query import ReportQueryTool
+        from openvort.plugins.report.tools.reporting_relation import ReportingRelationTool
+        from openvort.plugins.report.tools.submit import ReportSubmitTool
+
+        sf_getter = get_session_factory
+        api.register_tool(ReportManageTool(sf_getter))
+        api.register_tool(ReportSubmitTool(sf_getter, slot_getter=api.get_slot))
+        api.register_tool(ReportQueryTool(sf_getter))
+        api.register_tool(ReportingRelationTool(sf_getter))
+
+        for prompt in self.get_prompts():
+            api.register_prompt(prompt, source=f"plugin:{self.name}")
 
     def get_tools(self) -> list[BaseTool]:
         from openvort.db.engine import get_session_factory

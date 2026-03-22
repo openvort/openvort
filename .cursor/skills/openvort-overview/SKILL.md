@@ -53,8 +53,10 @@ src/openvort/
 │   └── embedding/           # 向量嵌入服务（Provider: dashscope）
 ├── plugin/                  # 插件框架
 │   ├── base.py              # BasePlugin / BaseChannel / BaseTool / Message
-│   ├── registry.py          # PluginRegistry 注册中心
-│   └── loader.py            # PluginLoader (entry_points 自动发现)
+│   ├── api.py               # PluginAPI — activate() 运行时 API（Slot/Event/注册）
+│   ├── registry.py          # PluginRegistry 注册中心（含 Slot 存储）
+│   ├── loader.py            # PluginLoader (entry_points 自动发现)
+│   └── slots.py             # 标准 Slot 接口定义（ProjectProvider 等）
 ├── plugins/
 │   ├── zentao/              # 禅道插件（11 个 Tool，直连 MySQL）
 │   ├── browser/             # 浏览器控制插件（Playwright，5 个 Tool）
@@ -265,13 +267,16 @@ openvort coding status             # 查看 AI 编码环境状态
 
 ## 插件系统
 
+模块分为核心模块（VortFlow/VortGit 等，深度集成）和插件（Jenkins/Report 等，通过 Slot/Event 解耦）。
 插件通过 `entry_points` 自动发现，`pip install` 即注册。
 
 ### 插件框架 (plugin/)
-- `BasePlugin`: 插件基类，提供 tools/prompts/config 注册
+- `BasePlugin`: 插件基类，提供 `activate(api)` + 旧式 get_tools()/get_prompts() 双接口
+- `PluginAPI`: 运行时 API（register_tool/register_slot/emit/on/get_slot/db）
 - `BaseChannel`: 通道基类，消息收发抽象
 - `BaseTool`: 工具基类，定义 name/description/input_schema/execute
-- `PluginRegistry`: 注册中心，管理所有插件和工具
+- `PluginRegistry`: 注册中心，管理所有插件、工具和 Slot
+- Slot 机制：独占能力槽（如 `project_provider`），插件通过 Protocol 接口获取核心数据
 - `PluginLoader`: 通过 entry_points 扫描加载
 
 ### 禅道插件 (plugins/zentao/)
@@ -415,7 +420,7 @@ DB 驱动的三级 Skill 体系：
 - Token 用量追踪：per-request 和 per-session 累计，支持 IM 内 /usage 查看
 - 会话压缩：LLM 摘要替换旧消息，避免 token 溢出丢失关键上下文
 - IM 命令系统：/ 前缀命令在进入 Agent 前拦截处理
-- 一切皆插件：统一凭证管理、领域知识注入、独立发布（10 个插件）
+- 核心模块 + 插件体系：核心模块（VortFlow/VortGit）深度集成，插件（Jenkins/Report 等）通过 Slot/Event 解耦、可独立分发
 - 内置 PM（VortFlow）：需求→任务→Bug 状态机，PMAdapter 支持本地/禅道双模式
 - 内置 Git（VortGit）：多平台 Provider 抽象，Fernet 加密 Token，Git+任务联合工作汇报
 - Jenkins CI/CD 集成：多实例管理、构建触发、日志查看
