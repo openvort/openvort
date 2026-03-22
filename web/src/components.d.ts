@@ -33,7 +33,6 @@ declare module 'vue' {
     VortDropdown: typeof import('@/components/vort/dropdown')['Dropdown']
     VortDropdownMenuItem: typeof import('@/components/vort/dropdown')['DropdownMenuItem']
     VortDropdownMenuSeparator: typeof import('@/components/vort/dropdown')['DropdownMenuSeparator']
-    VortEditor: typeof import('@/components/vort-biz/editor')['VortEditor']
     VortForm: typeof import('@/components/vort/form')['Form']
     VortFormItem: typeof import('@/components/vort/form')['FormItem']
     VortInput: typeof import('@/components/vort/input')['Input']
