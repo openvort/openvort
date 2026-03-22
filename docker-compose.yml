@@ -1,0 +1,32 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: openvort
+      POSTGRES_PASSWORD: openvort
+      POSTGRES_DB: openvort
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openvort"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  openvort:
+    build: .
+    ports:
+      - "10899:8090"
+    env_file: .env
+    environment:
+      PYTHONUNBUFFERED: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - openvort_data:/root/.openvort
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  openvort_data:
