@@ -233,6 +233,34 @@ function handleAdd() {
     loadImageStatus();
 }
 
+function handleClone(row: RemoteNodeItem) {
+    const cfg = row.config || {};
+    form.value = {
+        name: `${row.name} (副本)`,
+        node_type: row.node_type || "openclaw",
+        gateway_url: row.node_type !== "docker" ? row.gateway_url : "",
+        gateway_token: "",
+        image: cfg.image || "python:3.11-slim",
+        customImage: "",
+        memory_limit: cfg.memory_limit || "2g",
+        cpu_limit: cfg.cpu_limit || 2,
+        network_mode: cfg.network_mode || "host",
+        env_vars: Object.entries(cfg.env_vars || {}).map(([key, value]) => ({ key, value: String(value) })),
+        description: row.description,
+    };
+    const isPreset = IMAGE_PRESETS.some(p => p.value === form.value.image);
+    useCustomImage.value = !isPreset && !!cfg.image;
+    if (useCustomImage.value) form.value.customImage = cfg.image;
+    editing.value = false;
+    editingId.value = "";
+    gatewayTokenEditing.value = true;
+    maskedGatewayToken.value = "";
+    installOutput.value = [];
+    installSuccess.value = null;
+    dialogOpen.value = true;
+    if (row.node_type === "docker") loadImageStatus();
+}
+
 function handleEdit(row: RemoteNodeItem) {
     const cfg = row.config || {};
     form.value = {
@@ -514,6 +542,7 @@ onBeforeUnmount(() => { if (statsTimer) clearInterval(statsTimer); });
                             </template>
                             <TableActionsItem @click="handleEdit(row)">编辑</TableActionsItem>
                             <template #more>
+                                <TableActionsMoreItem @click="handleClone(row)">复制</TableActionsMoreItem>
                                 <template v-if="row.node_type === 'docker' && row.status === 'running'">
                                     <TableActionsMoreItem @click="handleOpenTerminal(row)">终端</TableActionsMoreItem>
                                     <TableActionsMoreItem v-if="(row.config || {}).image?.includes('browser')" @click="handleOpenBrowser(row)">浏览器</TableActionsMoreItem>

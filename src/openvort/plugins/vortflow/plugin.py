@@ -48,18 +48,36 @@ class VortFlowPlugin(BasePlugin):
     def get_tools(self) -> list[BaseTool]:
         from openvort.db.engine import get_session_factory
         from openvort.plugins.vortflow.tools.assign import AssignTool
+        from openvort.plugins.vortflow.tools.comment import CommentTool
+        from openvort.plugins.vortflow.tools.create_bug import CreateBugTool
+        from openvort.plugins.vortflow.tools.create_task import CreateTaskTool
+        from openvort.plugins.vortflow.tools.delete_work_item import DeleteWorkItemTool
         from openvort.plugins.vortflow.tools.group_bind import GroupBindTool
         from openvort.plugins.vortflow.tools.intake import IntakeStoryTool
+        from openvort.plugins.vortflow.tools.link_work_items import LinkWorkItemsTool
+        from openvort.plugins.vortflow.tools.manage_iteration import ManageIterationTool
+        from openvort.plugins.vortflow.tools.manage_project import ManageProjectTool
+        from openvort.plugins.vortflow.tools.manage_version import ManageVersionTool
         from openvort.plugins.vortflow.tools.progress import UpdateProgressTool
         from openvort.plugins.vortflow.tools.project import CreateProjectTool
         from openvort.plugins.vortflow.tools.query import QueryTool
+        from openvort.plugins.vortflow.tools.update_work_item import UpdateWorkItemTool
 
         sf_getter = get_session_factory
         return [
             CreateProjectTool(sf_getter),
+            ManageProjectTool(sf_getter),
             IntakeStoryTool(sf_getter, self._notifier, self._engine),
+            CreateTaskTool(sf_getter),
+            CreateBugTool(sf_getter),
             AssignTool(sf_getter, self._notifier),
             UpdateProgressTool(sf_getter, self._engine, self._notifier),
+            UpdateWorkItemTool(sf_getter),
+            DeleteWorkItemTool(sf_getter),
+            CommentTool(sf_getter),
+            LinkWorkItemsTool(sf_getter),
+            ManageIterationTool(sf_getter),
+            ManageVersionTool(sf_getter),
             QueryTool(),
             GroupBindTool(),
         ]

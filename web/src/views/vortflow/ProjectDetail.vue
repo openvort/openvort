@@ -115,6 +115,12 @@ const bugCloseRate = computed(() => {
     const b = stats.value.bugs;
     return b.total ? Math.round((b.closed / b.total) * 100) : 0;
 });
+const bugRateColor = computed(() => {
+    const rate = bugCloseRate.value;
+    if (rate >= 80) return { stroke: '#22c55e', text: 'text-green-600' };
+    if (rate >= 50) return { stroke: '#f59e0b', text: 'text-amber-500' };
+    return { stroke: '#ef4444', text: 'text-red-600' };
+});
 
 const ringCircumference = 2 * Math.PI * 18;
 const ringDashoffset = (percent: number) => ringCircumference * (1 - percent / 100);
@@ -514,7 +520,7 @@ onBeforeUnmount(() => {
                         <div class="relative w-12 h-12 flex-shrink-0">
                             <svg viewBox="0 0 40 40" class="w-full h-full -rotate-90">
                                 <circle cx="20" cy="20" r="18" fill="none" stroke="#e5e7eb" stroke-width="3" />
-                                <circle cx="20" cy="20" r="18" fill="none" stroke="#ef4444" stroke-width="3"
+                                <circle cx="20" cy="20" r="18" fill="none" :stroke="bugRateColor.stroke" stroke-width="3"
                                     stroke-linecap="round"
                                     :stroke-dasharray="ringCircumference"
                                     :stroke-dashoffset="ringDashoffset(bugCloseRate)"
@@ -522,7 +528,7 @@ onBeforeUnmount(() => {
                                 />
                             </svg>
                             <div class="absolute inset-0 flex items-center justify-center">
-                                <span class="text-[10px] font-semibold text-red-600">{{ bugCloseRate }}%</span>
+                                <span :class="['text-[10px] font-semibold', bugRateColor.text]">{{ bugCloseRate }}%</span>
                             </div>
                         </div>
                         <div class="flex-1 min-w-0">

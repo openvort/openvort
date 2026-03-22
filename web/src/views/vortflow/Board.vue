@@ -76,6 +76,12 @@ const bugCloseRate = computed(() => {
     const b = stats.value.bugs;
     return b.total ? Math.round((b.closed / b.total) * 100) : 0;
 });
+const bugRateColor = computed(() => {
+    const rate = bugCloseRate.value;
+    if (rate >= 80) return { stroke: '#22c55e', text: 'text-green-600', border: 'border-green-500' };
+    if (rate >= 50) return { stroke: '#f59e0b', text: 'text-amber-500', border: 'border-amber-500' };
+    return { stroke: '#ef4444', text: 'text-red-600', border: 'border-red-500' };
+});
 
 const projectRepos = (projectId: string) => projectRepoMap.value[projectId] || [];
 
@@ -357,12 +363,12 @@ watch(() => vortFlowStore.selectedProjectId, () => {
                 </div>
 
                 <!-- Bugs -->
-                <div class="bg-white rounded-xl p-5 border-l-4 border-red-500 cursor-pointer hover:shadow-md transition-shadow" @click="goToWorkItems('bugs')">
+                <div :class="['bg-white rounded-xl p-5 border-l-4 cursor-pointer hover:shadow-md transition-shadow', bugRateColor.border]" @click="goToWorkItems('bugs')">
                     <div class="flex items-center gap-4">
                         <div class="relative w-14 h-14 flex-shrink-0">
                             <svg viewBox="0 0 40 40" class="w-full h-full -rotate-90">
                                 <circle cx="20" cy="20" r="18" fill="none" stroke="#e5e7eb" stroke-width="3" />
-                                <circle cx="20" cy="20" r="18" fill="none" stroke="#ef4444" stroke-width="3"
+                                <circle cx="20" cy="20" r="18" fill="none" :stroke="bugRateColor.stroke" stroke-width="3"
                                     stroke-linecap="round"
                                     :stroke-dasharray="ringCircumference"
                                     :stroke-dashoffset="ringDashoffset(bugCloseRate)"
@@ -370,13 +376,13 @@ watch(() => vortFlowStore.selectedProjectId, () => {
                                 />
                             </svg>
                             <div class="absolute inset-0 flex items-center justify-center">
-                                <span class="text-xs font-semibold text-red-600">{{ bugCloseRate }}%</span>
+                                <span :class="['text-xs font-semibold', bugRateColor.text]">{{ bugCloseRate }}%</span>
                             </div>
                         </div>
                         <div class="flex-1 min-w-0">
                             <div class="flex items-center justify-between">
                                 <div class="flex items-center gap-2">
-                                    <Bug :size="15" class="text-red-600" />
+                                    <Bug :size="15" :class="bugRateColor.text" />
                                     <span class="text-sm font-medium text-gray-600">缺陷</span>
                                 </div>
                                 <span class="text-2xl font-bold text-gray-800">{{ stats.bugs.total }}</span>
