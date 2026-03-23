@@ -81,6 +81,21 @@ def _setup_mcp(app: FastAPI) -> None:
             _log_app.info("MCP session manager started")
 
         app.mount("/mcp", mcp_asgi)
+
+        from starlette.types import ASGIApp, Scope, Receive, Send
+
+        class _MCPTrailingSlashMiddleware:
+            """Rewrite /mcp → /mcp/ so Starlette Mount matches correctly for all HTTP methods."""
+
+            def __init__(self, app: ASGIApp):
+                self.app = app
+
+            async def __call__(self, scope: Scope, receive: Receive, send: Send):
+                if scope["type"] == "http" and scope.get("path") == "/mcp":
+                    scope = dict(scope, path="/mcp/", raw_path=b"/mcp/")
+                await self.app(scope, receive, send)
+
+        app.add_middleware(_MCPTrailingSlashMiddleware)
         _log_app.info("MCP Server mounted at /mcp")
     except Exception as e:
         _log_app.warning(f"MCP Server setup failed: {e}")

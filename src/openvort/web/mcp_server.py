@@ -47,6 +47,7 @@ def create_mcp_server(registry: PluginRegistry) -> FastMCP:
         json_response=True,
         stateless_http=True,
         streamable_http_path="/",
+        host="0.0.0.0",
     )
 
     low = mcp._mcp_server
