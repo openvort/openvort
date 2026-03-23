@@ -1391,6 +1391,7 @@ defineExpose({
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: 1.6;
 }
 
 .vort-pro-table-cell-fixed {

@@ -43,6 +43,7 @@ export interface PropertyChange {
 const {
     ownerGroups, memberOptions, toBackendPriorityLevel,
     getBackendStatesByDisplayStatus, getMemberIdByName,
+    toTaskEstimateHours,
 } = useWorkItemCommon();
 
 const vortFlowStore = useVortFlowStore();
@@ -162,7 +163,13 @@ const buildPatch = (change: PropertyChange, row: RowItem): Record<string, any> =
     const val = change.operator === "clear" ? null : change.value;
     switch (change.property) {
         case "priority":
-            patch.priority = val ? toBackendPriorityLevel(val) : 4;
+            if (row.type === "缺陷") {
+                patch.severity = val ? toBackendPriorityLevel(val) : 4;
+            } else if (row.type === "任务") {
+                patch.estimate_hours = val ? toTaskEstimateHours(val) : 0;
+            } else {
+                patch.priority = val ? toBackendPriorityLevel(val) : 4;
+            }
             break;
         case "status": {
             const states = val ? getBackendStatesByDisplayStatus(val) : [];
