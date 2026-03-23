@@ -613,3 +613,17 @@ export function addVortflowTestPlanExecution(planId: string, planCaseId: string,
 export function getVortflowTestPlanExecutions(planId: string, planCaseId: string) {
     return request.get(`/vortflow/test-plans/${planId}/cases/${planCaseId}/executions`);
 }
+
+// ---- Notify ----
+
+export function sendVortflowNotify(data: {
+    entity_type: string;
+    entity_id: string;
+    title: string;
+    project_id?: string;
+    notify_type: "remind" | "urge";
+    recipient_ids: string[];
+    message?: string;
+}) {
+    return request.post("/vortflow/notify", data);
+}
