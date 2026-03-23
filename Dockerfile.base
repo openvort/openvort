@@ -14,7 +14,8 @@ COPY pyproject.toml README.md LICENSE ./
 COPY src/ src/
 COPY alembic/ alembic/
 
-RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir -e .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -e . -i https://pypi.org/simple/ --extra-index-url https://mirrors.aliyun.com/pypi/simple/
 
 ENV PYTHONUNBUFFERED=1
 EXPOSE 8090
