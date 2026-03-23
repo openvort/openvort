@@ -80,6 +80,7 @@ report = "openvort.plugins.report:ReportPlugin"
 system = "openvort.plugins.system:SystemPlugin"
 browser = "openvort.plugins.browser:BrowserPlugin"
 knowledge = "openvort.plugins.knowledge:KnowledgePlugin"
+vortsketch = "openvort.plugins.vortsketch:VortSketchPlugin"
 
 [project.urls]
 Homepage = "https://github.com/openvort/openvort"

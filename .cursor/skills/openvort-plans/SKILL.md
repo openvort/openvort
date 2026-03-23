@@ -15,6 +15,7 @@ description: OpenVort 产品规划管理。维护 .cursor/plans/ 目录下的功
 |------|------|------|----------|
 | `vortgit.md` | VortGit — Git 仓库管理插件 | Phase 3 已完成，Phase 4 部分完成 | 2026-03-01 |
 | `ai-coding.md` | AI 编码能力 — 对话驱动的代码修改与环境生成 | Phase 3a + 3b 已完成 | 2026-03-01 |
+| `vortsketch.md` | VortSketch — AI 驱动的 UI 原型生成器 | 规划中 | 2026-03-23 |
 
 ## 规划文档规范
 

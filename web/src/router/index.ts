@@ -9,6 +9,7 @@ import jenkinsConfig from "@/views/jenkins/plugin";
 import reportsConfig from "@/views/reports/plugin";
 import knowledgeConfig from "@/views/knowledge/plugin";
 import schedulesConfig from "@/views/schedules/plugin";
+import vortsketchConfig from "@/views/vortsketch/plugin";
 
 const BasicLayout = () => import("@/layouts/BasicLayout.vue");
 const BlankLayout = () => import("@/layouts/BlankLayout.vue");
@@ -20,6 +21,7 @@ const moduleConfigs = [
     reportsConfig,
     knowledgeConfig,
     schedulesConfig,
+    vortsketchConfig,
 ];
 
 const routes: RouteRecordRaw[] = [
@@ -27,6 +29,11 @@ const routes: RouteRecordRaw[] = [
         path: "/login",
         component: BlankLayout,
         children: [{ path: "", name: "login", component: () => import("@/views/login/Index.vue"), meta: { title: "登录" } }]
+    },
+    {
+        path: "/vortsketch/:id",
+        component: BlankLayout,
+        children: [{ path: "", name: "vortsketch-editor", component: () => import("@/views/vortsketch/Editor.vue"), meta: { title: "原型编辑器" } }]
     },
     {
         path: "/",
