@@ -20,4 +20,4 @@ RUN pip install --no-cache-dir --upgrade pip && \
 ENV PYTHONUNBUFFERED=1
 EXPOSE 8090
 ENTRYPOINT ["python", "-u", "-m", "openvort"]
-CMD ["start", "--web"]
+CMD ["start"]

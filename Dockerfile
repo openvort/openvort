@@ -22,4 +22,4 @@ COPY --from=frontend /app/web/dist web/dist
 ENV PYTHONUNBUFFERED=1
 EXPOSE 8090
 ENTRYPOINT ["python", "-u", "-m", "openvort"]
-CMD ["start", "--web"]
+CMD ["start"]
