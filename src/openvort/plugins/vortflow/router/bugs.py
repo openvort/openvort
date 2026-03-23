@@ -174,7 +174,7 @@ async def create_bug(body: BugCreate, request: Request):
         )
         session.add(b)
         await session.flush()
-        await _log_event(session, "bug", b.id, "created", {"title": body.title})
+        await _log_event(session, "bug", b.id, "created", {"title": body.title}, actor_id=member_id)
         await session.commit()
         await session.refresh(b)
     schedule_notification(_notifier.notify_item_created(
@@ -228,7 +228,7 @@ async def update_bug(bug_id: str, body: BugUpdate, request: Request):
             b.branch = body.branch
             changes["branch"] = body.branch
         if changes:
-            await _log_event(session, "bug", bug_id, "updated", changes)
+            await _log_event(session, "bug", bug_id, "updated", changes, actor_id=actor_id)
         await session.commit()
         await session.refresh(b)
         project_id = b.project_id or ""
@@ -290,7 +290,7 @@ async def transition_bug(bug_id: str, body: TransitionBody, request: Request):
         b.state = target.value
         collaborators = _parse_json_list(b.collaborators_json)
         await _log_event(session, "bug", bug_id, "state_changed",
-                         {"from": old_state, "to": target.value})
+                         {"from": old_state, "to": target.value}, actor_id=actor_id)
         await session.commit()
         await session.refresh(b)
     schedule_notification(_notifier.notify_state_change(

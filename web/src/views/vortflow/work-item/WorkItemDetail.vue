@@ -147,6 +147,78 @@ const formatTimeAgo = (isoStr: string): string => {
     return `${month}月${day}日 ${h}:${m}`;
 };
 
+const FIELD_LABEL_MAP: Record<string, string> = {
+    title: "名称", description: "描述", state: "状态", priority: "优先级",
+    assignee_id: "负责人", pm_id: "负责人", estimate_hours: "预估工时",
+    actual_hours: "实际工时", tags: "标签", collaborators: "协作者",
+    deadline: "截止日期", project_id: "项目", start_at: "开始时间",
+    end_at: "结束时间", repo_id: "关联仓库", branch: "关联分支",
+    severity: "严重程度", task_type: "任务类型", parent_id: "父级",
+};
+
+const LONG_TEXT_FIELDS = new Set(["description"]);
+
+const STATE_LABEL_MAP: Record<string, string> = {
+    intake: "意向", review: "评审", rejected: "已取消",
+    pm_refine: "需求细化", design: "设计中", breakdown: "任务拆解",
+    dev_assign: "待分配", in_progress: "进行中", testing: "测试中",
+    bugfix: "修复缺陷", done: "已完成",
+    todo: "待办的", closed: "已关闭",
+    open: "待确认", confirmed: "已确认",
+    fixing: "修复中", resolved: "已修复", verified: "已验证",
+};
+
+const formatFieldValue = (key: string, value: any): string => {
+    if (value == null || value === "") return "空";
+    if (LONG_TEXT_FIELDS.has(key)) return "（已更新）";
+    if (key === "assignee_id" || key === "pm_id") return getMemberNameById(String(value)) || String(value);
+    if (key === "collaborators" && Array.isArray(value)) return value.map(v => getMemberNameById(String(v)) || String(v)).join("、") || "空";
+    if (key === "tags" && Array.isArray(value)) return value.join("、") || "空";
+    if (key === "state") return STATE_LABEL_MAP[String(value)] || String(value);
+    if (key === "priority") {
+        const m: Record<number, string> = { 1: "紧急", 2: "高", 3: "中", 4: "低" };
+        return m[value] || String(value);
+    }
+    if (key === "severity") {
+        const m: Record<number, string> = { 1: "致命", 2: "严重", 3: "一般", 4: "轻微" };
+        return m[value] || String(value);
+    }
+    return String(value);
+};
+
+const formatActivityAction = (action: string, detailRaw: any): string => {
+    let detail: Record<string, any> = {};
+    if (typeof detailRaw === "string") {
+        try { detail = JSON.parse(detailRaw); } catch { /* ignore */ }
+    } else if (detailRaw && typeof detailRaw === "object") {
+        detail = detailRaw;
+    }
+    if (action === "created") {
+        const title = detail.title ? `「${detail.title}」` : "";
+        return `创建了工作项${title}`;
+    }
+    if (action === "state_changed") {
+        const fromLabel = STATE_LABEL_MAP[detail.from] || detail.from || "?";
+        const toLabel = STATE_LABEL_MAP[detail.to] || detail.to || "?";
+        return `将状态从"${fromLabel}"修改为"${toLabel}"`;
+    }
+    if (action === "updated") {
+        const keys = Object.keys(detail);
+        if (!keys.length) return "更新了工作项";
+        const parts = keys.map(k => {
+            const label = FIELD_LABEL_MAP[k] || k;
+            const val = formatFieldValue(k, detail[k]);
+            return `${label}→"${val}"`;
+        });
+        return `修改了${parts.join("、")}`;
+    }
+    if (action === "deleted") return `删除了工作项${detail.title ? `「${detail.title}」` : ""}`;
+    if (action === "comment_added") return `添加了评论`;
+    if (action === "link_added") return `添加了关联工作项`;
+    if (action === "link_removed") return `移除了关联工作项`;
+    return action;
+};
+
 const ensureDetailPanelsData = async () => {
     const entityId = record.value?.backendId;
     if (!entityId) {
@@ -176,7 +248,7 @@ const ensureDetailPanelsData = async () => {
             id: String(e.id),
             actor: getMemberNameById(e.actor_id) || e.actor_id || "系统",
             createdAt: formatTimeAgo(e.created_at),
-            action: e.action || "",
+            action: formatActivityAction(e.action, e.detail),
         }));
     } else {
         if (!detailLogsMap[props.workNo]) detailLogsMap[props.workNo] = [];
@@ -853,7 +925,7 @@ watch(() => props.initialData, (value) => {
                 <h2 v-else class="bug-detail-title bug-detail-title-editable" @click="startEditingTitle">{{ record.title }}</h2>
             </template>
             <p class="bug-detail-sub" :style="isHierarchyRecord && parentRecord ? 'margin-top: 8px;' : ''">
-                {{ record.owner || "未指派" }}，创建于 {{ record.createdAt }}，最近更新于 {{ record.createdAt }}
+                {{ record.owner || "未指派" }}，创建于 {{ record.createdAt }}，最近更新于 {{ record.updatedAt || record.createdAt }}
             </p>
             <div class="bug-detail-tabs">
                 <button :class="{ active: detailActiveTab === 'detail' }" @click="detailActiveTab = 'detail'">详情</button>

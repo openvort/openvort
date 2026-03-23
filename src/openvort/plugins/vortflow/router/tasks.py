@@ -178,6 +178,7 @@ async def create_task(body: TaskCreate, request: Request):
             t.id,
             "created",
             {"title": body.title, "story_id": resolved_story_id, "parent_id": normalized_parent_id},
+            actor_id=member_id,
         )
         await session.commit()
         await session.refresh(t)
@@ -231,7 +232,7 @@ async def update_task(task_id: str, body: TaskUpdate, request: Request):
             t.branch = body.branch
             changes["branch"] = body.branch
         if changes:
-            await _log_event(session, "task", task_id, "updated", changes)
+            await _log_event(session, "task", task_id, "updated", changes, actor_id=actor_id)
         await session.commit()
         await session.refresh(t)
         project_id = t.project_id or ""
@@ -302,7 +303,7 @@ async def transition_task(task_id: str, body: TransitionBody, request: Request):
         t.state = target.value
         collaborators = _parse_json_list(t.collaborators_json)
         await _log_event(session, "task", task_id, "state_changed",
-                         {"from": old_state, "to": target.value})
+                         {"from": old_state, "to": target.value}, actor_id=actor_id)
         await session.commit()
         await session.refresh(t)
     schedule_notification(_notifier.notify_state_change(

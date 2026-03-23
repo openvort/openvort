@@ -215,6 +215,7 @@ const handleClear = () => {
     selectedValues.value = [];
     dateValue.value = "";
     dateRange.value = ["", ""];
+    if (props.sortOrder) emit("sort", null);
     emit("filter", null);
     open.value = false;
 };

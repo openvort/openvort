@@ -171,6 +171,7 @@ async def create_story(body: StoryCreate, request: Request):
             s.id,
             "created",
             {"title": body.title, "parent_id": normalized_parent_id},
+            actor_id=member_id,
         )
         await session.commit()
         await session.refresh(s)
@@ -232,7 +233,7 @@ async def update_story(story_id: str, body: StoryUpdate, request: Request):
             s.branch = body.branch
             changes["branch"] = body.branch
         if changes:
-            await _log_event(session, "story", story_id, "updated", changes)
+            await _log_event(session, "story", story_id, "updated", changes, actor_id=actor_id)
         await session.commit()
         await session.refresh(s)
         project_id = s.project_id or ""
@@ -306,8 +307,14 @@ async def transition_story(story_id: str, body: TransitionBody, request: Request
         old_state = s.state
         s.state = target.value
         collaborators = _parse_json_list(s.collaborators_json)
-        await _log_event(session, "story", story_id, "state_changed",
-                         {"from": old_state, "to": target.value})
+        await _log_event(
+            session,
+            "story",
+            story_id,
+            "state_changed",
+            {"from": old_state, "to": target.value},
+            actor_id=actor_id,
+        )
         await session.commit()
         await session.refresh(s)
     schedule_notification(_notifier.notify_state_change(

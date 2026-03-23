@@ -650,6 +650,7 @@ const syncRecordUpdateToApi = async (
             repo_id: patch.repo_id,
             branch: patch.branch,
         });
+        record.updatedAt = formatCnTime(new Date());
         return;
     }
     if (record.type === "任务") {
@@ -669,6 +670,7 @@ const syncRecordUpdateToApi = async (
             branch: patch.branch,
             project_id: patch.project_id,
         });
+        record.updatedAt = formatCnTime(new Date());
         return;
     }
     await updateVortflowBug(id, {
@@ -688,6 +690,7 @@ const syncRecordUpdateToApi = async (
         branch: patch.branch,
         project_id: patch.project_id,
     });
+    record.updatedAt = formatCnTime(new Date());
 };
 
 const syncRecordStatusToApi = async (record: RowItem, displayStatus: Status) => {
