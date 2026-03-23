@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-03-23
+
+### Added
+
+- MCP Server integration for Cursor and Claude Desktop
+- Channel Bots: AI employees can operate as independent IM bots
+- Knowledge base folder management with batch document operations
+- Manual notification with customizable reminders and follow-up messages
+- Plugin metadata extension API for richer plugin details
+- Skills management and Extensions management pages
+
+### Changed
+
+- Reorganized menu structure with updated labels and paths
+
+### Removed
+
+- Removed unused VortEditor type declarations
+
+[0.4.0]: https://github.com/openvort/openvort/releases/tag/v0.4.0
+
 ## [0.1.0] - 2026-03-17
 
 ### Added

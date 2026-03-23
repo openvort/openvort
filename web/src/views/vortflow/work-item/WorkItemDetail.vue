@@ -5,11 +5,12 @@ import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMember
 import WorkItemStatus from "@/components/vort-biz/work-item/WorkItemStatus.vue";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
 import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
-import { Copy, SquarePen, FileText, Bot, Loader2 } from "lucide-vue-next";
+import { Copy, SquarePen, FileText, Bot, Loader2, Bell } from "lucide-vue-next";
 import { useInlineAi } from "@/hooks";
 import { useWorkItemCommon } from "./useWorkItemCommon";
 import WorkItemLinkPanel from "./WorkItemLinkPanel.vue";
 import TestCaseLinkPanel from "./TestCaseLinkPanel.vue";
+import NotifyDialog from "./NotifyDialog.vue";
 import { getVortflowProjects, getVortflowIterations, getVortflowVersions, getVortgitRepos, getVortgitRepoBranches, getVortflowComments, createVortflowComment, getVortflowActivity } from "@/api";
 import { useUserStore } from "@/stores";
 import type { WorkItemType, Status, DateRange, RowItem, DetailComment, DetailLog } from "@/components/vort-biz/work-item/WorkItemTable.types";
@@ -41,6 +42,7 @@ const {
     getAvatarLabel,
     getMemberAvatarUrl,
     loadMemberOptions,
+    getMemberIdByName,
     getMemberNameById,
     getWorkItemTypeIconClass,
     getWorkItemTypeIconSymbol,
@@ -61,6 +63,7 @@ const detailDescEditing = ref(props.initialDescEditing || false);
 const detailDescDraft = ref(props.initialDescDraft ?? "");
 
 defineExpose({ detailDescEditing, detailDescDraft });
+const notifyDialogOpen = ref(false);
 const detailCommentDraft = ref("");
 const detailCommentsMap = reactive<Record<string, DetailComment[]>>({});
 const detailLogsMap = reactive<Record<string, DetailLog[]>>({});
@@ -791,6 +794,10 @@ watch(() => props.initialData, (value) => {
                     :prompt="`我要对${record.type}「${record.title}」(${record.workNo}) 进一步操作，请告诉我可以做什么。`"
                     label="AI 助手"
                 />
+                <button type="button" class="detail-copy-link-btn" @click="notifyDialogOpen = true">
+                    <Bell :size="14" />
+                    通知
+                </button>
                 <WorkItemStatus
                     :model-value="record.status"
                     :options="filteredDetailStatusOptions"
@@ -1329,6 +1336,21 @@ watch(() => props.initialData, (value) => {
             </div>
         </main>
         <div v-else class="p-4 text-center text-gray-500">加载中...</div>
+
+        <NotifyDialog
+            v-if="record"
+            v-model:open="notifyDialogOpen"
+            :entity-type="getEntityTypeKey()"
+            :entity-id="record.backendId || ''"
+            :title="record.title"
+            :project-id="record.projectId || ''"
+            :owner-id="record.ownerId || ''"
+            :owner-name="record.owner === '未指派' ? '' : record.owner"
+            :collaborator-names="record.collaborators || []"
+            :get-member-id-by-name="getMemberIdByName"
+            :get-avatar-bg="getAvatarBg"
+            :get-member-avatar-url="getMemberAvatarUrl"
+        />
     </div>
 </template>
 

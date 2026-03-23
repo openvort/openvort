@@ -349,6 +349,63 @@ class Notifier:
         }
         await self._fan_out(recipients, "协作人变更", summary, entity_id, data, im_text=im_text)
 
+    async def notify_manual(
+        self,
+        entity_type: str,
+        entity_id: str,
+        title: str,
+        project_id: str,
+        actor_id: str,
+        recipient_ids: list[str],
+        notify_type: str = "remind",
+        custom_message: str = "",
+    ) -> None:
+        """Send a manual reminder/urge notification to specified recipients."""
+        label = _ENTITY_TYPE_LABEL.get(entity_type, entity_type)
+        recipients = [r for r in recipient_ids if r and r != actor_id]
+        if not recipients:
+            return
+
+        ctx = await self._resolve_context(
+            actor_id=actor_id, project_id=project_id,
+            entity_type=entity_type, entity_id=entity_id,
+        )
+        actor = ctx["actor_name"] or "某人"
+        proj = ctx["project_name"]
+
+        if notify_type == "urge":
+            notif_title = "催办"
+            summary = f"{actor} 催促你处理{label}「{title}」"
+            im_header = self._im_header("催办", proj)
+            im_action = f"{actor} 催促你尽快处理{label}「{title}」"
+        else:
+            notif_title = "提醒"
+            summary = f"{actor} 提醒你关注{label}「{title}」"
+            im_header = self._im_header("提醒", proj)
+            im_action = f"{actor} 提醒你关注{label}「{title}」"
+
+        im_lines = [im_header, im_action]
+        extras: list[str] = []
+        if ctx["priority"]:
+            extras.append(f"优先级: {_PRIORITY_LABEL.get(ctx['priority'], str(ctx['priority']))}")
+        if entity_type == "bug" and ctx["severity"]:
+            extras.append(f"严重程度: {_SEVERITY_LABEL.get(ctx['severity'], str(ctx['severity']))}")
+        if ctx["deadline"]:
+            extras.append(f"截止日期: {ctx['deadline']}")
+        if extras:
+            im_lines.append(" | ".join(extras))
+        if custom_message:
+            im_lines.append(f"附言: {custom_message}")
+        im_text = "\n".join(im_lines)
+
+        data = {
+            "action": notify_type,
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+            "project_id": project_id,
+        }
+        await self._fan_out(recipients, notif_title, summary, entity_id, data, im_text=im_text)
+
     async def notify_field_changes(
         self,
         entity_type: str,
