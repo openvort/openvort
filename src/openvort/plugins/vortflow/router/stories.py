@@ -327,6 +327,52 @@ async def transition_story(story_id: str, body: TransitionBody, request: Request
     ))
     return _story_dict(s)
 
+@sub_router.post("/stories/{story_id}/copy")
+async def copy_story(story_id: str, request: Request):
+    payload = require_auth(request)
+    member_id = payload.get("sub", "")
+    sf = get_session_factory()
+    async with sf() as session:
+        src = await session.get(FlowStory, story_id)
+        if not src:
+            return {"error": "需求不存在"}
+        new_story = FlowStory(
+            project_id=src.project_id,
+            title=f"{src.title} (副本)",
+            description=src.description,
+            priority=src.priority,
+            parent_id=src.parent_id,
+            submitter_id=member_id or None,
+            tags_json=src.tags_json,
+            collaborators_json=src.collaborators_json,
+            deadline=src.deadline,
+        )
+        session.add(new_story)
+        await session.flush()
+
+        iter_row = (await session.execute(
+            select(FlowIterationStory.iteration_id)
+            .where(FlowIterationStory.story_id == story_id)
+            .limit(1)
+        )).scalar()
+        if iter_row:
+            session.add(FlowIterationStory(iteration_id=iter_row, story_id=new_story.id))
+
+        from openvort.plugins.vortflow.models import FlowVersionStory
+        ver_row = (await session.execute(
+            select(FlowVersionStory.version_id)
+            .where(FlowVersionStory.story_id == story_id)
+            .limit(1)
+        )).scalar()
+        if ver_row:
+            session.add(FlowVersionStory(version_id=ver_row, story_id=new_story.id))
+
+        await _log_event(session, "story", new_story.id, "created",
+                         {"title": new_story.title, "copied_from": story_id}, actor_id=member_id)
+        await session.commit()
+        await session.refresh(new_story)
+    return _story_dict(new_story)
+
 @sub_router.get("/stories/{story_id}/transitions")
 async def get_story_transitions(story_id: str):
     """Get allowed next states for a story"""

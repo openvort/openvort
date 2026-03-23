@@ -273,7 +273,7 @@ const handleCancel = () => {
 
             <div class="change-rows">
                 <div v-for="row in changeRows" :key="row.id" class="change-row">
-                    <Select v-model="row.property" size="small">
+                    <Select v-model="row.property">
                         <SelectOption
                             v-for="opt in availableProperties(row.property)"
                             :key="opt.value"
@@ -281,7 +281,7 @@ const handleCancel = () => {
                         >{{ opt.label }}</SelectOption>
                     </Select>
 
-                    <Select v-model="row.operator" size="small">
+                    <Select v-model="row.operator">
                         <SelectOption value="set">修改为</SelectOption>
                         <SelectOption value="clear">清空</SelectOption>
                     </Select>
@@ -338,11 +338,10 @@ const handleCancel = () => {
                             style="width: 100%"
                             @change="(v: any) => row.value = v"
                         />
-                        <Input
+                        <vort-input-number
                             v-else-if="row.property === 'estimateHours'"
                             v-model="row.value"
-                            size="small"
-                            type="number"
+                            :min="0"
                             placeholder="小时数"
                         />
                         <Select
@@ -459,6 +458,9 @@ const handleCancel = () => {
 }
 .value-editor {
     min-width: 0;
+    min-height: 32px;
+    display: flex;
+    align-items: stretch;
     border: 1px solid var(--vort-border, #d9d9d9);
     border-radius: var(--vort-border-radius-sm, 4px);
     overflow: hidden;
@@ -467,29 +469,115 @@ const handleCancel = () => {
 .value-editor:hover {
     border-color: var(--vort-primary);
 }
+.value-editor > :deep(*) {
+    width: 100%;
+    flex: 1;
+    min-width: 0;
+}
+
 .value-editor :deep(.vort-select) {
     width: 100%;
+    height: 100%;
 }
-.value-editor :deep(.vort-select .vort-select-selector) {
+.value-editor :deep(.vort-select-selector) {
+    border: none !important;
+    box-shadow: none !important;
+    outline: none !important;
+    height: 100% !important;
+}
+.value-editor :deep(.vort-select-focused .vort-select-selector),
+.value-editor :deep(.vort-select:hover .vort-select-selector) {
     border: none !important;
     box-shadow: none !important;
 }
-.value-editor :deep(.vort-input) {
+
+.value-editor :deep(.vort-input),
+.value-editor :deep(.vort-input-number),
+.value-editor :deep(.vort-input-affix-wrapper) {
     width: 100%;
+    height: 100%;
+    border: none !important;
+    box-shadow: none !important;
+    outline: none !important;
+}
+.value-editor :deep(.vort-input:focus),
+.value-editor :deep(.vort-input-focused),
+.value-editor :deep(.vort-input-number:focus),
+.value-editor :deep(.vort-input-affix-wrapper-focused) {
+    box-shadow: none !important;
+}
+
+.value-editor :deep(.vort-datepicker-selector),
+.value-editor :deep(.vort-rangepicker-selector) {
+    width: 100%;
+    height: 100%;
+    border: none !important;
+    box-shadow: none !important;
+    outline: none !important;
+}
+.value-editor :deep(.vort-datepicker-focused),
+.value-editor :deep(.vort-rangepicker-focused) {
     border: none !important;
     box-shadow: none !important;
 }
-.value-editor :deep(.vort-picker),
-.value-editor :deep(.vort-date-picker),
-.value-editor :deep(.vort-range-picker) {
+
+.value-editor :deep(.vort-input-number) {
     width: 100%;
+    height: 100%;
     border: none !important;
     box-shadow: none !important;
+    outline: none !important;
+}
+.value-editor :deep(.vort-input-number:hover),
+.value-editor :deep(.vort-input-number-focused) {
+    border: none !important;
+    box-shadow: none !important;
+}
+
+.value-editor :deep(.vort-popover-select-trigger) {
+    width: 100%;
+    height: 100%;
+    border: none !important;
+    box-shadow: none !important;
+    background: transparent;
+}
+.value-editor :deep(.priority-cell-trigger) {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    padding: 0 8px;
+    cursor: pointer;
+}
+.value-editor :deep(.priority-pill) {
+    border-color: transparent !important;
+}
+.value-editor :deep(.status-cell-trigger) {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    padding: 0 8px;
+    cursor: pointer;
+}
+.value-editor :deep(.member-picker-default-trigger),
+.value-editor :deep(.tag-picker-default-trigger) {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    padding: 0 8px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
 }
 .value-placeholder {
     font-size: 13px;
     color: var(--vort-text-tertiary, rgba(0, 0, 0, 0.45));
-    padding: 5px 11px;
+    padding: 0 11px;
+    min-height: 32px;
+    display: flex;
+    align-items: center;
     border: 1px solid var(--vort-border, #d9d9d9);
     border-radius: var(--vort-border-radius-sm, 4px);
 }

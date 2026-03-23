@@ -303,6 +303,45 @@ async def transition_bug(bug_id: str, body: TransitionBody, request: Request):
     ))
     return _bug_dict(b)
 
+@sub_router.post("/bugs/{bug_id}/copy")
+async def copy_bug(bug_id: str, request: Request):
+    payload = require_auth(request)
+    member_id = payload.get("sub", "")
+    sf = get_session_factory()
+    async with sf() as session:
+        src = await session.get(FlowBug, bug_id)
+        if not src:
+            return {"error": "缺陷不存在"}
+        new_bug = FlowBug(
+            project_id=src.project_id,
+            story_id=src.story_id,
+            task_id=src.task_id,
+            title=f"{src.title} (副本)",
+            description=src.description,
+            severity=src.severity,
+            assignee_id=src.assignee_id,
+            reporter_id=member_id or None,
+            tags_json=src.tags_json,
+            collaborators_json=src.collaborators_json,
+            deadline=src.deadline,
+        )
+        session.add(new_bug)
+        await session.flush()
+
+        iter_row = (await session.execute(
+            select(FlowIterationBug.iteration_id)
+            .where(FlowIterationBug.bug_id == bug_id)
+            .limit(1)
+        )).scalar()
+        if iter_row:
+            session.add(FlowIterationBug(iteration_id=iter_row, bug_id=new_bug.id))
+
+        await _log_event(session, "bug", new_bug.id, "created",
+                         {"title": new_bug.title, "copied_from": bug_id}, actor_id=member_id)
+        await session.commit()
+        await session.refresh(new_bug)
+    return _bug_dict(new_bug)
+
 @sub_router.get("/bugs/{bug_id}/transitions")
 async def get_bug_transitions(bug_id: str):
     sf = get_session_factory()

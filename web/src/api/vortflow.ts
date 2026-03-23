@@ -89,6 +89,10 @@ export function deleteVortflowStory(id: string) {
     return request.delete(`/vortflow/stories/${id}`);
 }
 
+export function copyVortflowStory(id: string) {
+    return request.post(`/vortflow/stories/${id}/copy`);
+}
+
 export function transitionVortflowStory(id: string, target_state: string) {
     return request.post(`/vortflow/stories/${id}/transition`, { target_state });
 }
@@ -135,6 +139,10 @@ export function deleteVortflowTask(id: string) {
     return request.delete(`/vortflow/tasks/${id}`);
 }
 
+export function copyVortflowTask(id: string) {
+    return request.post(`/vortflow/tasks/${id}/copy`);
+}
+
 export function transitionVortflowTask(id: string, target_state: string) {
     return request.post(`/vortflow/tasks/${id}/transition`, { target_state });
 }
@@ -179,6 +187,10 @@ export function updateVortflowBug(id: string, data: {
 
 export function deleteVortflowBug(id: string) {
     return request.delete(`/vortflow/bugs/${id}`);
+}
+
+export function copyVortflowBug(id: string) {
+    return request.post(`/vortflow/bugs/${id}/copy`);
 }
 
 export function transitionVortflowBug(id: string, target_state: string) {

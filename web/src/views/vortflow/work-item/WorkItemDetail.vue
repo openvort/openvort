@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, reactive, onMounted, watch, nextTick } from "vue";
-import { message } from "@/components/vort";
+import { message, dialog, Dropdown, DropdownMenuItem, DropdownMenuSeparator } from "@/components/vort";
 import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMemberPicker.vue";
 import WorkItemStatus from "@/components/vort-biz/work-item/WorkItemStatus.vue";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
 import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
-import { Copy, SquarePen, FileText, Bot, Loader2, Bell } from "lucide-vue-next";
+import { Copy, CopyPlus, SquarePen, FileText, Bot, Loader2, MoreHorizontal, Send, Trash2 } from "lucide-vue-next";
 import { useInlineAi } from "@/hooks";
 import { useWorkItemCommon } from "./useWorkItemCommon";
 import WorkItemLinkPanel from "./WorkItemLinkPanel.vue";
@@ -30,6 +30,7 @@ const emit = defineEmits<{
     close: [];
     update: [data: Partial<RowItem>];
     delete: [];
+    copy: [];
     openRelated: [record: RowItem];
     createChild: [record: RowItem];
 }>();
@@ -100,6 +101,18 @@ const handleCopyDetailLink = async () => {
     } catch {
         message.error("复制链接失败");
     }
+};
+
+const handleDelete = () => {
+    dialog.confirm({
+        title: "确认删除",
+        content: `确定要删除${record.value?.type}「${record.value?.title}」吗？删除后不可恢复。`,
+        okType: "danger",
+        okText: "删除",
+        onOk: () => {
+            emit("delete");
+        },
+    });
 };
 
 const detailComments = computed(() => {
@@ -847,49 +860,69 @@ watch(() => props.initialData, (value) => {
     <div class="bug-detail-drawer">
         <main class="bug-detail-main" v-if="record">
             <div class="bug-detail-meta-top">
-                <span class="work-type-icon" :class="getWorkItemTypeIconClass(record.type)">
-                    <svg v-if="record.type === '缺陷'" class="work-type-icon-svg" viewBox="0 0 24 24" aria-hidden="true">
-                        <circle cx="12" cy="7.5" r="3.2" fill="white" />
-                        <rect x="8" y="10.5" width="8" height="9" rx="3.8" fill="white" />
-                        <rect x="11.2" y="10.8" width="1.6" height="8.6" rx="0.8" fill="#ef4444" />
-                        <path d="M8.3 12.3H5.2M8.1 15.1H4.8M15.9 12.3H18.8M16.1 15.1H19.2" stroke="white" stroke-width="1.5" stroke-linecap="round" />
-                        <path d="M10.2 4.8 8.7 3.3M13.8 4.8 15.3 3.3" stroke="white" stroke-width="1.5" stroke-linecap="round" />
-                    </svg>
-                    <template v-else>{{ getWorkItemTypeIconSymbol(record.type) }}</template>
-                </span>
-                <span class="bug-detail-no">{{ record.workNo }}</span>
-                <button type="button" class="detail-copy-link-btn" @click="handleCopyDetailLink">
-                    <Copy :size="14" />
-                    复制链接
-                </button>
-                <AiAssistButton
-                    :prompt="`我要对${record.type}「${record.title}」(${record.workNo}) 进一步操作，请告诉我可以做什么。`"
-                    label="AI 助手"
-                />
-                <button type="button" class="detail-copy-link-btn" @click="notifyDialogOpen = true">
-                    <Bell :size="14" />
-                    通知
-                </button>
-                <WorkItemStatus
-                    :model-value="record.status"
-                    :options="filteredDetailStatusOptions"
-                    :open="detailStatusDropdownOpen"
-                    v-model:keyword="detailStatusKeyword"
-                    @update:open="(open) => { detailStatusDropdownOpen = open; if (!open) detailStatusKeyword = ''; }"
-                    @change="selectDetailStatus"
-                >
-                    <template #trigger>
-                        <VortButton class="detail-status-trigger" variant="text" @click.stop="toggleDetailStatusMenu">
-                            <span class="detail-status-content">
-                                <span class="detail-status-icon" :class="getStatusOption(record.status, record.type).iconClass">
-                                    {{ getStatusOption(record.status, record.type).icon }}
+                <div class="bug-detail-meta-left">
+                    <span class="work-type-icon" :class="getWorkItemTypeIconClass(record.type)">
+                        <svg v-if="record.type === '缺陷'" class="work-type-icon-svg" viewBox="0 0 24 24" aria-hidden="true">
+                            <circle cx="12" cy="7.5" r="3.2" fill="white" />
+                            <rect x="8" y="10.5" width="8" height="9" rx="3.8" fill="white" />
+                            <rect x="11.2" y="10.8" width="1.6" height="8.6" rx="0.8" fill="#ef4444" />
+                            <path d="M8.3 12.3H5.2M8.1 15.1H4.8M15.9 12.3H18.8M16.1 15.1H19.2" stroke="white" stroke-width="1.5" stroke-linecap="round" />
+                            <path d="M10.2 4.8 8.7 3.3M13.8 4.8 15.3 3.3" stroke="white" stroke-width="1.5" stroke-linecap="round" />
+                        </svg>
+                        <template v-else>{{ getWorkItemTypeIconSymbol(record.type) }}</template>
+                    </span>
+                    <span class="bug-detail-no">{{ record.workNo }}</span>
+                    <button type="button" class="detail-copy-link-btn" @click="handleCopyDetailLink">
+                        <Copy :size="14" />
+                        复制链接
+                    </button>
+                    <button type="button" class="detail-copy-link-btn" @click="notifyDialogOpen = true">
+                        <Send :size="14" />
+                        发送通知
+                    </button>
+                    <WorkItemStatus
+                        :model-value="record.status"
+                        :options="filteredDetailStatusOptions"
+                        :open="detailStatusDropdownOpen"
+                        v-model:keyword="detailStatusKeyword"
+                        @update:open="(open) => { detailStatusDropdownOpen = open; if (!open) detailStatusKeyword = ''; }"
+                        @change="selectDetailStatus"
+                    >
+                        <template #trigger>
+                            <VortButton class="detail-status-trigger" variant="text" @click.stop="toggleDetailStatusMenu">
+                                <span class="detail-status-content">
+                                    <span class="detail-status-icon" :class="getStatusOption(record.status, record.type).iconClass">
+                                        {{ getStatusOption(record.status, record.type).icon }}
+                                    </span>
+                                    <span class="detail-status-text">{{ record.status }}</span>
                                 </span>
-                                <span class="detail-status-text">{{ record.status }}</span>
-                            </span>
-                            <span class="status-arrow-simple" :class="{ open: detailStatusDropdownOpen }" />
-                        </VortButton>
-                    </template>
-                </WorkItemStatus>
+                                <span class="status-arrow-simple" :class="{ open: detailStatusDropdownOpen }" />
+                            </VortButton>
+                        </template>
+                    </WorkItemStatus>
+                </div>
+                <div class="bug-detail-meta-right">
+                    <AiAssistButton
+                        :prompt="`我要对${record.type}「${record.title}」(${record.workNo}) 进一步操作，请告诉我可以做什么。`"
+                        label="AI 助手"
+                    />
+                    <Dropdown trigger="click" placement="bottomRight">
+                        <button type="button" class="detail-more-btn">
+                            <MoreHorizontal :size="16" />
+                        </button>
+                        <template #overlay>
+                            <DropdownMenuItem @click="emit('copy')">
+                                <CopyPlus :size="14" class="mr-2 text-gray-400" />
+                                <span>复制</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem @click="handleDelete">
+                                <Trash2 :size="14" class="mr-2 text-red-400" />
+                                <span class="text-red-500">删除</span>
+                            </DropdownMenuItem>
+                        </template>
+                    </Dropdown>
+                </div>
             </div>
 
             <div v-if="isHierarchyRecord && parentRecord" class="story-tree-header">
@@ -1438,8 +1471,40 @@ watch(() => props.initialData, (value) => {
 .bug-detail-meta-top {
     display: flex;
     align-items: center;
-    gap: 12px;
+    justify-content: space-between;
     margin-bottom: 12px;
+}
+
+.bug-detail-meta-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.bug-detail-meta-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.detail-more-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    background: #fff;
+    cursor: pointer;
+    color: #666;
+    transition: all 0.15s;
+}
+
+.detail-more-btn:hover {
+    border-color: var(--vort-primary, #1456f0);
+    color: var(--vort-primary, #1456f0);
 }
 
 .work-type-icon {

@@ -35,6 +35,7 @@ import { useWorkItemInlineEdit } from "./work-item/useWorkItemInlineEdit";
 import {
     getVortflowStories,
     getVortflowProjects, createVortflowStory, createVortflowTask, createVortflowBug,
+    copyVortflowStory, copyVortflowTask, copyVortflowBug,
     deleteVortflowStory, deleteVortflowTask, deleteVortflowBug,
     updateVortflowStory, updateVortflowTask, updateVortflowBug,
     addVortflowIterationStory, addVortflowIterationTask, addVortflowIterationBug,
@@ -1063,6 +1064,22 @@ const handleCancelCreateWorkItem = () => {
         return;
     }
     handleCancelCreateBug();
+};
+
+const handleCopyWorkItem = async () => {
+    const rec = detailCurrentRecord.value;
+    if (!rec?.backendId || !props.useApi) return;
+    try {
+        const type = rec.type as WorkItemType;
+        if (type === "需求") await copyVortflowStory(rec.backendId);
+        else if (type === "任务") await copyVortflowTask(rec.backendId);
+        else await copyVortflowBug(rec.backendId);
+        message.success("复制成功");
+        createBugDrawerOpen.value = false;
+        tableRef.value?.refresh?.();
+    } catch {
+        message.error("复制失败");
+    }
 };
 
 const handleDetailUpdate = async (data: Partial<RowItem>) => {
@@ -2170,6 +2187,7 @@ onMounted(async () => {
                     :initial-desc-draft="detailDescDraft"
                     @close="handleCancelCreateBug"
                     @update="handleDetailUpdate"
+                    @copy="handleCopyWorkItem"
                     @open-related="handleOpenRelated"
                     @create-child="handleCreateChild"
                 />
