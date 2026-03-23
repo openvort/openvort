@@ -22,9 +22,7 @@ EXCLUDED_TOOL_PREFIXES = (
     "send_dingtalk_",
 )
 
-EXCLUDED_TOOLS = {
-    "setup_complete",
-}
+EXCLUDED_TOOLS: set[str] = set()
 
 _mcp_instance: FastMCP | None = None
 
@@ -47,6 +45,7 @@ def create_mcp_server(registry: PluginRegistry) -> FastMCP:
         json_response=True,
         stateless_http=True,
         streamable_http_path="/",
+        host="0.0.0.0",
     )
 
     low = mcp._mcp_server

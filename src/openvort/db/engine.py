@@ -60,7 +60,11 @@ async def init_db(database_url: str) -> None:
     except ImportError:
         pass
 
-    _engine = create_async_engine(database_url, echo=False)
+    _engine = create_async_engine(
+        database_url,
+        echo=False,
+        connect_args={"ssl": False},
+    )
     _session_factory = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
 
     # Enable pgvector extension for knowledge base (optional — skip if not installed on server)
