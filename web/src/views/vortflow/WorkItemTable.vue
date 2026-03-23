@@ -43,6 +43,7 @@ import {
     addVortflowVersionBug, removeVortflowVersionBug,
     getVortgitRepos, getVortgitRepoBranches,
     getVortflowTags,
+    getVortflowIterations,
 } from "@/api";
 import type {
     WorkItemType,
@@ -247,6 +248,7 @@ const createInitialBugForm = (): NewBugForm => ({
 });
 const createBugForm = reactive<NewBugForm>(createInitialBugForm());
 const apiProjects = ref<Array<{ id: string; name: string }>>([]);
+const apiIterations = ref<Array<{ id: string; name: string }>>([]);
 const apiRepos = ref<Array<{ id: string; name: string }>>([]);
 const apiStories = ref<Array<{ id: string; title: string }>>([]);
 const branchOptionsMap = reactive<Record<string, Array<{ name: string }>>>({});
@@ -255,6 +257,7 @@ const estimateEditingFor = ref<string | null>(null);
 const estimateDraftMap = reactive<Record<string, number | null>>({});
 const estimateInputRef = ref<any>(null);
 const projectPickerOpenMap = reactive<Record<string, boolean>>({});
+const iterationPickerOpenMap = reactive<Record<string, boolean>>({});
 const repoPickerOpenMap = reactive<Record<string, boolean>>({});
 const branchPickerOpenMap = reactive<Record<string, boolean>>({});
 const startAtPickerOpenMap = reactive<Record<string, boolean>>({});
@@ -505,6 +508,18 @@ const loadRepoOptions = async () => {
             .filter((item) => item.id && item.name);
     } catch {
         apiRepos.value = [];
+    }
+};
+
+const loadIterationOptions = async () => {
+    if (!props.useApi) return;
+    try {
+        const res: any = await getVortflowIterations({ page_size: 200 });
+        apiIterations.value = ((res?.items || []) as any[])
+            .map((i: any) => ({ id: String(i.id || ""), name: String(i.name || "") }))
+            .filter((i) => i.id && i.name);
+    } catch {
+        apiIterations.value = [];
     }
 };
 
@@ -795,6 +810,37 @@ const selectRowProject = async (record: RowItem, projectId?: string) => {
         record.projectId = prevProjectId;
         record.projectName = prevProjectName;
         message.error(error?.message || "项目同步失败");
+    }
+};
+
+const selectRowIteration = async (record: RowItem, iterationId?: string) => {
+    const key = getInteractiveCellKey(record);
+    const itemId = getRecordBackendId(record);
+    if (!itemId) return;
+    const prevIterationId = record.iterationId || "";
+    const prevIteration = record.iteration || "";
+    const nextIterationId = String(iterationId || "");
+    const nextIteration = apiIterations.value.find(i => i.id === nextIterationId)?.name || "";
+    record.iterationId = nextIterationId;
+    record.iteration = nextIteration;
+    record._prevIteration = nextIterationId;
+    iterationPickerOpenMap[key] = false;
+    try {
+        if (prevIterationId && prevIterationId !== nextIterationId) {
+            if (record.type === "需求") await removeVortflowIterationStory(prevIterationId, itemId);
+            else if (record.type === "任务") await removeVortflowIterationTask(prevIterationId, itemId);
+            else if (record.type === "缺陷") await removeVortflowIterationBug(prevIterationId, itemId);
+        }
+        if (nextIterationId && nextIterationId !== prevIterationId) {
+            if (record.type === "需求") await addVortflowIterationStory(nextIterationId, { story_id: itemId });
+            else if (record.type === "任务") await addVortflowIterationTask(nextIterationId, { task_id: itemId });
+            else if (record.type === "缺陷") await addVortflowIterationBug(nextIterationId, { bug_id: itemId });
+        }
+    } catch (error: any) {
+        record.iterationId = prevIterationId;
+        record.iteration = prevIteration;
+        record._prevIteration = prevIterationId;
+        message.error(error?.message || "迭代同步失败");
     }
 };
 
@@ -1519,6 +1565,7 @@ onMounted(async () => {
     await Promise.all([
         loadApiMetadata(false),
         loadRepoOptions(),
+        loadIterationOptions(),
         loadTagDefinitions(),
         vortFlowStore.loadColumnSettings(props.type || ""),
         vortFlowStore.loadViews(props.type || ""),
@@ -1932,15 +1979,27 @@ onMounted(async () => {
                 </template>
 
                 <template #iteration="{ text, record }">
-                    <TableCell @click="handleOpenBugDetail(record)">
-                        <span v-if="text" class="text-sm text-blue-600 cursor-pointer">{{ text }}</span>
-                        <span v-else class="text-sm text-gray-300">-</span>
+                    <TableCell @click.stop="iterationPickerOpenMap[getInteractiveCellKey(record)] = true">
+                        <div class="cell-select-plain text-sm text-gray-700">
+                            <vort-select
+                                :model-value="record.iterationId || undefined"
+                                :open="iterationPickerOpenMap[getInteractiveCellKey(record)]"
+                                placeholder="-"
+                                allow-clear
+                                size="small"
+                                :bordered="false"
+                                @update:open="iterationPickerOpenMap[getInteractiveCellKey(record)] = $event"
+                                @change="(val: any) => selectRowIteration(record, val)"
+                            >
+                                <vort-select-option v-for="iter in apiIterations" :key="iter.id" :value="iter.id">{{ iter.name }}</vort-select-option>
+                            </vort-select>
+                        </div>
                     </TableCell>
                 </template>
 
-                <template #version="{ text, record }">
-                    <TableCell @click="handleOpenBugDetail(record)">
-                        <span v-if="text" class="text-sm text-blue-600 cursor-pointer">{{ text }}</span>
+                <template #version="{ text }">
+                    <TableCell>
+                        <span v-if="text" class="text-sm text-gray-700">{{ text }}</span>
                         <span v-else class="text-sm text-gray-300">-</span>
                     </TableCell>
                 </template>
@@ -2403,4 +2462,22 @@ onMounted(async () => {
     transform: translateY(-4px);
 }
 
+.cell-select-plain {
+    width: 100%;
+}
+
+</style>
+
+<style>
+.cell-select-plain .vort-select-suffix {
+    display: none !important;
+}
+.cell-select-plain .vort-select-value {
+    color: inherit !important;
+    font-size: inherit !important;
+}
+.cell-select-plain .vort-select-placeholder {
+    color: #d1d5db !important;
+    font-size: inherit !important;
+}
 </style>

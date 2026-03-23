@@ -53,6 +53,24 @@ const selectedValues = ref<string[]>([]);
 const dateValue = ref<string>("");
 const dateRange = ref<[string, string]>(["", ""]);
 
+const formatDateStr = (d: Date | null): string => {
+    if (!d || isNaN(d.getTime())) return "";
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
+const dateRangeModel = computed({
+    get(): [Date | null, Date | null] | null {
+        const [s, e] = dateRange.value;
+        const sd = s ? new Date(s) : null;
+        const ed = e ? new Date(e) : null;
+        return (sd || ed) ? [sd, ed] : null;
+    },
+    set(val: [Date | null, Date | null] | null) {
+        if (!val) { dateRange.value = ["", ""]; return; }
+        dateRange.value = [formatDateStr(val[0]), formatDateStr(val[1])];
+    },
+});
+
 const operatorOptions = computed(() => {
     if (props.config.type === "enum") {
         return [{ label: "包含", value: "contains" }];
@@ -102,6 +120,10 @@ watch(() => props.filterValue, (val) => {
         } else {
             dateValue.value = val.value || "";
         }
+    } else {
+        selectedValues.value = [];
+        dateValue.value = "";
+        dateRange.value = ["", ""];
     }
 }, { immediate: true });
 
@@ -265,15 +287,14 @@ const handleClear = () => {
                     <template v-else-if="config.type === 'date'">
                         <RangePicker
                             v-if="operator === 'between'"
-                            v-model:value="dateRange"
+                            v-model="dateRangeModel"
                             size="small"
                             class="w-full"
                             :placeholder="['开始日期', '结束日期']"
-                            value-format="YYYY-MM-DD"
                         />
                         <DatePicker
                             v-else
-                            v-model:value="dateValue"
+                            v-model="dateValue"
                             size="small"
                             class="w-full"
                             placeholder="请选择日期"

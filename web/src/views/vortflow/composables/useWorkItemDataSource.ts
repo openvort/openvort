@@ -497,65 +497,85 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
             let rows: RowItem[] = [];
             let totalFromApi = 0;
 
-            if (backendStates && backendStates.length > 1) {
-                const merged = new Map<string, any>();
-                const itemGroups = await Promise.all(backendStates.map((state) => fetchAllItemsByState(state)));
-                for (const items of itemGroups) {
-                    for (const item of items) {
-                        const id = String(item?.id || "");
-                        if (!id || merged.has(id)) continue;
-                        merged.set(id, item);
+            const hasColumnFilters = Object.keys(columnFilters).some(k => columnFilters[k] != null);
+            const needFetchAll = hasColumnFilters
+                || (backendStates && backendStates.length > 1)
+                || (ownerValue && (workType === "需求" || ownerValue === "未指派" || !ownerMemberId));
+
+            if (needFetchAll) {
+                let allItems: any[];
+                if (backendStates && backendStates.length > 1) {
+                    const merged = new Map<string, any>();
+                    const itemGroups = await Promise.all(backendStates.map((state) => fetchAllItemsByState(state)));
+                    for (const items of itemGroups) {
+                        for (const item of items) {
+                            const id = String(item?.id || "");
+                            if (!id || merged.has(id)) continue;
+                            merged.set(id, item);
+                        }
                     }
+                    allItems = [...merged.values()];
+                } else {
+                    allItems = await fetchAllItemsByState(backendStates?.[0]);
                 }
-                const mergedItems = [...merged.values()];
-                const allRows = buildRowsFromItems(mergedItems)
+                let allRows = buildRowsFromItems(allItems)
                     .filter((x) => !statusValues.length || statusValues.includes(x.status))
                     .filter(matchOwner);
+
+                const isIncompleteView = vf.status === "incomplete";
+                if (isIncompleteView) {
+                    const completedStatuses: Set<string> = new Set(["已完成", "已关闭", "已取消", "发布完成"]);
+                    allRows = allRows.filter((x) => !completedStatuses.has(x.status));
+                }
+
+                const optionRows = workType === "需求" || workType === "任务" ? getVisibleChildRows(allRows, ownerValue, statusValues) : allRows;
+                collectTagOptions(optionRows);
+                collectEnumOptions(optionRows);
+
+                allRows = applyColumnFilters(allRows);
+                allRows = applyColumnSort(allRows);
                 totalFromApi = allRows.length;
+
+                if (current === 1) {
+                    let pinnedRows = pinnedRowsByType[workType] || [];
+                    if (statusValues.length) pinnedRows = pinnedRows.filter((x) => statusValues.includes(x.status));
+                    if (ownerValue) pinnedRows = pinnedRows.filter(matchOwner);
+                    const pinnedIds = new Set(pinnedRows.map((x) => x.backendId || x.workNo));
+                    allRows = [...pinnedRows, ...allRows.filter((x) => !pinnedIds.has(x.backendId || x.workNo))];
+                    totalFromApi = allRows.length;
+                }
+
                 const start = (current - 1) * pageSize;
                 rows = allRows.slice(start, start + pageSize);
             } else {
                 const backendState = backendStates?.[0];
-                if (ownerValue && (workType === "需求" || ownerValue === "未指派" || !ownerMemberId)) {
-                    const allItems = await fetchAllItemsByState(backendState);
-                    const allRows = buildRowsFromItems(allItems)
-                        .filter((x) => !statusValues.length || statusValues.includes(x.status))
-                        .filter(matchOwner);
-                    totalFromApi = allRows.length;
-                    const start = (current - 1) * pageSize;
-                    rows = allRows.slice(start, start + pageSize);
-                } else {
-                    const res: any = await requestByState(backendState, current, pageSize);
-                    rows = buildRowsFromItems((res as any)?.items || []);
-                    if (statusValues.length) rows = rows.filter((x) => statusValues.includes(x.status));
-                    if (ownerValue) rows = rows.filter(matchOwner);
-                    totalFromApi = Number((res as any)?.total || rows.length);
+                const res: any = await requestByState(backendState, current, pageSize);
+                rows = buildRowsFromItems((res as any)?.items || []);
+                if (statusValues.length) rows = rows.filter((x) => statusValues.includes(x.status));
+                if (ownerValue) rows = rows.filter(matchOwner);
+                totalFromApi = Number((res as any)?.total || rows.length);
+
+                if (current === 1) {
+                    let pinnedRows = pinnedRowsByType[workType] || [];
+                    if (statusValues.length) pinnedRows = pinnedRows.filter((x) => statusValues.includes(x.status));
+                    if (ownerValue) pinnedRows = pinnedRows.filter(matchOwner);
+                    const pinnedIds = new Set(pinnedRows.map((x) => x.backendId || x.workNo));
+                    rows = [...pinnedRows, ...rows.filter((x) => !pinnedIds.has(x.backendId || x.workNo))];
+                    rows = rows.slice(0, pageSize);
                 }
+                const isIncompleteView = vf.status === "incomplete";
+                if (isIncompleteView) {
+                    const completedStatuses: Set<string> = new Set(["已完成", "已关闭", "已取消", "发布完成"]);
+                    rows = rows.filter((x) => !completedStatuses.has(x.status));
+                    totalFromApi = rows.length;
+                }
+                rows = applyColumnSort(rows);
+
+                const optionRows = workType === "需求" || workType === "任务" ? getVisibleChildRows(rows, ownerValue, statusValues) : rows;
+                collectTagOptions(optionRows);
+                collectEnumOptions(optionRows);
             }
 
-            if (current === 1) {
-                let pinnedRows = pinnedRowsByType[workType] || [];
-                if (statusValues.length) pinnedRows = pinnedRows.filter((x) => statusValues.includes(x.status));
-                if (ownerValue) pinnedRows = pinnedRows.filter(matchOwner);
-                const pinnedIds = new Set(pinnedRows.map((x) => x.backendId || x.workNo));
-                rows = [...pinnedRows, ...rows.filter((x) => !pinnedIds.has(x.backendId || x.workNo))];
-                rows = rows.slice(0, pageSize);
-            }
-            const isIncompleteView = vf.status === "incomplete";
-            if (isIncompleteView) {
-                const completedStatuses: Set<string> = new Set(["已完成", "已关闭", "已取消", "发布完成"]);
-                rows = rows.filter((x) => !completedStatuses.has(x.status));
-                totalFromApi = rows.length;
-            }
-            const beforeFilterCount = rows.length;
-            rows = applyColumnFilters(rows);
-            rows = applyColumnSort(rows);
-            if (rows.length < beforeFilterCount) {
-                totalFromApi = rows.length;
-            }
-            const optionRows = workType === "需求" || workType === "任务" ? getVisibleChildRows(rows, ownerValue, statusValues) : rows;
-            collectTagOptions(optionRows);
-            collectEnumOptions(optionRows);
             totalCount.value = totalFromApi;
             return { data: rows, total: totalFromApi, current, pageSize };
         }

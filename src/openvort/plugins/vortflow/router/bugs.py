@@ -21,6 +21,7 @@ from openvort.plugins.vortflow.router.schemas import (
 from openvort.plugins.vortflow.models import (
     FlowBug,
     FlowStory,
+    FlowIteration,
     FlowIterationStory,
     FlowIterationBug,
 )
@@ -114,12 +115,20 @@ async def list_bugs(
         bug_ids = [i["id"] for i in items if i.get("id")]
         if bug_ids:
             iter_links = (await session.execute(
-                select(FlowIterationBug.bug_id, FlowIterationBug.iteration_id)
+                select(FlowIterationBug.bug_id, FlowIteration.id, FlowIteration.name)
+                .join(FlowIteration, FlowIteration.id == FlowIterationBug.iteration_id)
                 .where(FlowIterationBug.bug_id.in_(bug_ids))
             )).all()
-            bug_iter_map = {link.bug_id: link.iteration_id for link in iter_links}
+            bug_iter_map: dict[str, tuple[str, str]] = {}
+            for bug_id, iter_id, iter_name in iter_links:
+                bid = str(bug_id or "")
+                if bid and bid not in bug_iter_map:
+                    bug_iter_map[bid] = (str(iter_id or ""), str(iter_name or ""))
             for item in items:
-                item["iteration_id"] = bug_iter_map.get(item["id"], "")
+                link = bug_iter_map.get(item["id"])
+                if link:
+                    item["iteration_id"] = link[0]
+                    item["iteration_name"] = link[1]
 
     return {"total": total, "items": items}
 
@@ -131,10 +140,15 @@ async def get_bug(bug_id: str):
         if not r:
             return {"error": "缺陷不存在"}
         items = await _attach_bug_links(session, [_bug_dict(r)])
-        iter_link = (await session.execute(
-            select(FlowIterationBug.iteration_id).where(FlowIterationBug.bug_id == bug_id).limit(1)
-        )).scalar_one_or_none()
-        items[0]["iteration_id"] = iter_link or ""
+        iter_row = (await session.execute(
+            select(FlowIteration.id, FlowIteration.name)
+            .join(FlowIterationBug, FlowIteration.id == FlowIterationBug.iteration_id)
+            .where(FlowIterationBug.bug_id == bug_id)
+            .limit(1)
+        )).first()
+        if iter_row:
+            items[0]["iteration_id"] = str(iter_row[0] or "")
+            items[0]["iteration_name"] = str(iter_row[1] or "")
     return items[0]
 
 @sub_router.post("/bugs")
