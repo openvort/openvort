@@ -8,6 +8,7 @@ services:
   openvort:
     image: openvort-base:latest
     container_name: openvort
+    command: ["start"]
     ports:
       - "10899:8090"
     env_file: .env
