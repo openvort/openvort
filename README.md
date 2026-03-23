@@ -86,7 +86,7 @@ npm run dev   # Vite dev server，默认 http://localhost:9090，/api 代理到 
 | `OPENVORT_DATABASE_URL` | 数据库连接 | PostgreSQL（本地开发） |
 | `OPENVORT_LOG_LEVEL` | 日志级别 | `INFO` |
 | `OPENVORT_WEB_PORT` | Web 面板端口 | `8090` |
-| `OPENVORT_WEB_DEFAULT_PASSWORD` | 成员默认登录密码 | `openvort` |
+| `OPENVORT_WEB_DEFAULT_PASSWORD` | 管理员初始密码（仅首次启动） | `admin` |
 | `OPENVORT_MARKETPLACE_ENABLED` | 是否启用扩展市场 | `true` |
 
 完整配置参考 [`.env.example`](.env.example)。

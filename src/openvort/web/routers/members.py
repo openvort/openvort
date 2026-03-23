@@ -1,6 +1,8 @@
 """成员管理路由"""
 
 import json
+import secrets
+import string
 import uuid
 from fastapi import APIRouter, File, UploadFile
 from pydantic import BaseModel
@@ -9,6 +11,11 @@ from sqlalchemy import select, func as sa_func
 from openvort.config.settings import get_settings
 from openvort.web.deps import get_db_session_factory, get_auth_service
 from openvort.web.upload_utils import get_upload_dir, get_upload_url
+
+
+def _generate_random_password(length: int = 12) -> str:
+    alphabet = string.ascii_letters + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(length))
 
 router = APIRouter()
 UPLOAD_DIR = get_upload_dir("avatars")
@@ -85,7 +92,7 @@ class UpdateMemberRequest(BaseModel):
 
 
 class ResetPasswordRequest(BaseModel):
-    password: str | None = None  # 为空则重置为 default_password
+    password: str | None = None  # 为空则生成随机密码
 
 
 class AssignRoleRequest(BaseModel):
@@ -188,6 +195,13 @@ async def create_member(req: CreateMemberRequest):
             if post and post.default_persona:
                 virtual_system_prompt = post.default_persona
 
+    initial_password = ""
+    password_hash = ""
+    if req.is_account:
+        from openvort.web.auth import hash_password
+        initial_password = _generate_random_password()
+        password_hash = hash_password(initial_password)
+
     async with session_factory() as session:
         member = Member(
             name=req.name,
@@ -196,6 +210,8 @@ async def create_member(req: CreateMemberRequest):
             position=req.position,
             bio=req.bio,
             is_account=req.is_account,
+            password_hash=password_hash,
+            must_change_password=bool(req.is_account),
             is_virtual=req.is_virtual,
             post=role_key,
             virtual_role=role_key,
@@ -209,7 +225,10 @@ async def create_member(req: CreateMemberRequest):
         await session.commit()
         await session.refresh(member)
 
-        return {"success": True, "id": member.id}
+        result = {"success": True, "id": member.id}
+        if initial_password:
+            result["initial_password"] = initial_password
+        return result
 
 
 @router.get("")
@@ -536,7 +555,7 @@ async def upload_member_avatar(member_id: str, file: UploadFile = File(...)):
 
 @router.post("/{member_id}/reset-password")
 async def reset_password(member_id: str, req: ResetPasswordRequest):
-    """重置密码（传 password 则设为新密码，不传则清空回退到 default_password）"""
+    """重置密码（传 password 则设为指定密码，不传则生成随机密码并返回）"""
     from openvort.contacts.models import Member
     from openvort.web.auth import hash_password
 
@@ -549,19 +568,22 @@ async def reset_password(member_id: str, req: ResetPasswordRequest):
         if not member:
             return {"success": False, "error": "成员不存在"}
 
-        if req.password:
-            member.password_hash = hash_password(req.password)
-        else:
-            member.password_hash = ""
+        new_password = req.password or _generate_random_password()
+        member.password_hash = hash_password(new_password)
+        member.must_change_password = True
 
         await session.commit()
-        return {"success": True}
+        resp: dict = {"success": True}
+        if not req.password:
+            resp["new_password"] = new_password
+        return resp
 
 
 @router.post("/{member_id}/toggle-account")
 async def toggle_account(member_id: str):
-    """启用/禁用登录"""
+    """启用/禁用登录（启用时若无密码则生成随机初始密码）"""
     from openvort.contacts.models import Member
+    from openvort.web.auth import hash_password
 
     session_factory = get_db_session_factory()
 
@@ -573,8 +595,17 @@ async def toggle_account(member_id: str):
             return {"success": False, "error": "成员不存在"}
 
         member.is_account = not member.is_account
+        initial_password = ""
+        if member.is_account and not member.password_hash:
+            initial_password = _generate_random_password()
+            member.password_hash = hash_password(initial_password)
+            member.must_change_password = True
+
         await session.commit()
-        return {"success": True, "is_account": member.is_account}
+        resp: dict = {"success": True, "is_account": member.is_account}
+        if initial_password:
+            resp["initial_password"] = initial_password
+        return resp
 
 
 @router.delete("/{member_id}")
@@ -654,11 +685,13 @@ async def batch_delete(req: BatchIdsRequest):
 
 @router.post("/batch/enable-account")
 async def batch_enable_account(req: BatchIdsRequest):
-    """批量启用登录"""
+    """批量启用登录（为无密码的成员生成随机初始密码）"""
     from openvort.contacts.models import Member
+    from openvort.web.auth import hash_password
 
     session_factory = get_db_session_factory()
     count = 0
+    passwords: list[dict] = []
 
     async with session_factory() as session:
         for mid in req.ids:
@@ -666,10 +699,15 @@ async def batch_enable_account(req: BatchIdsRequest):
             member = (await session.execute(stmt)).scalar_one_or_none()
             if member and not member.is_account:
                 member.is_account = True
+                if not member.password_hash:
+                    pwd = _generate_random_password()
+                    member.password_hash = hash_password(pwd)
+                    member.must_change_password = True
+                    passwords.append({"id": mid, "name": member.name, "password": pwd})
                 count += 1
         await session.commit()
 
-    return {"success": True, "count": count}
+    return {"success": True, "count": count, "passwords": passwords}
 
 
 @router.post("/batch/disable-account")

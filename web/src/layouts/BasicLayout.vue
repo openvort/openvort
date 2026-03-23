@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted } from "vue";
 import { useRoute } from "vue-router";
-import { useAppStore } from "@/stores";
+import { useAppStore, useUserStore } from "@/stores";
 import { useBreakpoint } from "@/hooks";
 import { initWebSocket, closeWebSocket } from "@/composables/useWebSocket";
+import { changePassword } from "@/api";
+import { message } from "@/components/vort";
 import Sidebar from "./components/Sidebar.vue";
 import Header from "./components/Header.vue";
 import AiFloat from "@/components/ai-float/AiFloat.vue";
 
 const route = useRoute();
 const appStore = useAppStore();
+const userStore = useUserStore();
 const { isMobile } = useBreakpoint();
 
 onMounted(() => { initWebSocket(); });
@@ -29,12 +32,39 @@ watch(() => route.path, () => {
     isScrolled.value = false;
 });
 
-// 切换到桌面端时自动关闭移动端侧边栏
 watch(isMobile, (val) => {
     if (!val) {
         appStore.closeMobileSidebar();
     }
 });
+
+// --- Forced password change ---
+const pwdForm = ref({ oldPassword: "", newPassword: "", confirmPassword: "" });
+const pwdChanging = ref(false);
+const pwdError = ref("");
+
+async function handleForceChangePassword() {
+    pwdError.value = "";
+    if (!pwdForm.value.oldPassword) { pwdError.value = "请输入当前密码"; return; }
+    if (pwdForm.value.newPassword.length < 6) { pwdError.value = "新密码长度不能少于 6 位"; return; }
+    if (pwdForm.value.newPassword !== pwdForm.value.confirmPassword) { pwdError.value = "两次输入的新密码不一致"; return; }
+    if (pwdForm.value.newPassword === pwdForm.value.oldPassword) { pwdError.value = "新密码不能与当前密码相同"; return; }
+    pwdChanging.value = true;
+    try {
+        const res: any = await changePassword(pwdForm.value.oldPassword, pwdForm.value.newPassword);
+        if (res?.success) {
+            userStore.setMustChangePassword(false);
+            pwdForm.value = { oldPassword: "", newPassword: "", confirmPassword: "" };
+            message.success("密码修改成功");
+        } else {
+            pwdError.value = res?.detail || "修改失败";
+        }
+    } catch (e: any) {
+        pwdError.value = e?.response?.data?.detail || "修改失败，请检查当前密码是否正确";
+    } finally {
+        pwdChanging.value = false;
+    }
+}
 </script>
 
 <template>
@@ -69,6 +99,40 @@ watch(isMobile, (val) => {
 
         <!-- AI 助手浮标 -->
         <AiFloat />
+
+        <!-- 强制修改密码弹窗 -->
+        <VortDialog
+            :open="userStore.mustChangePassword"
+            title="请修改初始密码"
+            width="small"
+            :closable="false"
+            :mask-closable="false"
+            :keyboard="false"
+        >
+            <p class="text-sm text-gray-500 mb-4">
+                您当前使用的是系统分配的初始密码，为保障账号安全，请立即修改密码。
+            </p>
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">当前密码</label>
+                    <VortInputPassword v-model="pwdForm.oldPassword" placeholder="请输入当前密码" />
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">新密码</label>
+                    <VortInputPassword v-model="pwdForm.newPassword" placeholder="至少 6 位" />
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">确认新密码</label>
+                    <VortInputPassword v-model="pwdForm.confirmPassword" placeholder="再次输入新密码" @keyup.enter="handleForceChangePassword" />
+                </div>
+                <p v-if="pwdError" class="text-xs text-red-500">{{ pwdError }}</p>
+            </div>
+            <template #footer>
+                <VortButton type="primary" :loading="pwdChanging" @click="handleForceChangePassword">
+                    确认修改
+                </VortButton>
+            </template>
+        </VortDialog>
     </div>
 </template>
 

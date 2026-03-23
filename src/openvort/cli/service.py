@@ -864,13 +864,19 @@ def restart_cmd():
 async def _auto_create_admin(session_factory, auth_service):
     """首次启动时自动创建管理员账号"""
     from openvort.contacts.models import Member
+    from openvort.web.auth import hash_password
+    from openvort.config.settings import get_settings
     from openvort.core.setup import mark_initialized
+
+    settings = get_settings()
 
     async with session_factory() as session:
         member = Member(
             name="admin",
             status="active",
             is_account=True,
+            password_hash=hash_password(settings.web.default_password),
+            must_change_password=True,
         )
         session.add(member)
         await session.flush()

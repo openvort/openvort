@@ -39,6 +39,7 @@ const handleLogin = async () => {
             roles: res.user.roles || [],
             platform_accounts: res.user.platform_accounts || {}
         });
+        userStore.setMustChangePassword(!!res.must_change_password);
         message.success("登录成功，您好，欢迎回来");
         router.push("/");
     } catch {

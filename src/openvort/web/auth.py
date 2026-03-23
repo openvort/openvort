@@ -111,11 +111,11 @@ async def authenticate_member(user_id: str, password: str) -> dict | None:
     """验证成员登录
 
     通过 user_id 查 platform_identities 或 members 表找到成员，
-    验证密码：优先校验独立密码，为空时 fallback 到 default_password。
+    验证密码（必须有 password_hash，不再 fallback 到全局默认密码）。
     仅 is_account=True 且 status=active 的成员可登录。
 
     Returns:
-        { member_id, name, roles, position, department, platform_accounts, avatar_url } 或 None
+        { member_id, name, roles, position, department, platform_accounts, avatar_url, must_change_password } 或 None
     """
     from sqlalchemy import select
     from openvort.contacts.models import Member, PlatformIdentity
@@ -124,7 +124,6 @@ async def authenticate_member(user_id: str, password: str) -> dict | None:
 
     log = get_logger("web.auth")
 
-    settings = get_settings()
     session_factory = get_db_session_factory()
     auth_service = get_auth_service()
 
@@ -155,27 +154,24 @@ async def authenticate_member(user_id: str, password: str) -> dict | None:
         if not member:
             return None
 
-        # 检查是否为可登录账号且状态正常
         if not member.is_account or member.status != "active":
             return None
 
-        # 密码验证：优先独立密码，为空时 fallback 到 default_password
-        if member.password_hash:
-            if not verify_password(password, member.password_hash):
-                return None
-            # Transparently upgrade legacy SHA-256 hash to bcrypt
-            if _is_legacy_sha256(member.password_hash):
-                member.password_hash = hash_password(password)
-                await session.commit()
-                log.info(f"已将成员 {member.id} 的密码哈希从 SHA-256 迁移到 bcrypt")
-        else:
-            if password != settings.web.default_password:
-                return None
+        if not member.password_hash:
+            return None
+
+        if not verify_password(password, member.password_hash):
+            return None
+
+        if _is_legacy_sha256(member.password_hash):
+            member.password_hash = hash_password(password)
+            await session.commit()
+            log.info(f"已将成员 {member.id} 的密码哈希从 SHA-256 迁移到 bcrypt")
 
         # 查角色
         roles = await auth_service.get_member_roles(member.id)
         if not roles:
-            roles = ["member"]  # 默认角色
+            roles = ["member"]
 
         # 查平台账号和职位
         stmt = select(PlatformIdentity).where(PlatformIdentity.member_id == member.id)
@@ -210,4 +206,5 @@ async def authenticate_member(user_id: str, password: str) -> dict | None:
             "department": department,
             "platform_accounts": platform_accounts,
             "avatar_url": member.avatar_url or "",
+            "must_change_password": bool(member.must_change_password),
         }

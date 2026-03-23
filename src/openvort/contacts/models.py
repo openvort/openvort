@@ -31,7 +31,8 @@ class Member(Base):
     avatar_source: Mapped[str] = mapped_column(String(16), default="")  # manual > wecom > dingtalk > feishu > ...
     position: Mapped[str] = mapped_column(String(64), default="")  # 职位（手动 > 平台自动聚合）
     bio: Mapped[str] = mapped_column(Text, default="")  # 个人简介
-    password_hash: Mapped[str] = mapped_column(String(128), default="")  # 独立密码哈希，为空时 fallback 到 default_password
+    password_hash: Mapped[str] = mapped_column(String(128), default="")  # bcrypt password hash
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)  # force password change on next login
     is_account: Mapped[bool] = mapped_column(Boolean, default=False)  # 是否为可登录账号
     status: Mapped[str] = mapped_column(String(16), default="active")  # active / inactive
     notification_prefs: Mapped[str] = mapped_column(Text, default="{}")  # JSON: 通知偏好
