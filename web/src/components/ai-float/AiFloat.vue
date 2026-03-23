@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from "vue";
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { X } from "lucide-vue-next";
 import AiIcon from "./AiIcon.vue";
@@ -17,7 +17,129 @@ const chatRef = ref<InstanceType<typeof ChatView> | null>(null);
 
 const isOnChatPage = computed(() => route.path === "/chat");
 
+const BTN_SIZE = 44;
+const EDGE_MARGIN = 12;
+const SNAP_MARGIN = 24;
+const POS_KEY = "ai-float-corner";
+
+type Corner = "br" | "bl" | "tr" | "tl";
+const CORNERS: Corner[] = ["br", "bl", "tr", "tl"];
+
+const currentCorner = ref<Corner>("br");
+const pos = ref({ right: SNAP_MARGIN, bottom: SNAP_MARGIN });
+const dragging = ref(false);
+const snapping = ref(false);
+const hasMoved = ref(false);
+let dragOrigin = { x: 0, y: 0, right: 0, bottom: 0 };
+
+function cornerToPos(c: Corner): { right: number; bottom: number } {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    switch (c) {
+        case "br": return { right: SNAP_MARGIN, bottom: SNAP_MARGIN };
+        case "bl": return { right: w - BTN_SIZE - SNAP_MARGIN, bottom: SNAP_MARGIN };
+        case "tr": return { right: SNAP_MARGIN, bottom: h - BTN_SIZE - SNAP_MARGIN };
+        case "tl": return { right: w - BTN_SIZE - SNAP_MARGIN, bottom: h - BTN_SIZE - SNAP_MARGIN };
+    }
+}
+
+function nearestCorner(p: { right: number; bottom: number }): Corner {
+    let best: Corner = "br";
+    let bestDist = Infinity;
+    for (const c of CORNERS) {
+        const cp = cornerToPos(c);
+        const d = Math.hypot(p.right - cp.right, p.bottom - cp.bottom);
+        if (d < bestDist) { bestDist = d; best = c; }
+    }
+    return best;
+}
+
+function clampPos(p: { right: number; bottom: number }) {
+    return {
+        right: Math.max(EDGE_MARGIN, Math.min(window.innerWidth - BTN_SIZE - EDGE_MARGIN, p.right)),
+        bottom: Math.max(EDGE_MARGIN, Math.min(window.innerHeight - BTN_SIZE - EDGE_MARGIN, p.bottom)),
+    };
+}
+
+function syncPosToCorner() {
+    pos.value = cornerToPos(currentCorner.value);
+}
+
+function onDragStart(e: PointerEvent) {
+    snapping.value = false;
+    dragging.value = true;
+    hasMoved.value = false;
+    dragOrigin = { x: e.clientX, y: e.clientY, right: pos.value.right, bottom: pos.value.bottom };
+    document.addEventListener("pointermove", onDragMove);
+    document.addEventListener("pointerup", onDragEnd);
+}
+
+function onDragMove(e: PointerEvent) {
+    const dx = e.clientX - dragOrigin.x;
+    const dy = e.clientY - dragOrigin.y;
+    if (!hasMoved.value && Math.abs(dx) + Math.abs(dy) < 5) return;
+    if (!hasMoved.value) {
+        hasMoved.value = true;
+        panelOpen.value = false;
+    }
+    pos.value = clampPos({ right: dragOrigin.right - dx, bottom: dragOrigin.bottom - dy });
+}
+
+function onDragEnd() {
+    document.removeEventListener("pointermove", onDragMove);
+    document.removeEventListener("pointerup", onDragEnd);
+    dragging.value = false;
+    if (hasMoved.value) {
+        const corner = nearestCorner(pos.value);
+        currentCorner.value = corner;
+        snapping.value = true;
+        pos.value = cornerToPos(corner);
+        localStorage.setItem(POS_KEY, corner);
+        setTimeout(() => { snapping.value = false; }, 350);
+    }
+}
+
+const containerStyle = computed(() => ({
+    right: pos.value.right + "px",
+    bottom: pos.value.bottom + "px",
+}));
+
+const panelStyle = computed(() => {
+    const style: Record<string, string> = {
+        width: showContacts.value ? "660px" : "420px",
+    };
+    if (currentCorner.value === "br" || currentCorner.value === "tr") {
+        style.right = "0";
+        style.left = "auto";
+    } else {
+        style.left = "0";
+        style.right = "auto";
+    }
+    return style;
+});
+
+onMounted(() => {
+    const saved = localStorage.getItem(POS_KEY);
+    if (saved && CORNERS.includes(saved as Corner)) {
+        currentCorner.value = saved as Corner;
+    }
+    syncPosToCorner();
+    window.addEventListener("resize", syncPosToCorner);
+});
+
+onBeforeUnmount(() => {
+    window.removeEventListener("resize", syncPosToCorner);
+});
+
 function togglePanel() { panelOpen.value = !panelOpen.value; }
+
+function handleBtnClick() {
+    if (hasMoved.value) {
+        hasMoved.value = false;
+        return;
+    }
+    togglePanel();
+}
 
 function goToFullChat() {
     const draft = (chatRef.value?.inputText as unknown as string) ?? "";
@@ -51,9 +173,9 @@ watch(pendingPrompt, (prompt) => {
 
 <template>
     <Teleport to="body">
-    <div v-if="!isOnChatPage" class="ai-float-container">
+    <div v-if="!isOnChatPage" class="ai-float-container" :class="{ 'ai-float-snapping': snapping }" :style="containerStyle">
         <transition name="ai-float-panel" type="animation">
-            <div v-if="panelOpen" class="ai-float-panel" :style="{ width: showContacts ? '660px' : '420px' }">
+            <div v-if="panelOpen" class="ai-float-panel" :style="panelStyle">
                 <div class="ai-float-body">
                     <ChatView
                         ref="chatRef"
@@ -71,8 +193,9 @@ watch(pendingPrompt, (prompt) => {
         <!-- Floating Button -->
         <button
             class="ai-float-btn"
-            :class="{ 'ai-float-btn-active': panelOpen }"
-            @click="togglePanel"
+            :class="{ 'ai-float-btn-active': panelOpen, 'ai-float-btn-dragging': dragging }"
+            @pointerdown="onDragStart"
+            @click="handleBtnClick"
         >
             <transition name="ai-float-icon" mode="out-in">
                 <X v-if="panelOpen" :size="18" class="text-white" key="close" />
@@ -86,9 +209,10 @@ watch(pendingPrompt, (prompt) => {
 <style scoped>
 .ai-float-container {
     position: fixed;
-    bottom: 24px;
-    right: 24px;
     z-index: 2000;
+}
+.ai-float-snapping {
+    transition: right 0.3s cubic-bezier(0.25, 1, 0.5, 1), bottom 0.3s cubic-bezier(0.25, 1, 0.5, 1);
 }
 
 .ai-float-btn {
@@ -102,6 +226,8 @@ watch(pendingPrompt, (prompt) => {
     justify-content: center;
     cursor: pointer;
     border: none;
+    touch-action: none;
+    user-select: none;
     transition: transform 0.3s ease, box-shadow 0.3s ease, background 0.3s ease;
     position: relative;
     overflow: visible;
@@ -147,6 +273,10 @@ watch(pendingPrompt, (prompt) => {
 }
 .ai-float-btn-active::before,
 .ai-float-btn-active::after { display: none; }
+.ai-float-btn-dragging {
+    cursor: grabbing !important;
+    transition: none !important;
+}
 
 @keyframes ai-border-spin {
     to { transform: rotate(360deg); }
@@ -160,7 +290,6 @@ watch(pendingPrompt, (prompt) => {
 .ai-float-panel {
     position: absolute;
     bottom: 56px;
-    right: 0;
     height: 600px;
     background: #fff;
     border-radius: 12px;
