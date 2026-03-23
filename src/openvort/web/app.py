@@ -2,6 +2,7 @@
 Web 面板 FastAPI 应用工厂
 """
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Depends, HTTPException, Request
@@ -12,6 +13,9 @@ from starlette.requests import HTTPConnection
 from starlette.responses import Response
 
 from openvort.web.auth import verify_token
+from openvort.utils.logging import get_logger
+
+_log_app = get_logger("web.app")
 
 
 def require_auth(conn: HTTPConnection) -> dict:
@@ -46,6 +50,42 @@ def require_admin(conn: HTTPConnection) -> dict:
     return payload
 
 
+def _setup_mcp(app: FastAPI) -> None:
+    """Mount MCP Server as ASGI sub-app at /mcp for Cursor/Claude Desktop integration."""
+    try:
+        from openvort.web.deps import get_registry as _get_reg
+        from openvort.web.mcp_server import create_mcp_server
+
+        registry = _get_reg()
+        mcp = create_mcp_server(registry)
+        mcp_asgi = mcp.streamable_http_app()
+
+        @asynccontextmanager
+        async def _mcp_lifespan_ctx(a):
+            async with mcp.session_manager.run():
+                yield
+
+        # Starlette sub-app lifespan won't fire automatically when mounted,
+        # so we run the MCP session manager in a background task instead.
+        @app.on_event("startup")
+        async def _start_mcp_session_manager():
+            import asyncio
+            _sm = mcp.session_manager
+
+            async def _run_sm():
+                async with _sm.run():
+                    # Block forever — keeps the session manager alive
+                    await asyncio.Event().wait()
+
+            asyncio.create_task(_run_sm())
+            _log_app.info("MCP session manager started")
+
+        app.mount("/mcp", mcp_asgi)
+        _log_app.info("MCP Server mounted at /mcp")
+    except Exception as e:
+        _log_app.warning(f"MCP Server setup failed: {e}")
+
+
 def create_app() -> FastAPI:
     """创建 FastAPI 应用"""
     app = FastAPI(title="OpenVort", docs_url="/api/docs", openapi_url="/api/openapi.json")
@@ -78,7 +118,7 @@ def create_app() -> FastAPI:
         member_skills_router, upgrade_router, posts_router,
         work_assignments_router, voice_providers_router,
         remote_nodes_router, marketplace_router,
-        jenkins_router,
+        jenkins_router, channel_bots_router,
     )
     from openvort.web.ws import ws_router
     from openvort.web.webhooks import webhooks_router
@@ -137,6 +177,9 @@ def create_app() -> FastAPI:
     # Jenkins 管理（登录用户可访问，内部按角色区分管理员操作）
     app.include_router(jenkins_router, prefix="/api/jenkins", tags=["jenkins"], dependencies=[Depends(require_auth)])
 
+    # Channel Bots — AI 员工独立 IM Bot 管理
+    app.include_router(channel_bots_router, prefix="/api/admin/channel-bots", tags=["admin-channel-bots"], dependencies=[Depends(require_admin)])
+
     # ---- 动态挂载已启用插件的 API Router ----
     try:
         from openvort.web.deps import get_registry as _get_registry
@@ -153,6 +196,9 @@ def create_app() -> FastAPI:
                 _log.warning(f"挂载插件 '{plugin.name}' API Router 失败: {e}")
     except Exception:
         pass
+
+    # ---- MCP Server（Cursor / Claude Desktop 集成） ----
+    _setup_mcp(app)
 
     # ---- 健康检查（公开，无需认证） ----
     import time as _time

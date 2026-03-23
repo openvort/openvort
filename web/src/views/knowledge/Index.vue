@@ -1,20 +1,34 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from "vue";
+import { useRouter } from "vue-router";
 import {
-    getKBDocuments, getKBDocument, updateKBDocument, uploadKBDocument, createKBTextDocument,
+    getKBDocuments, uploadKBDocument, createKBTextDocument,
     deleteKBDocument, reindexKBDocument, searchKB, getKBStats,
+    getKBFolders, getKBFolder, createKBFolder, updateKBFolder, deleteKBFolder, moveKBItems,
 } from "@/api";
 import {
-    Upload, Search, RefreshCw, FileText, Eye, Pencil, Save,
+    Upload, Search, RefreshCw, FileText,
     CheckCircle, AlertCircle, Loader2, BookOpen, Trash2,
+    ChevronRight, Home, MoreHorizontal, Plus,
 } from "lucide-vue-next";
 import { message, dialog } from "@/components/vort";
 import type { UploadRequestOption } from "@/components/vort/upload/types";
 import { useUserStore } from "@/stores";
 
+interface KBFolderItem {
+    id: string;
+    name: string;
+    parent_id: string;
+    description: string;
+    owner_id: string;
+    created_at: string;
+    updated_at: string;
+}
+
 interface KBDocument {
     id: string;
     title: string;
+    folder_id: string;
     file_name: string;
     file_type: string;
     file_size: number;
@@ -24,6 +38,19 @@ interface KBDocument {
     owner_id: string;
     created_at: string;
     updated_at: string;
+}
+
+interface Breadcrumb {
+    id: string;
+    name: string;
+}
+
+interface ListRow {
+    _type: "folder" | "document";
+    _key: string;
+    name: string;
+    updated_at: string;
+    raw: KBFolderItem | KBDocument;
 }
 
 interface SearchResult {
@@ -41,9 +68,14 @@ interface KBStatsData {
     embedding_available: boolean;
 }
 
+const router = useRouter();
 const userStore = useUserStore();
 const isAdmin = computed(() => userStore.isAdmin);
 
+const currentFolderId = ref("");
+const breadcrumbs = ref<Breadcrumb[]>([]);
+
+const folders = ref<KBFolderItem[]>([]);
 const documents = ref<KBDocument[]>([]);
 const loading = ref(false);
 const total = ref(0);
@@ -55,19 +87,24 @@ const stats = ref<KBStatsData>({ document_count: 0, ready_count: 0, chunk_count:
 const uploadDialogOpen = ref(false);
 const textDialogOpen = ref(false);
 const searchDialogOpen = ref(false);
+const folderDialogOpen = ref(false);
+const moveDialogOpen = ref(false);
 const saving = ref(false);
 
 const textForm = ref({ title: "", content: "" });
+const folderForm = ref({ name: "" });
 const searchQuery = ref("");
+
+// Move dialog state
+const moveItem = ref<{ type: "folder" | "document"; id: string; name: string } | null>(null);
+const moveFolderTree = ref<KBFolderItem[]>([]);
+const moveTargetId = ref("");
+const moveLoading = ref(false);
 const searchResults = ref<SearchResult[]>([]);
 const searching = ref(false);
 
-const detailDialogOpen = ref(false);
-const detailDoc = ref<{ id: string; title: string; content: string; file_type: string; file_size: number; chunk_count: number; status: string; created_at: string } | null>(null);
-const detailLoading = ref(false);
-const detailEditing = ref(false);
-const detailSaving = ref(false);
-const editForm = ref({ title: "", content: "" });
+const renamingFolderId = ref("");
+const renamingFolderName = ref("");
 
 const statusConfig: Record<string, { text: string; color: string }> = {
     pending: { text: "等待处理", color: "warning" },
@@ -75,6 +112,17 @@ const statusConfig: Record<string, { text: string; color: string }> = {
     ready: { text: "已就绪", color: "success" },
     error: { text: "处理失败", color: "error" },
 };
+
+const tableRows = computed<ListRow[]>(() => {
+    const rows: ListRow[] = [];
+    for (const f of folders.value) {
+        rows.push({ _type: "folder", _key: `f_${f.id}`, name: f.name, updated_at: f.updated_at, raw: f });
+    }
+    for (const d of documents.value) {
+        rows.push({ _type: "document", _key: `d_${d.id}`, name: d.title, updated_at: d.updated_at, raw: d });
+    }
+    return rows;
+});
 
 const formatFileSize = (bytes: number) => {
     if (bytes === 0) return "0 B";
@@ -87,19 +135,47 @@ const formatFileSize = (bytes: number) => {
 const formatTime = (iso: string) => {
     if (!iso) return "-";
     const d = new Date(iso);
-    return d.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+    return d.toLocaleString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 };
 
-const loadDocuments = async () => {
+const navigateToFolder = async (folderId: string) => {
+    currentFolderId.value = folderId;
+    page.value = 1;
+    keyword.value = "";
+
+    if (!folderId) {
+        breadcrumbs.value = [];
+    } else {
+        try {
+            const res = await getKBFolder(folderId) as any;
+            breadcrumbs.value = [
+                ...(res.breadcrumb || []),
+                { id: res.id, name: res.name },
+            ];
+        } catch {
+            breadcrumbs.value = [];
+        }
+    }
+
+    loadContent();
+};
+
+const loadContent = async () => {
     loading.value = true;
     try {
-        const res = await getKBDocuments({
-            page: page.value,
-            page_size: pageSize.value,
-            keyword: keyword.value || undefined,
-        }) as any;
-        documents.value = res.items || [];
-        total.value = res.total || 0;
+        const [foldersRes, docsRes] = await Promise.all([
+            getKBFolders(currentFolderId.value),
+            getKBDocuments({
+                page: page.value,
+                page_size: pageSize.value,
+                keyword: keyword.value || undefined,
+                folder_id: currentFolderId.value,
+            }),
+        ]) as [any, any];
+
+        folders.value = foldersRes.items || [];
+        documents.value = docsRes.items || [];
+        total.value = docsRes.total || 0;
     } catch (e: any) {
         message.error(e?.response?.data?.detail || "加载失败");
     } finally {
@@ -116,12 +192,85 @@ const loadStats = async () => {
     }
 };
 
+// ---- Row click ----
+const handleRowClick = (row: ListRow) => {
+    if (row._type === "folder") {
+        navigateToFolder((row.raw as KBFolderItem).id);
+    } else {
+        router.push(`/knowledge/doc/${(row.raw as KBDocument).id}`);
+    }
+};
+
+// ---- Folder actions ----
+const handleCreateFolder = async () => {
+    if (!folderForm.value.name.trim()) {
+        message.warning("请输入文件夹名称");
+        return;
+    }
+    saving.value = true;
+    try {
+        await createKBFolder({
+            name: folderForm.value.name.trim(),
+            parent_id: currentFolderId.value,
+        });
+        message.success("文件夹创建成功");
+        folderDialogOpen.value = false;
+        folderForm.value = { name: "" };
+        loadContent();
+    } catch (e: any) {
+        message.error(e?.response?.data?.detail || "创建失败");
+    } finally {
+        saving.value = false;
+    }
+};
+
+const startRenameFolder = (folder: KBFolderItem) => {
+    renamingFolderId.value = folder.id;
+    renamingFolderName.value = folder.name;
+};
+
+const confirmRenameFolder = async () => {
+    if (!renamingFolderName.value.trim()) {
+        message.warning("名称不能为空");
+        return;
+    }
+    try {
+        await updateKBFolder(renamingFolderId.value, { name: renamingFolderName.value.trim() });
+        message.success("重命名成功");
+        renamingFolderId.value = "";
+        loadContent();
+    } catch (e: any) {
+        message.error(e?.response?.data?.detail || "重命名失败");
+    }
+};
+
+const cancelRenameFolder = () => {
+    renamingFolderId.value = "";
+};
+
+const handleDeleteFolder = (folder: KBFolderItem) => {
+    dialog.confirm({
+        title: "确认删除文件夹",
+        content: `确定删除「${folder.name}」？文件夹内的子文件夹和文档将移到上一级目录。`,
+        onOk: async () => {
+            try {
+                await deleteKBFolder(folder.id);
+                message.success("删除成功");
+                loadContent();
+            } catch (e: any) {
+                message.error(e?.response?.data?.detail || "删除失败");
+            }
+        },
+    });
+};
+
+// ---- Document actions ----
 const handleCustomUpload = ref(async (options: UploadRequestOption) => {
     try {
-        const res = await uploadKBDocument(options.file);
+        const res = await uploadKBDocument(options.file, undefined, currentFolderId.value || undefined);
         options.onSuccess?.(res, options.file);
         message.success(`${options.file.name} 上传成功`);
-        loadDocuments();
+        loadContent();
         loadStats();
     } catch (e: any) {
         options.onError?.(new Error(e?.response?.data?.detail || "上传失败"));
@@ -144,11 +293,12 @@ const handleCreateText = async () => {
         await createKBTextDocument({
             title: textForm.value.title,
             content: textForm.value.content,
+            folder_id: currentFolderId.value || undefined,
         });
         message.success("文档创建成功");
         textDialogOpen.value = false;
         textForm.value = { title: "", content: "" };
-        loadDocuments();
+        loadContent();
         loadStats();
     } catch (e: any) {
         message.error(e?.response?.data?.detail || "创建失败");
@@ -165,7 +315,7 @@ const handleDelete = (doc: KBDocument) => {
             try {
                 await deleteKBDocument(doc.id);
                 message.success("删除成功");
-                loadDocuments();
+                loadContent();
                 loadStats();
             } catch (e: any) {
                 message.error(e?.response?.data?.detail || "删除失败");
@@ -178,7 +328,7 @@ const handleReindex = async (doc: KBDocument) => {
     try {
         await reindexKBDocument(doc.id);
         message.success("已开始重新索引");
-        loadDocuments();
+        loadContent();
     } catch (e: any) {
         message.error(e?.response?.data?.detail || "重新索引失败");
     }
@@ -204,75 +354,72 @@ const handleSearch = async () => {
     }
 };
 
-const handleViewDetail = async (doc: KBDocument) => {
-    detailDialogOpen.value = true;
-    detailLoading.value = true;
-    detailEditing.value = false;
+const openDoc = (doc: KBDocument) => {
+    router.push(`/knowledge/doc/${doc.id}`);
+};
+
+// ---- Move to folder ----
+const openMoveDialog = async (type: "folder" | "document", id: string, name: string) => {
+    moveItem.value = { type, id, name };
+    moveTargetId.value = "";
+    moveDialogOpen.value = true;
+    moveLoading.value = true;
     try {
-        const res = await getKBDocument(doc.id) as any;
-        detailDoc.value = res;
-    } catch (e: any) {
-        message.error(e?.response?.data?.detail || "加载文档详情失败");
-        detailDialogOpen.value = false;
+        const res = await getAllFolders() as KBFolderItem[];
+        moveFolderTree.value = res.filter(f => f.id !== id);
+    } catch {
+        moveFolderTree.value = [];
     } finally {
-        detailLoading.value = false;
+        moveLoading.value = false;
     }
 };
 
-const startEditing = () => {
-    if (!detailDoc.value) return;
-    editForm.value = { title: detailDoc.value.title, content: detailDoc.value.content };
-    detailEditing.value = true;
-};
-
-const cancelEditing = () => {
-    detailEditing.value = false;
-};
-
-const handleSaveEdit = async () => {
-    if (!detailDoc.value) return;
-    if (!editForm.value.title.trim()) {
-        message.warning("标题不能为空");
-        return;
+async function getAllFolders(parentId: string = "", collected: KBFolderItem[] = []): Promise<KBFolderItem[]> {
+    const res = await getKBFolders(parentId) as any;
+    const items: KBFolderItem[] = res.items || [];
+    for (const f of items) {
+        collected.push(f);
+        await getAllFolders(f.id, collected);
     }
-    if (!editForm.value.content.trim()) {
-        message.warning("内容不能为空");
-        return;
-    }
+    return collected;
+}
 
-    detailSaving.value = true;
+const handleMove = async () => {
+    if (!moveItem.value) return;
+    saving.value = true;
     try {
-        const res = await updateKBDocument(detailDoc.value.id, {
-            title: editForm.value.title,
-            content: editForm.value.content,
-        }) as any;
-        detailDoc.value.title = editForm.value.title;
-        detailDoc.value.content = editForm.value.content;
-        detailDoc.value.file_size = new Blob([editForm.value.content]).size;
-        detailEditing.value = false;
-        message.success(res.reindexing ? "保存成功，正在重新索引" : "保存成功");
-        loadDocuments();
-        loadStats();
+        const payload: { folder_ids?: string[]; document_ids?: string[]; target_folder_id: string } = {
+            target_folder_id: moveTargetId.value,
+        };
+        if (moveItem.value.type === "folder") {
+            payload.folder_ids = [moveItem.value.id];
+        } else {
+            payload.document_ids = [moveItem.value.id];
+        }
+        await moveKBItems(payload);
+        message.success("移动成功");
+        moveDialogOpen.value = false;
+        loadContent();
     } catch (e: any) {
-        message.error(e?.response?.data?.detail || "保存失败");
+        message.error(e?.response?.data?.detail || "移动失败");
     } finally {
-        detailSaving.value = false;
+        saving.value = false;
     }
 };
 
 const handlePaginationChange = () => {
-    loadDocuments();
+    loadContent();
 };
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
 onMounted(() => {
-    loadDocuments();
+    loadContent();
     loadStats();
     pollTimer = setInterval(() => {
         const hasPending = documents.value.some(d => d.status === "pending" || d.status === "processing");
         if (hasPending) {
-            loadDocuments();
+            loadContent();
             loadStats();
         }
     }, 3000);
@@ -327,102 +474,167 @@ onUnmounted(() => {
             </VortCard>
         </div>
 
-        <!-- Table -->
+        <!-- File Browser -->
         <div class="bg-white rounded-xl p-6">
-            <!-- Filter Bar -->
+            <!-- Breadcrumb -->
+            <div class="flex items-center gap-1 text-sm mb-4 min-w-0 overflow-hidden">
+                <span
+                    class="flex items-center gap-1 cursor-pointer hover:text-blue-600 shrink-0"
+                    :class="currentFolderId ? 'text-blue-600' : 'text-gray-800 font-medium'"
+                    @click="navigateToFolder('')"
+                >
+                    <Home :size="14" />
+                    <span>知识库</span>
+                </span>
+                <template v-for="crumb in breadcrumbs" :key="crumb.id">
+                    <ChevronRight :size="14" class="text-gray-300 shrink-0" />
+                    <span
+                        class="cursor-pointer hover:text-blue-600 truncate"
+                        :class="crumb.id === currentFolderId ? 'text-gray-800 font-medium' : 'text-blue-600'"
+                        @click="navigateToFolder(crumb.id)"
+                    >
+                        {{ crumb.name }}
+                    </span>
+                </template>
+            </div>
+
+            <!-- Toolbar -->
             <div class="flex items-center justify-between mb-4">
                 <div class="flex items-center gap-3">
                     <VortInputSearch
                         v-model="keyword"
-                        placeholder="搜索文档标题..."
+                        placeholder="请输入关键字"
                         allow-clear
-                        class="w-[240px]"
-                        @search="loadDocuments"
-                        @keyup.enter="loadDocuments"
+                        class="w-[220px]"
+                        @search="loadContent"
+                        @keyup.enter="loadContent"
                     />
-                    <VortButton @click="loadDocuments">查询</VortButton>
+                </div>
+                <div class="flex items-center gap-2">
+                    <VortDropdown v-if="isAdmin" trigger="click" placement="bottomRight">
+                        <VortButton variant="primary">
+                            <Plus :size="14" class="mr-1" /> 新建
+                        </VortButton>
+                        <template #overlay>
+                            <VortDropdownMenuItem @click="folderDialogOpen = true">
+                                <svg class="mr-2 shrink-0" width="14" height="14" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg"><path d="M918.673 883H104.327C82.578 883 65 867.368 65 848.027V276.973C65 257.632 82.578 242 104.327 242h814.346C940.422 242 958 257.632 958 276.973v571.054C958 867.28 940.323 883 918.673 883z" fill="#FFE9B4"/><path d="M512 411H65V210.37C65 188.597 82.598 171 104.371 171h305.92c17.4 0 32.71 11.334 37.681 28.036L512 411z" fill="#FFB02C"/><path d="M918.673 883H104.327C82.578 883 65 865.42 65 843.668V335.332C65 313.58 82.578 296 104.327 296h814.346C940.422 296 958 313.58 958 335.332v508.336C958 865.32 940.323 883 918.673 883z" fill="#FFCA28"/></svg>新建文件夹
+                            </VortDropdownMenuItem>
+                            <VortDropdownMenuItem @click="uploadDialogOpen = true">
+                                <Upload :size="14" class="mr-2 text-gray-400" />上传文档
+                            </VortDropdownMenuItem>
+                            <VortDropdownMenuItem @click="textDialogOpen = true">
+                                <FileText :size="14" class="mr-2 text-gray-400" />手动添加
+                            </VortDropdownMenuItem>
+                        </template>
+                    </VortDropdown>
                 </div>
             </div>
 
-            <!-- Document Table -->
+            <!-- Unified Table -->
             <VortTable
-                :data-source="documents"
+                :data-source="tableRows"
                 :loading="loading"
-                row-key="id"
+                row-key="_key"
                 :pagination="false"
             >
-                <VortTableColumn label="文档" prop="title" :min-width="220">
-                    <template #default="{ row }">
-                        <div class="font-medium text-blue-600 hover:text-blue-700 cursor-pointer hover:underline" @click="handleViewDetail(row)">{{ row.title }}</div>
-                        <div v-if="row.file_name && row.file_name !== row.title" class="text-xs text-gray-400 mt-0.5 truncate max-w-[280px]">
-                            {{ row.file_name }}
+                <VortTableColumn label="名称" prop="name" :min-width="280">
+                    <template #default="{ row }: { row: ListRow }">
+                        <div class="flex items-center gap-2.5 cursor-pointer" @click="handleRowClick(row)">
+                            <template v-if="row._type === 'folder'">
+                                <svg class="shrink-0" width="20" height="20" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg"><path d="M918.673 883H104.327C82.578 883 65 867.368 65 848.027V276.973C65 257.632 82.578 242 104.327 242h814.346C940.422 242 958 257.632 958 276.973v571.054C958 867.28 940.323 883 918.673 883z" fill="#FFE9B4"/><path d="M512 411H65V210.37C65 188.597 82.598 171 104.371 171h305.92c17.4 0 32.71 11.334 37.681 28.036L512 411z" fill="#FFB02C"/><path d="M918.673 883H104.327C82.578 883 65 865.42 65 843.668V335.332C65 313.58 82.578 296 104.327 296h814.346C940.422 296 958 313.58 958 335.332v508.336C958 865.32 940.323 883 918.673 883z" fill="#FFCA28"/></svg>
+                                <template v-if="renamingFolderId === (row.raw as KBFolderItem).id">
+                                    <input
+                                        v-model="renamingFolderName"
+                                        class="flex-1 text-sm border border-blue-300 rounded px-1.5 py-0.5 outline-none focus:ring-1 focus:ring-blue-400 min-w-0"
+                                        @click.stop
+                                        @keyup.enter="confirmRenameFolder"
+                                        @keyup.escape="cancelRenameFolder"
+                                        @blur="confirmRenameFolder"
+                                        autofocus
+                                    />
+                                </template>
+                                <template v-else>
+                                    <span class="text-sm text-gray-800 hover:text-blue-600 font-medium">{{ row.name }}</span>
+                                </template>
+                            </template>
+                            <template v-else>
+                                <svg class="shrink-0" width="20" height="20" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg"><path d="M676.267 241.92h179.626a22.187 22.187 0 0 0 15.787-37.973L692.053 24.32a22.187 22.187 0 0 0-37.973 15.787v179.626a22.187 22.187 0 0 0 22.187 22.187z" fill="#F9BBB8"/><path d="M810.667 298.667h-128a85.333 85.333 0 0 1-85.334-85.334V85.333A85.333 85.333 0 0 0 512 0H213.333A85.333 85.333 0 0 0 128 85.333v853.334A85.333 85.333 0 0 0 213.333 1024h597.334A85.333 85.333 0 0 0 896 938.667V384a85.333 85.333 0 0 0-85.333-85.333zm-256 512H341.333a42.667 42.667 0 0 1 0-85.334h213.334a42.667 42.667 0 0 1 0 85.334zm128-170.667H341.333a42.667 42.667 0 0 1 0-85.333h341.334a42.667 42.667 0 0 1 0 85.333zm0-170.667H341.333a42.667 42.667 0 0 1 0-85.333h341.334a42.667 42.667 0 0 1 0 85.333z" fill="#F55E55"/></svg>
+                                <span class="text-sm text-blue-600 hover:text-blue-700 hover:underline">{{ row.name }}</span>
+                            </template>
                         </div>
                     </template>
                 </VortTableColumn>
 
-                <VortTableColumn label="类型" prop="file_type" :width="80" align="center">
-                    <template #default="{ row }">
-                        <VortTag size="small">{{ (row.file_type || '').toUpperCase() }}</VortTag>
+                <VortTableColumn label="类型" :width="80" align="center">
+                    <template #default="{ row }: { row: ListRow }">
+                        <template v-if="row._type === 'document'">
+                            <VortTag size="small">{{ ((row.raw as KBDocument).file_type || '').toUpperCase() }}</VortTag>
+                        </template>
+                        <span v-else class="text-gray-300">-</span>
                     </template>
                 </VortTableColumn>
 
-                <VortTableColumn label="大小" prop="file_size" :width="90">
-                    <template #default="{ row }">
-                        <span class="text-gray-500">{{ formatFileSize(row.file_size) }}</span>
+                <VortTableColumn label="大小" :width="90">
+                    <template #default="{ row }: { row: ListRow }">
+                        <template v-if="row._type === 'document'">
+                            <span class="text-gray-500">{{ formatFileSize((row.raw as KBDocument).file_size) }}</span>
+                        </template>
+                        <span v-else class="text-gray-300">-</span>
                     </template>
                 </VortTableColumn>
 
-                <VortTableColumn label="状态" prop="status" :width="110">
-                    <template #default="{ row }">
-                        <VortTag :color="statusConfig[row.status]?.color || 'default'" size="small">
-                            <Loader2 v-if="row.status === 'processing'" :size="12" class="animate-spin mr-1 inline" />
-                            {{ statusConfig[row.status]?.text || row.status }}
-                        </VortTag>
-                        <VortTooltip v-if="row.error_message" :title="row.error_message">
-                            <AlertCircle :size="14" class="ml-1 text-red-400 cursor-help inline" />
-                        </VortTooltip>
-                    </template>
-                </VortTableColumn>
-
-                <VortTableColumn label="分块" prop="chunk_count" :width="70" align="center">
-                    <template #default="{ row }">
-                        <span class="text-gray-500">{{ row.chunk_count }}</span>
-                    </template>
-                </VortTableColumn>
-
-                <VortTableColumn label="创建时间" prop="created_at" :width="130">
-                    <template #default="{ row }">
-                        <span class="text-gray-500">{{ formatTime(row.created_at) }}</span>
-                    </template>
-                </VortTableColumn>
-
-                <VortTableColumn label="操作" :width="150" fixed="right">
-                    <template #default="{ row }">
-                        <div class="flex items-center gap-2">
-                            <VortTooltip title="查看内容">
-                                <VortButton variant="text" size="small" @click="handleViewDetail(row)">
-                                    <Eye :size="14" />
-                                </VortButton>
+                <VortTableColumn label="状态" :width="110">
+                    <template #default="{ row }: { row: ListRow }">
+                        <template v-if="row._type === 'document'">
+                            <VortTag :color="statusConfig[(row.raw as KBDocument).status]?.color || 'default'" size="small">
+                                <Loader2 v-if="(row.raw as KBDocument).status === 'processing'" :size="12" class="animate-spin mr-1 inline" />
+                                {{ statusConfig[(row.raw as KBDocument).status]?.text || (row.raw as KBDocument).status }}
+                            </VortTag>
+                            <VortTooltip v-if="(row.raw as KBDocument).error_message" :title="(row.raw as KBDocument).error_message">
+                                <AlertCircle :size="14" class="ml-1 text-red-400 cursor-help inline" />
                             </VortTooltip>
-                            <VortTooltip v-if="isAdmin" title="重新索引">
-                                <VortButton variant="text" size="small" @click="handleReindex(row)">
-                                    <RefreshCw :size="14" />
-                                </VortButton>
-                            </VortTooltip>
-                            <VortTooltip v-if="isAdmin" title="删除">
-                                <VortButton variant="text" size="small" danger @click="handleDelete(row)">
-                                    <Trash2 :size="14" />
-                                </VortButton>
-                            </VortTooltip>
-                        </div>
+                        </template>
+                        <span v-else class="text-gray-300">-</span>
+                    </template>
+                </VortTableColumn>
+
+                <VortTableColumn label="更新时间" prop="updated_at" :width="160">
+                    <template #default="{ row }: { row: ListRow }">
+                        <span class="text-gray-500">{{ formatTime(row.updated_at) }}</span>
+                    </template>
+                </VortTableColumn>
+
+                <VortTableColumn label="操作" :width="60" align="center" fixed="right">
+                    <template #default="{ row }: { row: ListRow }">
+                        <VortDropdown trigger="click" placement="bottomRight">
+                            <button class="p-1 rounded hover:bg-gray-100">
+                                <MoreHorizontal :size="16" class="text-gray-400" />
+                            </button>
+                            <template #overlay>
+                                <template v-if="row._type === 'folder'">
+                                    <VortDropdownMenuItem @click="navigateToFolder((row.raw as KBFolderItem).id)">打开</VortDropdownMenuItem>
+                                    <VortDropdownMenuItem v-if="isAdmin" @click="startRenameFolder(row.raw as KBFolderItem)">重命名</VortDropdownMenuItem>
+                                    <VortDropdownMenuItem v-if="isAdmin" @click="openMoveDialog('folder', (row.raw as KBFolderItem).id, (row.raw as KBFolderItem).name)">移动到</VortDropdownMenuItem>
+                                    <VortDropdownMenuSeparator v-if="isAdmin" />
+                                    <VortDropdownMenuItem v-if="isAdmin" @click="handleDeleteFolder(row.raw as KBFolderItem)" class="text-red-500">删除</VortDropdownMenuItem>
+                                </template>
+                                <template v-else>
+                                    <VortDropdownMenuItem @click="openDoc(row.raw as KBDocument)">查看</VortDropdownMenuItem>
+                                    <VortDropdownMenuItem v-if="isAdmin" @click="openMoveDialog('document', (row.raw as KBDocument).id, (row.raw as KBDocument).title)">移动到</VortDropdownMenuItem>
+                                    <VortDropdownMenuItem v-if="isAdmin" @click="handleReindex(row.raw as KBDocument)">重新索引</VortDropdownMenuItem>
+                                    <VortDropdownMenuSeparator v-if="isAdmin" />
+                                    <VortDropdownMenuItem v-if="isAdmin" @click="handleDelete(row.raw as KBDocument)" class="text-red-500">删除</VortDropdownMenuItem>
+                                </template>
+                            </template>
+                        </VortDropdown>
                     </template>
                 </VortTableColumn>
 
                 <template #empty>
                     <div class="flex flex-col items-center py-12 text-gray-400">
                         <BookOpen :size="48" class="mb-3 text-gray-300" />
-                        <p class="text-sm">暂无文档</p>
-                        <p class="text-xs mt-1 text-gray-300">上传 PDF、Word、Markdown 或文本文件开始构建知识库</p>
+                        <p class="text-sm">{{ currentFolderId ? '当前文件夹为空' : '暂无内容' }}</p>
+                        <p class="text-xs mt-1 text-gray-300">点击「新建」创建文件夹或上传文档</p>
                     </div>
                 </template>
             </VortTable>
@@ -440,8 +652,27 @@ onUnmounted(() => {
             </div>
         </div>
 
+        <!-- New Folder Dialog -->
+        <VortDialog
+            :open="folderDialogOpen"
+            title="新建文件夹"
+            @update:open="folderDialogOpen = $event"
+            :confirm-loading="saving"
+            ok-text="创建"
+            @ok="handleCreateFolder"
+        >
+            <VortForm label-width="80px" class="mt-2">
+                <VortFormItem label="名称" required>
+                    <VortInput v-model="folderForm.name" placeholder="文件夹名称" @keyup.enter="handleCreateFolder" />
+                </VortFormItem>
+            </VortForm>
+        </VortDialog>
+
         <!-- Upload Dialog -->
         <VortDialog :open="uploadDialogOpen" title="上传文档" @update:open="uploadDialogOpen = $event" :footer="false">
+            <div v-if="currentFolderId && breadcrumbs.length" class="mb-3 text-sm text-gray-500">
+                上传到：{{ breadcrumbs.map(b => b.name).join(' / ') }}
+            </div>
             <VortUploadDragger
                 v-model:custom-request="handleCustomUpload"
                 accept=".pdf,.docx,.doc,.md,.markdown,.txt,.text"
@@ -474,58 +705,40 @@ onUnmounted(() => {
             </template>
         </VortDialog>
 
-        <!-- Detail Dialog -->
+        <!-- Move Dialog -->
         <VortDialog
-            :open="detailDialogOpen"
-            :title="detailEditing ? '编辑文档' : (detailDoc?.title || '文档详情')"
-            width="large"
-            @update:open="(v: boolean) => { if (!v) { detailEditing = false; } detailDialogOpen = v; }"
+            :open="moveDialogOpen"
+            :title="`移动「${moveItem?.name || ''}」到`"
+            @update:open="moveDialogOpen = $event"
+            :confirm-loading="saving"
+            ok-text="移动"
+            @ok="handleMove"
         >
-            <div v-if="detailLoading" class="flex items-center justify-center py-16">
-                <Loader2 :size="24" class="animate-spin text-gray-400" />
-                <span class="ml-2 text-sm text-gray-400">加载中...</span>
+            <div v-if="moveLoading" class="flex items-center justify-center py-8">
+                <Loader2 :size="20" class="animate-spin text-gray-400" />
+                <span class="ml-2 text-sm text-gray-400">加载文件夹...</span>
             </div>
-            <div v-else-if="detailDoc && !detailEditing" class="space-y-4">
-                <div class="flex items-center gap-4 text-sm text-gray-500">
-                    <VortTag size="small">{{ (detailDoc.file_type || '').toUpperCase() }}</VortTag>
-                    <span>{{ formatFileSize(detailDoc.file_size) }}</span>
-                    <span>{{ detailDoc.chunk_count }} 个分块</span>
-                    <VortTag :color="statusConfig[detailDoc.status]?.color || 'default'" size="small">
-                        {{ statusConfig[detailDoc.status]?.text || detailDoc.status }}
-                    </VortTag>
-                    <span class="ml-auto text-gray-400">{{ formatTime(detailDoc.created_at) }}</span>
+            <div v-else class="space-y-1 max-h-[360px] overflow-y-auto">
+                <div
+                    class="flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors"
+                    :class="moveTargetId === '' ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-50 text-gray-700'"
+                    @click="moveTargetId = ''"
+                >
+                    <Home :size="16" class="shrink-0" />
+                    <span class="text-sm font-medium">根目录</span>
                 </div>
-                <div class="border-t border-gray-100" />
-                <VortScrollbar max-height="500px">
-                    <pre class="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed font-sans">{{ detailDoc.content }}</pre>
-                </VortScrollbar>
-            </div>
-            <div v-else-if="detailDoc && detailEditing" class="space-y-4">
-                <VortForm label-width="60px">
-                    <VortFormItem label="标题" required>
-                        <VortInput v-model="editForm.title" placeholder="文档标题" />
-                    </VortFormItem>
-                    <VortFormItem label="内容" required>
-                        <VortTextarea v-model="editForm.content" :rows="16" placeholder="文档内容" />
-                    </VortFormItem>
-                </VortForm>
-            </div>
-            <template #footer>
-                <div class="flex justify-end gap-2">
-                    <template v-if="detailEditing">
-                        <VortButton @click="cancelEditing">取消</VortButton>
-                        <VortButton variant="primary" :loading="detailSaving" @click="handleSaveEdit">
-                            <Save :size="14" class="mr-1" /> 保存
-                        </VortButton>
-                    </template>
-                    <template v-else>
-                        <VortButton v-if="isAdmin" @click="startEditing">
-                            <Pencil :size="14" class="mr-1" /> 编辑
-                        </VortButton>
-                        <VortButton @click="detailDialogOpen = false">关闭</VortButton>
-                    </template>
+                <div
+                    v-for="folder in moveFolderTree"
+                    :key="folder.id"
+                    class="flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors"
+                    :class="moveTargetId === folder.id ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-50 text-gray-700'"
+                    @click="moveTargetId = folder.id"
+                >
+                    <svg class="shrink-0" width="16" height="16" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg"><path d="M918.673 883H104.327C82.578 883 65 867.368 65 848.027V276.973C65 257.632 82.578 242 104.327 242h814.346C940.422 242 958 257.632 958 276.973v571.054C958 867.28 940.323 883 918.673 883z" fill="#FFE9B4"/><path d="M512 411H65V210.37C65 188.597 82.598 171 104.371 171h305.92c17.4 0 32.71 11.334 37.681 28.036L512 411z" fill="#FFB02C"/><path d="M918.673 883H104.327C82.578 883 65 865.42 65 843.668V335.332C65 313.58 82.578 296 104.327 296h814.346C940.422 296 958 313.58 958 335.332v508.336C958 865.32 940.323 883 918.673 883z" fill="#FFCA28"/></svg>
+                    <span class="text-sm">{{ folder.name }}</span>
                 </div>
-            </template>
+                <div v-if="!moveFolderTree.length" class="text-center py-6 text-sm text-gray-400">暂无文件夹，请先创建</div>
+            </div>
         </VortDialog>
 
         <!-- Search Dialog -->
@@ -563,4 +776,3 @@ onUnmounted(() => {
         </VortDialog>
     </div>
 </template>
-

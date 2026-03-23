@@ -6,6 +6,7 @@
 
 import importlib.util
 import inspect
+import json
 import sys
 from importlib.metadata import entry_points
 from pathlib import Path
@@ -15,6 +16,42 @@ from openvort.plugin.registry import PluginRegistry
 from openvort.utils.logging import get_logger
 
 log = get_logger("plugin.loader")
+
+
+class _ManifestPlugin(BasePlugin):
+    """Lightweight plugin created from a manifest.json + SKILL.md bundle
+    (no plugin.py). Used for marketplace knowledge/skill packages installed
+    via the plugin path."""
+
+    def __init__(self, *, name: str, display_name: str, description: str,
+                 version: str, prompts: list[str], manifest: dict,
+                 readme: str = "", plugin_dir: Path | None = None):
+        self.name = name
+        self.display_name = display_name
+        self.description = description
+        self.version = version
+        self._prompts = prompts
+        self.manifest = manifest
+        self.readme = readme
+        self.plugin_dir = plugin_dir
+
+    def get_tools(self) -> list[BaseTool]:
+        return []
+
+    def get_prompts(self) -> list[str]:
+        return self._prompts
+
+    def get_extended_meta(self) -> dict:
+        return {
+            "tags": self.manifest.get("tags", []),
+            "author": self.manifest.get("author", ""),
+            "homepage": self.manifest.get("homepage", ""),
+            "repository": self.manifest.get("repository", ""),
+            "license": self.manifest.get("license", ""),
+            "category": self.manifest.get("category", ""),
+            "readme": self.readme,
+            "prompts_count": len(self._prompts),
+        }
 
 
 class PluginLoader:
@@ -113,64 +150,133 @@ class PluginLoader:
         if not plugins_dir.exists():
             return
 
-        for plugin_dir in sorted(plugins_dir.iterdir()):
-            if not plugin_dir.is_dir():
-                continue
-            plugin_py = plugin_dir / "plugin.py"
-            if not plugin_py.exists():
-                continue
+        scan_dirs = [plugins_dir]
+        marketplace_dir = plugins_dir / "local"
+        if marketplace_dir.exists() and marketplace_dir.is_dir():
+            scan_dirs.append(marketplace_dir)
 
-            module_name = f"openvort_local_plugin_{plugin_dir.name}"
+        seen: set[str] = set()
+        for scan_dir in scan_dirs:
+            for plugin_dir in sorted(scan_dir.iterdir()):
+                if not plugin_dir.is_dir():
+                    continue
+
+                dir_key = str(plugin_dir.resolve())
+                if dir_key in seen:
+                    continue
+                seen.add(dir_key)
+
+                plugin_py = plugin_dir / "plugin.py"
+                if plugin_py.exists():
+                    self._load_single_local_plugin(plugin_dir)
+                elif (plugin_dir / "manifest.json").exists():
+                    self._load_manifest_plugin(plugin_dir)
+
+    def _load_manifest_plugin(self, plugin_dir: Path) -> None:
+        """Load a marketplace bundle that has manifest.json + SKILL.md but no plugin.py."""
+        manifest_path = plugin_dir / "manifest.json"
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            log.warning(f"读取 manifest.json 失败 '{plugin_dir.name}': {e}")
+            return
+
+        slug = manifest.get("slug", plugin_dir.name)
+        display_name = manifest.get("displayName") or manifest.get("name") or slug
+        description = manifest.get("description", "")
+        version = manifest.get("version", "1.0.0")
+
+        prompts: list[str] = []
+        skill_md = plugin_dir / "SKILL.md"
+        if skill_md.exists():
             try:
-                spec = importlib.util.spec_from_file_location(module_name, plugin_py)
-                if not spec or not spec.loader:
-                    log.warning(f"无法加载本地 Plugin '{plugin_dir.name}'：无效的模块")
-                    continue
+                content = skill_md.read_text(encoding="utf-8")
+                if content.strip():
+                    prompts.append(content)
+            except Exception as e:
+                log.warning(f"读取 SKILL.md 失败 '{plugin_dir.name}': {e}")
 
-                # Add plugin directory to sys.path so sub-modules (tools/, etc.) are importable
-                plugin_dir_str = str(plugin_dir)
-                if plugin_dir_str not in sys.path:
-                    sys.path.insert(0, plugin_dir_str)
+        readme = ""
+        readme_path = plugin_dir / "README.md"
+        if readme_path.exists():
+            try:
+                readme = readme_path.read_text(encoding="utf-8")
+            except Exception:
+                pass
 
-                module = importlib.util.module_from_spec(spec)
-                sys.modules[module_name] = module
-                spec.loader.exec_module(module)
+        plugin = _ManifestPlugin(
+            name=slug,
+            display_name=display_name,
+            description=description,
+            version=version,
+            prompts=prompts,
+            manifest=manifest,
+            readme=readme,
+            plugin_dir=plugin_dir,
+        )
+        plugin.source = "local"
 
-                # 在模块中查找 BasePlugin 子类
-                plugin_cls = None
-                for _, obj in inspect.getmembers(module, inspect.isclass):
-                    if issubclass(obj, BasePlugin) and obj is not BasePlugin:
-                        plugin_cls = obj
-                        break
+        plugin.activate(self.api)
 
-                if not plugin_cls:
-                    log.warning(f"本地 Plugin '{plugin_dir.name}' 中未找到 BasePlugin 子类，跳过")
-                    continue
+        log.info(
+            f"已加载 Manifest Plugin: {plugin.name} ({plugin.display_name}) "
+            f"— {len(prompts)} 条 Prompt"
+        )
+        self._plugins.append(plugin)
+        self.registry.register_plugin(plugin)
 
-                plugin = plugin_cls()
-                plugin.source = "local"
+    def _load_single_local_plugin(self, plugin_dir: Path) -> None:
+        """Load a single local plugin from the given directory."""
+        plugin_py = plugin_dir / "plugin.py"
+        module_name = f"openvort_local_plugin_{plugin_dir.name}"
+        try:
+            spec = importlib.util.spec_from_file_location(module_name, plugin_py)
+            if not spec or not spec.loader:
+                log.warning(f"无法加载本地 Plugin '{plugin_dir.name}'：无效的模块")
+                return
 
-                if not plugin.validate_credentials():
-                    log.warning(f"本地 Plugin '{plugin.name}' 凭证校验失败，跳过工具注册")
-                    self._plugins.append(plugin)
-                    self.registry.register_plugin(plugin)
-                    self.registry.disable_plugin(plugin.name)
-                    continue
+            plugin_dir_str = str(plugin_dir)
+            if plugin_dir_str not in sys.path:
+                sys.path.insert(0, plugin_dir_str)
 
-                plugin.activate(self.api)
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[module_name] = module
+            spec.loader.exec_module(module)
 
-                self._load_plugin_skills(plugin_dir, plugin.name)
+            plugin_cls = None
+            for _, obj in inspect.getmembers(module, inspect.isclass):
+                if issubclass(obj, BasePlugin) and obj is not BasePlugin:
+                    plugin_cls = obj
+                    break
 
-                tools = plugin.get_tools()
-                prompts = plugin.get_prompts()
-                log.info(
-                    f"已加载本地 Plugin: {plugin.name} ({plugin.display_name}) "
-                    f"— {len(tools)} 个 Tool, {len(prompts)} 条 Prompt"
-                )
+            if not plugin_cls:
+                log.warning(f"本地 Plugin '{plugin_dir.name}' 中未找到 BasePlugin 子类，跳过")
+                return
+
+            plugin = plugin_cls()
+            plugin.source = "local"
+
+            if not plugin.validate_credentials():
+                log.warning(f"本地 Plugin '{plugin.name}' 凭证校验失败，跳过工具注册")
                 self._plugins.append(plugin)
                 self.registry.register_plugin(plugin)
-            except Exception as e:
-                log.error(f"加载本地 Plugin '{plugin_dir.name}' 失败: {e}")
+                self.registry.disable_plugin(plugin.name)
+                return
+
+            plugin.activate(self.api)
+
+            self._load_plugin_skills(plugin_dir, plugin.name)
+
+            tools = plugin.get_tools()
+            prompts = plugin.get_prompts()
+            log.info(
+                f"已加载本地 Plugin: {plugin.name} ({plugin.display_name}) "
+                f"— {len(tools)} 个 Tool, {len(prompts)} 条 Prompt"
+            )
+            self._plugins.append(plugin)
+            self.registry.register_plugin(plugin)
+        except Exception as e:
+            log.error(f"加载本地 Plugin '{plugin_dir.name}' 失败: {e}")
 
     def _load_plugin_skills(self, plugin_dir: Path, plugin_name: str) -> None:
         """Load SKILL.md files bundled inside a plugin's skills/ directory."""

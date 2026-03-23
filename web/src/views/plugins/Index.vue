@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from "vue";
 import { getPlugins, getPluginDetail, updatePlugin, installPlugin, uninstallPlugin, pipInstallPlugin, uploadPlugin, deletePlugin } from "@/api";
-import { Puzzle, Wrench, Plus, Upload, Trash2, ChevronDown, ChevronRight, Download } from "lucide-vue-next";
+import { Puzzle, Wrench, Plus, Upload, Trash2, ChevronDown, ChevronRight, Download, ExternalLink, Github } from "lucide-vue-next";
 import { message } from "@/components/vort/message";
 import { dialog } from "@/components/vort/dialog";
 import { usePluginStore } from "@/stores/modules/plugin";
+import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
 
 interface PluginTool {
     name: string;
@@ -32,7 +33,22 @@ interface PluginInfo {
     enabled: boolean;
     installed: boolean;
     has_config: boolean;
+    has_ui: boolean;
+    has_api: boolean;
     tools: PluginTool[];
+    prompts_count?: number;
+    tags?: string[];
+    author?: string;
+}
+
+interface PluginDetail extends PluginInfo {
+    readme?: string;
+    homepage?: string;
+    repository?: string;
+    license?: string;
+    category?: string;
+    config_schema?: ConfigField[];
+    config?: Record<string, string>;
 }
 
 const plugins = ref<PluginInfo[]>([]);
@@ -83,6 +99,53 @@ const saving = ref(false);
 const currentPlugin = ref<string>("");
 const configSchema = ref<ConfigField[]>([]);
 const configForm = ref<Record<string, string>>({});
+
+// Detail drawer
+const detailOpen = ref(false);
+const detailLoading = ref(false);
+const detailData = ref<PluginDetail | null>(null);
+const detailTab = ref<"readme" | "config">("readme");
+
+const openDetail = async (name: string) => {
+    detailOpen.value = true;
+    detailLoading.value = true;
+    detailData.value = null;
+    try {
+        const res: any = await getPluginDetail(name);
+        detailData.value = res;
+        detailTab.value = res.readme ? "readme" : (res.config_schema?.length ? "config" : "readme");
+        if (detailTab.value === "config" && res.config_schema?.length) {
+            configSchema.value = res.config_schema;
+            configForm.value = {};
+            for (const f of configSchema.value) configForm.value[f.key] = res.config?.[f.key] ?? "";
+        }
+    } catch {
+        message.error("加载详情失败");
+    } finally {
+        detailLoading.value = false;
+    }
+};
+
+const handleDetailSaveConfig = async () => {
+    if (!detailData.value) return;
+    saving.value = true;
+    try {
+        const res: any = await updatePlugin(detailData.value.name, configForm.value);
+        if (res?.enabled) {
+            message.success("配置已保存，插件已启用");
+        } else {
+            message.success("配置已保存");
+        }
+        loadPlugins();
+        pluginStore.fetchExtensions();
+    } catch {
+        message.error("保存失败");
+    } finally {
+        saving.value = false;
+    }
+};
+
+const sourceLabel = (source: string) => ({ builtin: "内置", pip: "pip", local: "本地" })[source] || source;
 
 // Tool list collapse state
 const expandedTools = ref<Record<string, boolean>>({});
@@ -281,7 +344,12 @@ onMounted(loadPlugins);
                         暂无已安装的插件
                     </div>
                     <div v-else class="masonry-grid">
-                        <vort-card v-for="plugin in installedPlugins" :key="plugin.name" class="masonry-item" :shadow="false" padding="small">
+                        <vort-card
+                            v-for="plugin in installedPlugins" :key="plugin.name"
+                            class="masonry-item cursor-pointer hover:!border-[var(--vort-primary,#1456f0)]"
+                            :shadow="false" padding="small"
+                            @click="openDetail(plugin.name)"
+                        >
                             <div class="flex items-center justify-between mb-4">
                                 <div class="flex items-center">
                                     <div
@@ -296,13 +364,13 @@ onMounted(loadPlugins);
                                             <VortTag v-if="plugin.status === 'needs_config'" color="orange" size="small" :bordered="false">待配置</VortTag>
                                             <VortTag v-else-if="plugin.core" color="volcano" size="small" :bordered="false">核心</VortTag>
                                             <VortTag v-else :color="{ builtin: 'blue', pip: 'cyan', local: 'purple' }[plugin.source] || 'default'" size="small" :bordered="false">
-                                                {{ { builtin: '内置', pip: 'pip', local: '本地' }[plugin.source] || plugin.source }}
+                                                {{ sourceLabel(plugin.source) }}
                                             </VortTag>
                                         </h3>
                                         <p class="text-xs text-gray-400">{{ plugin.name }} v{{ plugin.version }}</p>
                                     </div>
                                 </div>
-                                <div class="flex items-center gap-1">
+                                <div class="flex items-center gap-1" @click.stop>
                                     <VortButton v-if="plugin.has_config" size="small" :variant="plugin.status === 'needs_config' ? 'primary' : 'default'" @click="openConfig(plugin.name)">设置</VortButton>
                                     <template v-if="plugin.status !== 'needs_config'">
                                         <VortTooltip v-if="plugin.core" title="核心插件不可禁用">
@@ -319,24 +387,22 @@ onMounted(loadPlugins);
 
                             <p v-if="plugin.description" class="text-xs text-gray-500 mb-3">{{ plugin.description }}</p>
 
-                            <div v-if="plugin.tools.length" class="mt-3 pt-3 border-t border-gray-100">
-                                <button
-                                    class="flex items-center gap-1 text-xs text-gray-500 font-medium hover:text-blue-600 transition-colors"
-                                    @click="toggleTools(plugin.name)"
-                                >
-                                    <component :is="expandedTools[plugin.name] ? ChevronDown : ChevronRight" :size="12" />
-                                    工具列表 ({{ plugin.tools.length }})
-                                </button>
-                                <div v-show="expandedTools[plugin.name]" class="mt-2 space-y-2">
-                                    <div v-for="tool in plugin.tools" :key="tool.name"
-                                        class="flex items-start gap-2 p-2 rounded bg-gray-50 text-xs">
-                                        <Wrench :size="12" class="text-gray-400 mt-0.5 flex-shrink-0" />
-                                        <div>
-                                            <span class="font-medium text-gray-700">{{ tool.name }}</span>
-                                            <p class="text-gray-400 mt-0.5">{{ tool.description }}</p>
-                                        </div>
-                                    </div>
-                                </div>
+                            <div v-if="plugin.tools.length || plugin.prompts_count || plugin.has_ui || plugin.has_api" class="mt-3 pt-3 border-t border-gray-100 flex flex-wrap items-center gap-1.5">
+                                <VortTag v-if="plugin.tools.length" color="blue" size="small" :bordered="false">
+                                    工具 {{ plugin.tools.length }}
+                                </VortTag>
+                                <VortTag v-if="plugin.prompts_count" color="purple" size="small" :bordered="false">
+                                    Prompts {{ plugin.prompts_count }}
+                                </VortTag>
+                                <VortTag v-if="plugin.has_ui" color="green" size="small" :bordered="false">
+                                    页面
+                                </VortTag>
+                                <VortTag v-if="plugin.has_api" color="cyan" size="small" :bordered="false">
+                                    API
+                                </VortTag>
+                                <VortTag v-for="tag in (plugin.tags || [])" :key="tag" size="small" :bordered="false">
+                                    {{ tag }}
+                                </VortTag>
                             </div>
                         </vort-card>
                     </div>
@@ -449,6 +515,126 @@ onMounted(loadPlugins);
                 </div>
             </template>
         </VortDrawer>
+
+        <!-- Plugin detail drawer -->
+        <vort-drawer :open="detailOpen" :title="detailData?.display_name || '插件详情'" :width="680" @update:open="detailOpen = $event">
+            <vort-spin :spinning="detailLoading">
+                <div v-if="detailData" class="space-y-6">
+                    <!-- Header -->
+                    <div class="flex items-start gap-4">
+                        <div class="w-14 h-14 rounded-xl bg-blue-50 flex items-center justify-center shrink-0">
+                            <Puzzle :size="28" class="text-blue-600" />
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center gap-2">
+                                <h3 class="text-lg font-semibold text-gray-800">{{ detailData.display_name }}</h3>
+                                <vort-tag
+                                    :color="{ builtin: 'blue', pip: 'cyan', local: 'purple' }[detailData.source] || 'default'"
+                                    size="small" :bordered="false"
+                                >{{ sourceLabel(detailData.source) }}</vort-tag>
+                                <vort-tag v-if="detailData.core" color="volcano" size="small" :bordered="false">核心</vort-tag>
+                            </div>
+                            <p class="text-sm text-gray-500 mt-1">{{ detailData.description }}</p>
+                            <div class="flex flex-wrap items-center gap-2 mt-2">
+                                <span v-if="detailData.author" class="text-xs text-gray-400">
+                                    by <strong class="text-gray-600">{{ detailData.author }}</strong>
+                                </span>
+                                <vort-tag color="blue" size="small" :bordered="false">v{{ detailData.version }}</vort-tag>
+                                <vort-tag v-if="detailData.license" color="green" size="small" :bordered="false">{{ detailData.license }}</vort-tag>
+                                <vort-tag v-for="tag in (detailData.tags || [])" :key="tag" size="small" :bordered="false">{{ tag }}</vort-tag>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Stats -->
+                    <div class="grid grid-cols-2 gap-3">
+                        <div class="bg-gray-50 rounded-lg p-3 text-center">
+                            <div class="flex items-center justify-center gap-1 text-gray-400 mb-1">
+                                <Wrench :size="14" /><span class="text-xs">工具 (Tools)</span>
+                            </div>
+                            <div class="text-lg font-semibold text-gray-700">{{ detailData.tools?.length || 0 }}</div>
+                        </div>
+                        <div class="bg-gray-50 rounded-lg p-3 text-center">
+                            <div class="flex items-center justify-center gap-1 text-gray-400 mb-1">
+                                <Puzzle :size="14" /><span class="text-xs">Prompts</span>
+                            </div>
+                            <div class="text-lg font-semibold text-gray-700">{{ detailData.prompts_count || 0 }}</div>
+                        </div>
+                    </div>
+
+                    <!-- Links -->
+                    <div v-if="detailData.homepage || detailData.repository" class="flex flex-wrap gap-2">
+                        <a v-if="detailData.homepage" :href="detailData.homepage" target="_blank"
+                            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-50 text-sm text-gray-600 hover:bg-gray-100 transition-colors">
+                            <ExternalLink :size="14" /> 主页
+                        </a>
+                        <a v-if="detailData.repository" :href="detailData.repository" target="_blank"
+                            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-50 text-sm text-gray-600 hover:bg-gray-100 transition-colors">
+                            <Github :size="14" /> 源代码
+                        </a>
+                    </div>
+
+                    <!-- Content tabs (only show tab bar when multiple tabs exist) -->
+                    <div v-if="detailData.readme || detailData.tools?.length || detailData.config_schema?.length" class="border-t border-gray-100 pt-4">
+                        <div v-if="(detailData.readme ? 1 : 0) + (detailData.config_schema?.length ? 1 : 0) > 1" class="flex gap-1 mb-4">
+                            <button
+                                v-if="detailData.readme"
+                                class="px-3 py-1.5 text-sm font-medium rounded-md transition-colors"
+                                :class="detailTab === 'readme' ? 'bg-blue-50 text-blue-600' : 'text-gray-500 hover:bg-gray-50'"
+                                @click="detailTab = 'readme'"
+                            >README</button>
+                            <button
+                                v-if="detailData.config_schema?.length"
+                                class="px-3 py-1.5 text-sm font-medium rounded-md transition-colors"
+                                :class="detailTab === 'config' ? 'bg-blue-50 text-blue-600' : 'text-gray-500 hover:bg-gray-50'"
+                                @click="detailTab = 'config'; configSchema = detailData.config_schema || []; configForm = {}; for (const f of configSchema) configForm[f.key] = detailData.config?.[f.key] ?? ''"
+                            >配置</button>
+                        </div>
+
+                        <!-- README -->
+                        <div v-if="detailTab === 'readme' && detailData.readme" class="bg-gray-50 rounded-lg p-5">
+                            <MarkdownView :content="detailData.readme" />
+                        </div>
+
+                        <!-- Tools list (always visible on readme tab, or when no readme) -->
+                        <div v-if="detailData.tools?.length && (detailTab === 'readme' || !detailData.readme)" :class="detailData.readme ? 'mt-4' : ''">
+                            <h4 class="text-sm font-medium text-gray-700 mb-3">工具列表</h4>
+                            <div class="space-y-2">
+                                <div v-for="tool in detailData.tools" :key="tool.name"
+                                    class="flex items-start gap-2 p-2.5 rounded-lg bg-gray-50 text-xs">
+                                    <Wrench :size="12" class="text-gray-400 mt-0.5 flex-shrink-0" />
+                                    <div>
+                                        <span class="font-medium text-gray-700">{{ tool.name }}</span>
+                                        <p class="text-gray-400 mt-0.5">{{ tool.description }}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Config tab -->
+                        <div v-if="detailTab === 'config' && detailData.config_schema?.length">
+                            <vort-form label-width="100px">
+                                <vort-form-item v-for="field in configSchema" :key="field.key" :label="field.label" :required="field.required">
+                                    <vort-input-password v-if="field.secret" v-model="configForm[field.key]" :placeholder="field.placeholder" />
+                                    <vort-select v-else-if="field.type === 'select' && field.options" v-model="configForm[field.key]" :placeholder="field.placeholder">
+                                        <vort-select-option v-for="opt in field.options" :key="opt.value" :value="opt.value">{{ opt.label }}</vort-select-option>
+                                    </vort-select>
+                                    <vort-input v-else v-model="configForm[field.key]" :placeholder="field.placeholder" />
+                                </vort-form-item>
+                            </vort-form>
+                            <div class="flex justify-end mt-4">
+                                <vort-button variant="primary" :loading="saving" @click="handleDetailSaveConfig">保存配置</vort-button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </vort-spin>
+            <template #footer>
+                <div class="flex justify-end">
+                    <vort-button @click="detailOpen = false">关闭</vort-button>
+                </div>
+            </template>
+        </vort-drawer>
 
         <!-- Add plugin dialog -->
         <VortDialog :open="addDialogOpen" title="添加第三方插件" @update:open="addDialogOpen = $event">

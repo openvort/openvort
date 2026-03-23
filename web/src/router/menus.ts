@@ -20,24 +20,24 @@ export interface MenuConfig {
 export const menuConfig: MenuConfig[] = [
     { title: "AI 助手", icon: "message-square", path: "/chat", position: "top" },
     { title: "工作台", icon: "home", path: "/overview" },
-    { title: "组织管理", icon: "users", path: "/contacts", label: "团队 & 扩展", requiredRole: "admin" },
-    { title: "AI 员工", icon: "bot", path: "/ai-employees", requiredRole: "admin" },
-    ...schedulesConfig.menus,
-    ...reportsConfig.menus,
+    { title: "AI 员工", icon: "bot", path: "/ai-employees", label: "AI 能力", requiredRole: "admin" },
     ...knowledgeConfig.menus,
-    {
-        title: "扩展", icon: "blocks", requiredRole: "admin",
-        children: [
-            { title: "插件管理", icon: "puzzle", path: "/plugins" },
-            { title: "技能管理", icon: "book-open", path: "/skills" },
-            { title: "扩展市场", icon: "store", path: "/marketplace" },
-        ],
-    },
+    { title: "技能管理", icon: "book-open", path: "/skills" },
     ...vortflowConfig.menus,
     ...vortgitConfig.menus,
     ...jenkinsConfig.menus,
+    { title: "组织管理", icon: "users", path: "/contacts", label: "团队效率", requiredRole: "admin" },
+    ...reportsConfig.menus,
+    ...schedulesConfig.menus,
     {
-        title: "系统管理", icon: "wrench", label: "系统", requiredRole: "admin",
+        title: "扩展管理", icon: "blocks", label: "系统", requiredRole: "admin",
+        children: [
+            { title: "插件管理", icon: "puzzle", path: "/plugins" },
+            { title: "扩展市场", icon: "store", path: "/marketplace" },
+        ],
+    },
+    {
+        title: "系统管理", icon: "wrench", requiredRole: "admin",
         children: [
             { title: "通道管理", icon: "radio", path: "/channels" },
             { title: "Agent 路由", icon: "git-branch", path: "/agents" },
@@ -50,7 +50,7 @@ export const menuConfig: MenuConfig[] = [
         ],
     },
     {
-        title: "资源", icon: "book-marked", label: "资源",
+        title: "资源", icon: "book-marked",
         children: [
             { title: "文档", icon: "file-text", externalUrl: "https://www.openvort.com/docs" },
             { title: "社区", icon: "users", externalUrl: "https://www.openvort.com/community" },

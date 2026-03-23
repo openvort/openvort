@@ -361,6 +361,25 @@ class AgentTask(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+class ChannelBot(Base):
+    """AI 员工的独立 IM Bot 凭证 — 每个 AI 员工可绑定一个或多个通道的 Bot"""
+
+    __tablename__ = "channel_bots"
+    __table_args__ = (
+        UniqueConstraint("channel_type", "member_id", name="uq_channel_bot_channel_member"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    channel_type: Mapped[str] = mapped_column(String(32), index=True)  # wecom / dingtalk / feishu
+    member_id: Mapped[str] = mapped_column(String(32), ForeignKey("members.id"), index=True)
+    credentials: Mapped[str] = mapped_column(Text, default="{}")  # JSON, Fernet-encrypted secrets
+    status: Mapped[str] = mapped_column(String(16), default="active")  # active / inactive
+    last_test_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_test_ok: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 class ImInbox(Base):
     """IM inbound message idempotency table — cross-instance dedup"""
 

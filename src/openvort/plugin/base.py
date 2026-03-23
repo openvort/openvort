@@ -105,11 +105,21 @@ class BaseChannel(ABC):
         """返回配置字段定义，用于前端动态渲染表单
 
         每个字段支持:
-          key, label, type, required, secret, placeholder, description, help_url
+          key, label, type, required, secret, placeholder, description, help_url,
+          group ("base"|"advanced"|自定义), mode ("all"|自定义 key)
 
         返回: [{"key": "corp_id", "label": "企业ID", "type": "string",
                 "required": True, "secret": False, "placeholder": "",
                 "description": "在企微管理后台 > 我的企业 中获取"}, ...]
+        """
+        return []
+
+    def get_config_modes(self) -> list[dict]:
+        """返回配置模式列表，用于前端模式选择器
+
+        返回空列表表示该通道无模式选择。
+        每个模式: {"key": "bot", "label": "智能机器人",
+                   "description": "推荐，企微 5.0+", "recommended": True}
         """
         return []
 
@@ -282,6 +292,15 @@ class BasePlugin(ABC):
     def apply_config(self, config: dict) -> None:
         """应用新配置（运行时生效），子类实现具体逻辑"""
         pass
+
+    def get_extended_meta(self) -> dict:
+        """Return extra metadata for the plugin detail API (tags, readme, etc.).
+
+        Override in subclasses that carry richer metadata (e.g. _ManifestPlugin).
+        """
+        return {
+            "prompts_count": len(self.get_prompts()),
+        }
 
     # ---- UI 扩展与 API 路由 ----
 

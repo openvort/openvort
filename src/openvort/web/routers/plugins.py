@@ -60,6 +60,20 @@ async def list_plugins():
 
         enabled = installed and not disabled_in_registry
         tools = [{"name": t.name, "description": t.description} for t in p.get_tools()]
+        meta = {}
+        try:
+            meta = p.get_extended_meta() or {}
+        except Exception:
+            pass
+
+        has_ui = False
+        has_api = False
+        try:
+            has_ui = p.get_ui_extensions() is not None
+            has_api = p.get_api_router() is not None
+        except Exception:
+            pass
+
         result.append({
             "name": p.name,
             "display_name": p.display_name,
@@ -71,7 +85,12 @@ async def list_plugins():
             "enabled": enabled,
             "installed": installed,
             "has_config": len(p.get_config_schema()) > 0,
+            "has_ui": has_ui,
+            "has_api": has_api,
             "tools": tools,
+            "prompts_count": meta.get("prompts_count", 0),
+            "tags": meta.get("tags", []),
+            "author": meta.get("author", ""),
         })
 
     return {"plugins": result}
@@ -208,7 +227,7 @@ async def get_plugin_detail(name: str):
     enabled = installed and not disabled_in_registry
     tools = [{"name": t.name, "description": t.description} for t in plugin.get_tools()]
 
-    return {
+    result = {
         "name": plugin.name,
         "display_name": plugin.display_name,
         "description": plugin.description,
@@ -222,6 +241,15 @@ async def get_plugin_detail(name: str):
         "config": plugin.get_current_config(),
         "tools": tools,
     }
+
+    try:
+        meta = plugin.get_extended_meta()
+        if meta:
+            result.update(meta)
+    except Exception:
+        pass
+
+    return result
 
 
 class UpdatePluginRequest(BaseModel):

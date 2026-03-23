@@ -440,6 +440,25 @@ async function complete() {
                 </div>
             </div>
 
+            <!-- IM 身份 -->
+            <div class="rounded-xl border-2 border-gray-200 p-5 space-y-3">
+                <div class="flex items-center gap-2">
+                    <div class="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
+                        <Bot :size="16" class="text-blue-600" />
+                    </div>
+                    <div>
+                        <div class="text-sm font-medium text-gray-800">IM 身份</div>
+                        <div class="text-xs text-gray-400">让 AI 员工拥有独立的 IM 机器人形象</div>
+                    </div>
+                </div>
+                <div class="text-sm text-gray-500 leading-relaxed">
+                    绑定后，该员工在 IM 中以独立的机器人身份出现，用户与不同 AI 员工对话时能看到不同的头像和名称。
+                </div>
+                <div class="text-sm text-gray-400 flex items-center gap-1.5 py-1 px-3 bg-gray-50 rounded-lg">
+                    创建完成后，可在员工详情的「IM 身份」中配置独立机器人
+                </div>
+            </div>
+
             <!-- Webhook / external connections -->
             <div class="rounded-xl border-2 border-gray-200 p-5 space-y-3">
                 <div class="flex items-center gap-2">

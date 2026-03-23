@@ -1,4 +1,4 @@
-"""Knowledge Base API router — document management + search."""
+"""Knowledge Base API router — folder management + document management + search."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import json
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 
 from openvort.utils.logging import get_logger
 
@@ -19,15 +19,35 @@ router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 # ---- Request / Response Models ----
 
 
+class CreateFolderRequest(BaseModel):
+    name: str
+    parent_id: str = ""
+    description: str = ""
+
+
+class UpdateFolderRequest(BaseModel):
+    name: str | None = None
+    parent_id: str | None = None
+    description: str | None = None
+
+
 class CreateTextDocRequest(BaseModel):
     title: str
     content: str
     file_type: str = "qa"
+    folder_id: str = ""
 
 
 class UpdateDocRequest(BaseModel):
     title: str | None = None
     content: str | None = None
+    folder_id: str | None = None
+
+
+class MoveItemsRequest(BaseModel):
+    folder_ids: list[str] = []
+    document_ids: list[str] = []
+    target_folder_id: str = ""
 
 
 class SearchRequest(BaseModel):
@@ -134,7 +154,192 @@ async def _process_document(doc_id: str) -> None:
                 pass
 
 
-# ---- Endpoints ----
+# ---- Folder Endpoints ----
+
+
+@router.get("/folders")
+async def list_folders(parent_id: str = ""):
+    """List folders under a parent (empty = root)."""
+    from openvort.plugins.knowledge.models import KBFolder
+
+    sf = _get_session_factory()
+    async with sf() as session:
+        stmt = (
+            select(KBFolder)
+            .where(KBFolder.parent_id == parent_id)
+            .order_by(KBFolder.sort_order, KBFolder.created_at)
+        )
+        result = await session.execute(stmt)
+        folders = result.scalars().all()
+
+    return {
+        "items": [
+            {
+                "id": f.id,
+                "name": f.name,
+                "parent_id": f.parent_id,
+                "description": f.description,
+                "sort_order": f.sort_order,
+                "owner_id": f.owner_id,
+                "created_at": f.created_at.isoformat() if f.created_at else "",
+                "updated_at": f.updated_at.isoformat() if f.updated_at else "",
+            }
+            for f in folders
+        ]
+    }
+
+
+@router.get("/folders/{folder_id}")
+async def get_folder(folder_id: str):
+    """Get folder detail with ancestor breadcrumb."""
+    from openvort.plugins.knowledge.models import KBFolder
+
+    sf = _get_session_factory()
+    async with sf() as session:
+        folder = await session.get(KBFolder, folder_id)
+        if not folder:
+            raise HTTPException(status_code=404, detail="文件夹不存在")
+
+        breadcrumb = []
+        current = folder
+        while current and current.parent_id:
+            parent = await session.get(KBFolder, current.parent_id)
+            if not parent:
+                break
+            breadcrumb.insert(0, {"id": parent.id, "name": parent.name})
+            current = parent
+
+        return {
+            "id": folder.id,
+            "name": folder.name,
+            "parent_id": folder.parent_id,
+            "description": folder.description,
+            "breadcrumb": breadcrumb,
+            "created_at": folder.created_at.isoformat() if folder.created_at else "",
+            "updated_at": folder.updated_at.isoformat() if folder.updated_at else "",
+        }
+
+
+@router.post("/folders")
+async def create_folder(request: Request, body: CreateFolderRequest):
+    """Create a new folder."""
+    from openvort.plugins.knowledge.models import KBFolder
+
+    if not body.name or not body.name.strip():
+        raise HTTPException(status_code=400, detail="文件夹名称不能为空")
+
+    member_id = _get_member_id(request)
+
+    sf = _get_session_factory()
+    async with sf() as session:
+        if body.parent_id:
+            parent = await session.get(KBFolder, body.parent_id)
+            if not parent:
+                raise HTTPException(status_code=400, detail="父文件夹不存在")
+
+        folder = KBFolder(
+            name=body.name.strip(),
+            parent_id=body.parent_id,
+            description=body.description,
+            owner_id=member_id,
+        )
+        session.add(folder)
+        await session.commit()
+
+        return {"id": folder.id, "name": folder.name}
+
+
+@router.put("/folders/{folder_id}")
+async def update_folder(folder_id: str, body: UpdateFolderRequest):
+    """Update folder name / parent / description."""
+    from openvort.plugins.knowledge.models import KBFolder
+
+    sf = _get_session_factory()
+    async with sf() as session:
+        folder = await session.get(KBFolder, folder_id)
+        if not folder:
+            raise HTTPException(status_code=404, detail="文件夹不存在")
+
+        if body.name is not None:
+            if not body.name.strip():
+                raise HTTPException(status_code=400, detail="文件夹名称不能为空")
+            folder.name = body.name.strip()
+        if body.parent_id is not None:
+            if body.parent_id == folder_id:
+                raise HTTPException(status_code=400, detail="不能将文件夹移到自身下")
+            folder.parent_id = body.parent_id
+        if body.description is not None:
+            folder.description = body.description
+
+        await session.commit()
+
+    return {"ok": True}
+
+
+@router.delete("/folders/{folder_id}")
+async def delete_folder(folder_id: str):
+    """Delete folder — moves children to parent, not cascade delete."""
+    from openvort.plugins.knowledge.models import KBDocument, KBFolder
+
+    sf = _get_session_factory()
+    async with sf() as session:
+        folder = await session.get(KBFolder, folder_id)
+        if not folder:
+            raise HTTPException(status_code=404, detail="文件夹不存在")
+
+        parent_id = folder.parent_id
+
+        # move child folders to parent
+        await session.execute(
+            update(KBFolder)
+            .where(KBFolder.parent_id == folder_id)
+            .values(parent_id=parent_id)
+        )
+        # move child documents to parent
+        await session.execute(
+            update(KBDocument)
+            .where(KBDocument.folder_id == folder_id)
+            .values(folder_id=parent_id)
+        )
+
+        await session.delete(folder)
+        await session.commit()
+
+    return {"ok": True}
+
+
+@router.post("/move")
+async def move_items(body: MoveItemsRequest):
+    """Batch move folders and documents to a target folder."""
+    from openvort.plugins.knowledge.models import KBDocument, KBFolder
+
+    sf = _get_session_factory()
+    async with sf() as session:
+        if body.target_folder_id:
+            target = await session.get(KBFolder, body.target_folder_id)
+            if not target:
+                raise HTTPException(status_code=400, detail="目标文件夹不存在")
+
+        if body.folder_ids:
+            if body.target_folder_id in body.folder_ids:
+                raise HTTPException(status_code=400, detail="不能将文件夹移到自身")
+            await session.execute(
+                update(KBFolder)
+                .where(KBFolder.id.in_(body.folder_ids))
+                .values(parent_id=body.target_folder_id)
+            )
+        if body.document_ids:
+            await session.execute(
+                update(KBDocument)
+                .where(KBDocument.id.in_(body.document_ids))
+                .values(folder_id=body.target_folder_id)
+            )
+        await session.commit()
+
+    return {"ok": True}
+
+
+# ---- Document Endpoints ----
 
 
 @router.get("/documents")
@@ -143,14 +348,17 @@ async def list_documents(
     page_size: int = 20,
     keyword: str = "",
     status: str = "",
+    folder_id: str = "",
 ):
-    """List knowledge base documents."""
+    """List knowledge base documents, optionally filtered by folder."""
     from openvort.plugins.knowledge.models import KBDocument
 
     sf = _get_session_factory()
     async with sf() as session:
         stmt = select(KBDocument).order_by(KBDocument.created_at.desc())
 
+        if folder_id is not None:
+            stmt = stmt.where(KBDocument.folder_id == folder_id)
         if keyword:
             stmt = stmt.where(KBDocument.title.ilike(f"%{keyword}%"))
         if status:
@@ -170,6 +378,7 @@ async def list_documents(
         items.append({
             "id": d.id,
             "title": d.title,
+            "folder_id": d.folder_id,
             "file_name": d.file_name,
             "file_type": d.file_type,
             "file_size": d.file_size,
@@ -189,6 +398,7 @@ async def upload_document(
     request: Request,
     file: UploadFile = File(None),
     title: str = Form(None),
+    folder_id: str = Form(""),
 ):
     """Upload a document file (PDF/DOCX/MD/TXT)."""
     from openvort.plugins.knowledge.chunker import parse_document
@@ -224,6 +434,7 @@ async def upload_document(
     async with sf() as session:
         doc = KBDocument(
             title=doc_title,
+            folder_id=folder_id or "",
             file_name=file_name,
             file_type=ext if ext not in ("markdown", "text") else ("md" if ext == "markdown" else "txt"),
             file_size=file_size,
@@ -255,6 +466,7 @@ async def create_text_document(request: Request, body: CreateTextDocRequest):
     async with sf() as session:
         doc = KBDocument(
             title=body.title,
+            folder_id=body.folder_id or "",
             file_name="",
             file_type=body.file_type or "qa",
             file_size=len(body.content.encode("utf-8")),
@@ -285,6 +497,7 @@ async def get_document(doc_id: str):
         return {
             "id": doc.id,
             "title": doc.title,
+            "folder_id": doc.folder_id,
             "file_name": doc.file_name,
             "file_type": doc.file_type,
             "file_size": doc.file_size,
@@ -312,6 +525,8 @@ async def update_document(doc_id: str, body: UpdateDocRequest):
         changed_content = False
         if body.title is not None:
             doc.title = body.title
+        if body.folder_id is not None:
+            doc.folder_id = body.folder_id
         if body.content is not None:
             doc.content = body.content
             doc.file_size = len(body.content.encode("utf-8"))

@@ -325,9 +325,12 @@ onMounted(() => { loadSkills(); loadTags(); });
                     <h3 class="text-base font-medium text-gray-800">技能管理</h3>
                     <span class="text-xs text-gray-400">管理 AI 的知识与工作流，通过知识、脚本和模板增强 AI 的专业能力</span>
                 </div>
-                <VortButton variant="primary" size="small" @click="openCreateDialog">
-                    <Plus :size="14" class="mr-1" /> 新建技能
-                </VortButton>
+                <div class="flex items-center gap-2">
+                    <AiAssistButton prompt="我想创建一个新的技能（Skill），请引导我完成创建。请先询问我技能的名称、描述和用途，然后帮我生成专业的 Skill 内容并创建。" label="AI 助手创建" />
+                    <VortButton variant="primary" @click="openCreateDialog">
+                        <Plus :size="14" class="mr-1" /> 新建技能
+                    </VortButton>
+                </div>
             </div>
 
             <!-- Stats -->

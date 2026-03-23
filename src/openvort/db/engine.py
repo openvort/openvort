@@ -577,9 +577,26 @@ async def init_db(database_url: str) -> None:
     try:
         async with _engine.begin() as conn:
             await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS kb_folders (
+                    id VARCHAR(32) PRIMARY KEY,
+                    name VARCHAR(200) NOT NULL,
+                    parent_id VARCHAR(32) DEFAULT '',
+                    description TEXT DEFAULT '',
+                    sort_order INTEGER DEFAULT 0,
+                    owner_id VARCHAR(32) DEFAULT '',
+                    created_at TIMESTAMP DEFAULT now(),
+                    updated_at TIMESTAMP DEFAULT now()
+                )
+            """))
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_kb_folders_parent_id ON kb_folders(parent_id)"
+            ))
+
+            await conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS kb_documents (
                     id VARCHAR(32) PRIMARY KEY,
                     title VARCHAR(200) NOT NULL,
+                    folder_id VARCHAR(32) DEFAULT '',
                     file_name VARCHAR(500) DEFAULT '',
                     file_type VARCHAR(20) NOT NULL,
                     file_size INTEGER DEFAULT 0,
@@ -597,6 +614,16 @@ async def init_db(database_url: str) -> None:
             ))
             await conn.execute(text(
                 "CREATE INDEX IF NOT EXISTS ix_kb_documents_file_type ON kb_documents(file_type)"
+            ))
+            # migrate: add folder_id column if missing (must run before creating index on it)
+            await conn.execute(text("""
+                DO $$ BEGIN
+                    ALTER TABLE kb_documents ADD COLUMN folder_id VARCHAR(32) DEFAULT '';
+                EXCEPTION WHEN duplicate_column THEN NULL;
+                END $$
+            """))
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_kb_documents_folder_id ON kb_documents(folder_id)"
             ))
 
             if _pgvector_available:
@@ -772,6 +799,29 @@ async def init_db(database_url: str) -> None:
         ))
         await conn.execute(text(
             "ALTER TABLE IF EXISTS chat_sessions ADD COLUMN IF NOT EXISTS context_reset_at TIMESTAMP"
+        ))
+
+    # Channel bots — per-AI-employee IM bot credentials
+    async with _engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS channel_bots (
+                id VARCHAR(32) PRIMARY KEY,
+                channel_type VARCHAR(32) NOT NULL,
+                member_id VARCHAR(32) NOT NULL REFERENCES members(id),
+                credentials TEXT DEFAULT '{}',
+                status VARCHAR(16) DEFAULT 'active',
+                last_test_at TIMESTAMP,
+                last_test_ok BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT now(),
+                updated_at TIMESTAMP DEFAULT now(),
+                CONSTRAINT uq_channel_bot_channel_member UNIQUE (channel_type, member_id)
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_channel_bots_channel_type ON channel_bots(channel_type)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_channel_bots_member_id ON channel_bots(member_id)"
         ))
 
     # VortFlow: add project_id to flow_tasks & flow_bugs (direct project association)
