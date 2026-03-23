@@ -25,7 +25,9 @@ const iteration = ref<any>({});
 const iterations = ref<any[]>([]);
 
 type TabType = "需求" | "任务" | "缺陷";
-const activeTab = ref<TabType>("需求");
+const tabUrlMap: Record<string, TabType> = { story: "需求", task: "任务", bug: "缺陷" };
+const queryTab = route.query.tab as string;
+const activeTab = ref<TabType>(tabUrlMap[queryTab] || "需求");
 
 const tabConfig = computed(() => {
     const map: Record<TabType, { pageTitle: string; createBtn: string; createDrawer: string; detailDrawer: string }> = {

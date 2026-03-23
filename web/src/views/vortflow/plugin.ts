@@ -38,6 +38,7 @@ export default {
                 { title: "迭代管理", icon: "repeat", path: "/vortflow/iterations" },
                 { title: "版本管理", icon: "tag", path: "/vortflow/versions" },
                 { title: "测试管理", icon: "clipboard-check", path: "/vortflow/test-cases" },
+                { title: "工作项设置", icon: "settings", path: "/vortflow/settings" },
             ],
         },
     ],

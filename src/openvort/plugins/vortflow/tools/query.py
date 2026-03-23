@@ -17,8 +17,8 @@ log = get_logger("plugins.vortflow.tools.query")
 class QueryTool(BaseTool):
     name = "vortflow_query"
     description = (
-        "查询 VortFlow 中的项目、需求、任务、缺陷信息。"
-        "支持按项目列表、需求列表、任务列表、缺陷列表、项目成员查询，可按状态和负责人过滤。"
+        "查询 VortFlow 中的项目、需求、任务、缺陷、迭代、版本信息。"
+        "支持按项目列表、需求列表、任务列表、缺陷列表、迭代列表、版本列表、项目成员查询，可按状态和负责人过滤。"
         "也可查询单个实体的详情。"
     )
     required_permission = "vortflow.story"
@@ -30,12 +30,13 @@ class QueryTool(BaseTool):
                 "query_type": {
                     "type": "string",
                     "description": "查询类型",
-                    "enum": ["projects", "stories", "tasks", "bugs", "detail", "project_members"],
+                    "enum": ["projects", "stories", "tasks", "bugs", "iterations", "versions", "detail", "project_members"],
                 },
                 "project_id": {"type": "string", "description": "按项目过滤（可选）", "default": ""},
                 "story_id": {"type": "string", "description": "按需求过滤任务/缺陷（可选）", "default": ""},
                 "state": {"type": "string", "description": "按状态过滤（可选）", "default": ""},
                 "assignee_id": {"type": "string", "description": "按负责人过滤（可选）", "default": ""},
+                "keyword": {"type": "string", "description": "按名称搜索（iterations/versions 可选）", "default": ""},
                 "entity_type": {"type": "string", "description": "detail 模式下的实体类型", "default": ""},
                 "entity_id": {"type": "string", "description": "detail 模式下的实体 ID", "default": ""},
             },
@@ -45,7 +46,10 @@ class QueryTool(BaseTool):
     async def execute(self, params: dict) -> str:
         from openvort.db.engine import get_session_factory
         from openvort.contacts.models import Member
-        from openvort.plugins.vortflow.models import FlowBug, FlowProject, FlowProjectMember, FlowStory, FlowTask
+        from openvort.plugins.vortflow.models import (
+            FlowBug, FlowIteration, FlowProject, FlowProjectMember,
+            FlowStory, FlowTask, FlowVersion,
+        )
 
         query_type = params["query_type"]
         sf = get_session_factory()  # QueryTool 无状态，直接获取
@@ -98,6 +102,37 @@ class QueryTool(BaseTool):
                 data = [{"id": r.id, "title": r.title, "state": r.state, "severity": r.severity,
                           "assignee_id": r.assignee_id} for r in rows]
                 return json.dumps({"ok": True, "count": len(data), "bugs": data}, ensure_ascii=False)
+
+            elif query_type == "iterations":
+                stmt = select(FlowIteration).order_by(FlowIteration.start_date.desc().nulls_last()).limit(50)
+                if params.get("project_id"):
+                    stmt = stmt.where(FlowIteration.project_id == params["project_id"])
+                if params.get("state"):
+                    stmt = stmt.where(FlowIteration.status == params["state"])
+                if params.get("keyword"):
+                    like = f"%{params['keyword']}%"
+                    stmt = stmt.where(FlowIteration.name.ilike(like) | FlowIteration.goal.ilike(like))
+                result = await session.execute(stmt)
+                rows = result.scalars().all()
+                data = [{"id": r.id, "name": r.name, "project_id": r.project_id,
+                          "status": r.status, "goal": r.goal,
+                          "start_date": r.start_date.isoformat() if r.start_date else None,
+                          "end_date": r.end_date.isoformat() if r.end_date else None} for r in rows]
+                return json.dumps({"ok": True, "count": len(data), "iterations": data}, ensure_ascii=False)
+
+            elif query_type == "versions":
+                stmt = select(FlowVersion).order_by(FlowVersion.created_at.desc()).limit(50)
+                if params.get("project_id"):
+                    stmt = stmt.where(FlowVersion.project_id == params["project_id"])
+                if params.get("keyword"):
+                    like = f"%{params['keyword']}%"
+                    stmt = stmt.where(FlowVersion.name.ilike(like))
+                result = await session.execute(stmt)
+                rows = result.scalars().all()
+                data = [{"id": r.id, "name": r.name, "project_id": r.project_id,
+                          "stage": r.stage,
+                          "release_date": r.release_date.isoformat() if r.release_date else None} for r in rows]
+                return json.dumps({"ok": True, "count": len(data), "versions": data}, ensure_ascii=False)
 
             elif query_type == "project_members":
                 project_id = params.get("project_id", "")

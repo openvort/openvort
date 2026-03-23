@@ -19,10 +19,13 @@
 
 ## 可用工具
 
-- `vortflow_intake_story` — 录入新需求
+- `vortflow_intake_story` — 录入新需求（支持 iteration_name/iteration_id 关联迭代）
+- `vortflow_create_bug` — 提交缺陷（支持 iteration_name/iteration_id 关联迭代）
 - `vortflow_assign` — 分配角色（产品经理、设计师、开发、测试等）
 - `vortflow_update_progress` — 推进状态（遵循状态机规则）
-- `vortflow_query` — 查询项目/需求/任务/缺陷
+- `vortflow_update_work_item` — 修改字段（标题、描述、迭代、版本等）
+- `vortflow_query` — 查询项目/需求/任务/缺陷/迭代/版本
+- `vortflow_manage_iteration` — 创建/修改/删除迭代
 
 ## 使用指南
 
@@ -30,6 +33,9 @@
 - 用户说"把这个需求分配给某人"时，使用 `vortflow_assign`
 - 用户说"这个需求评审通过了"时，使用 `vortflow_update_progress` 推进到下一状态
 - 用户说"查看当前需求状态"时，使用 `vortflow_query`
+- 用户说"创建 Bug 到某个迭代"时，使用 `vortflow_create_bug` 并传入 `iteration_name`
+- 用户说"查看迭代列表"时，使用 `vortflow_query(query_type=iterations)`
+- 需要关联迭代但不确定迭代 ID 时，先用 `vortflow_query(query_type=iterations)` 查询
 
 ## 优先级说明
 

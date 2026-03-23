@@ -158,7 +158,7 @@ const createBugDrawerOpen = computed({
     set: (val: boolean) => {
         if (!val) {
             cacheDescDraftBeforeClose();
-            router.replace({ query: { ...route.query, action: undefined, id: undefined, parentId: undefined } });
+            router.replace({ query: { ...route.query, action: undefined, id: undefined, parentId: undefined, tab: undefined } });
         }
     }
 });
@@ -1380,7 +1380,8 @@ const handleOpenBugDetail = async (record: RowItem) => {
         description: record.description || base.description
     });
 
-    router.replace({ query: { ...route.query, action: "detail", id: record.backendId || record.workNo } });
+    const typeToTab: Record<string, string> = { "需求": "story", "任务": "task", "缺陷": "bug" };
+    router.replace({ query: { ...route.query, action: "detail", id: record.backendId || record.workNo, tab: typeToTab[record.type] || typeToTab[props.type] } });
 };
 
 const handleOpenRelated = async (partial: any) => {
@@ -1587,11 +1588,23 @@ onMounted(async () => {
             createProjectId.value = findItemRowById(parentId)?.projectId || "";
         }
     } else if (action === "detail" && id) {
-        const record = findItemRowByIdentifier(id) || await loadItemById(id, props.type);
+        const urlTab = route.query.tab as string;
+        const tabTypeMap: Record<string, WorkItemType> = { story: "需求", task: "任务", bug: "缺陷" };
+        const urlType = tabTypeMap[urlTab];
+        if (urlType && urlType !== props.type) return;
+
+        let record = findItemRowByIdentifier(id) || await loadItemById(id, props.type);
+        if (!record && !urlType) {
+            const otherTypes = (["需求", "任务", "缺陷"] as WorkItemType[]).filter(t => t !== props.type);
+            for (const t of otherTypes) {
+                record = await loadItemById(id, t);
+                if (record) break;
+            }
+        }
         if (record) {
             handleOpenBugDetail(record);
         } else {
-            router.replace({ query: { ...route.query, action: undefined, id: undefined, parentId: undefined } });
+            router.replace({ query: { ...route.query, action: undefined, id: undefined, parentId: undefined, tab: undefined } });
         }
     }
 });
