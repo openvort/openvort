@@ -234,7 +234,7 @@ class SkillLoader:
                     "ALTER TABLE skills ADD COLUMN IF NOT EXISTS skill_type VARCHAR(16) DEFAULT 'workflow'"
                 ))
                 await db.commit()
-                log.info("Migration: added skills.skill_type")
+                log.debug("Migration: added skills.skill_type")
             except Exception as e:
                 await db.rollback()
                 if "already exists" not in str(e).lower():
@@ -246,7 +246,7 @@ class SkillLoader:
                     "ALTER TABLE member_skills ADD COLUMN IF NOT EXISTS source VARCHAR(32) DEFAULT 'personal'"
                 ))
                 await db.commit()
-                log.info("Migration: added member_skills.source")
+                log.debug("Migration: added member_skills.source")
             except Exception as e:
                 await db.rollback()
                 if "already exists" not in str(e).lower():
@@ -258,7 +258,7 @@ class SkillLoader:
                     "ALTER TABLE member_skills ADD COLUMN IF NOT EXISTS custom_content TEXT DEFAULT ''"
                 ))
                 await db.commit()
-                log.info("Migration: added member_skills.custom_content")
+                log.debug("Migration: added member_skills.custom_content")
             except Exception as e:
                 await db.rollback()
                 if "already exists" not in str(e).lower():
@@ -276,7 +276,7 @@ class SkillLoader:
                     )
                 """))
                 await db.commit()
-                log.info("Migration: created role_skills table")
+                log.debug("Migration: created role_skills table")
             except Exception as e:
                 await db.rollback()
                 if "already exists" not in str(e).lower():
@@ -288,7 +288,7 @@ class SkillLoader:
                     "CREATE INDEX IF NOT EXISTS ix_role_skills_role ON role_skills(role)"
                 ))
                 await db.commit()
-                log.info("Migration: created role_skills index")
+                log.debug("Migration: created role_skills index")
             except Exception as e:
                 await db.rollback()
                 if "already exists" not in str(e).lower():
@@ -300,7 +300,7 @@ class SkillLoader:
                     "ALTER TABLE role_skills ADD COLUMN IF NOT EXISTS post VARCHAR(32) DEFAULT NULL"
                 ))
                 await db.commit()
-                log.info("Migration: added role_skills.post")
+                log.debug("Migration: added role_skills.post")
             except Exception as e:
                 await db.rollback()
                 if "already exists" not in str(e).lower():
@@ -312,7 +312,7 @@ class SkillLoader:
                     "ALTER TABLE schedule_jobs ADD COLUMN IF NOT EXISTS target_member_id VARCHAR(32) DEFAULT NULL"
                 ))
                 await db.commit()
-                log.info("Migration: added schedule_jobs.target_member_id")
+                log.debug("Migration: added schedule_jobs.target_member_id")
             except Exception as e:
                 await db.rollback()
                 if "already exists" not in str(e).lower():
@@ -336,7 +336,7 @@ class SkillLoader:
                     )
                 """))
                 await db.commit()
-                log.info("Migration: created virtual_roles table")
+                log.debug("Migration: created virtual_roles table")
             except Exception as e:
                 await db.rollback()
                 if "already exists" not in str(e).lower():
@@ -348,7 +348,7 @@ class SkillLoader:
                     "CREATE INDEX IF NOT EXISTS ix_virtual_roles_key ON virtual_roles(key)"
                 ))
                 await db.commit()
-                log.info("Migration: created virtual_roles index")
+                log.debug("Migration: created virtual_roles index")
             except Exception as e:
                 await db.rollback()
                 if "already exists" not in str(e).lower():
@@ -360,7 +360,7 @@ class SkillLoader:
                     "ALTER TABLE members ADD COLUMN IF NOT EXISTS avatar_source VARCHAR(16) DEFAULT ''"
                 ))
                 await db.commit()
-                log.info("Migration: added members.avatar_source")
+                log.debug("Migration: added members.avatar_source")
             except Exception as e:
                 await db.rollback()
                 if "already exists" not in str(e).lower():
@@ -372,7 +372,7 @@ class SkillLoader:
                     "ALTER TABLE skills ADD COLUMN IF NOT EXISTS tags TEXT DEFAULT ''"
                 ))
                 await db.commit()
-                log.info("Migration: added skills.tags")
+                log.debug("Migration: added skills.tags")
             except Exception as e:
                 await db.rollback()
                 if "already exists" not in str(e).lower():
@@ -393,7 +393,7 @@ class SkillLoader:
                         ), {"tags": _json.dumps([tag], ensure_ascii=False), "id": row[0]})
                 await db.commit()
                 if rows:
-                    log.info(f"Migration: migrated {len(rows)} skills from skill_type to tags")
+                    log.debug(f"Migration: migrated {len(rows)} skills from skill_type to tags")
             except Exception as e:
                 await db.rollback()
                 log.warning(f"Migration skill_type->tags: {e}")
@@ -409,7 +409,7 @@ class SkillLoader:
                         f"ALTER TABLE skills ADD COLUMN IF NOT EXISTS {col} {col_type}"
                     ))
                     await db.commit()
-                    log.info(f"Migration: added skills.{col}")
+                    log.debug(f"Migration: added skills.{col}")
                 except Exception as e:
                     await db.rollback()
                     if "already exists" not in str(e).lower():
@@ -420,7 +420,7 @@ class SkillLoader:
                     "CREATE INDEX IF NOT EXISTS ix_skills_marketplace_slug ON skills(marketplace_slug)"
                 ))
                 await db.commit()
-                log.info("Migration: created skills marketplace_slug index")
+                log.debug("Migration: created skills marketplace_slug index")
             except Exception as e:
                 await db.rollback()
                 if "already exists" not in str(e).lower():
@@ -432,7 +432,7 @@ class SkillLoader:
                     "ALTER TABLE skills ADD COLUMN IF NOT EXISTS requires_json TEXT DEFAULT ''"
                 ))
                 await db.commit()
-                log.info("Migration: added skills.requires_json")
+                log.debug("Migration: added skills.requires_json")
             except Exception as e:
                 await db.rollback()
                 if "already exists" not in str(e).lower():

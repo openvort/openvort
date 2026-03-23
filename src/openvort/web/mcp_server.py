@@ -22,9 +22,7 @@ EXCLUDED_TOOL_PREFIXES = (
     "send_dingtalk_",
 )
 
-EXCLUDED_TOOLS = {
-    "setup_complete",
-}
+EXCLUDED_TOOLS: set[str] = set()
 
 _mcp_instance: FastMCP | None = None
 

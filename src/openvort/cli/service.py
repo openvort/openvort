@@ -67,10 +67,9 @@ def init_cmd():
 
 
 @click.command()
-@click.option("--web/--no-web", default=None, help="启用/禁用 Web 管理面板")
-def start_cmd(web):
+def start_cmd():
     """启动 OpenVort 服务"""
-    _run_async(_start_service(web))
+    _run_async(_start_service())
 
 
 async def _cleanup_duplicate_admins(session_factory):
@@ -92,7 +91,7 @@ async def _cleanup_duplicate_admins(session_factory):
         get_logger("cli").info(f"已清理 {len(delete_ids)} 条重复 admin 记录")
 
 
-async def _start_service(web_flag: bool | None):
+async def _start_service():
     """启动服务的异步实现"""
     from openvort.auth.service import AuthService
     from openvort.config.settings import get_settings
@@ -130,17 +129,13 @@ async def _start_service(web_flag: bool | None):
     auth_service = AuthService(session_factory)
     await auth_service.init_builtin()
 
-    # ---- 首次启动向导 ----
+    # ---- 首次启动：自动创建管理员 ----
     from openvort.core.setup import is_initialized
 
-    if not await is_initialized(session_factory):
-        log.info("检测到首次启动，进入初始化向导...")
-        await _run_bootstrap_wizard(settings, session_factory, auth_service)
-        # 向导完成后再次检查
-        if not await is_initialized(session_factory):
-            log.error("初始化未完成，退出")
-            _cleanup_pid()
-            return
+    is_first_boot = not await is_initialized(session_factory)
+    if is_first_boot:
+        log.info("检测到首次启动，自动创建管理员...")
+        await _auto_create_admin(session_factory, auth_service)
 
     # 加载 AI 人设（如果存在）
     identity_prompt = ""
@@ -305,16 +300,16 @@ async def _start_service(web_flag: bool | None):
     asr_service = ASRService(session_factory)
     await asr_service.load_providers()
     if asr_service._providers:
-        log.info(f"已加载 {len(asr_service._providers)} 个 ASR Provider 用于语音识别")
+        log.debug(f"已加载 {len(asr_service._providers)} 个 ASR Provider")
     else:
-        log.info("未配置 ASR Provider，语音消息将无法识别")
+        log.debug("未配置 ASR Provider，语音消息将无法识别")
 
     # 初始化 TTS 服务（用于语音消息发送）
     from openvort.services.tts import TTSService
     tts_service = TTSService(session_factory)
     await tts_service.load_providers()
     if tts_service.available:
-        log.info("TTS 服务已就绪，语音发送功能可用")
+        log.debug("TTS 服务已就绪")
     else:
         log.info("未配置 TTS Provider，语音发送功能不可用")
 
@@ -323,7 +318,7 @@ async def _start_service(web_flag: bool | None):
     embedding_service = EmbeddingService(session_factory)
     await embedding_service.load_providers()
     if embedding_service.available:
-        log.info("Embedding 服务已就绪，知识库检索功能可用")
+        log.debug("Embedding 服务已就绪")
     else:
         log.info("未配置 Embedding Provider，知识库检索功能不可用")
 
@@ -356,16 +351,6 @@ async def _start_service(web_flag: bool | None):
                 _ch.set_asr_service(asr_service)
 
             async def handle_message(msg):
-                # 初始化守卫：未初始化时拒绝外部渠道消息
-                from openvort.core.setup import is_initialized as _is_init
-                if not await _is_init(session_factory):
-                    log.warning(f"系统未初始化，忽略来自 {msg.channel}:{msg.sender_id} 的消息")
-                    from openvort.plugin.base import Message as Msg
-                    await _ch.send(msg.sender_id, Msg(
-                        content="系统正在初始化中，请稍后再试。", channel="wecom",
-                    ))
-                    return None
-
                 # IM 命令拦截（/new /status /compact /think /usage /help）
                 cmd_result = await command_handler.handle(msg.channel, msg.sender_id, msg.content)
                 if cmd_result.handled:
@@ -397,11 +382,6 @@ async def _start_service(web_flag: bool | None):
                 log.info("OPENVORT_WECOM_BOT_DISABLED 已设置，跳过企微 Bot 消费模式")
             elif ch.is_bot_configured():
                 async def bot_stream_handler(msg):
-                    from openvort.core.setup import is_initialized as _is_init
-                    if not await _is_init(session_factory):
-                        yield {"type": "text", "text": "系统正在初始化中，请稍后再试。"}
-                        return
-
                     # Determine session scope: group chats use chat_id
                     raw = getattr(msg, "raw", None) or {}
                     chat_type = raw.get("_bot_chat_type", "single")
@@ -445,11 +425,6 @@ async def _start_service(web_flag: bool | None):
             _oc_ch = ch
 
             async def handle_openclaw_message(msg):
-                from openvort.core.setup import is_initialized as _is_init
-                if not await _is_init(session_factory):
-                    log.warning(f"系统未初始化，忽略来自 openclaw:{msg.sender_id} 的消息")
-                    return None
-
                 cmd_result = await command_handler.handle(msg.channel, msg.sender_id, msg.content)
                 if cmd_result.handled:
                     if cmd_result.reply:
@@ -480,11 +455,6 @@ async def _start_service(web_flag: bool | None):
             _dt_ch: _DingTalkCh = ch  # type: ignore[assignment]
 
             async def dingtalk_stream_handler(msg):
-                from openvort.core.setup import is_initialized as _is_init
-                if not await _is_init(session_factory):
-                    yield {"type": "text", "text": "系统正在初始化中，请稍后再试。"}
-                    return
-
                 cmd_result = await command_handler.handle(msg.channel, msg.sender_id, msg.content)
                 if cmd_result.handled:
                     if cmd_result.reply:
@@ -498,10 +468,6 @@ async def _start_service(web_flag: bool | None):
                     yield event
 
             async def handle_dingtalk_message(msg):
-                from openvort.core.setup import is_initialized as _is_init
-                if not await _is_init(session_factory):
-                    return "系统正在初始化中，请稍后再试。"
-
                 cmd_result = await command_handler.handle(msg.channel, msg.sender_id, msg.content)
                 if cmd_result.handled:
                     return cmd_result.reply
@@ -536,11 +502,6 @@ async def _start_service(web_flag: bool | None):
                 _fs_ch.set_asr_service(asr_service)
 
             async def feishu_stream_handler(msg):
-                from openvort.core.setup import is_initialized as _is_init
-                if not await _is_init(session_factory):
-                    yield {"type": "text", "text": "系统正在初始化中，请稍后再试。"}
-                    return
-
                 cmd_result = await command_handler.handle(msg.channel, msg.sender_id, msg.content)
                 if cmd_result.handled:
                     if cmd_result.reply:
@@ -554,10 +515,6 @@ async def _start_service(web_flag: bool | None):
                     yield event
 
             async def handle_feishu_message(msg):
-                from openvort.core.setup import is_initialized as _is_init
-                if not await _is_init(session_factory):
-                    return "系统正在初始化中，请稍后再试。"
-
                 cmd_result = await command_handler.handle(msg.channel, msg.sender_id, msg.content)
                 if cmd_result.handled:
                     return cmd_result.reply
@@ -591,7 +548,7 @@ async def _start_service(web_flag: bool | None):
         _modes.append("bot")
     _modes.append("webhook")
     mode = "+".join(_modes)
-    log.info(f"已加载 {len(channels)} 个 Channel, {len(registry.list_tools())} 个 Tool (模式: {mode})")
+    log.debug(f"已加载 {len(channels)} 个 Channel, {len(registry.list_tools())} 个 Tool (模式: {mode})")
 
     # ---- 定时任务调度器 ----
     from openvort.core.services.scheduler import Scheduler as _Scheduler
@@ -779,9 +736,9 @@ async def _start_service(web_flag: bool | None):
         log.warning(f"恢复定时任务失败: {e}")
 
     # ---- Web 管理面板 ----
-    web_enabled = web_flag if web_flag is not None else settings.web.enabled
     web_server = None
-    if web_enabled:
+    web_started = False
+    if settings.web.enabled:
         try:
             import uvicorn
             from openvort.web.app import create_app
@@ -832,13 +789,13 @@ async def _start_service(web_flag: bool | None):
                     log.warning(f"Web 面板运行异常: {e}")
 
             asyncio.create_task(_run_web_server())
-            log.info(f"Web 管理面板已启动: http://{settings.web.host}:{settings.web.port}")
+            web_started = True
         except ImportError as ie:
             log.warning(f"未安装 uvicorn/fastapi，Web 面板未启动。运行 pip install uvicorn fastapi 安装。ImportError: {ie}")
         except Exception as e:
             log.warning(f"Web 面板启动失败: {e}")
 
-    log.info("OpenVort 已就绪，等待消息...")
+    _print_ready_banner(settings, settings.web.enabled and web_started, is_first_boot, channels, registry)
 
     # 保持运行
     try:
@@ -884,8 +841,7 @@ def stop_cmd():
 
 
 @click.command()
-@click.option("--web/--no-web", default=None, help="启用/禁用 Web 管理面板")
-def restart_cmd(web):
+def restart_cmd():
     """重启 OpenVort 服务（stop + start）"""
     if PID_FILE.exists():
         try:
@@ -902,67 +858,75 @@ def restart_cmd(web):
             pass
 
     click.echo("正在启动...")
-    _run_async(_start_service(web))
+    _run_async(_start_service())
 
 
-async def _run_bootstrap_wizard(settings, session_factory, auth_service):
-    """AI 驱动的首次启动向导（CLI 对话循环）"""
-    from pathlib import Path
+async def _auto_create_admin(session_factory, auth_service):
+    """首次启动时自动创建管理员账号"""
+    from openvort.contacts.models import Member
+    from openvort.core.setup import mark_initialized
 
-    from openvort.core.engine.agent import AgentRuntime
-    from openvort.core.bootstrap import SetupCompleteTool
-    from openvort.core.engine.session import SessionStore
-    from openvort.core.setup import is_initialized
-    from openvort.plugin.registry import PluginRegistry
+    async with session_factory() as session:
+        member = Member(
+            name="admin",
+            status="active",
+            is_account=True,
+        )
+        session.add(member)
+        await session.flush()
+        member_id = member.id
+        await session.commit()
 
-    click.echo("\n" + "=" * 50)
-    click.echo("  🚀 OpenVort 首次启动向导")
-    click.echo("=" * 50 + "\n")
+    await auth_service.assign_role(member_id, "admin")
+    await mark_initialized(session_factory, member_id)
 
-    # Path adjusted: cli/service.py -> parent.parent -> openvort/
-    prompt_path = Path(__file__).parent.parent / "core" / "prompts" / "bootstrap.md"
-    bootstrap_prompt = prompt_path.read_text(encoding="utf-8")
 
-    # 创建临时 registry，只注册 setup_complete 工具
-    wizard_registry = PluginRegistry()
-    setup_tool = SetupCompleteTool(session_factory, auth_service)
-    wizard_registry.register_tool(setup_tool)
+def _print_ready_banner(settings, web_ok: bool, first_boot: bool, channels, registry):
+    """Print the startup-complete banner to stdout."""
+    from openvort.config.settings import get_settings
+    settings = get_settings()
 
-    # 创建临时 Agent
-    wizard_session = SessionStore()
-    wizard_agent = AgentRuntime(
-        settings.llm,
-        wizard_registry,
-        wizard_session,
-        system_prompt=bootstrap_prompt,
-    )
+    site_url = settings.web.site_url.rstrip("/") if settings.web.site_url else ""
+    host = settings.web.host
+    port = settings.web.port
+    if site_url:
+        panel_url = site_url
+    elif host == "0.0.0.0":
+        panel_url = f"http://localhost:{port}"
+    else:
+        panel_url = f"http://{host}:{port}"
 
-    # 用空消息触发 AI 先开口
-    from openvort.core.engine.context import RequestContext
+    tool_count = len(registry.list_tools())
+    ch_count = len(channels)
 
-    ctx = RequestContext(channel="cli", user_id="admin_setup", permissions={"*"})
-    click.echo("⏳ 正在准备...\n")
-    greeting = await wizard_agent.process(ctx, "你好，我刚启动了 OpenVort")
-    click.echo(f"🤖 {greeting}\n")
+    w = 52
+    border = "=" * w
 
-    # 对话循环
-    while True:
-        try:
-            user_input = input("👤 ").strip()
-        except (EOFError, KeyboardInterrupt):
-            click.echo("\n初始化已取消。")
-            return
+    lines: list[str] = []
+    lines.append("")
+    lines.append(border)
+    lines.append(f"  OpenVort v{__version__} started".center(w))
+    lines.append(border)
+    lines.append("")
 
-        if not user_input:
-            continue
+    if web_ok:
+        lines.append(f"  Panel   {panel_url}")
+        lines.append(f"  API     {panel_url}/api")
+    else:
+        lines.append("  Panel   (disabled)")
 
-        click.echo("⏳ 思考中...\n")
-        reply = await wizard_agent.process(ctx, user_input)
-        click.echo(f"🤖 {reply}\n")
+    lines.append("")
+    lines.append(f"  Channels  {ch_count}      Tools  {tool_count}")
+    lines.append("")
 
-        # 检查是否已完成初始化
-        if await is_initialized(session_factory):
-            click.echo("=" * 50)
-            click.echo("  ✅ 初始化完成，正在启动服务...")
-            click.echo("=" * 50 + "\n")
-            return
+    if first_boot:
+        default_pwd = settings.web.default_password
+        lines.append("  *** First boot — admin account created ***")
+        lines.append(f"  Username: admin")
+        lines.append(f"  Password: {default_pwd}")
+        lines.append("")
+
+    lines.append(border)
+    lines.append("")
+
+    click.echo("\n".join(lines))

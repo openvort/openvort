@@ -345,7 +345,7 @@ class PluginLoader:
                 instance = cls()
                 self.registry.register_channel(instance)
                 self._register_channel_tools(instance)
-                log.info(f"已通过兜底逻辑加载内置 Channel: {channel_name}")
+                log.debug(f"已通过兜底逻辑加载内置 Channel: {channel_name}")
             except Exception as e:
                 log.warning(f"兜底加载内置 Channel '{channel_name}' 失败: {e}")
 
@@ -356,10 +356,8 @@ class PluginLoader:
                 from openvort.channels.wecom.tools import SendWeComMessageTool, SendWeComVoiceTool
                 tool = SendWeComMessageTool(channel=channel)
                 self.registry.register_tool(tool)
-                log.info(f"已注册 Channel 工具: {tool.name}")
                 voice_tool = SendWeComVoiceTool(channel=channel)
                 self.registry.register_tool(voice_tool)
-                log.info(f"已注册 Channel 工具: {voice_tool.name}")
             except Exception as e:
                 log.error(f"注册企微 Channel 工具失败: {e}")
         elif channel.name == "feishu":
@@ -368,10 +366,8 @@ class PluginLoader:
 
                 tool = SendFeishuMessageTool(channel=channel)
                 self.registry.register_tool(tool)
-                log.info(f"已注册 Channel 工具: {tool.name}")
                 voice_tool = SendFeishuVoiceTool(channel=channel)
                 self.registry.register_tool(voice_tool)
-                log.info(f"已注册 Channel 工具: {voice_tool.name}")
             except Exception as e:
                 log.error(f"注册飞书 Channel 工具失败: {e}")
         elif channel.name == "dingtalk":
@@ -380,10 +376,8 @@ class PluginLoader:
 
                 tool = SendDingTalkMessageTool(channel=channel)
                 self.registry.register_tool(tool)
-                log.info(f"已注册 Channel 工具: {tool.name}")
                 voice_tool = SendDingTalkVoiceTool(channel=channel)
                 self.registry.register_tool(voice_tool)
-                log.info(f"已注册 Channel 工具: {voice_tool.name}")
             except Exception as e:
                 log.error(f"注册钉钉 Channel 工具失败: {e}")
 
@@ -461,7 +455,7 @@ class PluginLoader:
                     config = json.loads(row.config_data)
                     if config:
                         ch.apply_config(config)
-                        log.info(f"从数据库加载 Channel 配置: {row.channel_name}")
+                        log.debug(f"从数据库加载 Channel 配置: {row.channel_name}")
         except Exception as e:
             log.warning(f"从数据库加载 Channel 配置失败（将使用环境变量）: {e}")
 
@@ -486,21 +480,19 @@ class PluginLoader:
                 # 核心插件不可禁用
                 if not row.enabled and not plugin.core:
                     self.registry.disable_plugin(row.plugin_name)
-                    log.info(f"Plugin '{row.plugin_name}' 已禁用")
+                    log.debug(f"Plugin '{row.plugin_name}' 已禁用")
                     continue
 
-                # 应用 DB 中保存的配置
                 if row.config_data:
                     config = json.loads(row.config_data)
                     if config:
                         plugin.apply_config(config)
-                        log.info(f"从数据库加载 Plugin 配置: {row.plugin_name}")
+                        log.debug(f"从数据库加载 Plugin 配置: {row.plugin_name}")
 
-                # 凭证校验失败的插件在应用 DB 配置后重新检查
                 if row.enabled and self.registry.is_plugin_disabled(row.plugin_name):
                     if plugin.validate_credentials():
                         self.registry.enable_plugin(row.plugin_name)
-                        log.info(f"Plugin '{row.plugin_name}' 在应用 DB 配置后已启用")
+                        log.debug(f"Plugin '{row.plugin_name}' 在应用 DB 配置后已启用")
         except Exception as e:
             log.warning(f"从数据库加载 Plugin 配置失败（将使用环境变量）: {e}")
 
@@ -529,4 +521,4 @@ class PluginLoader:
                     source=source,
                 )
 
-        log.info("插件权限和角色注册完成")
+        log.debug("插件权限和角色注册完成")
