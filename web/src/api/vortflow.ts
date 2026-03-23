@@ -153,7 +153,7 @@ export function getVortflowBug(id: string) {
     return request.get(`/vortflow/bugs/${id}`);
 }
 
-export function createVortflowBug(data: { project_id?: string; story_id?: string; task_id?: string; title: string; description?: string; severity?: number; assignee_id?: string; tags?: string[]; collaborators?: string[] }) {
+export function createVortflowBug(data: { project_id?: string; story_id?: string; task_id?: string; title: string; description?: string; severity?: number; assignee_id?: string; tags?: string[]; collaborators?: string[]; deadline?: string }) {
     return request.post("/vortflow/bugs", data);
 }
 

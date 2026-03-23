@@ -94,6 +94,7 @@ class BugCreate(BaseModel):
     tags: list[str] = []
     collaborators: list[str] = []
     assignee_id: str | None = None
+    deadline: str | None = None
 
 class BugUpdate(BaseModel):
     project_id: str | None = None

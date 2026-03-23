@@ -154,6 +154,7 @@ async def create_bug(body: BugCreate, request: Request):
             title=body.title, description=body.description,
             severity=body.severity, assignee_id=body.assignee_id,
             reporter_id=member_id or None,
+            deadline=_parse_dt(body.deadline) if body.deadline else None,
             tags_json=json.dumps(body.tags or [], ensure_ascii=False),
             collaborators_json=json.dumps(body.collaborators or [], ensure_ascii=False),
         )

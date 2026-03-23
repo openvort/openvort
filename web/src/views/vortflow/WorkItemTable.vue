@@ -1205,6 +1205,7 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
                     assignee_id: ownerId,
                     tags: [...formData.tags],
                     collaborators: [...formData.collaborators],
+                    deadline: formData.planTime?.[1] || undefined,
                 });
             }
             if (createdItem) {
@@ -1216,8 +1217,19 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
                             await addVortflowIterationStory(formData.iteration, { story_id: createdId });
                         } else if (type === "任务") {
                             await addVortflowIterationTask(formData.iteration, { task_id: createdId });
+                        } else if (type === "缺陷") {
+                            await addVortflowIterationBug(formData.iteration, { bug_id: createdId });
                         }
                     } catch { /* iteration link failed silently */ }
+                }
+                if (createdId && formData.version) {
+                    try {
+                        if (type === "需求") {
+                            await addVortflowVersionStory(formData.version, { story_id: createdId });
+                        } else if (type === "缺陷") {
+                            await addVortflowVersionBug(formData.version, { bug_id: createdId });
+                        }
+                    } catch { /* version link failed silently */ }
                 }
                 const pinnedRow = mapBackendItemToRow(createdItem, type, 0);
                 if ((type === "需求" || type === "任务") && formData.parentId) {
