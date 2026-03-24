@@ -5,7 +5,7 @@ import {
     getReports, getReportDetail, submitReport, reviewReport,
     getReportTemplates, createReportTemplate, deleteReportTemplate,
     getReportRules, createReportRule, updateReportRule, deleteReportRule,
-    getReportStats, getMembers, generateReportContentPrompt,
+    getReportStats, getMembersSimple, generateReportContentPrompt,
 } from "@/api";
 import {
     Plus, FileText, Send, CheckCircle, XCircle, Clock,
@@ -337,7 +337,7 @@ async function loadAllMembers() {
     if (allMembers.value.length > 0) return;
     loadingMembers.value = true;
     try {
-        const res: any = await getMembers({ size: 500 });
+        const res: any = await getMembersSimple({ size: 500 });
         allMembers.value = (res?.members || []).filter((m: any) => !m.is_virtual);
     } catch { allMembers.value = []; }
     finally { loadingMembers.value = false; }

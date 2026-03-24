@@ -17,7 +17,7 @@ export const usePluginStore = defineStore("plugin", () => {
     /** 从后端拉取所有插件 UI 扩展 */
     const fetchExtensions = async () => {
         try {
-            const res: any = await request.get("/admin/plugins/ui-extensions");
+            const res: any = await request.get("/platform/ui-extensions");
             extensions.value = res?.extensions || [];
             loaded.value = true;
         } catch {

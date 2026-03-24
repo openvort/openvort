@@ -39,13 +39,21 @@ class BugState(str, Enum):
     RESOLVED = "resolved"
     VERIFIED = "verified"
     CLOSED = "closed"
+    NOT_REPRODUCIBLE = "not_reproducible"
+    REOPENED = "reopened"
+    BY_DESIGN = "by_design"
+    DEFERRED = "deferred"
+    SUSPENDED = "suspended"
 
 
 # ============ 统计用完成态集合 ============
 
 STORY_DONE_STATES: set[str] = {StoryState.DONE.value}
 TASK_DONE_STATES: set[str] = {TaskState.DONE.value, TaskState.CLOSED.value}
-BUG_CLOSED_STATES: set[str] = {BugState.RESOLVED.value, BugState.VERIFIED.value, BugState.CLOSED.value}
+BUG_CLOSED_STATES: set[str] = {
+    BugState.RESOLVED.value, BugState.VERIFIED.value, BugState.CLOSED.value,
+    BugState.NOT_REPRODUCIBLE.value, BugState.BY_DESIGN.value,
+}
 
 
 # ============ 合法转换表 ============
@@ -72,12 +80,17 @@ TASK_TRANSITIONS: dict[TaskState, list[TaskState]] = {
 }
 
 BUG_TRANSITIONS: dict[BugState, list[BugState]] = {
-    BugState.OPEN: [BugState.CONFIRMED, BugState.CLOSED],
-    BugState.CONFIRMED: [BugState.FIXING],
-    BugState.FIXING: [BugState.RESOLVED],
+    BugState.OPEN: [BugState.CONFIRMED, BugState.CLOSED, BugState.NOT_REPRODUCIBLE, BugState.BY_DESIGN, BugState.DEFERRED, BugState.SUSPENDED],
+    BugState.CONFIRMED: [BugState.FIXING, BugState.NOT_REPRODUCIBLE, BugState.BY_DESIGN, BugState.DEFERRED, BugState.SUSPENDED],
+    BugState.FIXING: [BugState.RESOLVED, BugState.DEFERRED],
     BugState.RESOLVED: [BugState.VERIFIED, BugState.FIXING],
-    BugState.VERIFIED: [BugState.CLOSED],
-    BugState.CLOSED: [BugState.OPEN],
+    BugState.VERIFIED: [BugState.CLOSED, BugState.REOPENED],
+    BugState.CLOSED: [BugState.REOPENED],
+    BugState.NOT_REPRODUCIBLE: [BugState.REOPENED, BugState.CLOSED],
+    BugState.REOPENED: [BugState.CONFIRMED, BugState.FIXING],
+    BugState.BY_DESIGN: [BugState.REOPENED, BugState.CLOSED],
+    BugState.DEFERRED: [BugState.FIXING, BugState.REOPENED],
+    BugState.SUSPENDED: [BugState.REOPENED, BugState.OPEN],
 }
 
 

@@ -421,7 +421,7 @@ export function migrateVortflowTag(id: string, data: { target_tag_id?: string | 
 
 // ---- Statuses ----
 
-export function getVortflowStatuses(params?: { keyword?: string }) {
+export function getVortflowStatuses(params?: { keyword?: string; work_item_type?: string }) {
     return request.get("/vortflow/statuses", { params });
 }
 

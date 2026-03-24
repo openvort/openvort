@@ -142,4 +142,5 @@ export interface StatusOption {
     value: Status;
     icon: string;
     iconClass: string;
+    iconColor?: string;
 }

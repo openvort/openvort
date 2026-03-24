@@ -3,6 +3,8 @@ import { ref, watch } from "vue";
 import { createVortflowStatus, updateVortflowStatus } from "@/api";
 import { message } from "@/components/vort/message";
 import { HelpCircle } from "lucide-vue-next";
+import StatusIcon from "@/components/vort-biz/work-item/StatusIcon.vue";
+import { STATUS_ICON_KEYS, resolveIconKey } from "@/components/vort-biz/work-item/statusIcons";
 
 interface Props {
     open: boolean;
@@ -20,13 +22,6 @@ const emit = defineEmits<{
     saved: [];
 }>();
 
-const ICON_OPTIONS = [
-    "▷", "☺", "☹", "⊙", "‖", "⊖", "⌛", "⊗",
-    "⊜", "●", "⊘", "⊕", "△", "⊠",
-    "☰", "⬠", "✎", "✓5", "✓6", "✓6",
-    "◎", "◔", "✓", "⊕", "◔", "✓", "⊙", "?",
-];
-
 const COLOR_OPTIONS = [
     "#f97316", "#60a5fa", "#22c55e", "#ef4444",
     "#f87171", "#fb923c", "#fbbf24", "#a3e635",
@@ -38,7 +33,7 @@ const COLOR_OPTIONS = [
 
 const loading = ref(false);
 const formName = ref("");
-const formIcon = ref("○");
+const formIcon = ref("circle");
 const formIconColor = ref("#3b82f6");
 const formCommand = ref("");
 
@@ -46,12 +41,12 @@ watch(() => props.open, (val) => {
     if (val) {
         if (props.mode === "edit" && props.data) {
             formName.value = props.data.name || "";
-            formIcon.value = props.data.icon || "○";
+            formIcon.value = resolveIconKey(props.data.icon || "") || "circle";
             formIconColor.value = props.data.icon_color || "#3b82f6";
             formCommand.value = props.data.command || "";
         } else {
             formName.value = "";
-            formIcon.value = "○";
+            formIcon.value = "circle";
             formIconColor.value = "#3b82f6";
             formCommand.value = "";
         }
@@ -115,15 +110,15 @@ const close = () => emit("update:open", false);
 
             <div>
                 <div class="text-sm font-medium text-gray-800 mb-2">图标</div>
-                <div class="flex items-center gap-2 flex-wrap">
+                <div class="flex items-center gap-1.5 flex-wrap">
                     <div
-                        v-for="ic in ICON_OPTIONS"
+                        v-for="ic in STATUS_ICON_KEYS"
                         :key="ic"
                         class="icon-swatch"
                         :class="{ 'is-selected': formIcon === ic }"
                         @click="formIcon = ic"
                     >
-                        <span class="text-sm" :style="{ color: formIconColor }">{{ ic }}</span>
+                        <StatusIcon :name="ic" :size="18" :color="formIconColor" />
                     </div>
                 </div>
             </div>

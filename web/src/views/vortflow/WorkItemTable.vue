@@ -135,6 +135,7 @@ const {
     bugStatusFilterOptions,
     demandStatusFilterOptions,
     taskStatusFilterOptions,
+    loadStatusOptions,
 } = useWorkItemCommon();
 
 const keyword = ref("");
@@ -302,10 +303,12 @@ const STATUS_DOT_COLOR_MAP: Record<string, string> = {
     "待办的": "#64748b",
     "进行中": "#3b82f6",
     "延期处理": "#0284c7",
+    "延期修复": "#3b82f6",
     "设计如此": "#d97706",
     "再次打开": "#ef4444",
     "无法复现": "#d97706",
     "暂时搁置": "#6b7280",
+    "暂搁置": "#64748b",
     "开发完成": "#0891b2",
     "待发布": "#d97706",
     "发布完成": "#059669",
@@ -316,7 +319,7 @@ const statusFilterConfig = computed<ColumnFilterConfig>(() => ({
     options: currentStatusFilterOptions.value.map(o => ({
         label: o.label,
         value: o.value,
-        dotColor: STATUS_DOT_COLOR_MAP[o.label] || "#9ca3af",
+        dotColor: o.iconColor || STATUS_DOT_COLOR_MAP[o.label] || "#9ca3af",
     })),
 }));
 
@@ -1508,6 +1511,7 @@ onMounted(async () => {
         loadApiMetadata(false),
         loadRepoOptions(),
         loadTagDefinitions(),
+        loadStatusOptions(),
         vortFlowStore.loadColumnSettings(props.type || ""),
         vortFlowStore.loadViews(props.type || ""),
     ]);

@@ -104,27 +104,27 @@ export const priorityOptions: PriorityOption[] = [
 ];
 
 export const statusFilterOptions: StatusOption[] = [
-    { label: "待确认", value: "待确认", icon: "○", iconClass: "text-gray-400" },
-    { label: "修复中", value: "修复中", icon: "◔", iconClass: "text-blue-500" },
-    { label: "已修复", value: "已修复", icon: "✓", iconClass: "text-blue-500" },
-    { label: "延期处理", value: "延期处理", icon: "▷", iconClass: "text-blue-500" },
-    { label: "设计如此", value: "设计如此", icon: "⌛", iconClass: "text-amber-500" },
-    { label: "再次打开", value: "再次打开", icon: "⚡", iconClass: "text-red-500" },
-    { label: "无法复现", value: "无法复现", icon: "!", iconClass: "text-amber-500" },
-    { label: "已关闭", value: "已关闭", icon: "✓", iconClass: "text-gray-700" },
-    { label: "暂时搁置", value: "暂时搁置", icon: "⌛", iconClass: "text-slate-400" }
+    { label: "待确认", value: "待确认", icon: "circle", iconClass: "text-gray-400" },
+    { label: "修复中", value: "修复中", icon: "circle-dot", iconClass: "text-blue-500" },
+    { label: "已修复", value: "已修复", icon: "check", iconClass: "text-blue-500" },
+    { label: "延期处理", value: "延期处理", icon: "clock", iconClass: "text-blue-500" },
+    { label: "设计如此", value: "设计如此", icon: "ban", iconClass: "text-amber-500" },
+    { label: "再次打开", value: "再次打开", icon: "rotate-ccw", iconClass: "text-red-500" },
+    { label: "无法复现", value: "无法复现", icon: "help-circle", iconClass: "text-amber-500" },
+    { label: "已关闭", value: "已关闭", icon: "circle-check", iconClass: "text-gray-700" },
+    { label: "暂时搁置", value: "暂时搁置", icon: "pause", iconClass: "text-slate-400" }
 ];
 
 export const statusIconMap: Record<Status, string> = {
-    待确认: "○",
-    修复中: "◔",
-    已修复: "✓",
-    延期处理: "▷",
-    设计如此: "⌛",
-    再次打开: "⚡",
-    无法复现: "!",
-    已关闭: "✓",
-    暂时搁置: "⌛"
+    待确认: "circle",
+    修复中: "circle-dot",
+    已修复: "check",
+    延期处理: "clock",
+    设计如此: "ban",
+    再次打开: "rotate-ccw",
+    无法复现: "help-circle",
+    已关闭: "circle-check",
+    暂时搁置: "pause",
 };
 
 export const priorityLabelMap: Record<Priority, string> = {

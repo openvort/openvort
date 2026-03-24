@@ -12,7 +12,7 @@ import {
     getVortflowStories, getVortflowProjects, createVortflowStory,
     updateVortflowStory, deleteVortflowStory, transitionVortflowStory,
     getVortflowStoryTransitions, generateVortflowDescriptionPrompt,
-    getMembers,
+    getMembersSimple,
 } from "@/api";
 import { Plus, ArrowRight, Bot, Pencil } from "lucide-vue-next";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
@@ -122,7 +122,7 @@ const members = ref<MemberOption[]>([]);
 const memberGroups = ref<Array<{ label: string; members: string[] }>>([]);
 const loadMembers = async () => {
     try {
-        const res = await getMembers();
+        const res = await getMembersSimple();
         const list = ((res as any)?.members || []) as any[];
         members.value = list.map(m => ({ id: m.id, name: m.name, avatarUrl: m.avatar_url }));
         const groupMap = new Map<string, string[]>();

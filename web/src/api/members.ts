@@ -24,6 +24,10 @@ export function getMembers(params?: { search?: string; role?: string; department
     return request.get("/admin/members", { params });
 }
 
+export function getMembersSimple(params?: { search?: string; page?: number; size?: number }) {
+    return request.get("/members/simple", { params });
+}
+
 export function getMember(id: string) {
     return request.get(`/admin/members/${id}`);
 }

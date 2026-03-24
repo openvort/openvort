@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { Pencil, Plus } from "lucide-vue-next";
+import StatusIcon from "@/components/vort-biz/work-item/StatusIcon.vue";
 import { useCrudPage } from "@/hooks";
 import { getVortflowStatuses, deleteVortflowStatus } from "@/api";
 import { message } from "@/components/vort/message";
@@ -16,10 +17,20 @@ interface StatusItem {
     sort_order: number;
 }
 
-type FilterParams = { page: number; size: number; keyword: string };
+type FilterParams = { page: number; size: number; keyword: string; work_item_type: string };
+
+const workItemTypeOptions = [
+    { label: "全部", value: "" },
+    { label: "需求", value: "需求" },
+    { label: "任务", value: "任务" },
+    { label: "缺陷", value: "缺陷" },
+];
 
 const fetchList = async (params: FilterParams) => {
-    const res: any = await getVortflowStatuses({ keyword: params.keyword || undefined });
+    const res: any = await getVortflowStatuses({
+        keyword: params.keyword || undefined,
+        work_item_type: params.work_item_type || undefined,
+    });
     const items = (res?.items || []) as StatusItem[];
     const start = (params.page - 1) * params.size;
     return { records: items.slice(start, start + params.size), total: items.length };
@@ -30,7 +41,7 @@ const {
     loadData, onSearchSubmit, resetParams,
 } = useCrudPage<StatusItem, FilterParams>({
     api: fetchList,
-    defaultParams: { page: 1, size: 20, keyword: "" },
+    defaultParams: { page: 1, size: 20, keyword: "", work_item_type: "" },
 });
 
 const editDialogOpen = ref(false);
@@ -81,6 +92,13 @@ loadData();
 <template>
     <div>
         <div class="flex items-center justify-end mb-4 gap-3">
+            <vort-select
+                v-model="filterParams.work_item_type"
+                :options="workItemTypeOptions"
+                placeholder="工作项类型"
+                class="w-[140px]"
+                @change="loadData"
+            />
             <vort-input-search
                 v-model="filterParams.keyword"
                 placeholder="搜索..."
@@ -97,7 +115,7 @@ loadData();
         <vort-table :data-source="listData" :loading="loading" :pagination="false" row-key="id">
             <vort-table-column label="状态图标" :width="90">
                 <template #default="{ row }">
-                    <span class="text-lg" :style="{ color: row.icon_color }">{{ row.icon }}</span>
+                    <StatusIcon :name="row.icon || 'circle'" :size="20" :color="row.icon_color" />
                 </template>
             </vort-table-column>
             <vort-table-column label="状态名" prop="name" :width="160" />
