@@ -60,7 +60,16 @@ async def init_db(database_url: str) -> None:
     except ImportError:
         pass
 
-    _engine = create_async_engine(database_url, echo=False)
+    try:
+        import openvort.plugins.vortsketch.models  # noqa: F401
+    except ImportError:
+        pass
+
+    _engine = create_async_engine(
+        database_url,
+        echo=False,
+        connect_args={"ssl": False},
+    )
     _session_factory = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
 
     # Enable pgvector extension for knowledge base (optional — skip if not installed on server)
@@ -865,6 +874,12 @@ async def init_db(database_url: str) -> None:
             "ALTER TABLE IF EXISTS notifications ADD COLUMN IF NOT EXISTS data_json TEXT DEFAULT '{}'"
         ))
 
+    # VortFlow: add assignee_id to flow_stories
+    async with _engine.begin() as conn:
+        await conn.execute(text(
+            "ALTER TABLE IF EXISTS flow_stories ADD COLUMN IF NOT EXISTS assignee_id VARCHAR(32)"
+        ))
+
     # VortFlow: add code & color columns to flow_projects
     async with _engine.begin() as conn:
         await conn.execute(text(
@@ -873,6 +888,27 @@ async def init_db(database_url: str) -> None:
         await conn.execute(text(
             "ALTER TABLE IF EXISTS flow_projects ADD COLUMN IF NOT EXISTS color VARCHAR(32) DEFAULT '#3b82f6'"
         ))
+
+    # Members: add must_change_password column & backfill password for existing accounts
+    async with _engine.begin() as conn:
+        await conn.execute(text(
+            "ALTER TABLE IF EXISTS members ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT FALSE"
+        ))
+        # Backfill: existing accounts with empty password_hash get default_password hash + must_change_password
+        result = await conn.execute(text(
+            "SELECT id FROM members WHERE is_account = TRUE AND (password_hash IS NULL OR password_hash = '')"
+        ))
+        rows = result.fetchall()
+        if rows:
+            from openvort.web.auth import hash_password as _hash_password
+            from openvort.config.settings import get_settings as _get_settings
+            _settings = _get_settings()
+            _pwd_hash = _hash_password(_settings.web.default_password)
+            for row in rows:
+                await conn.execute(text(
+                    "UPDATE members SET password_hash = :hash, must_change_password = TRUE WHERE id = :id"
+                ), {"hash": _pwd_hash, "id": row[0]})
+            log.info(f"已为 {len(rows)} 个无密码的已有账号设置初始密码")
 
     log.info(f"数据库已初始化: {database_url.split('://')[0]}")
 

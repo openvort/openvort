@@ -208,7 +208,7 @@ class WebSettings(BaseSettings):
     enabled: bool = True  # 是否启用 Web 面板
     port: int = 8090  # Web 面板端口
     host: str = "0.0.0.0"  # 监听地址
-    default_password: str = "openvort"  # 所有成员的默认登录密码
+    default_password: str = "admin"  # 仅用于首次启动时 admin 账户的初始密码
     auto_check_update: bool = True  # 是否自动检查更新
     site_url: str = ""  # 站点访问地址（如 http://your-domain:8090），用于 IM 通知中的跳转链接
 

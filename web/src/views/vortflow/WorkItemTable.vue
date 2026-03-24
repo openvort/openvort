@@ -35,6 +35,7 @@ import { useWorkItemInlineEdit } from "./work-item/useWorkItemInlineEdit";
 import {
     getVortflowStories,
     getVortflowProjects, createVortflowStory, createVortflowTask, createVortflowBug,
+    copyVortflowStory, copyVortflowTask, copyVortflowBug,
     deleteVortflowStory, deleteVortflowTask, deleteVortflowBug,
     updateVortflowStory, updateVortflowTask, updateVortflowBug,
     addVortflowIterationStory, addVortflowIterationTask, addVortflowIterationBug,
@@ -43,6 +44,7 @@ import {
     addVortflowVersionBug, removeVortflowVersionBug,
     getVortgitRepos, getVortgitRepoBranches,
     getVortflowTags,
+    getVortflowIterations,
 } from "@/api";
 import type {
     WorkItemType,
@@ -157,7 +159,7 @@ const createBugDrawerOpen = computed({
     set: (val: boolean) => {
         if (!val) {
             cacheDescDraftBeforeClose();
-            router.replace({ query: { ...route.query, action: undefined, id: undefined, parentId: undefined } });
+            router.replace({ query: { ...route.query, action: undefined, id: undefined, parentId: undefined, tab: undefined } });
         }
     }
 });
@@ -247,6 +249,7 @@ const createInitialBugForm = (): NewBugForm => ({
 });
 const createBugForm = reactive<NewBugForm>(createInitialBugForm());
 const apiProjects = ref<Array<{ id: string; name: string }>>([]);
+const apiIterations = ref<Array<{ id: string; name: string }>>([]);
 const apiRepos = ref<Array<{ id: string; name: string }>>([]);
 const apiStories = ref<Array<{ id: string; title: string }>>([]);
 const branchOptionsMap = reactive<Record<string, Array<{ name: string }>>>({});
@@ -255,6 +258,7 @@ const estimateEditingFor = ref<string | null>(null);
 const estimateDraftMap = reactive<Record<string, number | null>>({});
 const estimateInputRef = ref<any>(null);
 const projectPickerOpenMap = reactive<Record<string, boolean>>({});
+const iterationPickerOpenMap = reactive<Record<string, boolean>>({});
 const repoPickerOpenMap = reactive<Record<string, boolean>>({});
 const branchPickerOpenMap = reactive<Record<string, boolean>>({});
 const startAtPickerOpenMap = reactive<Record<string, boolean>>({});
@@ -508,6 +512,18 @@ const loadRepoOptions = async () => {
     }
 };
 
+const loadIterationOptions = async () => {
+    if (!props.useApi) return;
+    try {
+        const res: any = await getVortflowIterations({ page_size: 200 });
+        apiIterations.value = ((res?.items || []) as any[])
+            .map((i: any) => ({ id: String(i.id || ""), name: String(i.name || "") }))
+            .filter((i) => i.id && i.name);
+    } catch {
+        apiIterations.value = [];
+    }
+};
+
 const loadBranchOptions = async (repoId?: string) => {
     if (!props.useApi || !repoId) return;
     if (branchOptionsMap[repoId]?.length) return;
@@ -625,6 +641,7 @@ const syncRecordUpdateToApi = async (
             description: patch.description,
             state: patch.state,
             priority: patch.priority,
+            assignee_id: patch.assignee_id === undefined ? undefined : (patch.assignee_id || undefined),
             tags: patch.tags,
             collaborators: patch.collaborators,
             deadline: patch.deadline,
@@ -635,6 +652,7 @@ const syncRecordUpdateToApi = async (
             repo_id: patch.repo_id,
             branch: patch.branch,
         });
+        record.updatedAt = formatCnTime(new Date());
         return;
     }
     if (record.type === "任务") {
@@ -654,6 +672,7 @@ const syncRecordUpdateToApi = async (
             branch: patch.branch,
             project_id: patch.project_id,
         });
+        record.updatedAt = formatCnTime(new Date());
         return;
     }
     await updateVortflowBug(id, {
@@ -673,6 +692,7 @@ const syncRecordUpdateToApi = async (
         branch: patch.branch,
         project_id: patch.project_id,
     });
+    record.updatedAt = formatCnTime(new Date());
 };
 
 const syncRecordStatusToApi = async (record: RowItem, displayStatus: Status) => {
@@ -795,6 +815,37 @@ const selectRowProject = async (record: RowItem, projectId?: string) => {
         record.projectId = prevProjectId;
         record.projectName = prevProjectName;
         message.error(error?.message || "项目同步失败");
+    }
+};
+
+const selectRowIteration = async (record: RowItem, iterationId?: string) => {
+    const key = getInteractiveCellKey(record);
+    const itemId = getRecordBackendId(record);
+    if (!itemId) return;
+    const prevIterationId = record.iterationId || "";
+    const prevIteration = record.iteration || "";
+    const nextIterationId = String(iterationId || "");
+    const nextIteration = apiIterations.value.find(i => i.id === nextIterationId)?.name || "";
+    record.iterationId = nextIterationId;
+    record.iteration = nextIteration;
+    record._prevIteration = nextIterationId;
+    iterationPickerOpenMap[key] = false;
+    try {
+        if (prevIterationId && prevIterationId !== nextIterationId) {
+            if (record.type === "需求") await removeVortflowIterationStory(prevIterationId, itemId);
+            else if (record.type === "任务") await removeVortflowIterationTask(prevIterationId, itemId);
+            else if (record.type === "缺陷") await removeVortflowIterationBug(prevIterationId, itemId);
+        }
+        if (nextIterationId && nextIterationId !== prevIterationId) {
+            if (record.type === "需求") await addVortflowIterationStory(nextIterationId, { story_id: itemId });
+            else if (record.type === "任务") await addVortflowIterationTask(nextIterationId, { task_id: itemId });
+            else if (record.type === "缺陷") await addVortflowIterationBug(nextIterationId, { bug_id: itemId });
+        }
+    } catch (error: any) {
+        record.iterationId = prevIterationId;
+        record.iteration = prevIteration;
+        record._prevIteration = prevIterationId;
+        message.error(error?.message || "迭代同步失败");
     }
 };
 
@@ -1008,12 +1059,41 @@ const handleCancelCreateBug = () => {
     createProjectId.value = "";
 };
 
+const handleDetailDelete = async () => {
+    const rec = detailCurrentRecord.value;
+    if (!rec) return;
+    try {
+        await deleteOne(rec);
+        message.success("删除成功");
+        handleCancelCreateBug();
+        tableRef.value?.refresh?.();
+    } catch {
+        message.error("删除失败");
+    }
+};
+
 const handleCancelCreateWorkItem = () => {
     if (createWorkItemRef.value) {
         createWorkItemRef.value.cancel();
         return;
     }
     handleCancelCreateBug();
+};
+
+const handleCopyWorkItem = async () => {
+    const rec = detailCurrentRecord.value;
+    if (!rec?.backendId || !props.useApi) return;
+    try {
+        const type = rec.type as WorkItemType;
+        if (type === "需求") await copyVortflowStory(rec.backendId);
+        else if (type === "任务") await copyVortflowTask(rec.backendId);
+        else await copyVortflowBug(rec.backendId);
+        message.success("复制成功");
+        createBugDrawerOpen.value = false;
+        tableRef.value?.refresh?.();
+    } catch {
+        message.error("复制失败");
+    }
 };
 
 const handleDetailUpdate = async (data: Partial<RowItem>) => {
@@ -1033,11 +1113,7 @@ const handleDetailUpdate = async (data: Partial<RowItem>) => {
         const ownerId = data.owner ? getMemberIdByName(data.owner) || data.owner : undefined;
         const collabIds = data.collaborators?.map(n => getMemberIdByName(n) || n);
         const patch: any = {};
-        if (rec.type === "需求") {
-            if (ownerId !== undefined) patch.pm_id = ownerId || null;
-        } else {
-            if (ownerId !== undefined) patch.assignee_id = ownerId || null;
-        }
+        if (ownerId !== undefined) patch.assignee_id = ownerId || null;
         if (collabIds) patch.collaborators = collabIds;
         await syncRecordUpdateToApi(rec, patch);
     }
@@ -1205,6 +1281,7 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
                     assignee_id: ownerId,
                     tags: [...formData.tags],
                     collaborators: [...formData.collaborators],
+                    deadline: formData.planTime?.[1] || undefined,
                 });
             }
             if (createdItem) {
@@ -1216,8 +1293,19 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
                             await addVortflowIterationStory(formData.iteration, { story_id: createdId });
                         } else if (type === "任务") {
                             await addVortflowIterationTask(formData.iteration, { task_id: createdId });
+                        } else if (type === "缺陷") {
+                            await addVortflowIterationBug(formData.iteration, { bug_id: createdId });
                         }
                     } catch { /* iteration link failed silently */ }
+                }
+                if (createdId && formData.version) {
+                    try {
+                        if (type === "需求") {
+                            await addVortflowVersionStory(formData.version, { story_id: createdId });
+                        } else if (type === "缺陷") {
+                            await addVortflowVersionBug(formData.version, { bug_id: createdId });
+                        }
+                    } catch { /* version link failed silently */ }
                 }
                 const pinnedRow = mapBackendItemToRow(createdItem, type, 0);
                 if ((type === "需求" || type === "任务") && formData.parentId) {
@@ -1319,7 +1407,8 @@ const handleOpenBugDetail = async (record: RowItem) => {
         description: record.description || base.description
     });
 
-    router.replace({ query: { ...route.query, action: "detail", id: record.backendId || record.workNo } });
+    const typeToTab: Record<string, string> = { "需求": "story", "任务": "task", "缺陷": "bug" };
+    router.replace({ query: { ...route.query, action: "detail", id: record.backendId || record.workNo, tab: typeToTab[record.type] || typeToTab[props.type] } });
 };
 
 const handleOpenRelated = async (partial: any) => {
@@ -1507,6 +1596,7 @@ onMounted(async () => {
     await Promise.all([
         loadApiMetadata(false),
         loadRepoOptions(),
+        loadIterationOptions(),
         loadTagDefinitions(),
         vortFlowStore.loadColumnSettings(props.type || ""),
         vortFlowStore.loadViews(props.type || ""),
@@ -1525,11 +1615,23 @@ onMounted(async () => {
             createProjectId.value = findItemRowById(parentId)?.projectId || "";
         }
     } else if (action === "detail" && id) {
-        const record = findItemRowByIdentifier(id) || await loadItemById(id, props.type);
+        const urlTab = route.query.tab as string;
+        const tabTypeMap: Record<string, WorkItemType> = { story: "需求", task: "任务", bug: "缺陷" };
+        const urlType = tabTypeMap[urlTab];
+        if (urlType && urlType !== props.type) return;
+
+        let record = findItemRowByIdentifier(id) || await loadItemById(id, props.type);
+        if (!record && !urlType) {
+            const otherTypes = (["需求", "任务", "缺陷"] as WorkItemType[]).filter(t => t !== props.type);
+            for (const t of otherTypes) {
+                record = await loadItemById(id, t);
+                if (record) break;
+            }
+        }
         if (record) {
             handleOpenBugDetail(record);
         } else {
-            router.replace({ query: { ...route.query, action: undefined, id: undefined, parentId: undefined } });
+            router.replace({ query: { ...route.query, action: undefined, id: undefined, parentId: undefined, tab: undefined } });
         }
     }
 });
@@ -1920,15 +2022,27 @@ onMounted(async () => {
                 </template>
 
                 <template #iteration="{ text, record }">
-                    <TableCell @click="handleOpenBugDetail(record)">
-                        <span v-if="text" class="text-sm text-blue-600 cursor-pointer">{{ text }}</span>
-                        <span v-else class="text-sm text-gray-300">-</span>
+                    <TableCell @click.stop="iterationPickerOpenMap[getInteractiveCellKey(record)] = true">
+                        <div class="cell-select-plain text-sm text-gray-700">
+                            <vort-select
+                                :model-value="record.iterationId || undefined"
+                                :open="iterationPickerOpenMap[getInteractiveCellKey(record)]"
+                                placeholder="-"
+                                allow-clear
+                                size="small"
+                                :bordered="false"
+                                @update:open="iterationPickerOpenMap[getInteractiveCellKey(record)] = $event"
+                                @change="(val: any) => selectRowIteration(record, val)"
+                            >
+                                <vort-select-option v-for="iter in apiIterations" :key="iter.id" :value="iter.id">{{ iter.name }}</vort-select-option>
+                            </vort-select>
+                        </div>
                     </TableCell>
                 </template>
 
-                <template #version="{ text, record }">
-                    <TableCell @click="handleOpenBugDetail(record)">
-                        <span v-if="text" class="text-sm text-blue-600 cursor-pointer">{{ text }}</span>
+                <template #version="{ text }">
+                    <TableCell>
+                        <span v-if="text" class="text-sm text-gray-700">{{ text }}</span>
                         <span v-else class="text-sm text-gray-300">-</span>
                     </TableCell>
                 </template>
@@ -2083,6 +2197,8 @@ onMounted(async () => {
                     :initial-desc-draft="detailDescDraft"
                     @close="handleCancelCreateBug"
                     @update="handleDetailUpdate"
+                    @delete="handleDetailDelete"
+                    @copy="handleCopyWorkItem"
                     @open-related="handleOpenRelated"
                     @create-child="handleCreateChild"
                 />
@@ -2391,4 +2507,22 @@ onMounted(async () => {
     transform: translateY(-4px);
 }
 
+.cell-select-plain {
+    width: 100%;
+}
+
+</style>
+
+<style>
+.cell-select-plain .vort-select-suffix {
+    display: none !important;
+}
+.cell-select-plain .vort-select-value {
+    color: inherit !important;
+    font-size: inherit !important;
+}
+.cell-select-plain .vort-select-placeholder {
+    color: #d1d5db !important;
+    font-size: inherit !important;
+}
 </style>

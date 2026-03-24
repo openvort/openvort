@@ -45,7 +45,8 @@ async def list_stories(
     priority: int = Query(0, description="按优先级过滤"),
     parent_id: str | None = Query(None, description="按父需求过滤，root 表示仅顶层需求"),
     submitter_id: str = Query("", description="按创建者过滤"),
-    pm_id: str = Query("", description="按负责人过滤"),
+    assignee_id: str = Query("", description="按负责人过滤"),
+    pm_id: str = Query("", description="按产品经理过滤"),
     participant_id: str = Query("", description="按参与者过滤（检查 collaborators）"),
     iteration_id: str = Query("", description="按迭代过滤"),
     sort_by: str = Query("", description="排序字段"),
@@ -87,6 +88,9 @@ async def list_stories(
         if submitter_id:
             stmt = stmt.where(FlowStory.submitter_id == submitter_id)
             count_stmt = count_stmt.where(FlowStory.submitter_id == submitter_id)
+        if assignee_id:
+            stmt = stmt.where(FlowStory.assignee_id == assignee_id)
+            count_stmt = count_stmt.where(FlowStory.assignee_id == assignee_id)
         if pm_id:
             stmt = stmt.where(FlowStory.pm_id == pm_id)
             count_stmt = count_stmt.where(FlowStory.pm_id == pm_id)
@@ -159,6 +163,7 @@ async def create_story(body: StoryCreate, request: Request):
             description=body.description, priority=body.priority,
             parent_id=normalized_parent_id,
             submitter_id=member_id or None,
+            assignee_id=body.assignee_id or None,
             tags_json=json.dumps(body.tags or [], ensure_ascii=False),
             collaborators_json=json.dumps(body.collaborators or [], ensure_ascii=False),
             deadline=_parse_dt(body.deadline),
@@ -171,11 +176,13 @@ async def create_story(body: StoryCreate, request: Request):
             s.id,
             "created",
             {"title": body.title, "parent_id": normalized_parent_id},
+            actor_id=member_id,
         )
         await session.commit()
         await session.refresh(s)
     schedule_notification(_notifier.notify_item_created(
         "story", s.id, s.title, s.project_id, member_id,
+        assignee_id=body.assignee_id,
         collaborator_ids=body.collaborators,
     ))
     return _story_dict(s)
@@ -190,6 +197,7 @@ async def update_story(story_id: str, body: StoryUpdate, request: Request):
         if not s:
             return {"error": "需求不存在"}
         old_pm_id = s.pm_id
+        old_assignee_id = getattr(s, "assignee_id", None)
         old_priority = s.priority
         old_collaborators = _parse_json_list(s.collaborators_json)
         old_deadline = str(s.deadline) if s.deadline else None
@@ -205,7 +213,7 @@ async def update_story(story_id: str, body: StoryUpdate, request: Request):
                 return {"error": parent_error}
             changes["parent_id"] = normalized_parent_id
             s.parent_id = normalized_parent_id
-        for field in ["title", "description", "state", "priority", "pm_id", "project_id"]:
+        for field in ["title", "description", "state", "priority", "assignee_id", "pm_id", "project_id"]:
             val = getattr(body, field)
             if val is not None:
                 changes[field] = val
@@ -232,11 +240,16 @@ async def update_story(story_id: str, body: StoryUpdate, request: Request):
             s.branch = body.branch
             changes["branch"] = body.branch
         if changes:
-            await _log_event(session, "story", story_id, "updated", changes)
+            await _log_event(session, "story", story_id, "updated", changes, actor_id=actor_id)
         await session.commit()
         await session.refresh(s)
         project_id = s.project_id or ""
         collaborators = _parse_json_list(s.collaborators_json)
+    if body.assignee_id and body.assignee_id != old_assignee_id:
+        schedule_notification(_notifier.notify_assignment(
+            "story", story_id, s.title, actor_id, body.assignee_id,
+            project_id=project_id,
+        ))
     if body.pm_id and body.pm_id != old_pm_id:
         schedule_notification(_notifier.notify_assignment(
             "story", story_id, s.title, actor_id, body.pm_id,
@@ -256,7 +269,8 @@ async def update_story(story_id: str, body: StoryUpdate, request: Request):
     if field_changes:
         schedule_notification(_notifier.notify_field_changes(
             "story", story_id, s.title, project_id, actor_id, field_changes,
-            assignee_id=s.pm_id, creator_id=s.submitter_id,
+            assignee_id=getattr(s, "assignee_id", None) or s.pm_id,
+            creator_id=s.submitter_id,
             collaborator_ids=collaborators,
         ))
     return _story_dict(s)
@@ -306,19 +320,72 @@ async def transition_story(story_id: str, body: TransitionBody, request: Request
         old_state = s.state
         s.state = target.value
         collaborators = _parse_json_list(s.collaborators_json)
-        await _log_event(session, "story", story_id, "state_changed",
-                         {"from": old_state, "to": target.value})
+        await _log_event(
+            session,
+            "story",
+            story_id,
+            "state_changed",
+            {"from": old_state, "to": target.value},
+            actor_id=actor_id,
+        )
         await session.commit()
         await session.refresh(s)
     schedule_notification(_notifier.notify_state_change(
         "story", story_id, s.title, actor_id,
         old_state, target.value,
-        assignee_id=s.pm_id,
+        assignee_id=getattr(s, "assignee_id", None) or s.pm_id,
         collaborator_ids=collaborators,
         creator_id=s.submitter_id,
         project_id=s.project_id or "",
     ))
     return _story_dict(s)
+
+@sub_router.post("/stories/{story_id}/copy")
+async def copy_story(story_id: str, request: Request):
+    payload = require_auth(request)
+    member_id = payload.get("sub", "")
+    sf = get_session_factory()
+    async with sf() as session:
+        src = await session.get(FlowStory, story_id)
+        if not src:
+            return {"error": "需求不存在"}
+        new_story = FlowStory(
+            project_id=src.project_id,
+            title=f"{src.title} (副本)",
+            description=src.description,
+            priority=src.priority,
+            parent_id=src.parent_id,
+            submitter_id=member_id or None,
+            assignee_id=getattr(src, "assignee_id", None),
+            tags_json=src.tags_json,
+            collaborators_json=src.collaborators_json,
+            deadline=src.deadline,
+        )
+        session.add(new_story)
+        await session.flush()
+
+        iter_row = (await session.execute(
+            select(FlowIterationStory.iteration_id)
+            .where(FlowIterationStory.story_id == story_id)
+            .limit(1)
+        )).scalar()
+        if iter_row:
+            session.add(FlowIterationStory(iteration_id=iter_row, story_id=new_story.id))
+
+        from openvort.plugins.vortflow.models import FlowVersionStory
+        ver_row = (await session.execute(
+            select(FlowVersionStory.version_id)
+            .where(FlowVersionStory.story_id == story_id)
+            .limit(1)
+        )).scalar()
+        if ver_row:
+            session.add(FlowVersionStory(version_id=ver_row, story_id=new_story.id))
+
+        await _log_event(session, "story", new_story.id, "created",
+                         {"title": new_story.title, "copied_from": story_id}, actor_id=member_id)
+        await session.commit()
+        await session.refresh(new_story)
+    return _story_dict(new_story)
 
 @sub_router.get("/stories/{story_id}/transitions")
 async def get_story_transitions(story_id: str):

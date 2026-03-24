@@ -25,7 +25,15 @@ const iteration = ref<any>({});
 const iterations = ref<any[]>([]);
 
 type TabType = "需求" | "任务" | "缺陷";
-const activeTab = ref<TabType>("需求");
+const tabUrlMap: Record<string, TabType> = { story: "需求", task: "任务", bug: "缺陷" };
+const tabToUrlKey: Record<TabType, string> = { "需求": "story", "任务": "task", "缺陷": "bug" };
+const queryTab = route.query.tab as string;
+const activeTab = ref<TabType>(tabUrlMap[queryTab] || "需求");
+
+const switchTab = (tab: TabType) => {
+    activeTab.value = tab;
+    router.replace({ query: { ...route.query, tab: tabToUrlKey[tab] } });
+};
 
 const tabConfig = computed(() => {
     const map: Record<TabType, { pageTitle: string; createBtn: string; createDrawer: string; detailDrawer: string }> = {
@@ -430,7 +438,7 @@ onMounted(() => loadAll());
                                 :class="activeTab === tab
                                     ? 'text-blue-600'
                                     : 'text-gray-500 hover:text-gray-700'"
-                                @click="activeTab = tab"
+                                @click="switchTab(tab)"
                             >
                                 {{ tab }}
                                 <div

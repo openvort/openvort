@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "openvort"
-version = "0.4.0"
+version = "0.5.0"
 description = "Open-source AI-powered R&D workflow engine — interact with AI agents via IM or Web to automate project management, code repositories, and team collaboration"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
@@ -22,7 +22,8 @@ classifiers = [
     "Topic :: Software Development :: Libraries",
 ]
 dependencies = [
-    "anthropic>=0.40",
+    "anyio>=4.5,<5",
+    "anthropic>=0.50",
     "click>=8.1",
     "httpx>=0.27",
     "pydantic>=2.0",
@@ -41,6 +42,7 @@ dependencies = [
     "websockets>=13.0",
     "python-jose[cryptography]>=3.3",
     "passlib[bcrypt]>=1.7",
+    "bcrypt>=4.0,<5",
     "python-multipart>=0.0.9",
     "aiohttp>=3.9",
     "dashscope>=1.20",
@@ -79,6 +81,7 @@ report = "openvort.plugins.report:ReportPlugin"
 system = "openvort.plugins.system:SystemPlugin"
 browser = "openvort.plugins.browser:BrowserPlugin"
 knowledge = "openvort.plugins.knowledge:KnowledgePlugin"
+vortsketch = "openvort.plugins.vortsketch:VortSketchPlugin"
 
 [project.urls]
 Homepage = "https://github.com/openvort/openvort"

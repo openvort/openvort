@@ -93,11 +93,13 @@ async def _doctor():
         click.echo(f"  ✅ 管理员: {settings.contacts.admin_user_ids}")
 
     if settings.web.enabled:
-        if settings.web.default_password == "openvort":
-            issues.append("Web 面板使用默认密码")
-            click.echo("  ⚠️ Web 面板使用默认密码 'openvort'（建议修改 OPENVORT_WEB_DEFAULT_PASSWORD）")
+        weak_passwords = {"openvort", "admin", "password", "123456", "12345678"}
+        dp = settings.web.default_password
+        if dp in weak_passwords or len(dp) < 8:
+            issues.append("Web 面板管理员初始密码过弱")
+            click.echo(f"  ⚠️ Web 面板管理员初始密码过弱（建议修改 OPENVORT_WEB_DEFAULT_PASSWORD 为 8 位以上强密码）")
         else:
-            click.echo("  ✅ Web 面板密码已自定义")
+            click.echo("  ✅ Web 面板管理员初始密码已自定义")
 
     # 6. 插件检查
     click.echo("\n── 插件 ──")

@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, reactive, onMounted, watch, nextTick } from "vue";
-import { message } from "@/components/vort";
+import { message, dialog, Dropdown, DropdownMenuItem, DropdownMenuSeparator } from "@/components/vort";
 import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMemberPicker.vue";
 import WorkItemStatus from "@/components/vort-biz/work-item/WorkItemStatus.vue";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
 import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
-import { Copy, SquarePen, FileText, Bot, Loader2, Bell } from "lucide-vue-next";
+import { Copy, CopyPlus, SquarePen, FileText, Bot, Loader2, MoreHorizontal, Send, Trash2 } from "lucide-vue-next";
 import { useInlineAi } from "@/hooks";
 import { useWorkItemCommon } from "./useWorkItemCommon";
 import WorkItemLinkPanel from "./WorkItemLinkPanel.vue";
@@ -30,6 +30,7 @@ const emit = defineEmits<{
     close: [];
     update: [data: Partial<RowItem>];
     delete: [];
+    copy: [];
     openRelated: [record: RowItem];
     createChild: [record: RowItem];
 }>();
@@ -102,6 +103,18 @@ const handleCopyDetailLink = async () => {
     }
 };
 
+const handleDelete = () => {
+    dialog.confirm({
+        title: "确认删除",
+        content: `确定要删除${record.value?.type}「${record.value?.title}」吗？删除后不可恢复。`,
+        okType: "danger",
+        okText: "删除",
+        onOk: () => {
+            emit("delete");
+        },
+    });
+};
+
 const detailComments = computed(() => {
     if (!props.workNo) return [];
     return detailCommentsMap[props.workNo] || [];
@@ -147,6 +160,78 @@ const formatTimeAgo = (isoStr: string): string => {
     return `${month}月${day}日 ${h}:${m}`;
 };
 
+const FIELD_LABEL_MAP: Record<string, string> = {
+    title: "名称", description: "描述", state: "状态", priority: "优先级",
+    assignee_id: "负责人", pm_id: "负责人", estimate_hours: "预估工时",
+    actual_hours: "实际工时", tags: "标签", collaborators: "协作者",
+    deadline: "截止日期", project_id: "项目", start_at: "开始时间",
+    end_at: "结束时间", repo_id: "关联仓库", branch: "关联分支",
+    severity: "严重程度", task_type: "任务类型", parent_id: "父级",
+};
+
+const LONG_TEXT_FIELDS = new Set(["description"]);
+
+const STATE_LABEL_MAP: Record<string, string> = {
+    intake: "意向", review: "评审", rejected: "已取消",
+    pm_refine: "需求细化", design: "设计中", breakdown: "任务拆解",
+    dev_assign: "待分配", in_progress: "进行中", testing: "测试中",
+    bugfix: "修复缺陷", done: "已完成",
+    todo: "待办的", closed: "已关闭",
+    open: "待确认", confirmed: "已确认",
+    fixing: "修复中", resolved: "已修复", verified: "已验证",
+};
+
+const formatFieldValue = (key: string, value: any): string => {
+    if (value == null || value === "") return "空";
+    if (LONG_TEXT_FIELDS.has(key)) return "（已更新）";
+    if (key === "assignee_id" || key === "pm_id") return getMemberNameById(String(value)) || String(value);
+    if (key === "collaborators" && Array.isArray(value)) return value.map(v => getMemberNameById(String(v)) || String(v)).join("、") || "空";
+    if (key === "tags" && Array.isArray(value)) return value.join("、") || "空";
+    if (key === "state") return STATE_LABEL_MAP[String(value)] || String(value);
+    if (key === "priority") {
+        const m: Record<number, string> = { 1: "紧急", 2: "高", 3: "中", 4: "低" };
+        return m[value] || String(value);
+    }
+    if (key === "severity") {
+        const m: Record<number, string> = { 1: "致命", 2: "严重", 3: "一般", 4: "轻微" };
+        return m[value] || String(value);
+    }
+    return String(value);
+};
+
+const formatActivityAction = (action: string, detailRaw: any): string => {
+    let detail: Record<string, any> = {};
+    if (typeof detailRaw === "string") {
+        try { detail = JSON.parse(detailRaw); } catch { /* ignore */ }
+    } else if (detailRaw && typeof detailRaw === "object") {
+        detail = detailRaw;
+    }
+    if (action === "created") {
+        const title = detail.title ? `「${detail.title}」` : "";
+        return `创建了工作项${title}`;
+    }
+    if (action === "state_changed") {
+        const fromLabel = STATE_LABEL_MAP[detail.from] || detail.from || "?";
+        const toLabel = STATE_LABEL_MAP[detail.to] || detail.to || "?";
+        return `将状态从"${fromLabel}"修改为"${toLabel}"`;
+    }
+    if (action === "updated") {
+        const keys = Object.keys(detail);
+        if (!keys.length) return "更新了工作项";
+        const parts = keys.map(k => {
+            const label = FIELD_LABEL_MAP[k] || k;
+            const val = formatFieldValue(k, detail[k]);
+            return `${label}→"${val}"`;
+        });
+        return `修改了${parts.join("、")}`;
+    }
+    if (action === "deleted") return `删除了工作项${detail.title ? `「${detail.title}」` : ""}`;
+    if (action === "comment_added") return `添加了评论`;
+    if (action === "link_added") return `添加了关联工作项`;
+    if (action === "link_removed") return `移除了关联工作项`;
+    return action;
+};
+
 const ensureDetailPanelsData = async () => {
     const entityId = record.value?.backendId;
     if (!entityId) {
@@ -176,7 +261,7 @@ const ensureDetailPanelsData = async () => {
             id: String(e.id),
             actor: getMemberNameById(e.actor_id) || e.actor_id || "系统",
             createdAt: formatTimeAgo(e.created_at),
-            action: e.action || "",
+            action: formatActivityAction(e.action, e.detail),
         }));
     } else {
         if (!detailLogsMap[props.workNo]) detailLogsMap[props.workNo] = [];
@@ -775,49 +860,69 @@ watch(() => props.initialData, (value) => {
     <div class="bug-detail-drawer">
         <main class="bug-detail-main" v-if="record">
             <div class="bug-detail-meta-top">
-                <span class="work-type-icon" :class="getWorkItemTypeIconClass(record.type)">
-                    <svg v-if="record.type === '缺陷'" class="work-type-icon-svg" viewBox="0 0 24 24" aria-hidden="true">
-                        <circle cx="12" cy="7.5" r="3.2" fill="white" />
-                        <rect x="8" y="10.5" width="8" height="9" rx="3.8" fill="white" />
-                        <rect x="11.2" y="10.8" width="1.6" height="8.6" rx="0.8" fill="#ef4444" />
-                        <path d="M8.3 12.3H5.2M8.1 15.1H4.8M15.9 12.3H18.8M16.1 15.1H19.2" stroke="white" stroke-width="1.5" stroke-linecap="round" />
-                        <path d="M10.2 4.8 8.7 3.3M13.8 4.8 15.3 3.3" stroke="white" stroke-width="1.5" stroke-linecap="round" />
-                    </svg>
-                    <template v-else>{{ getWorkItemTypeIconSymbol(record.type) }}</template>
-                </span>
-                <span class="bug-detail-no">{{ record.workNo }}</span>
-                <button type="button" class="detail-copy-link-btn" @click="handleCopyDetailLink">
-                    <Copy :size="14" />
-                    复制链接
-                </button>
-                <AiAssistButton
-                    :prompt="`我要对${record.type}「${record.title}」(${record.workNo}) 进一步操作，请告诉我可以做什么。`"
-                    label="AI 助手"
-                />
-                <button type="button" class="detail-copy-link-btn" @click="notifyDialogOpen = true">
-                    <Bell :size="14" />
-                    通知
-                </button>
-                <WorkItemStatus
-                    :model-value="record.status"
-                    :options="filteredDetailStatusOptions"
-                    :open="detailStatusDropdownOpen"
-                    v-model:keyword="detailStatusKeyword"
-                    @update:open="(open) => { detailStatusDropdownOpen = open; if (!open) detailStatusKeyword = ''; }"
-                    @change="selectDetailStatus"
-                >
-                    <template #trigger>
-                        <VortButton class="detail-status-trigger" variant="text" @click.stop="toggleDetailStatusMenu">
-                            <span class="detail-status-content">
-                                <span class="detail-status-icon" :class="getStatusOption(record.status, record.type).iconClass">
-                                    {{ getStatusOption(record.status, record.type).icon }}
+                <div class="bug-detail-meta-left">
+                    <span class="work-type-icon" :class="getWorkItemTypeIconClass(record.type)">
+                        <svg v-if="record.type === '缺陷'" class="work-type-icon-svg" viewBox="0 0 24 24" aria-hidden="true">
+                            <circle cx="12" cy="7.5" r="3.2" fill="white" />
+                            <rect x="8" y="10.5" width="8" height="9" rx="3.8" fill="white" />
+                            <rect x="11.2" y="10.8" width="1.6" height="8.6" rx="0.8" fill="#ef4444" />
+                            <path d="M8.3 12.3H5.2M8.1 15.1H4.8M15.9 12.3H18.8M16.1 15.1H19.2" stroke="white" stroke-width="1.5" stroke-linecap="round" />
+                            <path d="M10.2 4.8 8.7 3.3M13.8 4.8 15.3 3.3" stroke="white" stroke-width="1.5" stroke-linecap="round" />
+                        </svg>
+                        <template v-else>{{ getWorkItemTypeIconSymbol(record.type) }}</template>
+                    </span>
+                    <span class="bug-detail-no">{{ record.workNo }}</span>
+                    <button type="button" class="detail-copy-link-btn" @click="handleCopyDetailLink">
+                        <Copy :size="14" />
+                        复制链接
+                    </button>
+                    <button type="button" class="detail-copy-link-btn" @click="notifyDialogOpen = true">
+                        <Send :size="14" />
+                        发送通知
+                    </button>
+                    <WorkItemStatus
+                        :model-value="record.status"
+                        :options="filteredDetailStatusOptions"
+                        :open="detailStatusDropdownOpen"
+                        v-model:keyword="detailStatusKeyword"
+                        @update:open="(open) => { detailStatusDropdownOpen = open; if (!open) detailStatusKeyword = ''; }"
+                        @change="selectDetailStatus"
+                    >
+                        <template #trigger>
+                            <VortButton class="detail-status-trigger" variant="text" @click.stop="toggleDetailStatusMenu">
+                                <span class="detail-status-content">
+                                    <span class="detail-status-icon" :class="getStatusOption(record.status, record.type).iconClass">
+                                        {{ getStatusOption(record.status, record.type).icon }}
+                                    </span>
+                                    <span class="detail-status-text">{{ record.status }}</span>
                                 </span>
-                                <span class="detail-status-text">{{ record.status }}</span>
-                            </span>
-                            <span class="status-arrow-simple" :class="{ open: detailStatusDropdownOpen }" />
-                        </VortButton>
-                    </template>
-                </WorkItemStatus>
+                                <span class="status-arrow-simple" :class="{ open: detailStatusDropdownOpen }" />
+                            </VortButton>
+                        </template>
+                    </WorkItemStatus>
+                </div>
+                <div class="bug-detail-meta-right">
+                    <AiAssistButton
+                        :prompt="`我要对${record.type}「${record.title}」(${record.workNo}) 进一步操作，请告诉我可以做什么。`"
+                        label="AI 助手"
+                    />
+                    <Dropdown trigger="click" placement="bottomRight">
+                        <button type="button" class="detail-more-btn">
+                            <MoreHorizontal :size="16" />
+                        </button>
+                        <template #overlay>
+                            <DropdownMenuItem @click="emit('copy')">
+                                <CopyPlus :size="14" class="mr-2 text-gray-400" />
+                                <span>复制</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem @click="handleDelete">
+                                <Trash2 :size="14" class="mr-2 text-red-400" />
+                                <span class="text-red-500">删除</span>
+                            </DropdownMenuItem>
+                        </template>
+                    </Dropdown>
+                </div>
             </div>
 
             <div v-if="isHierarchyRecord && parentRecord" class="story-tree-header">
@@ -853,7 +958,7 @@ watch(() => props.initialData, (value) => {
                 <h2 v-else class="bug-detail-title bug-detail-title-editable" @click="startEditingTitle">{{ record.title }}</h2>
             </template>
             <p class="bug-detail-sub" :style="isHierarchyRecord && parentRecord ? 'margin-top: 8px;' : ''">
-                {{ record.owner || "未指派" }}，创建于 {{ record.createdAt }}，最近更新于 {{ record.createdAt }}
+                {{ record.owner || "未指派" }}，创建于 {{ record.createdAt }}，最近更新于 {{ record.updatedAt || record.createdAt }}
             </p>
             <div class="bug-detail-tabs">
                 <button :class="{ active: detailActiveTab === 'detail' }" @click="detailActiveTab = 'detail'">详情</button>
@@ -1366,8 +1471,40 @@ watch(() => props.initialData, (value) => {
 .bug-detail-meta-top {
     display: flex;
     align-items: center;
-    gap: 12px;
+    justify-content: space-between;
     margin-bottom: 12px;
+}
+
+.bug-detail-meta-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.bug-detail-meta-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.detail-more-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    background: #fff;
+    cursor: pointer;
+    color: #666;
+    transition: all 0.15s;
+}
+
+.detail-more-btn:hover {
+    border-color: var(--vort-primary, #1456f0);
+    color: var(--vort-primary, #1456f0);
 }
 
 .work-type-icon {

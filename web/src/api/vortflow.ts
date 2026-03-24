@@ -54,7 +54,7 @@ export function removeVortflowProjectMember(projectId: string, memberId: string)
 
 // ---- Stories ----
 
-export function getVortflowStories(params: { project_id?: string; state?: string; keyword?: string; priority?: number; parent_id?: string; submitter_id?: string; pm_id?: string; participant_id?: string; iteration_id?: string; sort_by?: string; sort_order?: string; page?: number; page_size?: number }) {
+export function getVortflowStories(params: { project_id?: string; state?: string; keyword?: string; priority?: number; parent_id?: string; submitter_id?: string; assignee_id?: string; pm_id?: string; participant_id?: string; iteration_id?: string; sort_by?: string; sort_order?: string; page?: number; page_size?: number }) {
     return request.get("/vortflow/stories", { params });
 }
 
@@ -62,7 +62,7 @@ export function getVortflowStory(id: string) {
     return request.get(`/vortflow/stories/${id}`);
 }
 
-export function createVortflowStory(data: { project_id: string; title: string; description?: string; priority?: number; parent_id?: string; tags?: string[]; collaborators?: string[]; deadline?: string }) {
+export function createVortflowStory(data: { project_id: string; title: string; description?: string; priority?: number; parent_id?: string; assignee_id?: string; tags?: string[]; collaborators?: string[]; deadline?: string }) {
     return request.post("/vortflow/stories", data);
 }
 
@@ -72,6 +72,7 @@ export function updateVortflowStory(id: string, data: {
     state?: string;
     priority?: number;
     parent_id?: string | null;
+    assignee_id?: string | null;
     tags?: string[];
     collaborators?: string[];
     deadline?: string;
@@ -87,6 +88,10 @@ export function updateVortflowStory(id: string, data: {
 
 export function deleteVortflowStory(id: string) {
     return request.delete(`/vortflow/stories/${id}`);
+}
+
+export function copyVortflowStory(id: string) {
+    return request.post(`/vortflow/stories/${id}/copy`);
 }
 
 export function transitionVortflowStory(id: string, target_state: string) {
@@ -135,6 +140,10 @@ export function deleteVortflowTask(id: string) {
     return request.delete(`/vortflow/tasks/${id}`);
 }
 
+export function copyVortflowTask(id: string) {
+    return request.post(`/vortflow/tasks/${id}/copy`);
+}
+
 export function transitionVortflowTask(id: string, target_state: string) {
     return request.post(`/vortflow/tasks/${id}/transition`, { target_state });
 }
@@ -153,7 +162,7 @@ export function getVortflowBug(id: string) {
     return request.get(`/vortflow/bugs/${id}`);
 }
 
-export function createVortflowBug(data: { project_id?: string; story_id?: string; task_id?: string; title: string; description?: string; severity?: number; assignee_id?: string; tags?: string[]; collaborators?: string[] }) {
+export function createVortflowBug(data: { project_id?: string; story_id?: string; task_id?: string; title: string; description?: string; severity?: number; assignee_id?: string; tags?: string[]; collaborators?: string[]; deadline?: string }) {
     return request.post("/vortflow/bugs", data);
 }
 
@@ -179,6 +188,10 @@ export function updateVortflowBug(id: string, data: {
 
 export function deleteVortflowBug(id: string) {
     return request.delete(`/vortflow/bugs/${id}`);
+}
+
+export function copyVortflowBug(id: string) {
+    return request.post(`/vortflow/bugs/${id}/copy`);
 }
 
 export function transitionVortflowBug(id: string, target_state: string) {

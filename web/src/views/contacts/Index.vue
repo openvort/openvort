@@ -34,6 +34,7 @@ const {
     drawerOpen, drawerLoading, currentMember, editForm, savingEdit,
     createMemberDialogOpen, createMemberForm, savingCreateMember, wizardOpen,
     roleDialogOpen, roleDialogMember, roleDialogLoading,
+    generatedPassword, showGeneratedPassword, closeGeneratedPassword,
     loadMembers, handleSearch, handleSync, loadChannels, handleDedup,
     loadSuggestions, handleAccept, handleReject,
     openMemberDrawer, handleSaveEdit, handleToggleAccount, handleResetPassword,
@@ -134,12 +135,20 @@ async function handleBatchDelete() {
     });
 }
 
+const batchPasswords = ref<{ id: string; name: string; password: string }[]>([]);
+const batchPasswordsVisible = ref(false);
+
 async function handleBatchEnableAccount() {
     if (!selectedIds.value.length) return;
     try {
         const res: any = await batchEnableAccount(selectedIds.value);
         if (res?.success) {
-            message.success(`已启用 ${res.count} 个账号`);
+            if (res.passwords?.length) {
+                batchPasswords.value = res.passwords;
+                batchPasswordsVisible.value = true;
+            } else {
+                message.success(`已启用 ${res.count} 个账号`);
+            }
             await loadMembers();
         } else { message.error("操作失败"); }
     } catch { message.error("操作失败"); }
@@ -945,7 +954,7 @@ onMounted(() => {
                             </div>
                             <div v-if="currentMember.is_account" class="mt-2 text-xs text-gray-400">
                                 <Lock :size="12" class="inline mr-1" />
-                                {{ currentMember.has_password ? '已设置独立密码' : '使用默认密码' }}
+                                {{ currentMember.has_password ? '已设置密码' : '未设置密码' }}
                             </div>
                         </div>
                     </div>
@@ -1273,5 +1282,62 @@ onMounted(() => {
             @update:open="wizardOpen = $event"
             @complete="async () => { await Promise.all([loadMembers(), loadDeptTree()]); }"
         />
+
+        <!-- 单个成员密码展示弹窗 -->
+        <VortDialog
+            :open="generatedPassword.visible"
+            title="初始密码"
+            width="small"
+            @update:open="(v: boolean) => { if (!v) closeGeneratedPassword(); }"
+        >
+            <div class="space-y-3">
+                <p class="text-sm text-gray-600">
+                    成员 <span class="font-semibold">{{ generatedPassword.memberName }}</span> 的初始密码已生成，请妥善保管。
+                </p>
+                <div class="flex items-center gap-2 bg-gray-50 px-3 py-2 rounded-lg border">
+                    <code class="flex-1 text-base font-mono tracking-wider select-all">{{ generatedPassword.password }}</code>
+                    <VortButton size="small" @click="navigator.clipboard.writeText(generatedPassword.password); message.success('已复制')">复制</VortButton>
+                </div>
+                <p class="text-xs text-amber-600">该密码仅展示一次，关闭后无法再次查看。成员首次登录后需强制修改密码。</p>
+            </div>
+            <template #footer>
+                <VortButton type="primary" @click="closeGeneratedPassword">知道了</VortButton>
+            </template>
+        </VortDialog>
+
+        <!-- 批量启用密码展示弹窗 -->
+        <VortDialog
+            :open="batchPasswordsVisible"
+            title="初始密码列表"
+            width="default"
+            @update:open="(v: boolean) => { if (!v) batchPasswordsVisible = false; }"
+        >
+            <p class="text-sm text-gray-600 mb-3">以下成员已启用登录并生成了初始密码，请妥善保管。</p>
+            <div class="border rounded-lg overflow-hidden">
+                <table class="w-full text-sm">
+                    <thead class="bg-gray-50 border-b">
+                        <tr>
+                            <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">姓名</th>
+                            <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">初始密码</th>
+                            <th class="px-3 py-2 text-right text-xs font-medium text-gray-500">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="item in batchPasswords" :key="item.id" class="border-b last:border-b-0">
+                            <td class="px-3 py-2 font-medium">{{ item.name }}</td>
+                            <td class="px-3 py-2 font-mono tracking-wider select-all">{{ item.password }}</td>
+                            <td class="px-3 py-2 text-right">
+                                <VortButton size="small" @click="navigator.clipboard.writeText(item.password); message.success('已复制')">复制</VortButton>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <p class="text-xs text-amber-600 mt-3">这些密码仅展示一次，关闭后无法再次查看。成员首次登录后需强制修改密码。</p>
+            <template #footer>
+                <VortButton size="small" @click="navigator.clipboard.writeText(batchPasswords.map(p => `${p.name}: ${p.password}`).join('\n')); message.success('已全部复制')">全部复制</VortButton>
+                <VortButton type="primary" @click="batchPasswordsVisible = false">知道了</VortButton>
+            </template>
+        </VortDialog>
     </div>
 </template>

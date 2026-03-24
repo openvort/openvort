@@ -27,7 +27,7 @@ class PluginRegistry:
         if name in self._slots:
             log.warning(f"Slot '{name}' already registered, overwriting")
         self._slots[name] = provider
-        log.info(f"Slot registered: {name}")
+        log.debug(f"Slot registered: {name}")
 
     def get_slot(self, name: str) -> object | None:
         return self._slots.get(name)
@@ -40,7 +40,7 @@ class PluginRegistry:
         if not isinstance(plugin, BasePlugin):
             return
         self._plugins[plugin.name] = plugin
-        log.info(f"已注册 Plugin: {plugin.name}")
+        log.debug(f"已注册 Plugin: {plugin.name}")
 
     def get_plugin(self, name: str) -> "BasePlugin | None":
         """获取指定 Plugin"""
@@ -60,7 +60,7 @@ class PluginRegistry:
             self._tools.pop(tn, None)
         self._prompts = [(s, c) for s, c in self._prompts if s != f"plugin:{name}"]
         self._disabled.add(name)
-        log.info(f"已禁用 Plugin: {name}（移除 {len(tool_names)} 个 Tool）")
+        log.debug(f"已禁用 Plugin: {name}（移除 {len(tool_names)} 个 Tool）")
 
     def enable_plugin(self, name: str) -> None:
         """启用插件：重新注册 Tools 和 Prompts"""
@@ -72,7 +72,7 @@ class PluginRegistry:
         for prompt in plugin.get_prompts():
             self.register_prompt(prompt, source=f"plugin:{name}")
         self._disabled.discard(name)
-        log.info(f"已启用 Plugin: {name}")
+        log.debug(f"已启用 Plugin: {name}")
 
     def is_plugin_disabled(self, name: str) -> bool:
         return name in self._disabled
@@ -96,7 +96,7 @@ class PluginRegistry:
         if channel.name in self._channels:
             log.warning(f"Channel '{channel.name}' 已存在，将被覆盖")
         self._channels[channel.name] = channel
-        log.info(f"已注册 Channel: {channel.name} ({channel.display_name})")
+        log.debug(f"已注册 Channel: {channel.name} ({channel.display_name})")
 
     def get_channel(self, name: str) -> BaseChannel | None:
         """获取指定 Channel"""
@@ -113,7 +113,7 @@ class PluginRegistry:
         if tool.name in self._tools:
             log.warning(f"Tool '{tool.name}' 已存在，将被覆盖")
         self._tools[tool.name] = tool
-        log.info(f"已注册 Tool: {tool.name}")
+        log.debug(f"已注册 Tool: {tool.name}")
 
     def get_tool(self, name: str) -> BaseTool | None:
         """获取指定 Tool"""

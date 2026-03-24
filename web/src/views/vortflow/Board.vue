@@ -470,6 +470,7 @@ watch(() => vortFlowStore.selectedProjectId, () => {
                                 :key="repo.id"
                                 size="small"
                                 color="processing"
+                                :bordered="false"
                             >
                                 {{ repo.name }}
                             </vort-tag>

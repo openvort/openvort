@@ -182,11 +182,27 @@ export function useContactMembers(options: UseContactMembersOptions) {
         finally { savingEdit.value = false; }
     }
 
+    const generatedPassword = ref<{ visible: boolean; memberName: string; password: string }>({
+        visible: false, memberName: "", password: "",
+    });
+
+    function showGeneratedPassword(memberName: string, password: string) {
+        generatedPassword.value = { visible: true, memberName, password };
+    }
+
+    function closeGeneratedPassword() {
+        generatedPassword.value = { visible: false, memberName: "", password: "" };
+    }
+
     async function handleToggleAccount(member: MemberItem) {
         try {
             const res: any = await toggleMemberAccount(member.id);
             if (res?.success) {
-                message.success(res.is_account ? "已启用登录" : "已禁用登录");
+                if (res.is_account && res.initial_password) {
+                    showGeneratedPassword(member.name, res.initial_password);
+                } else {
+                    message.success(res.is_account ? "已启用登录" : "已禁用登录");
+                }
                 await loadMembers();
                 if (currentMember.value?.id === member.id) {
                     await openMemberDrawer(member.id);
@@ -199,7 +215,12 @@ export function useContactMembers(options: UseContactMembersOptions) {
         try {
             const res: any = await resetMemberPassword(memberId);
             if (res?.success) {
-                message.success("密码已重置为默认密码");
+                if (res.new_password) {
+                    const name = currentMember.value?.name || memberId;
+                    showGeneratedPassword(name, res.new_password);
+                } else {
+                    message.success("密码已重置");
+                }
                 if (currentMember.value?.id === memberId) {
                     await openMemberDrawer(memberId);
                 }
@@ -222,7 +243,11 @@ export function useContactMembers(options: UseContactMembersOptions) {
         try {
             const res: any = await createMember(createMemberForm.value);
             if (res?.success) {
-                message.success("成员已创建");
+                if (res.initial_password) {
+                    showGeneratedPassword(createMemberForm.value.name, res.initial_password);
+                } else {
+                    message.success("成员已创建");
+                }
                 createMemberDialogOpen.value = false;
                 await Promise.all([loadMembers(), options.refreshDeptTree()]);
             } else {
@@ -269,6 +294,7 @@ export function useContactMembers(options: UseContactMembersOptions) {
         drawerOpen, drawerLoading, currentMember, editForm, savingEdit,
         createMemberDialogOpen, createMemberForm, savingCreateMember, wizardOpen,
         roleDialogOpen, roleDialogMember, roleDialogLoading,
+        generatedPassword, showGeneratedPassword, closeGeneratedPassword,
         loadMembers, handleSearch, handleSync, loadChannels, handleDedup,
         loadSuggestions, handleAccept, handleReject,
         openMemberDrawer, handleSaveEdit, handleToggleAccount, handleResetPassword,

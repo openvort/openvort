@@ -78,7 +78,8 @@ async def create_comment(entity_type: str, entity_id: str, body: CommentCreate, 
         )
         session.add(c)
         await _log_event(session, entity_type, entity_id, "comment_added",
-                         {"author_id": member_id, "preview": body.content[:100]})
+                         {"author_id": member_id, "preview": body.content[:100]},
+                         actor_id=member_id)
         await session.commit()
         await session.refresh(c)
     schedule_notification(_notifier.notify_comment(

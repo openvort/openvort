@@ -78,6 +78,7 @@ def _story_dict(r: FlowStory) -> dict:
         "state": r.state, "priority": r.priority,
         "parent_id": r.parent_id,
         "project_id": r.project_id, "submitter_id": r.submitter_id,
+        "assignee_id": getattr(r, "assignee_id", None),
         "pm_id": r.pm_id, "designer_id": r.designer_id, "reviewer_id": r.reviewer_id,
         "tags": _parse_json_list(r.tags_json),
         "collaborators": _parse_json_list(r.collaborators_json),
@@ -361,8 +362,9 @@ async def _attach_bug_links(session, items: list[dict]) -> list[dict]:
 # Event logging
 # ---------------------------------------------------------------------------
 
-async def _log_event(session, entity_type: str, entity_id: str, action: str, detail: dict | None = None):
+async def _log_event(session, entity_type: str, entity_id: str, action: str, detail: dict | None = None, *, actor_id: str | None = None):
     ev = FlowEvent(entity_type=entity_type, entity_id=entity_id, action=action,
+                   actor_id=actor_id or None,
                    detail=json.dumps(detail or {}, ensure_ascii=False))
     session.add(ev)
 

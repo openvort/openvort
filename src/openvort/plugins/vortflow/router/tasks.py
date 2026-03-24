@@ -178,6 +178,7 @@ async def create_task(body: TaskCreate, request: Request):
             t.id,
             "created",
             {"title": body.title, "story_id": resolved_story_id, "parent_id": normalized_parent_id},
+            actor_id=member_id,
         )
         await session.commit()
         await session.refresh(t)
@@ -231,7 +232,7 @@ async def update_task(task_id: str, body: TaskUpdate, request: Request):
             t.branch = body.branch
             changes["branch"] = body.branch
         if changes:
-            await _log_event(session, "task", task_id, "updated", changes)
+            await _log_event(session, "task", task_id, "updated", changes, actor_id=actor_id)
         await session.commit()
         await session.refresh(t)
         project_id = t.project_id or ""
@@ -302,7 +303,7 @@ async def transition_task(task_id: str, body: TransitionBody, request: Request):
         t.state = target.value
         collaborators = _parse_json_list(t.collaborators_json)
         await _log_event(session, "task", task_id, "state_changed",
-                         {"from": old_state, "to": target.value})
+                         {"from": old_state, "to": target.value}, actor_id=actor_id)
         await session.commit()
         await session.refresh(t)
     schedule_notification(_notifier.notify_state_change(
@@ -314,6 +315,46 @@ async def transition_task(task_id: str, body: TransitionBody, request: Request):
         project_id=t.project_id or "",
     ))
     return _task_dict(t)
+
+@sub_router.post("/tasks/{task_id}/copy")
+async def copy_task(task_id: str, request: Request):
+    payload = require_auth(request)
+    member_id = payload.get("sub", "")
+    sf = get_session_factory()
+    async with sf() as session:
+        src = await session.get(FlowTask, task_id)
+        if not src:
+            return {"error": "任务不存在"}
+        new_task = FlowTask(
+            project_id=src.project_id,
+            story_id=src.story_id,
+            parent_id=src.parent_id,
+            title=f"{src.title} (副本)",
+            description=src.description,
+            task_type=src.task_type,
+            assignee_id=src.assignee_id,
+            creator_id=member_id or src.creator_id,
+            estimate_hours=src.estimate_hours,
+            tags_json=src.tags_json,
+            collaborators_json=src.collaborators_json,
+            deadline=src.deadline,
+        )
+        session.add(new_task)
+        await session.flush()
+
+        iter_row = (await session.execute(
+            select(FlowIterationTask.iteration_id)
+            .where(FlowIterationTask.task_id == task_id)
+            .limit(1)
+        )).scalar()
+        if iter_row:
+            session.add(FlowIterationTask(iteration_id=iter_row, task_id=new_task.id))
+
+        await _log_event(session, "task", new_task.id, "created",
+                         {"title": new_task.title, "copied_from": task_id}, actor_id=member_id)
+        await session.commit()
+        await session.refresh(new_task)
+    return _task_dict(new_task)
 
 @sub_router.get("/tasks/{task_id}/transitions")
 async def get_task_transitions(task_id: str):

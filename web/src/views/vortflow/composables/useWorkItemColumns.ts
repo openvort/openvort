@@ -10,7 +10,7 @@ export interface UseWorkItemColumnsOptions {
 
 const ALL_COLUMN_DEFS: Array<ProTableColumn<RowItem> & { key: string }> = [
     { key: "workNo", title: "工作编号", dataIndex: "workNo", width: 130, sorter: true, align: "left", fixed: "left", slot: "workNo" },
-    { key: "title", title: "标题", dataIndex: "title", width: 228, ellipsis: true, align: "left", fixed: "left", slot: "title" },
+    { key: "title", title: "标题", dataIndex: "title", width: 360, ellipsis: true, align: "left", fixed: "left", slot: "title" },
     { key: "status", title: "状态", dataIndex: "status", width: 120, slot: "status", align: "left" },
     { key: "owner", title: "负责人", dataIndex: "owner", width: 160, align: "left", slot: "owner" },
     { key: "priority", title: "优先级", dataIndex: "priority", width: 120, slot: "priority", align: "left" },

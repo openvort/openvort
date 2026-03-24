@@ -27,6 +27,7 @@ async def login(req: LoginRequest):
     return {
         "token": token,
         "user": user,
+        "must_change_password": user.get("must_change_password", False),
     }
 
 

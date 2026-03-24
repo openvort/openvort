@@ -22,11 +22,29 @@ EXCLUDED_TOOL_PREFIXES = (
     "send_dingtalk_",
 )
 
-EXCLUDED_TOOLS = {
-    "setup_complete",
-}
+EXCLUDED_TOOLS: set[str] = set()
 
 _mcp_instance: FastMCP | None = None
+
+
+_LOCAL_PATH_INDICATORS = ("C:", "D:", "E:", "/Users/", "/home/", "\\Users\\", "file://")
+
+
+def _warn_local_paths(name: str, arguments: dict) -> None:
+    """Log a warning if image_urls contain what look like local file paths."""
+    urls = arguments.get("image_urls")
+    if not urls or not isinstance(urls, list):
+        return
+    for url in urls:
+        if not isinstance(url, str):
+            continue
+        decoded = url.replace("%5C", "\\").replace("%3A", ":")
+        if any(decoded.startswith(p) for p in _LOCAL_PATH_INDICATORS):
+            log.warning(
+                f"MCP tool '{name}' received local path in image_urls "
+                f"(will be filtered by tool): {url[:150]}"
+            )
+            break
 
 
 def _should_expose(tool_name: str) -> bool:
@@ -47,6 +65,7 @@ def create_mcp_server(registry: PluginRegistry) -> FastMCP:
         json_response=True,
         stateless_http=True,
         streamable_http_path="/",
+        host="0.0.0.0",
     )
 
     low = mcp._mcp_server
@@ -72,6 +91,7 @@ def create_mcp_server(registry: PluginRegistry) -> FastMCP:
             return [types.TextContent(type="text", text=f"Unknown tool: {name}")]
         if not _should_expose(name):
             return [types.TextContent(type="text", text=f"Tool not available via MCP: {name}")]
+        _warn_local_paths(name, arguments)
         try:
             result = await tool.execute(arguments)
             return [types.TextContent(type="text", text=result)]

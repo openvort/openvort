@@ -81,6 +81,21 @@ def _setup_mcp(app: FastAPI) -> None:
             _log_app.info("MCP session manager started")
 
         app.mount("/mcp", mcp_asgi)
+
+        from starlette.types import ASGIApp, Scope, Receive, Send
+
+        class _MCPTrailingSlashMiddleware:
+            """Rewrite /mcp → /mcp/ so Starlette Mount matches correctly for all HTTP methods."""
+
+            def __init__(self, app: ASGIApp):
+                self.app = app
+
+            async def __call__(self, scope: Scope, receive: Receive, send: Send):
+                if scope["type"] == "http" and scope.get("path") == "/mcp":
+                    scope = dict(scope, path="/mcp/", raw_path=b"/mcp/")
+                await self.app(scope, receive, send)
+
+        app.add_middleware(_MCPTrailingSlashMiddleware)
         _log_app.info("MCP Server mounted at /mcp")
     except Exception as e:
         _log_app.warning(f"MCP Server setup failed: {e}")
@@ -119,6 +134,7 @@ def create_app() -> FastAPI:
         work_assignments_router, voice_providers_router,
         remote_nodes_router, marketplace_router,
         jenkins_router, channel_bots_router,
+        members_public_router,
     )
     from openvort.web.ws import ws_router
     from openvort.web.webhooks import webhooks_router
@@ -142,6 +158,7 @@ def create_app() -> FastAPI:
     app.include_router(me_router, prefix="/api/me", tags=["me"], dependencies=[Depends(require_auth)])
     app.include_router(schedules_router, prefix="/api/schedules", tags=["schedules"], dependencies=[Depends(require_auth)])
     app.include_router(member_skills_router, prefix="/api/skills", tags=["skills"], dependencies=[Depends(require_auth)])
+    app.include_router(members_public_router, prefix="/api/members", tags=["members"], dependencies=[Depends(require_auth)])
 
     # 仅管理员可访问
     app.include_router(contacts_router, prefix="/api/admin/contacts", tags=["admin-contacts"], dependencies=[Depends(require_admin)])
@@ -308,8 +325,11 @@ def create_app() -> FastAPI:
     _chat_uploads.mkdir(parents=True, exist_ok=True)
     _editor_uploads = _uploads_root / "editor"
     _editor_uploads.mkdir(parents=True, exist_ok=True)
+    _mcp_uploads = _uploads_root / "mcp"
+    _mcp_uploads.mkdir(parents=True, exist_ok=True)
     app.mount("/uploads/chat", StaticFiles(directory=str(_chat_uploads)), name="chat-uploads")
     app.mount("/uploads/editor", StaticFiles(directory=str(_editor_uploads)), name="editor-uploads")
+    app.mount("/uploads/mcp", StaticFiles(directory=str(_mcp_uploads)), name="mcp-uploads")
     app.mount("/uploads", StaticFiles(directory=str(_uploads_root)), name="uploads")
 
     # 尝试挂载前端静态文件（构建产物）+ SPA fallback

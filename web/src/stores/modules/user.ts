@@ -5,6 +5,7 @@ export const useUserStore = defineStore(
     "user",
     () => {
         const token = ref<string>("");
+        const mustChangePassword = ref(false);
         const userInfo = ref<{
             member_id: string;
             name: string;
@@ -39,8 +40,13 @@ export const useUserStore = defineStore(
             userInfo.value = info;
         };
 
+        const setMustChangePassword = (v: boolean) => {
+            mustChangePassword.value = v;
+        };
+
         const logout = () => {
             token.value = "";
+            mustChangePassword.value = false;
             userInfo.value = {
                 member_id: "",
                 name: "",
@@ -53,7 +59,7 @@ export const useUserStore = defineStore(
             };
         };
 
-        return { token, userInfo, isLoggedIn, isAdmin, hasRole, setToken, setUserInfo, logout };
+        return { token, userInfo, mustChangePassword, isLoggedIn, isAdmin, hasRole, setToken, setUserInfo, setMustChangePassword, logout };
     },
     { persist: true }
 );

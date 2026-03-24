@@ -147,9 +147,7 @@ async def change_password(request: Request, req: ChangePasswordRequest):
     from sqlalchemy import select
     from openvort.contacts.models import Member
     from openvort.web.auth import hash_password, verify_password
-    from openvort.config.settings import get_settings
 
-    settings = get_settings()
     session_factory = get_db_session_factory()
 
     async with session_factory() as session:
@@ -159,16 +157,14 @@ async def change_password(request: Request, req: ChangePasswordRequest):
         if not member:
             raise HTTPException(status_code=404, detail="用户不存在")
 
-        # 验证旧密码
-        if member.password_hash:
-            if not verify_password(req.old_password, member.password_hash):
-                raise HTTPException(status_code=400, detail="原密码错误")
-        else:
-            # 没有独立密码时，用 default_password 验证
-            if req.old_password != settings.web.default_password:
-                raise HTTPException(status_code=400, detail="原密码错误")
+        if not member.password_hash:
+            raise HTTPException(status_code=400, detail="账号未设置密码，请联系管理员重置")
+
+        if not verify_password(req.old_password, member.password_hash):
+            raise HTTPException(status_code=400, detail="原密码错误")
 
         member.password_hash = hash_password(req.new_password)
+        member.must_change_password = False
         await session.commit()
 
     return {"success": True}

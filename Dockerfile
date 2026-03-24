@@ -16,9 +16,10 @@ WORKDIR /app
 COPY pyproject.toml README.md LICENSE ./
 COPY src/ src/
 COPY alembic/ alembic/
-RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir . -i https://pypi.org/simple/ --extra-index-url https://mirrors.aliyun.com/pypi/simple/
 COPY --from=frontend /app/web/dist web/dist
 ENV PYTHONUNBUFFERED=1
 EXPOSE 8090
 ENTRYPOINT ["python", "-u", "-m", "openvort"]
-CMD ["start", "--web"]
+CMD ["start"]
