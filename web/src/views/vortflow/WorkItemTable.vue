@@ -1059,6 +1059,19 @@ const handleCancelCreateBug = () => {
     createProjectId.value = "";
 };
 
+const handleDetailDelete = async () => {
+    const rec = detailCurrentRecord.value;
+    if (!rec) return;
+    try {
+        await deleteOne(rec);
+        message.success("删除成功");
+        handleCancelCreateBug();
+        tableRef.value?.refresh?.();
+    } catch {
+        message.error("删除失败");
+    }
+};
+
 const handleCancelCreateWorkItem = () => {
     if (createWorkItemRef.value) {
         createWorkItemRef.value.cancel();
@@ -2184,6 +2197,7 @@ onMounted(async () => {
                     :initial-desc-draft="detailDescDraft"
                     @close="handleCancelCreateBug"
                     @update="handleDetailUpdate"
+                    @delete="handleDetailDelete"
                     @copy="handleCopyWorkItem"
                     @open-related="handleOpenRelated"
                     @create-child="handleCreateChild"
