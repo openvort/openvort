@@ -25,7 +25,7 @@ export const SORT_FIELD_MAP: Record<string, string> = {
 };
 
 export const SORT_FIELD_OVERRIDES: Record<string, Record<string, string>> = {
-    "需求": { owner: "pm_id", creator: "submitter_id" },
+    "需求": { owner: "assignee_id", creator: "submitter_id" },
     "缺陷": { creator: "reporter_id" },
 };
 
@@ -437,7 +437,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
                         keyword: kw, state, parent_id: "root",
                         project_id: projectIdParam,
                         iteration_id: iterationIdParam,
-                        pm_id: ownerMemberId || viewOwner || undefined,
+                        assignee_id: ownerMemberId || viewOwner || undefined,
                         submitter_id: viewCreator,
                         participant_id: viewParticipant,
                         ...sortParams,

@@ -12,6 +12,17 @@ from openvort.utils.logging import get_logger
 log = get_logger("plugins.vortflow.tools.intake")
 
 
+def _is_valid_image_url(url: str) -> bool:
+    """Accept only http(s) URLs or server-relative /uploads/ paths."""
+    if not url or not isinstance(url, str):
+        return False
+    url = url.strip()
+    if url.startswith(("http://", "https://", "/uploads/")):
+        return True
+    log.warning(f"Rejected invalid image URL (local path?): {url[:120]}")
+    return False
+
+
 class IntakeStoryTool(BaseTool):
     name = "vortflow_intake_story"
     description = (
@@ -43,6 +54,7 @@ class IntakeStoryTool(BaseTool):
                 },
                 "deadline": {"type": "string", "description": "截止时间 (YYYY-MM-DD)，可选", "default": ""},
                 "submitter_name": {"type": "string", "description": "提需求的人的名字（用于记录）", "default": ""},
+                "assignee_name": {"type": "string", "description": "负责人的姓名（指派给谁负责此需求）", "default": ""},
                 "iteration_id": {
                     "type": "string",
                     "description": "关联迭代 ID（可选，与 iteration_name 二选一）",
@@ -53,8 +65,15 @@ class IntakeStoryTool(BaseTool):
                     "description": "关联迭代名称（可选，按名称模糊匹配，优先精确匹配）",
                     "default": "",
                 },
-                "image_urls": {"type": "array", "items": {"type": "string"},
-                               "description": "截图 URL 列表（用户发送的图片地址，从 _image_urls 获取）"},
+                "image_urls": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "截图 URL 列表，只接受 http/https URL 或服务器相对路径（/uploads/...）。"
+                        "如果有本地图片文件，请先调用 upload_image 工具上传，再将返回的 URL 传入此参数。"
+                        "不要传入本地文件路径。"
+                    ),
+                },
                 "children": {
                     "type": "array",
                     "items": {
@@ -76,6 +95,7 @@ class IntakeStoryTool(BaseTool):
         from datetime import datetime
         import uuid
 
+        from openvort.contacts.models import Member
         from openvort.plugins.vortflow.models import (
             FlowEvent, FlowIteration, FlowIterationStory,
             FlowProject, FlowStory,
@@ -90,12 +110,14 @@ class IntakeStoryTool(BaseTool):
         iteration_id = params.get("iteration_id", "") or None
         iteration_name = params.get("iteration_name", "") or None
         children = params.get("children", []) or []
+        assignee_name = params.get("assignee_name", "")
 
         image_urls = params.get("image_urls", []) or []
         injected_urls = params.get("_image_urls", []) or []
         for url in injected_urls:
             if url and url not in image_urls:
                 image_urls.append(url)
+        image_urls = [u for u in image_urls if _is_valid_image_url(u)]
         if image_urls:
             img_md = "\n".join(f"![截图]({url})" for url in image_urls)
             description = f"{description}\n\n{img_md}" if description else img_md
@@ -124,7 +146,15 @@ class IntakeStoryTool(BaseTool):
                 if parent_story.project_id != project_id:
                     return json.dumps({"ok": False, "message": "父需求必须与当前项目一致"}, ensure_ascii=False)
 
-            # 创建需求（自动记录提交人）
+            assignee_id = None
+            if assignee_name:
+                result = await session.execute(
+                    select(Member).where(Member.name == assignee_name)
+                )
+                m = result.scalar_one_or_none()
+                if m:
+                    assignee_id = m.id
+
             story_id = uuid.uuid4().hex
 
             story = FlowStory(
@@ -137,6 +167,7 @@ class IntakeStoryTool(BaseTool):
                 parent_id=parent_id,
                 deadline=deadline,
                 submitter_id=member_id or None,
+                assignee_id=assignee_id,
             )
             session.add(story)
 
@@ -204,6 +235,7 @@ class IntakeStoryTool(BaseTool):
                     state="intake",
                     priority=priority,
                     submitter_id=member_id or None,
+                    assignee_id=assignee_id,
                 )
                 session.add(child_story)
                 session.add(

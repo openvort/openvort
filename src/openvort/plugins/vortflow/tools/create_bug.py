@@ -12,6 +12,17 @@ from openvort.utils.logging import get_logger
 log = get_logger("plugins.vortflow.tools.create_bug")
 
 
+def _is_valid_image_url(url: str) -> bool:
+    """Accept only http(s) URLs or server-relative /uploads/ paths."""
+    if not url or not isinstance(url, str):
+        return False
+    url = url.strip()
+    if url.startswith(("http://", "https://", "/uploads/")):
+        return True
+    log.warning(f"Rejected invalid image URL (local path?): {url[:120]}")
+    return False
+
+
 class CreateBugTool(BaseTool):
     name = "vortflow_create_bug"
     description = (
@@ -70,7 +81,11 @@ class CreateBugTool(BaseTool):
                 "image_urls": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "截图 URL 列表（用户发送的图片地址，从 _image_urls 获取）",
+                    "description": (
+                        "截图 URL 列表，只接受 http/https URL 或服务器相对路径（/uploads/...）。"
+                        "如果有本地图片文件，请先调用 upload_image 工具上传，再将返回的 URL 传入此参数。"
+                        "不要传入本地文件路径。"
+                    ),
                 },
             },
             "required": ["title"],
@@ -91,6 +106,7 @@ class CreateBugTool(BaseTool):
         for url in injected_urls:
             if url and url not in image_urls:
                 image_urls.append(url)
+        image_urls = [u for u in image_urls if _is_valid_image_url(u)]
         if image_urls:
             img_md = "\n".join(f"![截图]({url})" for url in image_urls)
             description = f"{description}\n\n{img_md}" if description else img_md

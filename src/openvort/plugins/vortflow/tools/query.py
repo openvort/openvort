@@ -69,9 +69,12 @@ class QueryTool(BaseTool):
                     stmt = stmt.where(FlowStory.project_id == params["project_id"])
                 if params.get("state"):
                     stmt = stmt.where(FlowStory.state == params["state"])
+                if params.get("assignee_id"):
+                    stmt = stmt.where(FlowStory.assignee_id == params["assignee_id"])
                 result = await session.execute(stmt)
                 rows = result.scalars().all()
                 data = [{"id": r.id, "title": r.title, "state": r.state, "priority": r.priority,
+                          "assignee_id": getattr(r, "assignee_id", None),
                           "pm_id": r.pm_id, "deadline": r.deadline.isoformat() if r.deadline else None} for r in rows]
                 return json.dumps({"ok": True, "count": len(data), "stories": data}, ensure_ascii=False)
 

@@ -56,7 +56,7 @@ class AssignTool(BaseTool):
         member_id = params["member_id"]
 
         role_field_map = {
-            "story": {"pm": "pm_id", "designer": "designer_id", "reviewer": "reviewer_id", "assignee": "submitter_id"},
+            "story": {"pm": "pm_id", "designer": "designer_id", "reviewer": "reviewer_id", "assignee": "assignee_id"},
             "task": {"assignee": "assignee_id"},
             "bug": {"assignee": "assignee_id", "developer": "developer_id", "reporter": "reporter_id"},
         }

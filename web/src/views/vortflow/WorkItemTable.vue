@@ -641,6 +641,7 @@ const syncRecordUpdateToApi = async (
             description: patch.description,
             state: patch.state,
             priority: patch.priority,
+            assignee_id: patch.assignee_id === undefined ? undefined : (patch.assignee_id || undefined),
             tags: patch.tags,
             collaborators: patch.collaborators,
             deadline: patch.deadline,
@@ -1099,11 +1100,7 @@ const handleDetailUpdate = async (data: Partial<RowItem>) => {
         const ownerId = data.owner ? getMemberIdByName(data.owner) || data.owner : undefined;
         const collabIds = data.collaborators?.map(n => getMemberIdByName(n) || n);
         const patch: any = {};
-        if (rec.type === "需求") {
-            if (ownerId !== undefined) patch.pm_id = ownerId || null;
-        } else {
-            if (ownerId !== undefined) patch.assignee_id = ownerId || null;
-        }
+        if (ownerId !== undefined) patch.assignee_id = ownerId || null;
         if (collabIds) patch.collaborators = collabIds;
         await syncRecordUpdateToApi(rec, patch);
     }

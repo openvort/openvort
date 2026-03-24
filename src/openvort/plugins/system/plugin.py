@@ -23,11 +23,13 @@ class SystemPlugin(BasePlugin):
         from openvort.plugins.system.tools.channel_config import SystemChannelConfigTool
         from openvort.plugins.system.tools.diagnose import SystemDiagnoseTool
         from openvort.plugins.system.tools.llm_config import SystemLLMConfigTool
+        from openvort.plugins.system.tools.upload_image import UploadImageTool
 
         return [
             SystemChannelConfigTool(),
             SystemDiagnoseTool(),
             SystemLLMConfigTool(),
+            UploadImageTool(),
         ]
 
     def get_prompts(self) -> list[str]:

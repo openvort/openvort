@@ -874,6 +874,12 @@ async def init_db(database_url: str) -> None:
             "ALTER TABLE IF EXISTS notifications ADD COLUMN IF NOT EXISTS data_json TEXT DEFAULT '{}'"
         ))
 
+    # VortFlow: add assignee_id to flow_stories
+    async with _engine.begin() as conn:
+        await conn.execute(text(
+            "ALTER TABLE IF EXISTS flow_stories ADD COLUMN IF NOT EXISTS assignee_id VARCHAR(32)"
+        ))
+
     # VortFlow: add code & color columns to flow_projects
     async with _engine.begin() as conn:
         await conn.execute(text(

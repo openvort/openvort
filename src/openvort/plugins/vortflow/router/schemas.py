@@ -33,6 +33,7 @@ class StoryCreate(BaseModel):
     description: str = ""
     priority: int = 3
     parent_id: str | None = None
+    assignee_id: str | None = None
     tags: list[str] = []
     collaborators: list[str] = []
     deadline: str | None = None
@@ -43,6 +44,7 @@ class StoryUpdate(BaseModel):
     state: str | None = None
     priority: int | None = None
     parent_id: str | None = None
+    assignee_id: str | None = None
     tags: list[str] | None = None
     collaborators: list[str] | None = None
     deadline: str | None = None

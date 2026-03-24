@@ -78,6 +78,7 @@ def _story_dict(r: FlowStory) -> dict:
         "state": r.state, "priority": r.priority,
         "parent_id": r.parent_id,
         "project_id": r.project_id, "submitter_id": r.submitter_id,
+        "assignee_id": getattr(r, "assignee_id", None),
         "pm_id": r.pm_id, "designer_id": r.designer_id, "reviewer_id": r.reviewer_id,
         "tags": _parse_json_list(r.tags_json),
         "collaborators": _parse_json_list(r.collaborators_json),
