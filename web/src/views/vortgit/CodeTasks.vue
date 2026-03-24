@@ -3,7 +3,7 @@ import { ref, onMounted, computed } from "vue";
 import { useRouter } from "vue-router";
 import {
     getVortgitCodeTasks, getVortgitCodeTask, getVortgitCodeTaskStats,
-    getVortgitRepos, getMembers, batchDeleteVortgitCodeTasks,
+    getVortgitRepos, getMembersSimple, batchDeleteVortgitCodeTasks,
 } from "@/api";
 import {
     RefreshCw, ExternalLink, TerminalSquare, Clock, FileCode2,
@@ -139,10 +139,10 @@ async function loadRefs() {
     try {
         const [repoRes, memberRes]: any[] = await Promise.all([
             getVortgitRepos({ page: 1, page_size: 200 }),
-            getMembers({ page: 1, size: 500 }),
+            getMembersSimple({ page: 1, size: 500 }),
         ]);
         repos.value = repoRes.items || [];
-        members.value = memberRes.items || [];
+        members.value = memberRes.members || [];
     } catch { /* noop */ }
 }
 

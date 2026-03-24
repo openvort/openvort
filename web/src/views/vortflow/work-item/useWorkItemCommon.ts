@@ -1,5 +1,5 @@
 import { ref } from "vue";
-import { getMembers } from "@/api";
+import { getMembersSimple } from "@/api";
 import type {
     WorkItemType,
     Priority,
@@ -154,7 +154,7 @@ export function useWorkItemCommon() {
 
         memberOptionsLoadTask = (async () => {
             try {
-                const res: any = await getMembers({ search: "", role: "", page: 1, size: 100 });
+                const res: any = await getMembersSimple({ search: "", page: 1, size: 100 });
                 const members = Array.isArray(res?.members) ? res.members : [];
                 const next: MemberOption[] = [];
                 const seenIds = new Set<string>();

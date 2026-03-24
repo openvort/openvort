@@ -134,6 +134,7 @@ def create_app() -> FastAPI:
         work_assignments_router, voice_providers_router,
         remote_nodes_router, marketplace_router,
         jenkins_router, channel_bots_router,
+        members_public_router,
     )
     from openvort.web.ws import ws_router
     from openvort.web.webhooks import webhooks_router
@@ -157,6 +158,7 @@ def create_app() -> FastAPI:
     app.include_router(me_router, prefix="/api/me", tags=["me"], dependencies=[Depends(require_auth)])
     app.include_router(schedules_router, prefix="/api/schedules", tags=["schedules"], dependencies=[Depends(require_auth)])
     app.include_router(member_skills_router, prefix="/api/skills", tags=["skills"], dependencies=[Depends(require_auth)])
+    app.include_router(members_public_router, prefix="/api/members", tags=["members"], dependencies=[Depends(require_auth)])
 
     # 仅管理员可访问
     app.include_router(contacts_router, prefix="/api/admin/contacts", tags=["admin-contacts"], dependencies=[Depends(require_admin)])

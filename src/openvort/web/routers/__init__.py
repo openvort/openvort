@@ -32,6 +32,7 @@ from openvort.web.routers.remote_nodes import router as remote_nodes_router
 from openvort.web.routers.marketplace import router as marketplace_router
 from openvort.web.routers.jenkins import router as jenkins_router
 from openvort.web.routers.channel_bots import router as channel_bots_router
+from openvort.web.routers.members_public import router as members_public_router
 
 __all__ = [
     "auth_router",
@@ -63,4 +64,5 @@ __all__ = [
     "marketplace_router",
     "jenkins_router",
     "channel_bots_router",
+    "members_public_router",
 ]

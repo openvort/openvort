@@ -23,7 +23,7 @@ export const menuConfig: MenuConfig[] = [
     { title: "工作台", icon: "home", path: "/overview" },
     { title: "AI 员工", icon: "bot", path: "/ai-employees", label: "AI 能力", requiredRole: "admin" },
     ...knowledgeConfig.menus,
-    { title: "技能管理", icon: "book-open", path: "/skills" },
+    { title: "技能管理", icon: "book-open", path: "/skills", requiredRole: "admin" },
     ...vortflowConfig.menus,
     ...vortgitConfig.menus,
     ...jenkinsConfig.menus,
