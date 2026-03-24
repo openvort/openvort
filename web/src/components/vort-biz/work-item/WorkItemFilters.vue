@@ -3,6 +3,7 @@ import { computed, ref } from "vue";
 import { DownOutlined } from "@/components/vort/icons";
 import PopoverSelect from "@/components/vort-biz/popover-select/PopoverSelect.vue";
 import WorkItemMemberPicker from "./WorkItemMemberPicker.vue";
+import StatusIcon from "./StatusIcon.vue";
 import type { WorkItemType, Status, MemberOption } from "../work-item";
 
 export interface WorkItemFiltersProps {
@@ -262,6 +263,9 @@ const onCreate = () => emit("create");
                                 @click.stop
                                 @update:checked="toggleStatus(opt.value)"
                             />
+                            <span :class="opt.iconClass" class="flex items-center">
+                                <StatusIcon :name="opt.icon" :size="14" :color="opt.iconColor" />
+                            </span>
                             <span class="text-sm text-gray-700 leading-5">{{ opt.label }}</span>
                         </div>
                     </div>
