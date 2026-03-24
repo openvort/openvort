@@ -26,6 +26,7 @@ interface Props {
     parentId?: string;
     parentRecord?: RowItem | null;
     iterationId?: string;
+    initialDraft?: NewBugForm | null;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -35,6 +36,7 @@ const props = withDefaults(defineProps<Props>(), {
     projectId: "",
     parentId: "",
     iterationId: "",
+    initialDraft: null,
 });
 
 const emit = defineEmits<{
@@ -110,7 +112,11 @@ const createInitialBugForm = (): NewBugForm => ({
     description: getDescriptionTemplate(props.type)
 });
 
-const createBugForm = reactive<NewBugForm>(createInitialBugForm());
+const createBugForm = reactive<NewBugForm>(
+    props.initialDraft
+        ? { ...createInitialBugForm(), ...props.initialDraft, projectId: props.projectId || props.initialDraft.projectId || "", parentId: props.parentId || props.initialDraft.parentId || "" }
+        : createInitialBugForm()
+);
 
 const createBugPriorityDropdownOpen = ref(false);
 const createAssigneeDropdownOpen = ref(false);
@@ -583,10 +589,32 @@ const handleCancel = () => {
     emit("close");
 };
 
+const getFormData = (): NewBugForm => ({
+    ...createBugForm,
+    collaborators: [...createBugForm.collaborators],
+    planTime: [...createBugForm.planTime] as NewBugForm["planTime"],
+    tags: [...createBugForm.tags],
+});
+
+const getDescriptionTemplateForCurrentType = (): string => getDescriptionTemplate(createBugForm.type as WorkItemType);
+
 defineExpose({
     submit: submitForm,
     reset: resetForm,
-    cancel: handleCancel
+    cancel: handleCancel,
+    getFormData,
+    getDescriptionTemplateForCurrentType,
+});
+
+watch(() => props.initialDraft, (draft) => {
+    if (draft) {
+        Object.assign(createBugForm, {
+            ...createInitialBugForm(),
+            ...draft,
+            projectId: props.projectId || draft.projectId || "",
+            parentId: props.parentId || draft.parentId || "",
+        });
+    }
 });
 
 onMounted(async () => {

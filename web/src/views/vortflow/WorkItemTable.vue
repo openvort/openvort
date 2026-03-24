@@ -32,6 +32,7 @@ import { useWorkItemViewState } from "./composables/useWorkItemViewState";
 import { useWorkItemDataSource } from "./composables/useWorkItemDataSource";
 import { useWorkItemCommon } from "./work-item/useWorkItemCommon";
 import { useWorkItemInlineEdit } from "./work-item/useWorkItemInlineEdit";
+import { useWorkItemDraft } from "./work-item/useWorkItemDraft";
 import {
     getVortflowStories,
     getVortflowProjects, createVortflowStory, createVortflowTask, createVortflowBug,
@@ -139,6 +140,9 @@ const {
     taskStatusFilterOptions,
 } = useWorkItemCommon();
 
+const { saveDraft, loadDraft, clearDraft } = useWorkItemDraft();
+const createDraftData = ref<NewBugForm | null>(null);
+
 const keyword = ref("");
 const owner = ref("");
 const type = ref<WorkItemType | "">(props.type ?? "");
@@ -159,6 +163,14 @@ const createBugDrawerOpen = computed({
     set: (val: boolean) => {
         if (!val) {
             cacheDescDraftBeforeClose();
+            if (createBugDrawerMode.value === "create") {
+                const formData = createWorkItemRef.value?.getFormData?.();
+                const descTemplate = createWorkItemRef.value?.getDescriptionTemplateForCurrentType?.() ?? "";
+                if (formData) {
+                    const workItemType = (props.type || formData.type || "缺陷") as WorkItemType;
+                    saveDraft(workItemType, formData, createParentItemId.value, descTemplate);
+                }
+            }
             router.replace({ query: { ...route.query, action: undefined, id: undefined, parentId: undefined, tab: undefined } });
         }
     }
@@ -177,6 +189,8 @@ const createWorkItemRef = ref<{
     submit: () => NewBugForm | null;
     reset: () => void;
     cancel: () => void;
+    getFormData: () => NewBugForm;
+    getDescriptionTemplateForCurrentType: () => string;
 } | null>(null);
 const createBugAttachments = ref<CreateBugAttachment[]>([]);
 const createAttachmentInputRef = ref<HTMLInputElement | null>(null);
@@ -1038,6 +1052,9 @@ const handleCreateBug = async () => {
     createParentItemId.value = "";
     createProjectId.value = props.projectId || "";
     resetCreateBugForm();
+    const workItemType = (props.type || "缺陷") as WorkItemType;
+    const draft = loadDraft(workItemType, "");
+    createDraftData.value = draft;
     createBugForm.type = props.type ?? createBugForm.type;
     router.replace({ query: { ...route.query, action: "create", parentId: undefined } });
 };
@@ -1048,6 +1065,7 @@ const handleCreateChild = async (record: RowItem) => {
     createBugDrawerMode.value = "create";
     createParentItemId.value = String(record.backendId);
     createProjectId.value = record.projectId || "";
+    createDraftData.value = null;
     resetCreateBugForm();
     router.replace({ query: { ...route.query, action: "create", parentId: String(record.backendId), id: undefined } });
 };
@@ -1322,9 +1340,12 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
             }
             tableRef.value?.refresh?.();
             message.success("新建成功");
+            clearDraft((props.type || formData.type || "缺陷") as WorkItemType);
+            createDraftData.value = null;
             if (keepCreating) {
                 createWorkItemRef.value?.reset();
             } else {
+                createWorkItemRef.value?.reset();
                 handleCancelCreateBug();
             }
             return;
@@ -2212,6 +2233,7 @@ onMounted(async () => {
                     :parent-id="createParentItemId"
                     :parent-record="createParentRecord"
                     :iteration-id="props.iterationId"
+                    :initial-draft="createDraftData"
                     @close="handleCancelCreateBug"
                     @success="handleCreateSuccess"
                 />
