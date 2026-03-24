@@ -824,6 +824,17 @@ async def init_db(database_url: str) -> None:
             "ALTER TABLE IF EXISTS flow_projects ADD COLUMN IF NOT EXISTS color VARCHAR(32) DEFAULT '#3b82f6'"
         ))
 
+    # VortFlow: description templates table
+    async with _engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS flow_description_templates (
+                id VARCHAR(32) PRIMARY KEY,
+                work_item_type VARCHAR(16) NOT NULL UNIQUE,
+                content TEXT DEFAULT '',
+                updated_at TIMESTAMP DEFAULT now()
+            )
+        """))
+
     log.info(f"数据库已初始化: {database_url.split('://')[0]}")
 
 

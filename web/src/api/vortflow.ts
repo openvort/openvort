@@ -437,6 +437,16 @@ export function deleteVortflowStatus(id: string) {
     return request.delete(`/vortflow/statuses/${id}`);
 }
 
+// ---- Description Templates ----
+
+export function getVortflowDescriptionTemplates() {
+    return request.get("/vortflow/description-templates");
+}
+
+export function updateVortflowDescriptionTemplate(workItemType: string, data: { content: string }) {
+    return request.put(`/vortflow/description-templates/${encodeURIComponent(workItemType)}`, data);
+}
+
 // ---- Test Modules ----
 
 export function getVortflowTestModules(params?: { project_id?: string }) {

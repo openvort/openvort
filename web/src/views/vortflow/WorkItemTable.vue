@@ -43,6 +43,7 @@ import {
     addVortflowVersionBug, removeVortflowVersionBug,
     getVortgitRepos, getVortgitRepoBranches,
     getVortflowTags,
+    getVortflowDescriptionTemplates,
 } from "@/api";
 import type {
     WorkItemType,
@@ -186,40 +187,20 @@ const currentProjectName = computed(() => {
 });
 
 
-const descriptionTemplates: Record<WorkItemType, string> = {
-    "需求": [
-        "## 需求背景",
-        "<!-- 描述需求的业务背景和目标 -->",
-        "",
-        "## 用户故事",
-        "作为 ___，我希望 ___，以便 ___。",
-        "",
-        "## 验收标准",
-        "1. ",
-        "2. ",
-        "3. ",
-    ].join("\n"),
+const FALLBACK_TEMPLATES: Record<WorkItemType, string> = {
+    "需求": "",
     "任务": "",
-    "缺陷": [
-        "环境：请填写",
-        "",
-        "账号：请填写",
-        "",
-        "密码：请填写",
-        "",
-        "前置条件：请填写",
-        "",
-        "操作步骤：",
-        "步骤1：",
-        "步骤2：",
-        "",
-        "实际结果：请填写",
-        "",
-        "预期结果：请填写",
-    ].join("\n"),
+    "缺陷": "",
 };
 
-const getDescriptionTemplate = (type: WorkItemType): string => descriptionTemplates[type] ?? "";
+const remoteTemplates = ref<Record<string, string>>({});
+
+const getDescriptionTemplate = (type: WorkItemType): string => {
+    if (remoteTemplates.value[type] !== undefined && remoteTemplates.value[type] !== "") {
+        return remoteTemplates.value[type];
+    }
+    return FALLBACK_TEMPLATES[type] ?? "";
+};
 
 const onAvatarError = (e: Event) => {
     const el = e.target as HTMLImageElement | null;
@@ -1514,6 +1495,9 @@ onMounted(async () => {
         loadStatusOptions(),
         vortFlowStore.loadColumnSettings(props.type || ""),
         vortFlowStore.loadViews(props.type || ""),
+        getVortflowDescriptionTemplates().then((res: any) => {
+            if (res?.items) remoteTemplates.value = res.items;
+        }).catch(() => {}),
     ]);
     columnSettings.value = loadColumnSettingsFromStore();
     resetViewBaseline();

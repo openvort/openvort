@@ -285,3 +285,7 @@ class TestCaseWorkItemBody(BaseModel):
     test_case_id: str
     entity_type: str  # story/task/bug
     entity_id: str
+
+
+class DescriptionTemplateUpdate(BaseModel):
+    content: str = ""
