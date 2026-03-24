@@ -87,8 +87,13 @@ async def list_bugs(
             stmt = stmt.where(FlowBug.story_id == story_id)
             count_stmt = count_stmt.where(FlowBug.story_id == story_id)
         if state:
-            stmt = stmt.where(FlowBug.state == state)
-            count_stmt = count_stmt.where(FlowBug.state == state)
+            states = [s.strip() for s in state.split(",") if s.strip()]
+            if len(states) == 1:
+                stmt = stmt.where(FlowBug.state == states[0])
+                count_stmt = count_stmt.where(FlowBug.state == states[0])
+            elif states:
+                stmt = stmt.where(FlowBug.state.in_(states))
+                count_stmt = count_stmt.where(FlowBug.state.in_(states))
         if severity:
             stmt = stmt.where(FlowBug.severity == severity)
             count_stmt = count_stmt.where(FlowBug.severity == severity)

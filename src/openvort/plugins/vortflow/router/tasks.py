@@ -83,8 +83,13 @@ async def list_tasks(
             stmt = stmt.where(FlowTask.parent_id == parent_id)
             count_stmt = count_stmt.where(FlowTask.parent_id == parent_id)
         if state:
-            stmt = stmt.where(FlowTask.state == state)
-            count_stmt = count_stmt.where(FlowTask.state == state)
+            states = [s.strip() for s in state.split(",") if s.strip()]
+            if len(states) == 1:
+                stmt = stmt.where(FlowTask.state == states[0])
+                count_stmt = count_stmt.where(FlowTask.state == states[0])
+            elif states:
+                stmt = stmt.where(FlowTask.state.in_(states))
+                count_stmt = count_stmt.where(FlowTask.state.in_(states))
         if task_type:
             stmt = stmt.where(FlowTask.task_type == task_type)
             count_stmt = count_stmt.where(FlowTask.task_type == task_type)

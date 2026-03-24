@@ -70,8 +70,13 @@ async def list_stories(
             stmt = stmt.where(FlowStory.project_id == project_id)
             count_stmt = count_stmt.where(FlowStory.project_id == project_id)
         if state:
-            stmt = stmt.where(FlowStory.state == state)
-            count_stmt = count_stmt.where(FlowStory.state == state)
+            states = [s.strip() for s in state.split(",") if s.strip()]
+            if len(states) == 1:
+                stmt = stmt.where(FlowStory.state == states[0])
+                count_stmt = count_stmt.where(FlowStory.state == states[0])
+            elif states:
+                stmt = stmt.where(FlowStory.state.in_(states))
+                count_stmt = count_stmt.where(FlowStory.state.in_(states))
         if keyword:
             like = f"%{keyword}%"
             stmt = stmt.where(FlowStory.title.ilike(like))

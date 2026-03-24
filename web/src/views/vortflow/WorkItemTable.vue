@@ -976,7 +976,6 @@ const onReset = () => {
     owner.value = "";
     type.value = props.type ?? "";
     status.value = [];
-    tableRef.value?.refresh?.();
 };
 
 watch(() => props.projectId, () => {

@@ -497,27 +497,13 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
             let rows: RowItem[] = [];
             let totalFromApi = 0;
 
+            const combinedState = backendStates?.join(",");
             const hasColumnFilters = Object.keys(columnFilters).some(k => columnFilters[k] != null);
             const needFetchAll = hasColumnFilters
-                || (backendStates && backendStates.length > 1)
                 || (ownerValue && (workType === "需求" || ownerValue === "未指派" || !ownerMemberId));
 
             if (needFetchAll) {
-                let allItems: any[];
-                if (backendStates && backendStates.length > 1) {
-                    const merged = new Map<string, any>();
-                    const itemGroups = await Promise.all(backendStates.map((state) => fetchAllItemsByState(state)));
-                    for (const items of itemGroups) {
-                        for (const item of items) {
-                            const id = String(item?.id || "");
-                            if (!id || merged.has(id)) continue;
-                            merged.set(id, item);
-                        }
-                    }
-                    allItems = [...merged.values()];
-                } else {
-                    allItems = await fetchAllItemsByState(backendStates?.[0]);
-                }
+                const allItems = await fetchAllItemsByState(combinedState);
                 let allRows = buildRowsFromItems(allItems)
                     .filter((x) => !statusValues.length || statusValues.includes(x.status))
                     .filter(matchOwner);
@@ -548,8 +534,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
                 const start = (current - 1) * pageSize;
                 rows = allRows.slice(start, start + pageSize);
             } else {
-                const backendState = backendStates?.[0];
-                const res: any = await requestByState(backendState, current, pageSize);
+                const res: any = await requestByState(combinedState, current, pageSize);
                 rows = buildRowsFromItems((res as any)?.items || []);
                 if (statusValues.length) rows = rows.filter((x) => statusValues.includes(x.status));
                 if (ownerValue) rows = rows.filter(matchOwner);
