@@ -86,6 +86,9 @@ async def _cleanup_member_references(session, member_ids: list[str]):
         ("flow_test_plans", "owner_id"),
         ("flow_test_plan_cases", "created_by"),
         ("flow_test_plan_executions", "executor_id"),
+        ("flow_test_plan_reviews", "reviewer_id"),
+        ("flow_test_plan_reviews", "added_by"),
+        ("flow_test_plan_review_histories", "actor_id"),
         # VortGit
         ("git_providers", "owner_id"),
         # Report

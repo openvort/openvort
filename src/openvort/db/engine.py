@@ -4,7 +4,7 @@
 SQLAlchemy 2.0 异步引擎（PostgreSQL）。
 """
 
-from sqlalchemy import text
+from sqlalchemy import inspect as sa_inspect, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -954,6 +954,38 @@ async def init_db(database_url: str) -> None:
         await conn.execute(text(
             "ALTER TABLE IF EXISTS flow_tasks ADD COLUMN IF NOT EXISTS progress INTEGER DEFAULT 0"
         ))
+
+    # Auto-sync: add missing columns to existing tables based on ORM metadata.
+    # This eliminates the need to manually write ALTER TABLE for every new column.
+    async with _engine.begin() as conn:
+        def _sync_missing_columns(connection):
+            inspector = sa_inspect(connection)
+            existing_tables = set(inspector.get_table_names())
+            for table in Base.metadata.sorted_tables:
+                if table.name not in existing_tables:
+                    continue
+                existing_cols = {c["name"] for c in inspector.get_columns(table.name)}
+                for col in table.columns:
+                    if col.name in existing_cols:
+                        continue
+                    col_type = col.type.compile(dialect=connection.dialect)
+                    nullable = "NULL" if col.nullable else "NOT NULL"
+                    default_clause = ""
+                    if col.server_default is not None:
+                        default_clause = f" DEFAULT {col.server_default.arg}"
+                    elif col.default is not None and isinstance(col.default.arg, (str, int, float, bool)):
+                        val = col.default.arg
+                        if isinstance(val, str):
+                            val = f"'{val}'"
+                        elif isinstance(val, bool):
+                            val = "TRUE" if val else "FALSE"
+                        default_clause = f" DEFAULT {val}"
+                    elif col.nullable:
+                        default_clause = " DEFAULT NULL"
+                    ddl = f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS {col.name} {col_type} {nullable}{default_clause}"
+                    log.info(f"自动补列: {ddl}")
+                    connection.execute(text(ddl))
+        await conn.run_sync(_sync_missing_columns)
 
     log.info(f"数据库已初始化: {database_url.split('://')[0]}")
 

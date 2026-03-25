@@ -646,6 +646,71 @@ export function getVortflowTestPlanExecutions(planId: string, planCaseId: string
     return request.get(`/vortflow/test-plans/${planId}/cases/${planCaseId}/executions`);
 }
 
+// ---- Test Plan Reviews ----
+
+export function getVortflowTestPlanReviews(planId: string) {
+    return request.get(`/vortflow/test-plans/${planId}/reviews`);
+}
+
+export function addVortflowTestPlanReviews(planId: string, data: {
+    reviews: Array<{
+        repo_id: string;
+        pr_number: number;
+        pr_url: string;
+        pr_title: string;
+        head_branch: string;
+        base_branch: string;
+    }>;
+}) {
+    return request.post(`/vortflow/test-plans/${planId}/reviews`, data);
+}
+
+export function updateVortflowTestPlanReview(planId: string, reviewId: string, data: {
+    reviewer_id?: string | null;
+    review_status?: string;
+    review_notes?: string;
+}) {
+    return request.put(`/vortflow/test-plans/${planId}/reviews/${reviewId}`, data);
+}
+
+export function removeVortflowTestPlanReview(planId: string, reviewId: string) {
+    return request.delete(`/vortflow/test-plans/${planId}/reviews/${reviewId}`);
+}
+
+export function getVortflowAvailablePRs(planId: string, repoId: string) {
+    return request.get(`/vortflow/test-plans/${planId}/available-prs`, { params: { repo_id: repoId } });
+}
+
+export function getVortflowReviewHistory(planId: string, reviewId: string) {
+    return request.get(`/vortflow/test-plans/${planId}/reviews/${reviewId}/history`);
+}
+
+export function triggerVortflowAiReview(planId: string, reviewId: string) {
+    return request.post(`/vortflow/test-plans/${planId}/reviews/${reviewId}/ai-review`, null, { timeout: 120000 });
+}
+
+// ---- Test Reports ----
+
+export function getVortflowTestReports(params: { plan_id?: string; project_id?: string; page?: number; page_size?: number }) {
+    return request.get("/vortflow/test-reports", { params });
+}
+
+export function getVortflowTestReport(reportId: string) {
+    return request.get(`/vortflow/test-reports/${reportId}`);
+}
+
+export function createVortflowTestReport(data: { plan_id: string; title?: string }) {
+    return request.post("/vortflow/test-reports", data);
+}
+
+export function updateVortflowTestReport(reportId: string, data: { title?: string; summary?: string }) {
+    return request.put(`/vortflow/test-reports/${reportId}`, data);
+}
+
+export function deleteVortflowTestReport(reportId: string) {
+    return request.delete(`/vortflow/test-reports/${reportId}`);
+}
+
 // ---- Work Item Convert ----
 
 export function convertWorkItem(data: { from_type: string; id: string; to_type: string }) {

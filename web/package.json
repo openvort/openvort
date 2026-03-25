@@ -55,6 +55,7 @@
     "vue": "^3.5.25",
     "vue-avatar-cropper": "^6.1.1",
     "vue-router": "^4.6.4",
+    "xlsx": "^0.18.5",
     "zod": "^3.25.76"
   },
   "devDependencies": {

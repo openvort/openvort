@@ -231,6 +231,15 @@ onMounted(async () => {
                     </template>
                 </vort-table-column>
 
+                <vort-table-column label="评审" :width="80">
+                    <template #default="{ row }">
+                        <span v-if="row.review_total" class="text-sm" :class="row.review_approved === row.review_total ? 'text-green-600' : 'text-gray-600'">
+                            {{ row.review_approved || 0 }}/{{ row.review_total }}
+                        </span>
+                        <span v-else class="text-sm text-gray-400">-</span>
+                    </template>
+                </vort-table-column>
+
                 <vort-table-column label="关联迭代" :width="120">
                     <template #default="{ row }">
                         <span class="text-sm text-gray-600">{{ row.iteration_name || "无" }}</span>

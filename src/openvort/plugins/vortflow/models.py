@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from openvort.db.engine import Base
@@ -479,6 +479,62 @@ class FlowTestPlanExecution(Base):
     notes: Mapped[str] = mapped_column(Text, default="")
     bug_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class FlowTestPlanReview(Base):
+    """Test plan code review item (linked to a Git PR)"""
+
+    __tablename__ = "flow_test_plan_reviews"
+    __table_args__ = (
+        UniqueConstraint("plan_id", "repo_id", "pr_number", name="uq_plan_review"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    plan_id: Mapped[str] = mapped_column(String(32), ForeignKey("flow_test_plans.id"), index=True)
+    repo_id: Mapped[str] = mapped_column(String(32), index=True)
+    pr_number: Mapped[int] = mapped_column(Integer)
+    pr_url: Mapped[str] = mapped_column(String(512), default="")
+    pr_title: Mapped[str] = mapped_column(String(500), default="")
+    head_branch: Mapped[str] = mapped_column(String(128), default="")
+    base_branch: Mapped[str] = mapped_column(String(128), default="")
+    reviewer_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("members.id"), nullable=True)
+    review_status: Mapped[str] = mapped_column(String(32), default="pending")  # pending/approved/rejected/changes_requested
+    review_notes: Mapped[str] = mapped_column(Text, default="")
+    added_by: Mapped[str | None] = mapped_column(String(32), ForeignKey("members.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class FlowTestPlanReviewHistory(Base):
+    """Code review status change history"""
+
+    __tablename__ = "flow_test_plan_review_histories"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    review_id: Mapped[str] = mapped_column(String(32), ForeignKey("flow_test_plan_reviews.id"), index=True)
+    action: Mapped[str] = mapped_column(String(32))  # status_changed/reviewer_assigned
+    old_status: Mapped[str] = mapped_column(String(32), default="")
+    new_status: Mapped[str] = mapped_column(String(32), default="")
+    notes: Mapped[str] = mapped_column(Text, default="")
+    actor_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("members.id"), nullable=True)
+    is_ai: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class FlowTestReport(Base):
+    """Test report (point-in-time snapshot of a test plan)"""
+
+    __tablename__ = "flow_test_reports"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    plan_id: Mapped[str] = mapped_column(String(32), ForeignKey("flow_test_plans.id"), index=True)
+    project_id: Mapped[str] = mapped_column(String(32), ForeignKey("flow_projects.id"), index=True)
+    title: Mapped[str] = mapped_column(String(500))
+    summary: Mapped[str] = mapped_column(Text, default="")
+    snapshot_json: Mapped[str] = mapped_column(Text, default="{}")
+    creator_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("members.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
 class FlowComment(Base):

@@ -1826,6 +1826,7 @@ onMounted(async () => {
                 ref="tableRef"
                 :columns="columns"
                 :request="request"
+                :immediate="false"
                 :post-process-data="postProcessTableRows"
                 :params="queryParams"
                 :row-key="rowKeyGetter"

@@ -4,13 +4,17 @@ import { useRoute, useRouter } from "vue-router";
 import {
     Plus, Search, ChevronRight, ChevronDown, FolderOpen, Folder,
     Ellipsis, CheckCircle, XCircle, AlertCircle, SkipForward, Bug, ChevronsUpDown,
+    ExternalLink, GitPullRequest, Trash2, Bot, MessageSquare, History, Loader2,
+    FileText, Copy, MoreHorizontal,
 } from "lucide-vue-next";
-import { message, Dropdown, DropdownMenuItem } from "@/components/vort";
+import { message, Dropdown, DropdownMenuItem, Dialog } from "@/components/vort";
 import { useVortFlowStore } from "@/stores";
 import { useWorkItemCommon } from "./work-item/useWorkItemCommon";
 import WorkItemCreate from "./work-item/WorkItemCreate.vue";
 import TestPlanEditDialog from "./components/TestPlanEditDialog.vue";
 import TestPlanAddCasesDialog from "./components/TestPlanAddCasesDialog.vue";
+import TestPlanAddPRDialog from "./components/TestPlanAddPRDialog.vue";
+import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMemberPicker.vue";
 import {
     getVortflowTestPlan,
     getVortflowTestPlanCases,
@@ -23,6 +27,14 @@ import {
     createVortflowBug,
     createVortflowTestCaseLink,
     getVortflowTestPlans,
+    getVortflowTestPlanReviews,
+    updateVortflowTestPlanReview,
+    removeVortflowTestPlanReview,
+    getVortflowReviewHistory,
+    triggerVortflowAiReview,
+    getVortflowTestReports,
+    createVortflowTestReport,
+    deleteVortflowTestReport,
 } from "@/api";
 import type { NewBugForm } from "@/components/vort-biz/work-item/WorkItemTable.types";
 
@@ -31,13 +43,19 @@ const router = useRouter();
 const vortFlowStore = useVortFlowStore();
 const {
     getAvatarBg, getAvatarLabel, getMemberAvatarUrl,
-    loadMemberOptions, getMemberIdByName,
+    loadMemberOptions, getMemberIdByName, getMemberNameById,
+    ownerGroups,
 } = useWorkItemCommon();
 
 const planId = computed(() => route.params.id as string);
 const plan = ref<any>({});
 const planLoading = ref(true);
-const activeTab = ref("cases");
+const validTabs = ["cases", "reviews", "report"];
+const activeTab = ref(validTabs.includes(route.query.tab as string) ? (route.query.tab as string) : "cases");
+
+watch(activeTab, (tab) => {
+    router.replace({ query: { ...route.query, tab } });
+});
 
 const statusLabels: Record<string, string> = {
     planning: "待开始",
@@ -360,6 +378,202 @@ const handleCancelFileBug = () => {
     fileBugCaseRow.value = null;
 };
 
+// ============ Code Reviews ============
+
+const reviews = ref<any[]>([]);
+const reviewsLoading = ref(false);
+const addPRDialogOpen = ref(false);
+
+const reviewStatusLabels: Record<string, string> = {
+    pending: "待评审",
+    approved: "已通过",
+    rejected: "已驳回",
+    changes_requested: "需修改",
+};
+const reviewStatusColors: Record<string, string> = {
+    pending: "default",
+    approved: "green",
+    rejected: "red",
+    changes_requested: "orange",
+};
+
+const loadReviews = async () => {
+    reviewsLoading.value = true;
+    try {
+        const res = await getVortflowTestPlanReviews(planId.value) as any;
+        reviews.value = res.items || [];
+    } finally {
+        reviewsLoading.value = false;
+    }
+};
+
+// --- Review status change with notes dialog ---
+const reviewNotesDialogOpen = ref(false);
+const reviewNotesTarget = ref<{ review: any; status: string } | null>(null);
+const reviewNotesText = ref("");
+const reviewNotesSubmitting = ref(false);
+
+const handleReviewStatusClick = (review: any, status: string) => {
+    if (status === "approved") {
+        doUpdateReviewStatus(review, status, "");
+    } else {
+        reviewNotesTarget.value = { review, status };
+        reviewNotesText.value = "";
+        reviewNotesDialogOpen.value = true;
+    }
+};
+
+const handleReviewNotesSubmit = async () => {
+    if (!reviewNotesTarget.value) return;
+    const { review, status } = reviewNotesTarget.value;
+    if (!reviewNotesText.value.trim()) {
+        message.warning("请填写评审意见");
+        return;
+    }
+    reviewNotesSubmitting.value = true;
+    try {
+        await doUpdateReviewStatus(review, status, reviewNotesText.value.trim());
+        reviewNotesDialogOpen.value = false;
+    } finally {
+        reviewNotesSubmitting.value = false;
+    }
+};
+
+const doUpdateReviewStatus = async (review: any, status: string, notes: string) => {
+    try {
+        const data: any = { review_status: status };
+        if (notes) data.review_notes = notes;
+        await updateVortflowTestPlanReview(planId.value, review.id, data);
+        await loadReviews();
+        await loadPlan();
+    } catch {
+        message.error("更新失败");
+    }
+};
+
+// --- Reviewer picker ---
+const reviewerPickerOpenMap = ref<Record<string, boolean>>({});
+
+const handleAssignReviewer = async (review: any, memberName: string) => {
+    const memberId = getMemberIdByName(memberName);
+    if (!memberId && memberName) return;
+    try {
+        await updateVortflowTestPlanReview(planId.value, review.id, { reviewer_id: memberId || null });
+        await loadReviews();
+    } catch {
+        message.error("指定失败");
+    }
+};
+
+const handleRemoveReview = async (reviewId: string) => {
+    try {
+        await removeVortflowTestPlanReview(planId.value, reviewId);
+        message.success("已移除");
+        await loadReviews();
+        await loadPlan();
+    } catch {
+        message.error("移除失败");
+    }
+};
+
+const handleAddPRSaved = () => {
+    loadReviews();
+    loadPlan();
+};
+
+// --- Review history ---
+const historyDialogOpen = ref(false);
+const historyTarget = ref<any>(null);
+const historyItems = ref<any[]>([]);
+const historyLoading = ref(false);
+
+const handleShowHistory = async (review: any) => {
+    historyTarget.value = review;
+    historyDialogOpen.value = true;
+    historyLoading.value = true;
+    try {
+        const res = await getVortflowReviewHistory(planId.value, review.id) as any;
+        historyItems.value = res.items || [];
+    } finally {
+        historyLoading.value = false;
+    }
+};
+
+// --- AI review ---
+const aiReviewLoadingMap = ref<Record<string, boolean>>({});
+
+const handleAiReview = async (review: any) => {
+    aiReviewLoadingMap.value[review.id] = true;
+    try {
+        await triggerVortflowAiReview(planId.value, review.id);
+        message.success("AI 评审完成");
+        await loadReviews();
+        await loadPlan();
+    } catch {
+        message.error("AI 评审失败");
+    } finally {
+        aiReviewLoadingMap.value[review.id] = false;
+    }
+};
+
+// ============ Test Reports ============
+
+const reports = ref<any[]>([]);
+const reportsLoading = ref(false);
+const reportsTotal = ref(0);
+const reportGenerating = ref(false);
+
+const loadReports = async () => {
+    reportsLoading.value = true;
+    try {
+        const res = await getVortflowTestReports({ plan_id: planId.value }) as any;
+        reports.value = res.items || [];
+        reportsTotal.value = res.total || 0;
+    } finally {
+        reportsLoading.value = false;
+    }
+};
+
+const handleGenerateReport = async () => {
+    reportGenerating.value = true;
+    try {
+        const res = await createVortflowTestReport({ plan_id: planId.value }) as any;
+        if (res?.error) {
+            message.error(res.error);
+            return;
+        }
+        message.success("报告已生成");
+        await loadReports();
+    } catch {
+        message.error("生成失败");
+    } finally {
+        reportGenerating.value = false;
+    }
+};
+
+const handleDeleteReport = async (reportId: string) => {
+    try {
+        await deleteVortflowTestReport(reportId);
+        message.success("已删除");
+        await loadReports();
+    } catch {
+        message.error("删除失败");
+    }
+};
+
+const handleViewReport = (reportId: string) => {
+    router.push(`/vortflow/test-reports/${reportId}`);
+};
+
+const handleCopyReportLink = (reportId: string) => {
+    const url = `${window.location.origin}/vortflow/test-reports/${reportId}`;
+    navigator.clipboard.writeText(url).then(() => {
+        message.success("链接已复制");
+    }).catch(() => {
+        message.warning("复制失败，请手动复制");
+    });
+};
+
 // ============ Link Iteration / Version ============
 
 const iterationOptions = ref<{ id: string; name: string; status?: string }[]>([]);
@@ -414,12 +628,12 @@ const verStageLabels: Record<string, string> = { dev: "开发环境", staging: "
 onMounted(async () => {
     await loadMemberOptions();
     await loadPlan();
-    await Promise.all([loadModules(), loadCases(), loadLinkOptions(), loadPlanSwitcherList()]);
+    await Promise.all([loadModules(), loadCases(), loadReviews(), loadReports(), loadLinkOptions(), loadPlanSwitcherList()]);
 });
 
 watch(planId, async () => {
     await loadPlan();
-    await Promise.all([loadModules(), loadCases()]);
+    await Promise.all([loadModules(), loadCases(), loadReviews()]);
 });
 </script>
 
@@ -526,6 +740,12 @@ watch(planId, async () => {
                             </template>
                         </vort-tooltip>
                     </div>
+                    <div v-if="plan.review_total > 0" class="flex items-center gap-1.5">
+                        <span class="text-gray-400">评审通过:</span>
+                        <span :class="plan.review_approved === plan.review_total ? 'text-green-600' : ''">
+                            {{ plan.review_approved || 0 }} / {{ plan.review_total }}
+                        </span>
+                    </div>
                     <div class="flex items-center gap-1.5">
                         <span class="text-gray-400">关联迭代:</span>
                         <Dropdown v-model:open="iterLinkOpen" trigger="click">
@@ -614,7 +834,12 @@ watch(planId, async () => {
         <div class="bg-white rounded-xl">
             <vort-tabs v-model:activeKey="activeTab" class="px-6 pt-2">
                 <vort-tab-pane tab-key="cases" tab="执行用例" />
-                <vort-tab-pane tab-key="report" tab="测试报告" />
+                <vort-tab-pane tab-key="reviews">
+                    <template #tab>代码评审 <span v-if="plan.review_total" class="text-blue-500 ml-0.5">{{ plan.review_total }}</span></template>
+                </vort-tab-pane>
+                <vort-tab-pane tab-key="report">
+                    <template #tab>测试报告 <span v-if="reportsTotal" class="text-blue-500 ml-0.5">{{ reportsTotal }}</span></template>
+                </vort-tab-pane>
             </vort-tabs>
 
             <!-- Cases Tab Content -->
@@ -685,7 +910,7 @@ watch(planId, async () => {
                                 @search="loadCases"
                                 @keyup.enter="loadCases"
                             />
-                            <span class="text-sm text-gray-400">共 {{ casesTotal }} 项</span>
+                            <span class="text-sm text-gray-400 whitespace-nowrap">共 {{ casesTotal }} 项</span>
                         </div>
                         <div class="flex items-center gap-2">
                             <vort-button variant="primary" size="small" @click="addCasesDialogOpen = true">
@@ -842,9 +1067,232 @@ watch(planId, async () => {
                 </div>
             </div>
 
-            <!-- Report Tab Content (placeholder) -->
-            <div v-if="activeTab === 'report'" class="p-8 text-center text-gray-400">
-                <p class="text-sm">测试报告功能即将推出</p>
+            <!-- Reviews Tab Content -->
+            <div v-if="activeTab === 'reviews'" class="p-4">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="flex items-center gap-3">
+                        <span class="text-sm text-gray-400">
+                            共 {{ reviews.length }} 个 PR
+                            <template v-if="reviews.length > 0">
+                                <span class="mx-1">|</span>
+                                待评审 {{ reviews.filter((r: any) => r.review_status === 'pending').length }}
+                                <span class="mx-1">|</span>
+                                <span class="text-green-600">已通过 {{ reviews.filter((r: any) => r.review_status === 'approved').length }}</span>
+                                <span class="mx-1">|</span>
+                                <span class="text-red-500">已驳回 {{ reviews.filter((r: any) => r.review_status === 'rejected').length }}</span>
+                            </template>
+                        </span>
+                    </div>
+                    <vort-button variant="primary" size="small" @click="addPRDialogOpen = true">
+                        <Plus :size="14" class="mr-1" /> 添加 PR
+                    </vort-button>
+                </div>
+
+                <vort-table :data-source="reviews" :loading="reviewsLoading" :pagination="false" row-key="id">
+                    <vort-table-column label="仓库" :width="120">
+                        <template #default="{ row }">
+                            <span class="text-sm text-gray-600">{{ row.repo_name || '-' }}</span>
+                        </template>
+                    </vort-table-column>
+
+                    <vort-table-column label="PR" :min-width="240">
+                        <template #default="{ row }">
+                            <div class="flex items-center gap-1.5">
+                                <GitPullRequest :size="14" class="text-gray-400 shrink-0" />
+                                <a
+                                    v-if="row.pr_url"
+                                    :href="row.pr_url"
+                                    target="_blank"
+                                    class="text-sm text-blue-600 hover:underline truncate"
+                                >
+                                    #{{ row.pr_number }} {{ row.pr_title }}
+                                </a>
+                                <span v-else class="text-sm text-gray-800 truncate">#{{ row.pr_number }} {{ row.pr_title }}</span>
+                            </div>
+                        </template>
+                    </vort-table-column>
+
+                    <vort-table-column label="分支" :width="220">
+                        <template #default="{ row }">
+                            <span class="text-xs text-gray-500 font-mono">{{ row.head_branch }} &rarr; {{ row.base_branch }}</span>
+                        </template>
+                    </vort-table-column>
+
+                    <vort-table-column label="评审人" :width="140">
+                        <template #default="{ row }">
+                            <WorkItemMemberPicker
+                                v-model:open="reviewerPickerOpenMap[row.id]"
+                                mode="owner"
+                                :owner="row.reviewer_name || ''"
+                                :groups="ownerGroups"
+                                :bordered="false"
+                                :dropdown-max-height="320"
+                                placeholder="指定评审人"
+                                :get-avatar-bg="getAvatarBg"
+                                :get-avatar-label="getAvatarLabel"
+                                :get-avatar-url="getMemberAvatarUrl"
+                                @update:owner="(name: string) => handleAssignReviewer(row, name)"
+                            >
+                                <template #trigger>
+                                    <div class="flex items-center gap-1.5 cursor-pointer py-0.5">
+                                        <template v-if="row.reviewer_name">
+                                            <span
+                                                class="w-5 h-5 rounded-full text-white text-[10px] flex items-center justify-center shrink-0 overflow-hidden"
+                                                :style="{ backgroundColor: getAvatarBg(row.reviewer_name) }"
+                                            >
+                                                <img
+                                                    v-if="getMemberAvatarUrl(row.reviewer_name)"
+                                                    :src="getMemberAvatarUrl(row.reviewer_name)"
+                                                    class="w-full h-full object-cover"
+                                                >
+                                                <template v-else>{{ getAvatarLabel(row.reviewer_name) }}</template>
+                                            </span>
+                                            <span class="text-sm text-gray-700 truncate">{{ row.reviewer_name }}</span>
+                                        </template>
+                                        <span v-else class="text-sm text-gray-400">指定评审人</span>
+                                    </div>
+                                </template>
+                            </WorkItemMemberPicker>
+                        </template>
+                    </vort-table-column>
+
+                    <vort-table-column label="评审状态" :width="140">
+                        <template #default="{ row }">
+                            <div class="flex items-center gap-1">
+                                <Dropdown trigger="click">
+                                    <vort-tag
+                                        :color="reviewStatusColors[row.review_status] || 'default'"
+                                        class="cursor-pointer"
+                                    >
+                                        {{ reviewStatusLabels[row.review_status] || row.review_status }}
+                                    </vort-tag>
+                                    <template #overlay>
+                                        <div class="py-1">
+                                            <DropdownMenuItem
+                                                v-for="(label, key) in reviewStatusLabels"
+                                                :key="key"
+                                                class="!py-2"
+                                                @click="handleReviewStatusClick(row, key as string)"
+                                            >
+                                                <vort-tag :color="reviewStatusColors[key as string]" size="small">{{ label }}</vort-tag>
+                                            </DropdownMenuItem>
+                                        </div>
+                                    </template>
+                                </Dropdown>
+                                <vort-tooltip v-if="row.review_notes">
+                                    <MessageSquare :size="14" class="text-gray-400 cursor-help shrink-0" />
+                                    <template #title>
+                                        <div class="max-w-[360px] text-sm whitespace-pre-wrap">{{ row.review_notes }}</div>
+                                    </template>
+                                </vort-tooltip>
+                            </div>
+                        </template>
+                    </vort-table-column>
+
+                    <vort-table-column label="操作" :width="140" fixed="right">
+                        <template #default="{ row }">
+                            <div class="flex items-center gap-1">
+                                <vort-tooltip title="AI 评审">
+                                    <a
+                                        class="inline-flex items-center justify-center w-7 h-7 rounded hover:bg-gray-100 cursor-pointer"
+                                        :class="aiReviewLoadingMap[row.id] ? 'text-blue-400' : 'text-gray-400 hover:text-blue-500'"
+                                        @click="!aiReviewLoadingMap[row.id] && handleAiReview(row)"
+                                    >
+                                        <Loader2 v-if="aiReviewLoadingMap[row.id]" :size="14" class="animate-spin" />
+                                        <Bot v-else :size="14" />
+                                    </a>
+                                </vort-tooltip>
+                                <vort-tooltip title="评审历史">
+                                    <a class="inline-flex items-center justify-center w-7 h-7 rounded hover:bg-gray-100 text-gray-400 hover:text-blue-500 cursor-pointer" @click="handleShowHistory(row)">
+                                        <History :size="14" />
+                                    </a>
+                                </vort-tooltip>
+                                <vort-tooltip v-if="row.pr_url" title="打开 PR">
+                                    <a :href="row.pr_url" target="_blank" class="inline-flex items-center justify-center w-7 h-7 rounded hover:bg-gray-100 text-gray-400 hover:text-blue-500">
+                                        <ExternalLink :size="14" />
+                                    </a>
+                                </vort-tooltip>
+                                <vort-popconfirm title="确认移除此评审项？" @confirm="handleRemoveReview(row.id)">
+                                    <a class="inline-flex items-center justify-center w-7 h-7 rounded hover:bg-gray-100 text-gray-400 hover:text-red-500 cursor-pointer">
+                                        <Trash2 :size="14" />
+                                    </a>
+                                </vort-popconfirm>
+                            </div>
+                        </template>
+                    </vort-table-column>
+                </vort-table>
+            </div>
+
+            <!-- Report Tab Content -->
+            <div v-if="activeTab === 'report'" class="p-4">
+                <div class="flex items-center justify-between mb-3">
+                    <span class="text-sm text-gray-400">共 {{ reportsTotal }} 项</span>
+                    <vort-button variant="primary" size="small" :loading="reportGenerating" @click="handleGenerateReport">
+                        <Plus :size="14" class="mr-1" /> 生成测试报告
+                    </vort-button>
+                </div>
+
+                <vort-table :data-source="reports" :loading="reportsLoading" :pagination="false" row-key="id">
+                    <vort-table-column label="标题" :min-width="200">
+                        <template #default="{ row }">
+                            <a class="text-sm text-blue-600 cursor-pointer hover:underline" @click="handleViewReport(row.id)">
+                                {{ row.title }}
+                            </a>
+                        </template>
+                    </vort-table-column>
+
+                    <vort-table-column label="创建人" :width="120">
+                        <template #default="{ row }">
+                            <div v-if="row.creator_name" class="flex items-center gap-1.5">
+                                <span
+                                    class="w-5 h-5 rounded-full text-white text-[10px] flex items-center justify-center shrink-0 overflow-hidden"
+                                    :style="{ backgroundColor: getAvatarBg(row.creator_name) }"
+                                >
+                                    <img
+                                        v-if="getMemberAvatarUrl(row.creator_name)"
+                                        :src="getMemberAvatarUrl(row.creator_name)"
+                                        class="w-full h-full object-cover"
+                                    >
+                                    <template v-else>{{ getAvatarLabel(row.creator_name) }}</template>
+                                </span>
+                                <span class="text-sm text-gray-600">{{ row.creator_name }}</span>
+                            </div>
+                            <span v-else class="text-sm text-gray-400">-</span>
+                        </template>
+                    </vort-table-column>
+
+                    <vort-table-column label="关联测试计划" :width="180">
+                        <template #default="{ row }">
+                            <span class="text-sm text-gray-600">{{ row.plan_title || '-' }}</span>
+                        </template>
+                    </vort-table-column>
+
+                    <vort-table-column label="创建时间" :width="160">
+                        <template #default="{ row }">
+                            <span class="text-sm text-gray-500">{{ row.created_at?.replace('T', ' ')?.slice(0, 16) || '-' }}</span>
+                        </template>
+                    </vort-table-column>
+
+                    <vort-table-column label="操作" :width="60" fixed="right">
+                        <template #default="{ row }">
+                            <Dropdown trigger="click" placement="bottomRight">
+                                <button class="p-1 rounded hover:bg-gray-100">
+                                    <MoreHorizontal :size="16" class="text-gray-400" />
+                                </button>
+                                <template #overlay>
+                                    <DropdownMenuItem @click="handleCopyReportLink(row.id)">
+                                        <Copy :size="14" class="mr-1.5 text-gray-400" />
+                                        复制报告链接
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem class="text-red-500" @click="handleDeleteReport(row.id)">
+                                        <Trash2 :size="14" class="mr-1.5" />
+                                        删除
+                                    </DropdownMenuItem>
+                                </template>
+                            </Dropdown>
+                        </template>
+                    </vort-table-column>
+                </vort-table>
             </div>
         </div>
 
@@ -862,6 +1310,84 @@ watch(planId, async () => {
             :project-id="plan.project_id || ''"
             @saved="handleAddCasesSaved"
         />
+
+        <!-- Add PR Dialog -->
+        <TestPlanAddPRDialog
+            v-model:open="addPRDialogOpen"
+            :plan-id="planId"
+            :project-id="plan.project_id || ''"
+            @saved="handleAddPRSaved"
+        />
+
+        <!-- Review Notes Dialog -->
+        <Dialog
+            :open="reviewNotesDialogOpen"
+            title="填写评审意见"
+            :confirm-loading="reviewNotesSubmitting"
+            ok-text="确认"
+            @ok="handleReviewNotesSubmit"
+            @update:open="reviewNotesDialogOpen = $event"
+        >
+            <div class="space-y-3">
+                <div class="flex items-center gap-2 text-sm text-gray-500">
+                    <span>将标记为</span>
+                    <vort-tag v-if="reviewNotesTarget" :color="reviewStatusColors[reviewNotesTarget.status] || 'default'">
+                        {{ reviewStatusLabels[reviewNotesTarget?.status] || '' }}
+                    </vort-tag>
+                </div>
+                <vort-textarea
+                    v-model="reviewNotesText"
+                    :rows="4"
+                    placeholder="请填写评审意见，说明需要修改的内容或驳回原因..."
+                />
+            </div>
+        </Dialog>
+
+        <!-- Review History Dialog -->
+        <Dialog
+            :open="historyDialogOpen"
+            :title="`评审历史 — #${historyTarget?.pr_number || ''} ${historyTarget?.pr_title || ''}`"
+            :width="600"
+            :footer="false"
+            @update:open="historyDialogOpen = $event"
+        >
+            <vort-spin :spinning="historyLoading">
+                <div v-if="historyItems.length === 0 && !historyLoading" class="text-center py-8 text-sm text-gray-400">
+                    暂无评审记录
+                </div>
+                <div v-else class="space-y-3 max-h-[400px] overflow-y-auto">
+                    <div v-for="item in historyItems" :key="item.id" class="flex gap-3 text-sm">
+                        <div class="flex flex-col items-center">
+                            <span
+                                class="w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-white text-[10px]"
+                                :class="item.is_ai ? 'bg-blue-500' : 'bg-gray-400'"
+                            >
+                                <Bot v-if="item.is_ai" :size="14" />
+                                <template v-else>{{ item.actor_name?.slice(0, 1) || '?' }}</template>
+                            </span>
+                            <div class="w-px flex-1 bg-gray-200 mt-1" />
+                        </div>
+                        <div class="flex-1 pb-4">
+                            <div class="flex items-center gap-2 mb-1">
+                                <span class="font-medium text-gray-700">{{ item.is_ai ? 'AI 评审' : (item.actor_name || '未知') }}</span>
+                                <template v-if="item.action === 'status_changed'">
+                                    <vort-tag :color="reviewStatusColors[item.old_status] || 'default'" size="small">{{ reviewStatusLabels[item.old_status] || item.old_status }}</vort-tag>
+                                    <span class="text-gray-400">&rarr;</span>
+                                    <vort-tag :color="reviewStatusColors[item.new_status] || 'default'" size="small">{{ reviewStatusLabels[item.new_status] || item.new_status }}</vort-tag>
+                                </template>
+                                <template v-else-if="item.action === 'reviewer_assigned'">
+                                    <span class="text-gray-500">指定了评审人</span>
+                                </template>
+                                <span class="text-xs text-gray-400 ml-auto shrink-0">{{ item.created_at?.replace('T', ' ')?.slice(0, 16) }}</span>
+                            </div>
+                            <div v-if="item.notes" class="text-gray-600 whitespace-pre-wrap bg-gray-50 rounded-lg p-3 text-xs leading-relaxed">
+                                {{ item.notes }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </vort-spin>
+        </Dialog>
 
         <!-- File Bug Drawer -->
         <vort-drawer

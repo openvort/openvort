@@ -394,7 +394,7 @@ onMounted(() => loadAll());
                                 <span class="iter-status-badge" :class="'iter-status-' + iter.status">
                                     {{ iterStatusLabels[iter.status] || iter.status }}
                                 </span>
-                                <span class="text-[11px] text-gray-400">
+                                <span class="text-[11px] text-gray-400 whitespace-nowrap">
                                     {{ formatDate(iter.start_date) }} - {{ formatDate(iter.end_date) }}
                                 </span>
                             </div>
@@ -481,6 +481,8 @@ onMounted(() => loadAll());
     border-radius: 3px;
     font-size: 11px;
     line-height: 18px;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .iter-status-planning {
