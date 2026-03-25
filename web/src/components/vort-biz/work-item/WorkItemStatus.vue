@@ -39,6 +39,7 @@ const statusClassMap: Record<string, string> = {
     已关闭: "bg-gray-100 text-gray-700",
     暂时搁置: "bg-gray-100 text-gray-500",
     已取消: "bg-red-100 text-red-600",
+    收集中: "bg-gray-100 text-gray-400",
     意向: "bg-slate-100 text-slate-600",
     暂搁置: "bg-slate-100 text-slate-500",
     设计中: "bg-indigo-100 text-indigo-600",

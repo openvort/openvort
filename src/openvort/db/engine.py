@@ -943,6 +943,15 @@ async def init_db(database_url: str) -> None:
             "CREATE INDEX IF NOT EXISTS ix_pat_token_prefix ON personal_access_tokens(token_prefix)"
         ))
 
+    # VortFlow: add progress column to stories & tasks
+    async with _engine.begin() as conn:
+        await conn.execute(text(
+            "ALTER TABLE IF EXISTS flow_stories ADD COLUMN IF NOT EXISTS progress INTEGER DEFAULT 0"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE IF EXISTS flow_tasks ADD COLUMN IF NOT EXISTS progress INTEGER DEFAULT 0"
+        ))
+
     log.info(f"数据库已初始化: {database_url.split('://')[0]}")
 
 

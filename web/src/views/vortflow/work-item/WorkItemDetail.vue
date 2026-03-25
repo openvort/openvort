@@ -173,7 +173,7 @@ const FIELD_LABEL_MAP: Record<string, string> = {
 const LONG_TEXT_FIELDS = new Set(["description"]);
 
 const STATE_LABEL_MAP: Record<string, string> = {
-    intake: "意向", review: "评审", rejected: "已取消",
+    submitted: "收集中", intake: "意向", review: "评审", rejected: "已取消",
     pm_refine: "需求细化", design: "设计中", breakdown: "任务拆解",
     dev_assign: "待分配", in_progress: "进行中", testing: "测试中",
     bugfix: "修复缺陷", done: "已完成",
@@ -788,6 +788,7 @@ type EditableField =
     | "type"
     | "project"
     | "version"
+    | "progress"
     | "estimateHours"
     | "repo"
     | "branch"
@@ -837,6 +838,32 @@ const canEditProject = computed(() => !!record.value);
 const canEditIteration = computed(() => !!record.value);
 const canEditVersion = computed(() => !!record.value);
 const canEditEstimateHours = computed(() => !!record.value);
+
+const isProgressReadonly = computed(() => {
+    if (!record.value) return true;
+    if ((record.value.childrenCount || 0) > 0) return true;
+    if (record.value.type === "需求" && (record.value.taskCount || 0) > 0) return true;
+    return false;
+});
+
+const detailProgress = computed({
+    get: () => record.value?.progress ?? 0,
+    set: (val: number) => {
+        if (!record.value || isProgressReadonly.value) return;
+        const clamped = Math.max(0, Math.min(100, Math.round(val)));
+        record.value.progress = clamped;
+        emit("update", { progress: clamped });
+        appendDetailLog(`修改了进度为 ${clamped}%`);
+    },
+});
+
+const detailProgressRef = ref<any>(null);
+const startEditingProgress = () => {
+    if (isProgressReadonly.value) return;
+    startEditing("progress");
+    nextTick(() => detailProgressRef.value?.focus());
+};
+
 const detailEstimateRef = ref<any>(null);
 const startEditingEstimate = () => {
     if (!canEditEstimateHours.value) return;
@@ -1078,6 +1105,37 @@ watch(() => props.initialData, (value) => {
                                 >
                                     <vort-select-option v-for="item in apiIterations" :key="item.id" :value="item.id">{{ item.name }}</vort-select-option>
                                 </vort-select>
+                            </div>
+                        </div>
+                        <div v-if="record?.type === '需求' || record?.type === '任务'" class="bug-detail-info-item bug-detail-info-item-row">
+                            <label>进度</label>
+                            <div
+                                class="detail-field-shell detail-progress-shell"
+                                :class="{ 'is-editing': isEditing('progress') }"
+                                @mousedown.capture="!isProgressReadonly && startEditingProgress()"
+                            >
+                                <template v-if="!isProgressReadonly && isEditing('progress')">
+                                    <vort-input-number
+                                        ref="detailProgressRef"
+                                        v-model="detailProgress"
+                                        :min="0"
+                                        :max="100"
+                                        :step="5"
+                                        :bordered="true"
+                                        class="detail-field-number"
+                                        @blur="stopEditing"
+                                        @keyup.enter="stopEditing"
+                                    />
+                                    <span class="ml-1 text-xs text-gray-400">%</span>
+                                </template>
+                                <template v-else>
+                                    <div class="detail-progress-bar-wrapper">
+                                        <div class="detail-progress-bar">
+                                            <div class="detail-progress-fill" :style="{ width: (detailProgress || 0) + '%' }" />
+                                        </div>
+                                        <span class="detail-progress-text">{{ detailProgress || 0 }}%</span>
+                                    </div>
+                                </template>
                             </div>
                         </div>
                         <div class="bug-detail-info-item bug-detail-info-item-row">
@@ -2444,5 +2502,40 @@ watch(() => props.initialData, (value) => {
     padding-left: 8px !important;
     padding-right: 8px !important;
     background: transparent !important;
+}
+
+.detail-progress-shell {
+    flex: 1;
+    display: flex !important;
+    cursor: pointer;
+    padding: 0 4px;
+}
+
+.detail-progress-bar-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 4px 0;
+}
+.detail-progress-bar {
+    flex: 1;
+    height: 8px;
+    border-radius: 9999px;
+    background-color: var(--vort-bg-secondary, #f0f0f0);
+    overflow: hidden;
+    min-width: 60px;
+}
+.detail-progress-fill {
+    height: 100%;
+    border-radius: 9999px;
+    background-color: #22c55e;
+    transition: width 0.2s ease;
+}
+.detail-progress-text {
+    font-size: 13px;
+    color: var(--vort-text-secondary, rgba(0, 0, 0, 0.65));
+    white-space: nowrap;
+    min-width: 36px;
 }
 </style>

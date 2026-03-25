@@ -253,6 +253,9 @@ const branchLoadingMap = reactive<Record<string, boolean>>({});
 const estimateEditingFor = ref<string | null>(null);
 const estimateDraftMap = reactive<Record<string, number | null>>({});
 const estimateInputRef = ref<any>(null);
+const progressEditingFor = ref<string | null>(null);
+const progressDraftMap = reactive<Record<string, number | null>>({});
+const progressInputRef = ref<any>(null);
 const projectPickerOpenMap = reactive<Record<string, boolean>>({});
 const iterationPickerOpenMap = reactive<Record<string, boolean>>({});
 const repoPickerOpenMap = reactive<Record<string, boolean>>({});
@@ -294,6 +297,7 @@ const STATUS_DOT_COLOR_MAP: Record<string, string> = {
     "已修复": "#3b82f6",
     "已关闭": "#374151",
     "已取消": "#ef4444",
+    "收集中": "#94a3b8",
     "意向": "#64748b",
     "设计中": "#6366f1",
     "开发中": "#3b82f6",
@@ -628,6 +632,7 @@ const syncRecordUpdateToApi = async (
         end_at?: string;
         repo_id?: string | null;
         branch?: string;
+        progress?: number;
     }
 ) => {
     if (!props.useApi) return;
@@ -649,6 +654,7 @@ const syncRecordUpdateToApi = async (
             end_at: patch.end_at,
             repo_id: patch.repo_id,
             branch: patch.branch,
+            progress: patch.progress,
         });
         record.updatedAt = formatCnTime(new Date());
         return;
@@ -669,6 +675,7 @@ const syncRecordUpdateToApi = async (
             repo_id: patch.repo_id,
             branch: patch.branch,
             project_id: patch.project_id,
+            progress: patch.progress,
         });
         record.updatedAt = formatCnTime(new Date());
         return;
@@ -796,6 +803,35 @@ const openEstimateEditor = (record: RowItem) => {
         : Number(record.estimateHours);
     estimateEditingFor.value = key;
     nextTick(() => estimateInputRef.value?.focus());
+};
+
+const isProgressReadonly = (record: RowItem) => {
+    if ((record.childrenCount || 0) > 0) return true;
+    if (record.type === "需求" && (record.taskCount || 0) > 0) return true;
+    return false;
+};
+
+const selectRowProgress = async (record: RowItem, value?: number | null) => {
+    const key = getInteractiveCellKey(record);
+    const prevProgress = record.progress;
+    const nextValue = value == null ? 0 : Math.max(0, Math.min(100, Math.round(Number(value))));
+    record.progress = nextValue;
+    progressEditingFor.value = null;
+    try {
+        await syncRecordUpdateToApi(record, { progress: nextValue });
+    } catch (error: any) {
+        record.progress = prevProgress;
+        progressDraftMap[key] = prevProgress ?? 0;
+        message.error(error?.message || "进度同步失败");
+    }
+};
+
+const openProgressEditor = (record: RowItem) => {
+    if (isProgressReadonly(record)) return;
+    const key = getInteractiveCellKey(record);
+    progressDraftMap[key] = record.progress ?? 0;
+    progressEditingFor.value = key;
+    nextTick(() => progressInputRef.value?.focus());
 };
 
 const selectRowProject = async (record: RowItem, projectId?: string) => {
@@ -1125,6 +1161,9 @@ const handleDetailUpdate = async (data: Partial<RowItem>) => {
         const pt = data.planTime;
         const deadline = (pt && pt[1]) ? pt[1] : undefined;
         await syncRecordUpdateToApi(rec, { deadline: deadline || undefined });
+    }
+    if (data.progress !== undefined) {
+        await syncRecordUpdateToApi(rec, { progress: data.progress });
     }
     if (data.estimateHours !== undefined) {
         const value = data.estimateHours === "" || data.estimateHours == null
@@ -2055,6 +2094,37 @@ onMounted(async () => {
                     </TableCell>
                 </template>
 
+                <template #progress="{ record }">
+                    <TableCell @click.stop="openProgressEditor(record)">
+                        <template v-if="record.type === '需求' || record.type === '任务'">
+                            <div class="progress-cell">
+                                <div class="progress-bar">
+                                    <div
+                                        class="progress-fill"
+                                        :style="{ width: (record.progress || 0) + '%' }"
+                                    />
+                                </div>
+                                <template v-if="!isProgressReadonly(record) && progressEditingFor === getInteractiveCellKey(record)">
+                                    <vort-input-number
+                                        ref="progressInputRef"
+                                        v-model="progressDraftMap[getInteractiveCellKey(record)]"
+                                        :min="0"
+                                        :max="100"
+                                        :step="5"
+                                        size="small"
+                                        style="width:64px"
+                                        @click.stop
+                                        @blur="selectRowProgress(record, progressDraftMap[getInteractiveCellKey(record)])"
+                                        @keyup.enter="selectRowProgress(record, progressDraftMap[getInteractiveCellKey(record)])"
+                                    />
+                                </template>
+                                <span v-else class="progress-text" :class="{ 'cursor-pointer': !isProgressReadonly(record) }">{{ record.progress || 0 }}%</span>
+                            </div>
+                        </template>
+                        <span v-else class="text-sm text-gray-300">-</span>
+                    </TableCell>
+                </template>
+
                 <template #estimateHours="{ text, record }">
                     <TableCell @click.stop="openEstimateEditor(record)">
                         <div class="min-h-8 flex items-center">
@@ -2296,6 +2366,23 @@ onMounted(async () => {
 
 <style scoped>
 @reference "../../assets/styles/index.css";
+
+.progress-cell {
+    @apply flex items-center gap-2;
+}
+.progress-bar {
+    @apply flex-1 h-2 rounded-full overflow-hidden;
+    background-color: var(--vort-bg-secondary, #f0f0f0);
+    min-width: 60px;
+}
+.progress-fill {
+    @apply h-full rounded-full transition-all duration-200;
+    background-color: #22c55e;
+}
+.progress-text {
+    @apply text-sm text-gray-600 whitespace-nowrap;
+    min-width: 36px;
+}
 
 .title-link-cell {
     @apply flex items-center justify-start gap-2 cursor-pointer max-w-full !p-0 !h-auto !bg-transparent;

@@ -122,6 +122,7 @@ const FALLBACK_BUG: StatusOption[] = [
 ];
 const FALLBACK_DEMAND: StatusOption[] = [
     { label: "已取消", value: "已取消", icon: "x", iconClass: "text-red-500" },
+    { label: "收集中", value: "收集中", icon: "diamond", iconClass: "text-gray-400" },
     { label: "意向", value: "意向", icon: "circle", iconClass: "text-gray-500" },
     { label: "设计中", value: "设计中", icon: "pencil", iconClass: "text-indigo-500" },
     { label: "开发中", value: "开发中", icon: "circle-dot", iconClass: "text-blue-500" },
@@ -274,7 +275,7 @@ export function useWorkItemCommon() {
 
     const FALLBACK_STATE_MAP: Record<WorkItemType, Record<string, Status>> = {
         需求: {
-            intake: "意向", review: "意向", rejected: "已取消",
+            submitted: "收集中", intake: "意向", review: "意向", rejected: "已取消",
             pm_refine: "设计中", design: "设计中", breakdown: "开发中",
             dev_assign: "开发中", in_progress: "开发中", testing: "测试完成",
             bugfix: "开发中", done: "已完成",
@@ -289,7 +290,7 @@ export function useWorkItemCommon() {
         },
     };
     const FALLBACK_DEFAULT: Record<WorkItemType, Status> = {
-        需求: "意向", 任务: "待办的", 缺陷: "待确认",
+        需求: "收集中", 任务: "待办的", 缺陷: "待确认",
     };
 
     const mapBackendStateToStatus = (typeValue: WorkItemType, stateValue: string): Status => {

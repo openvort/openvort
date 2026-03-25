@@ -54,6 +54,7 @@ class StoryUpdate(BaseModel):
     end_at: str | None = None
     repo_id: str | None = None
     branch: str | None = None
+    progress: int | None = None
 
 class TaskCreate(BaseModel):
     project_id: str | None = None
@@ -85,6 +86,7 @@ class TaskUpdate(BaseModel):
     end_at: str | None = None
     repo_id: str | None = None
     branch: str | None = None
+    progress: int | None = None
 
 class BugCreate(BaseModel):
     project_id: str | None = None

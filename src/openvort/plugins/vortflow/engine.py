@@ -12,6 +12,7 @@ log = get_logger("plugins.vortflow.engine")
 
 
 class StoryState(str, Enum):
+    SUBMITTED = "submitted"
     INTAKE = "intake"
     REVIEW = "review"
     REJECTED = "rejected"
@@ -59,9 +60,10 @@ BUG_CLOSED_STATES: set[str] = {
 # ============ 合法转换表 ============
 
 STORY_TRANSITIONS: dict[StoryState, list[StoryState]] = {
+    StoryState.SUBMITTED: [StoryState.INTAKE, StoryState.REJECTED],
     StoryState.INTAKE: [StoryState.REVIEW],
     StoryState.REVIEW: [StoryState.PM_REFINE, StoryState.REJECTED],
-    StoryState.REJECTED: [StoryState.INTAKE],
+    StoryState.REJECTED: [StoryState.SUBMITTED],
     StoryState.PM_REFINE: [StoryState.DESIGN],
     StoryState.DESIGN: [StoryState.BREAKDOWN],
     StoryState.BREAKDOWN: [StoryState.DEV_ASSIGN],

@@ -29,7 +29,7 @@ class IntakeStoryTool(BaseTool):
         "录入一个新需求到 VortFlow 敏捷流程系统。"
         "需要提供需求标题、描述、所属项目，可选优先级和截止时间。"
         "支持通过迭代名称或 ID 关联迭代。"
-        "录入后需求进入 intake 状态，等待评审。"
+        "录入后需求进入 submitted 状态（收集中），等待评审确认。"
     )
     required_permission = "vortflow.story"
 
@@ -162,7 +162,7 @@ class IntakeStoryTool(BaseTool):
                 project_id=project_id,
                 title=title,
                 description=description,
-                state="intake",
+                state="submitted",
                 priority=priority,
                 parent_id=parent_id,
                 deadline=deadline,
@@ -232,7 +232,7 @@ class IntakeStoryTool(BaseTool):
                     parent_id=story_id,
                     title=child_title,
                     description=str(child.get("description", "") or ""),
-                    state="intake",
+                    state="submitted",
                     priority=priority,
                     submitter_id=member_id or None,
                     assignee_id=assignee_id,
@@ -256,7 +256,7 @@ class IntakeStoryTool(BaseTool):
 
         result_data = {
             "ok": True,
-            "message": f"需求「{title}」已录入，当前状态: intake（待评审）",
+            "message": f"需求「{title}」已录入，当前状态: submitted（收集中）",
             "story_id": story_id,
             "parent_id": parent_id,
             "children": [{"id": cid, "title": ct} for cid, ct in zip(child_story_ids, child_story_titles)],

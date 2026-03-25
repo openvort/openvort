@@ -42,7 +42,7 @@ class FlowStory(Base):
     project_id: Mapped[str] = mapped_column(String(32), ForeignKey("flow_projects.id"), index=True)
     title: Mapped[str] = mapped_column(String(500))
     description: Mapped[str] = mapped_column(Text, default="")
-    state: Mapped[str] = mapped_column(String(32), default="intake", index=True)
+    state: Mapped[str] = mapped_column(String(32), default="submitted", index=True)
     priority: Mapped[int] = mapped_column(Integer, default=3)  # 1=紧急 2=高 3=中 4=低
     parent_id: Mapped[str | None] = mapped_column(
         String(32), ForeignKey("flow_stories.id"), nullable=True, index=True
@@ -57,6 +57,7 @@ class FlowStory(Base):
     deadline: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     start_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     end_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    progress: Mapped[int] = mapped_column(Integer, default=0)
     repo_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     branch: Mapped[str] = mapped_column(String(200), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
@@ -84,6 +85,7 @@ class FlowTask(Base):
     collaborators_json: Mapped[str] = mapped_column(Text, default="[]")
     estimate_hours: Mapped[float | None] = mapped_column(nullable=True)
     actual_hours: Mapped[float | None] = mapped_column(nullable=True)
+    progress: Mapped[int] = mapped_column(Integer, default=0)
     deadline: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     start_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     end_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

@@ -125,6 +125,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
             : undefined;
         const iterationId = item?.iteration_id ? String(item.iteration_id) : "";
         const versionId = item?.version_id ? String(item.version_id) : "";
+        const progress = item?.progress != null ? Number(item.progress) : 0;
         const startAt = item?.start_at ? String(item.start_at).split("T")[0] : "";
         const endAt = item?.end_at ? String(item.end_at).split("T")[0] : "";
         return {
@@ -134,6 +135,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
             parentId: item?.parent_id ? String(item.parent_id) : "",
             parentTitle: "",
             childrenCount: Number(item?.children_count || 0),
+            taskCount: Number(item?.task_count || 0),
             isChild: Boolean(item?.parent_id),
             priority: mapBackendPriority(item, typeValue),
             tags,
@@ -148,6 +150,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
             owner: ownerName,
             creator: creatorName,
             projectId: item?.project_id ? String(item.project_id) : "",
+            progress,
             projectName: item?.project_id ? (apiProjects.value.find(p => p.id === String(item.project_id))?.name || "") : "",
             iterationId,
             iteration: item?.iteration_name ? String(item.iteration_name) : "",

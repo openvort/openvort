@@ -13,6 +13,8 @@ from openvort.plugins.vortflow.router.helpers import (
     _parse_json_list,
     _resolve_task_story_and_parent,
     _attach_task_links,
+    _attach_task_progress,
+    _calc_task_progress,
 )
 from openvort.plugins.vortflow.router.schemas import (
     TaskCreate,
@@ -125,6 +127,7 @@ async def list_tasks(
             }
         items = [{**_task_dict(r), "children_count": child_count_map.get(r.id, 0)} for r in rows]
         await _attach_task_links(session, items)
+        await _attach_task_progress(session, items)
     return {
         "total": total,
         "items": items,
@@ -140,7 +143,11 @@ async def get_task(task_id: str):
         children_count = (await session.execute(
             select(func.count()).select_from(FlowTask).where(FlowTask.parent_id == task_id)
         )).scalar_one()
-        items = await _attach_task_links(session, [{**_task_dict(r), "children_count": children_count}])
+        item = {**_task_dict(r), "children_count": children_count}
+        computed = await _calc_task_progress(session, task_id)
+        if computed is not None:
+            item["progress"] = computed
+        items = await _attach_task_links(session, [item])
     return items[0]
 
 @sub_router.post("/tasks")
@@ -236,6 +243,9 @@ async def update_task(task_id: str, body: TaskUpdate, request: Request):
         if body.branch is not None:
             t.branch = body.branch
             changes["branch"] = body.branch
+        if body.progress is not None:
+            t.progress = max(0, min(100, body.progress))
+            changes["progress"] = t.progress
         if changes:
             await _log_event(session, "task", task_id, "updated", changes, actor_id=actor_id)
         await session.commit()

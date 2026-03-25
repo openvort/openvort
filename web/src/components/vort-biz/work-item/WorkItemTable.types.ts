@@ -13,6 +13,7 @@ export type Status =
     | "已关闭"
     | "暂时搁置"
     | "已取消"
+    | "收集中"
     | "意向"
     | "暂搁置"
     | "设计中"
@@ -77,6 +78,7 @@ export interface RowItem {
     parentId?: string;
     parentTitle?: string;
     childrenCount?: number;
+    taskCount?: number;
     isChild?: boolean;
     priority: Priority;
     tags: string[];
@@ -98,6 +100,7 @@ export interface RowItem {
     iteration?: string;
     versionId?: string;
     version?: string;
+    progress?: number;
     estimateHours?: number | string;
     loggedHours?: number | string;
     remainHours?: number | string;

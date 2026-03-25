@@ -14,6 +14,8 @@ from openvort.plugins.vortflow.router.helpers import (
     _validate_story_parent,
     _collect_story_descendant_ids,
     _attach_story_links,
+    _attach_story_progress,
+    _calc_story_progress,
 )
 from openvort.plugins.vortflow.router.schemas import (
     StoryCreate,
@@ -109,6 +111,7 @@ async def list_stories(
         rows = (await session.execute(stmt)).scalars().all()
         story_ids = [row.id for row in rows]
         child_count_map: dict[str, int] = {}
+        task_count_map: dict[str, int] = {}
         if story_ids:
             child_count_rows = await session.execute(
                 select(FlowStory.parent_id, func.count())
@@ -120,8 +123,21 @@ async def list_stories(
                 for parent_story_id, child_count in child_count_rows.all()
                 if parent_story_id
             }
-        items = [{**_story_dict(r), "children_count": child_count_map.get(r.id, 0)} for r in rows]
+            task_count_rows = await session.execute(
+                select(FlowTask.story_id, func.count())
+                .where(FlowTask.story_id.in_(story_ids))
+                .group_by(FlowTask.story_id)
+            )
+            task_count_map = {
+                sid: cnt for sid, cnt in task_count_rows.all() if sid
+            }
+        items = [{
+            **_story_dict(r),
+            "children_count": child_count_map.get(r.id, 0),
+            "task_count": task_count_map.get(r.id, 0),
+        } for r in rows]
         await _attach_story_links(session, items)
+        await _attach_story_progress(session, items)
     return {
         "total": total,
         "items": items,
@@ -143,12 +159,16 @@ async def get_story(story_id: str):
         children_count = (await session.execute(
             select(func.count()).select_from(FlowStory).where(FlowStory.parent_id == story_id)
         )).scalar_one()
-        items = await _attach_story_links(session, [{
+        item = {
             **_story_dict(r),
             "task_count": task_count,
             "bug_count": bug_count,
             "children_count": children_count,
-        }])
+        }
+        computed = await _calc_story_progress(session, story_id)
+        if computed is not None:
+            item["progress"] = computed
+        items = await _attach_story_links(session, [item])
     return items[0]
 
 @sub_router.post("/stories")
@@ -245,6 +265,9 @@ async def update_story(story_id: str, body: StoryUpdate, request: Request):
         if body.branch is not None:
             s.branch = body.branch
             changes["branch"] = body.branch
+        if body.progress is not None:
+            s.progress = max(0, min(100, body.progress))
+            changes["progress"] = s.progress
         if changes:
             await _log_event(session, "story", story_id, "updated", changes, actor_id=actor_id)
         await session.commit()

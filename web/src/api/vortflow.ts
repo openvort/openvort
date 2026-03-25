@@ -82,6 +82,7 @@ export function updateVortflowStory(id: string, data: {
     end_at?: string;
     repo_id?: string | null;
     branch?: string;
+    progress?: number;
 }) {
     return request.put(`/vortflow/stories/${id}`, data);
 }
@@ -132,6 +133,7 @@ export function updateVortflowTask(id: string, data: {
     end_at?: string;
     repo_id?: string | null;
     branch?: string;
+    progress?: number;
 }) {
     return request.put(`/vortflow/tasks/${id}`, data);
 }
