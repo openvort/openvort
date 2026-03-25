@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] - 2026-03-25
+
+### Added
+
+- Test report generation and detail view for test plans
+- Test plan review workflow with pull request association
+- Work item attachments: upload and manage files on work items
+- Work item progress tracking with automatic calculation for stories and tasks
+- Work item description templates for standardized creation
+- Work item draft support: save and resume in-progress work items
+- Work item type conversion between stories, bugs, and tasks
+- Work item notification with customizable reminder messages
+- Personal Access Token (PAT) management: create, list, and revoke tokens
+- Knowledge base document detail page
+- Batch property editing enhancements for work items
+
+### Improved
+
+- Plugin detail view now shows tool and prompt counts
+- Extended work item status management with additional statuses and command fields
+- Multi-status filtering for work item list queries
+- Work item data source includes creation and update timestamps
+- Table supports batch selection clear and refresh actions
+- Comment updates now record event logs
+
+### Fixed
+
+- Work item data source filter logic error
+- Various bug fixes and stability improvements
+
+### Removed
+
+- Legacy Zentao migration scripts
+- TigShop documentation seed script
+
 ## [0.5.0] - 2026-03-24
 
 ### Added
@@ -48,6 +83,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Removed unused VortEditor type declarations
 
+[0.6.0]: https://github.com/openvort/openvort/releases/tag/v0.6.0
 [0.5.0]: https://github.com/openvort/openvort/releases/tag/v0.5.0
 [0.4.0]: https://github.com/openvort/openvort/releases/tag/v0.4.0
 
