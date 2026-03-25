@@ -510,7 +510,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
             const combinedState = backendStates?.join(",");
             const hasColumnFilters = Object.keys(columnFilters).some(k => columnFilters[k] != null);
             const needFetchAll = hasColumnFilters
-                || (ownerValue && (workType === "需求" || ownerValue === "未指派" || !ownerMemberId));
+                || (hasOwnerFilter && (workType === "需求" || ownerValues.includes("未指派") || !ownerMemberId));
 
             if (needFetchAll) {
                 const allItems = await fetchAllItemsByState(combinedState);
@@ -524,7 +524,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
                     allRows = allRows.filter((x) => !completedStatuses.has(x.status));
                 }
 
-                const optionRows = workType === "需求" || workType === "任务" ? getVisibleChildRows(allRows, ownerValue, statusValues) : allRows;
+                const optionRows = workType === "需求" || workType === "任务" ? getVisibleChildRows(allRows, ownerValues, statusValues) : allRows;
                 collectTagOptions(optionRows);
                 collectEnumOptions(optionRows);
 
@@ -535,7 +535,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
                 if (current === 1) {
                     let pinnedRows = pinnedRowsByType[workType] || [];
                     if (statusValues.length) pinnedRows = pinnedRows.filter((x) => statusValues.includes(x.status));
-                    if (ownerValue) pinnedRows = pinnedRows.filter(matchOwner);
+                    if (hasOwnerFilter) pinnedRows = pinnedRows.filter(matchOwner);
                     const pinnedIds = new Set(pinnedRows.map((x) => x.backendId || x.workNo));
                     allRows = [...pinnedRows, ...allRows.filter((x) => !pinnedIds.has(x.backendId || x.workNo))];
                     totalFromApi = allRows.length;
