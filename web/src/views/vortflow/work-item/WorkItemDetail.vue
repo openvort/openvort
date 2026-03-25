@@ -6,6 +6,7 @@ import WorkItemStatus from "@/components/vort-biz/work-item/WorkItemStatus.vue";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
 import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
 import { Copy, CopyPlus, SquarePen, FileText, Bot, Loader2, MoreHorizontal, Send, Trash2 } from "lucide-vue-next";
+import StatusIcon from "@/components/vort-biz/work-item/StatusIcon.vue";
 import { useInlineAi } from "@/hooks";
 import { useWorkItemCommon } from "./useWorkItemCommon";
 import WorkItemLinkPanel from "./WorkItemLinkPanel.vue";
@@ -892,7 +893,7 @@ watch(() => props.initialData, (value) => {
                             <VortButton class="detail-status-trigger" variant="text" @click.stop="toggleDetailStatusMenu">
                                 <span class="detail-status-content">
                                     <span class="detail-status-icon" :class="getStatusOption(record.status, record.type).iconClass">
-                                        {{ getStatusOption(record.status, record.type).icon }}
+                                        <StatusIcon :name="getStatusOption(record.status, record.type).icon" :size="14" />
                                     </span>
                                     <span class="detail-status-text">{{ record.status }}</span>
                                 </span>
@@ -1268,7 +1269,7 @@ watch(() => props.initialData, (value) => {
                                         <span class="owner-name">{{ child.owner || '未指派' }}</span>
                                     </div>
                                     <div class="sub-item-status">
-                                        <span class="status-icon" :class="getStatusOption(child.status, child.type).iconClass">{{ getStatusOption(child.status, child.type).icon }}</span>
+                                        <span class="status-icon" :class="getStatusOption(child.status, child.type).iconClass"><StatusIcon :name="getStatusOption(child.status, child.type).icon" :size="12" /></span>
                                         <span class="status-text">{{ child.status }}</span>
                                     </div>
                                 </div>
@@ -1280,7 +1281,7 @@ watch(() => props.initialData, (value) => {
                 <div class="bug-detail-desc">
                     <div class="bug-detail-desc-head">
                         <h4>描述</h4>
-                        <VortButton class="bug-detail-desc-edit-btn" variant="text" size="small" @click="openDetailDescEditor">
+                        <VortButton v-if="!detailDescEditing" class="bug-detail-desc-edit-btn" variant="text" size="small" @click="openDetailDescEditor">
                             <SquarePen :size="14" />
                         </VortButton>
                     </div>

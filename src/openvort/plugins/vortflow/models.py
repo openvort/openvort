@@ -358,6 +358,17 @@ class FlowStatus(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
+class FlowDescriptionTemplate(Base):
+    """Work item description template (per work_item_type)"""
+
+    __tablename__ = "flow_description_templates"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    work_item_type: Mapped[str] = mapped_column(String(16), unique=True)  # 需求/任务/缺陷
+    content: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 class FlowTestModule(Base):
     """Test case module (tree structure for organizing test cases)"""
 

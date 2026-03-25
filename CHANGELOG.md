@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-03-24
+
+### Added
+
+- VortSketch AI prototype generator plugin
+- Sprint and version management in VortFlow with story/bug association
+- Work item deletion and duplication (stories, bugs, tasks)
+- Task assignee field for team member assignment
+- Estimated hours support for tasks
+- Due date field for bug creation
+- Sprint info display in bug list and detail views
+
+### Improved
+
+- AI chat float window supports drag-and-snap to screen corners
+- MCP Server path trailing-slash compatibility
+- Default password security: random initial password with mandatory change on first login
+
+### Fixed
+
+- bcrypt/passlib compatibility issue
+- Docker and deployment configuration cleanup
+- Various bug fixes and stability improvements
+
 ## [0.4.0] - 2026-03-23
 
 ### Added
@@ -24,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Removed unused VortEditor type declarations
 
+[0.5.0]: https://github.com/openvort/openvort/releases/tag/v0.5.0
 [0.4.0]: https://github.com/openvort/openvort/releases/tag/v0.4.0
 
 ## [0.1.0] - 2026-03-17
@@ -54,4 +79,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Database migration support with Alembic
 - Docker Compose deployment
 
+[0.5.0]: https://github.com/openvort/openvort/releases/tag/v0.5.0
 [0.1.0]: https://github.com/openvort/openvort/releases/tag/v0.1.0

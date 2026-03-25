@@ -560,51 +560,62 @@ async def _sync_missing_tags(session) -> bool:
 # ---------------------------------------------------------------------------
 
 _STATUS_DEFAULTS: list[dict] = [
-    {"name": "意向", "icon": "○", "icon_color": "#64748b", "work_item_types": ["需求"]},
-    {"name": "已拒绝", "icon": "⊗", "icon_color": "#ef4444", "work_item_types": []},
-    {"name": "设计中", "icon": "✎", "icon_color": "#6366f1", "work_item_types": ["需求"]},
-    {"name": "开发中", "icon": "◔", "icon_color": "#3b82f6", "work_item_types": ["需求"]},
-    {"name": "开发完成", "icon": "✓", "icon_color": "#22c55e", "work_item_types": ["需求"]},
-    {"name": "测试中", "icon": "⊠", "icon_color": "#ef4444", "work_item_types": ["需求"]},
-    {"name": "测试完成", "icon": "✓", "icon_color": "#7c3aed", "work_item_types": ["需求"]},
-    {"name": "已测完回归中", "icon": "◔", "icon_color": "#3b82f6", "work_item_types": ["需求"]},
-    {"name": "待发布", "icon": "◔", "icon_color": "#f59e0b", "work_item_types": ["需求"]},
-    {"name": "发布完成", "icon": "✓", "icon_color": "#22c55e", "work_item_types": ["需求"]},
-    {"name": "已完成", "icon": "✓", "icon_color": "#22c55e", "work_item_types": ["任务", "需求"]},
-    {"name": "已取消", "icon": "⊗", "icon_color": "#ef4444", "work_item_types": ["任务", "需求"]},
-    {"name": "暂搁置", "icon": "⊠", "icon_color": "#64748b", "work_item_types": ["需求", "缺陷"]},
-    {"name": "待办的", "icon": "○", "icon_color": "#64748b", "work_item_types": ["任务"]},
-    {"name": "进行中", "icon": "◔", "icon_color": "#3b82f6", "work_item_types": ["任务"]},
-    {"name": "已验收", "icon": "✓", "icon_color": "#22c55e", "work_item_types": []},
-    {"name": "待确认", "icon": "○", "icon_color": "#64748b", "work_item_types": ["缺陷"]},
-    {"name": "已确认", "icon": "○", "icon_color": "#64748b", "work_item_types": []},
-    {"name": "修复中", "icon": "◔", "icon_color": "#3b82f6", "work_item_types": ["缺陷"]},
-    {"name": "已修复", "icon": "✓", "icon_color": "#3b82f6", "work_item_types": ["缺陷"]},
-    {"name": "已关闭", "icon": "✓", "icon_color": "#64748b", "work_item_types": ["缺陷"]},
-    {"name": "无法复现", "icon": "◔", "icon_color": "#f59e0b", "work_item_types": ["缺陷"]},
-    {"name": "再次打开", "icon": "⊗", "icon_color": "#ef4444", "work_item_types": ["缺陷"]},
-    {"name": "设计如此", "icon": "⊠", "icon_color": "#f59e0b", "work_item_types": ["缺陷"]},
-    {"name": "延期修复", "icon": "▷", "icon_color": "#3b82f6", "work_item_types": ["缺陷"]},
+    {"name": "意向", "icon": "○", "icon_color": "#64748b", "command": "intake,review", "work_item_types": ["需求"]},
+    {"name": "已拒绝", "icon": "⊗", "icon_color": "#ef4444", "command": "rejected", "work_item_types": []},
+    {"name": "设计中", "icon": "✎", "icon_color": "#6366f1", "command": "pm_refine,design", "work_item_types": ["需求"]},
+    {"name": "开发中", "icon": "◔", "icon_color": "#3b82f6", "command": "breakdown,dev_assign,in_progress,bugfix", "work_item_types": ["需求"]},
+    {"name": "开发完成", "icon": "✓", "icon_color": "#22c55e", "command": "", "work_item_types": ["需求"]},
+    {"name": "测试中", "icon": "⊠", "icon_color": "#ef4444", "command": "", "work_item_types": ["需求"]},
+    {"name": "测试完成", "icon": "✓", "icon_color": "#7c3aed", "command": "testing", "work_item_types": ["需求"]},
+    {"name": "已测完回归中", "icon": "◔", "icon_color": "#3b82f6", "command": "", "work_item_types": ["需求"]},
+    {"name": "待发布", "icon": "◔", "icon_color": "#f59e0b", "command": "", "work_item_types": ["需求"]},
+    {"name": "发布完成", "icon": "✓", "icon_color": "#22c55e", "command": "", "work_item_types": ["需求"]},
+    {"name": "已完成", "icon": "✓", "icon_color": "#22c55e", "command": "done", "work_item_types": ["任务", "需求"]},
+    {"name": "已取消", "icon": "⊗", "icon_color": "#ef4444", "command": "rejected,closed", "work_item_types": ["任务", "需求"]},
+    {"name": "暂搁置", "icon": "⊠", "icon_color": "#64748b", "command": "suspended", "work_item_types": ["需求", "缺陷"]},
+    {"name": "待办的", "icon": "○", "icon_color": "#64748b", "command": "todo", "work_item_types": ["任务"]},
+    {"name": "进行中", "icon": "◔", "icon_color": "#3b82f6", "command": "in_progress", "work_item_types": ["任务"]},
+    {"name": "已验收", "icon": "✓", "icon_color": "#22c55e", "command": "", "work_item_types": []},
+    {"name": "待确认", "icon": "○", "icon_color": "#64748b", "command": "open,confirmed", "work_item_types": ["缺陷"]},
+    {"name": "已确认", "icon": "○", "icon_color": "#64748b", "command": "confirmed", "work_item_types": []},
+    {"name": "修复中", "icon": "◔", "icon_color": "#3b82f6", "command": "fixing", "work_item_types": ["缺陷"]},
+    {"name": "已修复", "icon": "✓", "icon_color": "#3b82f6", "command": "resolved", "work_item_types": ["缺陷"]},
+    {"name": "已关闭", "icon": "✓", "icon_color": "#64748b", "command": "verified,closed", "work_item_types": ["缺陷"]},
+    {"name": "无法复现", "icon": "◔", "icon_color": "#f59e0b", "command": "not_reproducible", "work_item_types": ["缺陷"]},
+    {"name": "再次打开", "icon": "⊗", "icon_color": "#ef4444", "command": "reopened", "work_item_types": ["缺陷"]},
+    {"name": "设计如此", "icon": "⊠", "icon_color": "#f59e0b", "command": "by_design", "work_item_types": ["缺陷"]},
+    {"name": "延期修复", "icon": "▷", "icon_color": "#3b82f6", "command": "deferred", "work_item_types": ["缺陷"]},
 ]
+
+_STATUS_COMMAND_MAP: dict[str, str] = {s["name"]: s["command"] for s in _STATUS_DEFAULTS}
 
 
 async def _ensure_default_statuses(session):
-    """Seed default statuses if table is empty."""
+    """Seed default statuses if table is empty; sync command field for existing records."""
     count_result = await session.execute(
         select(func.count()).select_from(FlowStatus)
     )
-    if (count_result.scalar() or 0) > 0:
+    if (count_result.scalar() or 0) == 0:
+        for idx, s in enumerate(_STATUS_DEFAULTS):
+            status = FlowStatus(
+                name=s["name"],
+                icon=s["icon"],
+                icon_color=s["icon_color"],
+                command=s.get("command", ""),
+                work_item_types_json=json.dumps(s["work_item_types"], ensure_ascii=False),
+                sort_order=idx,
+            )
+            session.add(status)
+        await session.flush()
         return
-    for idx, s in enumerate(_STATUS_DEFAULTS):
-        status = FlowStatus(
-            name=s["name"],
-            icon=s["icon"],
-            icon_color=s["icon_color"],
-            work_item_types_json=json.dumps(s["work_item_types"], ensure_ascii=False),
-            sort_order=idx,
-        )
-        session.add(status)
-    await session.flush()
+
+    result = await session.execute(
+        select(FlowStatus).where(FlowStatus.command == "")
+    )
+    for status in result.scalars().all():
+        expected = _STATUS_COMMAND_MAP.get(status.name, "")
+        if expected:
+            status.command = expected
 
 
 # ---------------------------------------------------------------------------

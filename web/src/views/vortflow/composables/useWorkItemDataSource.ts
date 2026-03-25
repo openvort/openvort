@@ -36,7 +36,7 @@ export interface UseWorkItemDataSourceOptions {
     propIterationId: ComputedRef<string> | Ref<string>;
     propViewFilters: ComputedRef<Record<string, any>> | Ref<Record<string, any>>;
     type: Ref<string>;
-    owner: Ref<string>;
+    owner: Ref<string[]>;
     status: Ref<string[]>;
     columnFilters: Record<string, ColumnFilterValue | null>;
     columnSortField: Ref<string>;
@@ -166,16 +166,25 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
         };
     };
 
-    const createOwnerMatcher = (ownerValue: string) => {
-        const normalizedOwner = String(ownerValue || "").trim();
-        const ownerMemberId = normalizedOwner && normalizedOwner !== "未指派" ? getMemberIdByName(normalizedOwner) : "";
+    const createOwnerMatcher = (ownerValues: string | string[]) => {
+        const ownerArray = (Array.isArray(ownerValues) ? ownerValues : (ownerValues ? [ownerValues] : []))
+            .map(v => String(v || "").trim())
+            .filter(Boolean);
+        const ownerMemberIds = ownerArray
+            .filter(v => v !== "未指派")
+            .map(v => getMemberIdByName(v))
+            .filter(Boolean);
+        const hasUnassigned = ownerArray.includes("未指派");
+        const singleMemberId = ownerMemberIds.length === 1 && !hasUnassigned ? ownerMemberIds[0] : "";
         const matchOwner = (row: RowItem) => {
-            if (!normalizedOwner) return true;
-            if (normalizedOwner === "未指派") return !String(row.ownerId || "").trim();
-            if (ownerMemberId) return String(row.ownerId || "").trim() === ownerMemberId;
-            return row.owner === normalizedOwner;
+            if (!ownerArray.length) return true;
+            const rowOwnerId = String(row.ownerId || "").trim();
+            if (hasUnassigned && !rowOwnerId) return true;
+            if (ownerMemberIds.length && ownerMemberIds.includes(rowOwnerId)) return true;
+            if (ownerArray.includes(row.owner as string)) return true;
+            return false;
         };
-        return { ownerMemberId, matchOwner };
+        return { ownerMemberId: singleMemberId, matchOwner };
     };
 
     const cacheItemRows = (rows: RowItem[]) => {
@@ -240,7 +249,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
         return rows;
     };
 
-    const getVisibleChildRows = (rows: RowItem[], ownerValue = owner.value, statusValues: string[] = status.value) => {
+    const getVisibleChildRows = (rows: RowItem[], ownerValue: string | string[] = owner.value, statusValues: string[] = status.value) => {
         const currentType = String(propType ?? type.value ?? "").trim();
         if (!useApi.value || (currentType !== "需求" && currentType !== "任务")) return rows;
         const { matchOwner } = createOwnerMatcher(ownerValue);
@@ -400,8 +409,9 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
     const request = async (params: ProTableRequestParams): Promise<ProTableResponse<RowItem>> => {
         await loadMemberOptions?.();
         const kw = String(params.keyword ?? "").trim().toLowerCase();
-        const ownerValue = String(params.owner ?? "").trim();
-        const { ownerMemberId, matchOwner } = createOwnerMatcher(ownerValue);
+        const ownerValues: string[] = Array.isArray(params.owner) ? params.owner : (params.owner ? [String(params.owner)] : []);
+        const hasOwnerFilter = ownerValues.length > 0;
+        const { ownerMemberId, matchOwner } = createOwnerMatcher(ownerValues);
         const typeValue = String(propType ?? params.type ?? "").trim();
         const statusValues: string[] = Array.isArray(params.status) ? params.status.filter(Boolean) : [];
         const current = Number(params.current || 1);
@@ -534,33 +544,47 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
                 const start = (current - 1) * pageSize;
                 rows = allRows.slice(start, start + pageSize);
             } else {
-                const res: any = await requestByState(combinedState, current, pageSize);
-                rows = buildRowsFromItems((res as any)?.items || []);
-                if (statusValues.length) rows = rows.filter((x) => statusValues.includes(x.status));
-                if (ownerValue) rows = rows.filter(matchOwner);
-                totalFromApi = Number((res as any)?.total || rows.length);
-
-                if (current === 1) {
-                    let pinnedRows = pinnedRowsByType[workType] || [];
-                    if (statusValues.length) pinnedRows = pinnedRows.filter((x) => statusValues.includes(x.status));
-                    if (ownerValue) pinnedRows = pinnedRows.filter(matchOwner);
-                    const pinnedIds = new Set(pinnedRows.map((x) => x.backendId || x.workNo));
-                    rows = [...pinnedRows, ...rows.filter((x) => !pinnedIds.has(x.backendId || x.workNo))];
-                    rows = rows.slice(0, pageSize);
+                const backendState = backendStates?.[0];
+                if (hasOwnerFilter && (workType === "需求" || ownerValues.includes("未指派") || !ownerMemberId)) {
+                    const allItems = await fetchAllItemsByState(backendState);
+                    const allRows = buildRowsFromItems(allItems)
+                        .filter((x) => !statusValues.length || statusValues.includes(x.status))
+                        .filter(matchOwner);
+                    totalFromApi = allRows.length;
+                    const start = (current - 1) * pageSize;
+                    rows = allRows.slice(start, start + pageSize);
+                } else {
+                    const res: any = await requestByState(backendState, current, pageSize);
+                    rows = buildRowsFromItems((res as any)?.items || []);
+                    if (statusValues.length) rows = rows.filter((x) => statusValues.includes(x.status));
+                    if (hasOwnerFilter) rows = rows.filter(matchOwner);
+                    totalFromApi = Number((res as any)?.total || rows.length);
                 }
-                const isIncompleteView = vf.status === "incomplete";
-                if (isIncompleteView) {
-                    const completedStatuses: Set<string> = new Set(["已完成", "已关闭", "已取消", "发布完成"]);
-                    rows = rows.filter((x) => !completedStatuses.has(x.status));
-                    totalFromApi = rows.length;
-                }
-                rows = applyColumnSort(rows);
-
-                const optionRows = workType === "需求" || workType === "任务" ? getVisibleChildRows(rows, ownerValue, statusValues) : rows;
-                collectTagOptions(optionRows);
-                collectEnumOptions(optionRows);
             }
 
+            if (current === 1) {
+                let pinnedRows = pinnedRowsByType[workType] || [];
+                if (statusValues.length) pinnedRows = pinnedRows.filter((x) => statusValues.includes(x.status));
+                if (hasOwnerFilter) pinnedRows = pinnedRows.filter(matchOwner);
+                const pinnedIds = new Set(pinnedRows.map((x) => x.backendId || x.workNo));
+                rows = [...pinnedRows, ...rows.filter((x) => !pinnedIds.has(x.backendId || x.workNo))];
+                rows = rows.slice(0, pageSize);
+            }
+            const isIncompleteView = vf.status === "incomplete";
+            if (isIncompleteView) {
+                const completedStatuses: Set<string> = new Set(["已完成", "已关闭", "已取消", "发布完成"]);
+                rows = rows.filter((x) => !completedStatuses.has(x.status));
+                totalFromApi = rows.length;
+            }
+            const beforeFilterCount = rows.length;
+            rows = applyColumnFilters(rows);
+            rows = applyColumnSort(rows);
+            if (rows.length < beforeFilterCount) {
+                totalFromApi = rows.length;
+            }
+            const optionRows = workType === "需求" || workType === "任务" ? getVisibleChildRows(rows, ownerValues, statusValues) : rows;
+            collectTagOptions(optionRows);
+            collectEnumOptions(optionRows);
             totalCount.value = totalFromApi;
             return { data: rows, total: totalFromApi, current, pageSize };
         }

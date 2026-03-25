@@ -1,5 +1,6 @@
 import { ref } from "vue";
-import { getMembersSimple } from "@/api";
+import { getMembersSimple, getVortflowStatuses } from "@/api";
+import { resolveIconKey } from "@/components/vort-biz/work-item/statusIcons";
 import type {
     WorkItemType,
     Priority,
@@ -61,46 +62,117 @@ const sharedMemberOptions = ref<MemberOption[]>([]);
 const sharedOwnerGroups = ref<OwnerGroup[]>([]);
 let memberOptionsLoadTask: Promise<void> | null = null;
 
+interface ApiStatusItem {
+    name: string;
+    icon: string;
+    icon_color: string;
+    command: string;
+    work_item_types: string[];
+}
+
+const sharedApiStatuses = ref<ApiStatusItem[]>([]);
+let statusLoadTask: Promise<void> | null = null;
+
+const HEX_TO_TW: Record<string, string> = {
+    "#64748b": "text-gray-500", "#ef4444": "text-red-500", "#6366f1": "text-indigo-500",
+    "#3b82f6": "text-blue-500", "#22c55e": "text-emerald-500", "#7c3aed": "text-violet-600",
+    "#f59e0b": "text-amber-500", "#0284c7": "text-sky-600",
+};
+
+const toIconClass = (hex: string): string => HEX_TO_TW[hex] || "text-gray-500";
+const toLucideIcon = (raw: string): string => resolveIconKey(raw) || "circle";
+
+const buildOptionsForType = (type: string): StatusOption[] =>
+    sharedApiStatuses.value
+        .filter((s) => s.work_item_types.includes(type) && s.command)
+        .map((s) => ({
+            label: s.name,
+            value: s.name,
+            icon: toLucideIcon(s.icon),
+            iconClass: toIconClass(s.icon_color),
+            iconColor: s.icon_color,
+        }));
+
+const buildStateToNameMap = (type: string): Record<string, string> => {
+    const map: Record<string, string> = {};
+    for (const s of sharedApiStatuses.value) {
+        if (!s.work_item_types.includes(type) || !s.command) continue;
+        for (const state of s.command.split(",")) {
+            const key = state.trim();
+            if (key && !map[key]) map[key] = s.name;
+        }
+    }
+    return map;
+};
+
+const buildNameToStatesMap = (type: string): Record<string, string[]> => {
+    const map: Record<string, string[]> = {};
+    for (const s of sharedApiStatuses.value) {
+        if (!s.work_item_types.includes(type) || !s.command) continue;
+        map[s.name] = s.command.split(",").map((x) => x.trim()).filter(Boolean);
+    }
+    return map;
+};
+
+const FALLBACK_BUG: StatusOption[] = [
+    { label: "待确认", value: "待确认", icon: "circle", iconClass: "text-gray-500" },
+    { label: "修复中", value: "修复中", icon: "circle-dot", iconClass: "text-blue-500" },
+    { label: "已修复", value: "已修复", icon: "check", iconClass: "text-blue-500" },
+    { label: "已关闭", value: "已关闭", icon: "check", iconClass: "text-gray-500" },
+];
+const FALLBACK_DEMAND: StatusOption[] = [
+    { label: "已取消", value: "已取消", icon: "x", iconClass: "text-red-500" },
+    { label: "意向", value: "意向", icon: "circle", iconClass: "text-gray-500" },
+    { label: "设计中", value: "设计中", icon: "pencil", iconClass: "text-indigo-500" },
+    { label: "开发中", value: "开发中", icon: "circle-dot", iconClass: "text-blue-500" },
+    { label: "测试完成", value: "测试完成", icon: "check", iconClass: "text-violet-600" },
+    { label: "已完成", value: "已完成", icon: "circle-check", iconClass: "text-emerald-500" },
+];
+const FALLBACK_TASK: StatusOption[] = [
+    { label: "待办的", value: "待办的", icon: "circle", iconClass: "text-gray-500" },
+    { label: "进行中", value: "进行中", icon: "circle-dot", iconClass: "text-blue-500" },
+    { label: "已完成", value: "已完成", icon: "circle-check", iconClass: "text-emerald-500" },
+    { label: "已取消", value: "已取消", icon: "x", iconClass: "text-red-500" },
+];
+const FALLBACK_MAP: Record<WorkItemType, StatusOption[]> = {
+    缺陷: FALLBACK_BUG, 需求: FALLBACK_DEMAND, 任务: FALLBACK_TASK,
+};
+
 export function useWorkItemCommon() {
     const memberOptions = sharedMemberOptions;
     const ownerGroups = sharedOwnerGroups;
 
-    const bugStatusFilterOptions: StatusOption[] = [
-        { label: "待确认", value: "待确认", icon: "○", iconClass: "text-gray-400" },
-        { label: "修复中", value: "修复中", icon: "◔", iconClass: "text-blue-500" },
-        { label: "已修复", value: "已修复", icon: "✓", iconClass: "text-blue-500" },
-        { label: "已关闭", value: "已关闭", icon: "✓", iconClass: "text-gray-700" },
-    ];
-
-    const demandStatusFilterOptions: StatusOption[] = [
-        { label: "已取消", value: "已取消", icon: "✕", iconClass: "text-red-500" },
-        { label: "意向", value: "意向", icon: "○", iconClass: "text-slate-500" },
-        { label: "设计中", value: "设计中", icon: "✎", iconClass: "text-indigo-500" },
-        { label: "开发中", value: "开发中", icon: "◔", iconClass: "text-blue-500" },
-        { label: "测试完成", value: "测试完成", icon: "✓", iconClass: "text-violet-600" },
-        { label: "已完成", value: "已完成", icon: "✓", iconClass: "text-emerald-700" },
-    ];
-
-    const taskStatusFilterOptions: StatusOption[] = [
-        { label: "待办的", value: "待办的", icon: "○", iconClass: "text-slate-500" },
-        { label: "进行中", value: "进行中", icon: "◔", iconClass: "text-blue-500" },
-        { label: "已完成", value: "已完成", icon: "✓", iconClass: "text-emerald-700" },
-        { label: "已取消", value: "已取消", icon: "✕", iconClass: "text-red-500" },
-    ];
-
-    const statusFilterOptionsByType: Record<WorkItemType, StatusOption[]> = {
-        需求: demandStatusFilterOptions,
-        任务: taskStatusFilterOptions,
-        缺陷: bugStatusFilterOptions,
-    };
+    const bugStatusFilterOptions = FALLBACK_BUG;
+    const demandStatusFilterOptions = FALLBACK_DEMAND;
+    const taskStatusFilterOptions = FALLBACK_TASK;
 
     const getStatusOptionsByType = (typeValue: WorkItemType): StatusOption[] => {
-        return statusFilterOptionsByType[typeValue] || bugStatusFilterOptions;
+        const dynamic = buildOptionsForType(typeValue);
+        return dynamic.length ? dynamic : (FALLBACK_MAP[typeValue] || FALLBACK_BUG);
     };
 
     const getStatusOption = (value: Status, typeValue?: WorkItemType) => {
-        const options = typeValue ? getStatusOptionsByType(typeValue) : bugStatusFilterOptions;
-        return options.find((x) => x.value === value) || options[0] || bugStatusFilterOptions[0]!;
+        const options = typeValue ? getStatusOptionsByType(typeValue) : getStatusOptionsByType("缺陷");
+        return options.find((x) => x.value === value) || options[0] || FALLBACK_BUG[0]!;
+    };
+
+    const loadStatusOptions = async () => {
+        if (sharedApiStatuses.value.length > 0) return;
+        if (statusLoadTask) return statusLoadTask;
+        statusLoadTask = (async () => {
+            try {
+                const res: any = await getVortflowStatuses();
+                const items = ((res?.items || []) as any[]).map((s: any): ApiStatusItem => ({
+                    name: String(s.name || ""),
+                    icon: String(s.icon || "○"),
+                    icon_color: String(s.icon_color || "#64748b"),
+                    command: String(s.command || ""),
+                    work_item_types: Array.isArray(s.work_item_types) ? s.work_item_types : [],
+                }));
+                if (items.length) sharedApiStatuses.value = items;
+            } catch { /* keep fallback */ } finally { statusLoadTask = null; }
+        })();
+        return statusLoadTask;
     };
 
     const priorityOptions: Array<{ label: string; value: Priority }> = [
@@ -200,33 +272,31 @@ export function useWorkItemCommon() {
         return "✹";
     };
 
+    const FALLBACK_STATE_MAP: Record<WorkItemType, Record<string, Status>> = {
+        需求: {
+            intake: "意向", review: "意向", rejected: "已取消",
+            pm_refine: "设计中", design: "设计中", breakdown: "开发中",
+            dev_assign: "开发中", in_progress: "开发中", testing: "测试完成",
+            bugfix: "开发中", done: "已完成",
+        },
+        任务: {
+            todo: "待办的", in_progress: "进行中", done: "已完成",
+            closed: "已取消", fixing: "进行中", resolved: "已完成", verified: "已完成",
+        },
+        缺陷: {
+            open: "待确认", confirmed: "待确认", fixing: "修复中",
+            resolved: "已修复", verified: "已关闭", closed: "已关闭",
+        },
+    };
+    const FALLBACK_DEFAULT: Record<WorkItemType, Status> = {
+        需求: "意向", 任务: "待办的", 缺陷: "待确认",
+    };
+
     const mapBackendStateToStatus = (typeValue: WorkItemType, stateValue: string): Status => {
         const normalized = String(stateValue || "").toLowerCase();
-        if (typeValue === "需求") {
-            const map: Record<string, Status> = {
-                intake: "意向", review: "意向", rejected: "已取消",
-                pm_refine: "设计中", design: "设计中", breakdown: "开发中",
-                dev_assign: "开发中", in_progress: "开发中", testing: "测试完成",
-                bugfix: "开发中", done: "已完成",
-            };
-            return map[normalized] || "意向";
-        }
-        if (typeValue === "任务") {
-            const map: Record<string, Status> = {
-                todo: "待办的", in_progress: "进行中", done: "已完成",
-                closed: "已取消", fixing: "进行中", resolved: "已完成", verified: "已完成",
-            };
-            return map[normalized] || "待办的";
-        }
-        const map: Record<string, Status> = {
-            open: "待确认",
-            confirmed: "待确认",
-            fixing: "修复中",
-            resolved: "已修复",
-            verified: "已关闭",
-            closed: "已关闭",
-        };
-        return map[normalized] || "待确认";
+        const dynamicMap = buildStateToNameMap(typeValue);
+        if (dynamicMap[normalized]) return dynamicMap[normalized] as Status;
+        return (FALLBACK_STATE_MAP[typeValue]?.[normalized] || FALLBACK_DEFAULT[typeValue] || "待确认") as Status;
     };
 
     const mapBackendPriority = (item: any, typeValue: WorkItemType): Priority => {
@@ -270,13 +340,16 @@ export function useWorkItemCommon() {
         return map[value] || 2;
     };
 
+    const FALLBACK_STATUS_TO_STATES: Record<WorkItemType, Partial<Record<Status, string[]>>> = {
+        需求: { 已取消: ["rejected"], 意向: ["intake", "review"], 设计中: ["pm_refine", "design"], 开发中: ["breakdown", "dev_assign", "in_progress", "bugfix"], 测试完成: ["testing"], 已完成: ["done"] },
+        任务: { 待办的: ["todo"], 进行中: ["in_progress"], 已完成: ["done"], 已取消: ["closed"] },
+        缺陷: { 待确认: ["open", "confirmed"], 修复中: ["fixing"], 已修复: ["resolved"], 已关闭: ["verified", "closed"] },
+    };
+
     const getBackendStatesByDisplayStatus = (typeValue: WorkItemType, statusValue: string): string[] | undefined => {
-        const statusToStateMap: Record<WorkItemType, Partial<Record<Status, string[]>>> = {
-            需求: { 已取消: ["rejected"], 意向: ["intake", "review"], 设计中: ["pm_refine", "design"], 开发中: ["breakdown", "dev_assign", "in_progress", "bugfix"], 测试完成: ["testing"], 已完成: ["done"] },
-            任务: { 待办的: ["todo"], 进行中: ["in_progress"], 已完成: ["done"], 已取消: ["closed"] },
-            缺陷: { 待确认: ["open", "confirmed"], 修复中: ["fixing"], 已修复: ["resolved"], 已关闭: ["verified", "closed"] },
-        };
-        return statusToStateMap[typeValue]?.[statusValue as Status];
+        const dynamicMap = buildNameToStatesMap(typeValue);
+        if (dynamicMap[statusValue]) return dynamicMap[statusValue];
+        return FALLBACK_STATUS_TO_STATES[typeValue]?.[statusValue as Status];
     };
 
     return {
@@ -287,6 +360,7 @@ export function useWorkItemCommon() {
         taskStatusFilterOptions,
         getStatusOptionsByType,
         getStatusOption,
+        loadStatusOptions,
         priorityOptions,
         priorityLabelMap,
         priorityClassMap,

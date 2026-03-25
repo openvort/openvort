@@ -910,6 +910,39 @@ async def init_db(database_url: str) -> None:
                 ), {"hash": _pwd_hash, "id": row[0]})
             log.info(f"已为 {len(rows)} 个无密码的已有账号设置初始密码")
 
+    # VortFlow: description templates table
+    async with _engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS flow_description_templates (
+                id VARCHAR(32) PRIMARY KEY,
+                work_item_type VARCHAR(16) NOT NULL UNIQUE,
+                content TEXT DEFAULT '',
+                updated_at TIMESTAMP DEFAULT now()
+            )
+        """))
+
+    # Personal Access Tokens (PAT) for MCP / API authentication
+    async with _engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS personal_access_tokens (
+                id VARCHAR(32) PRIMARY KEY,
+                member_id VARCHAR(32) NOT NULL REFERENCES members(id),
+                name VARCHAR(100) NOT NULL,
+                token_prefix VARCHAR(12) NOT NULL,
+                token_hash VARCHAR(128) NOT NULL,
+                scopes TEXT DEFAULT '["*"]',
+                expires_at TIMESTAMP,
+                last_used_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT now()
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_pat_member_id ON personal_access_tokens(member_id)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_pat_token_prefix ON personal_access_tokens(token_prefix)"
+        ))
+
     log.info(f"数据库已初始化: {database_url.split('://')[0]}")
 
 

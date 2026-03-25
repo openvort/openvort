@@ -49,7 +49,9 @@ class DeleteWorkItemTool(BaseTool):
         }
 
     async def execute(self, params: dict) -> str:
-        from openvort.plugins.vortflow.models import FlowBug, FlowEvent, FlowStory, FlowTask
+        from openvort.plugins.vortflow.models import (
+            FlowBug, FlowEvent, FlowIterationStory, FlowStory, FlowTask, FlowVersionStory,
+        )
 
         entity_type = params["entity_type"]
         entity_id = params["entity_id"]
@@ -83,6 +85,8 @@ class DeleteWorkItemTool(BaseTool):
             if entity_type == "story":
                 descendant_ids = await self._collect_descendants(session, FlowStory, [entity_id])
                 target_story_ids = [entity_id, *descendant_ids]
+                await session.execute(sa_delete(FlowIterationStory).where(FlowIterationStory.story_id.in_(target_story_ids)))
+                await session.execute(sa_delete(FlowVersionStory).where(FlowVersionStory.story_id.in_(target_story_ids)))
                 await session.execute(sa_delete(FlowTask).where(FlowTask.story_id.in_(target_story_ids)))
                 await session.execute(sa_delete(FlowBug).where(FlowBug.story_id.in_(target_story_ids)))
                 if descendant_ids:

@@ -25,6 +25,7 @@ from openvort.plugins.vortflow.models import (
     FlowTask,
     FlowBug,
     FlowIterationStory,
+    FlowVersionStory,
 )
 from openvort.plugins.vortflow.engine import (
     STORY_TRANSITIONS,
@@ -289,7 +290,8 @@ async def delete_story(story_id: str):
             return {"error": "需求不存在"}
         descendant_ids = await _collect_story_descendant_ids(session, [story_id])
         target_story_ids = [story_id, *descendant_ids]
-        # Delete related tasks and bugs for the full story subtree.
+        await session.execute(sa_delete(FlowIterationStory).where(FlowIterationStory.story_id.in_(target_story_ids)))
+        await session.execute(sa_delete(FlowVersionStory).where(FlowVersionStory.story_id.in_(target_story_ids)))
         await session.execute(sa_delete(FlowTask).where(FlowTask.story_id.in_(target_story_ids)))
         await session.execute(sa_delete(FlowBug).where(FlowBug.story_id.in_(target_story_ids)))
         await session.execute(sa_delete(FlowStory).where(FlowStory.id.in_(descendant_ids)))

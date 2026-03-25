@@ -434,7 +434,7 @@ export function migrateVortflowTag(id: string, data: { target_tag_id?: string | 
 
 // ---- Statuses ----
 
-export function getVortflowStatuses(params?: { keyword?: string }) {
+export function getVortflowStatuses(params?: { keyword?: string; work_item_type?: string }) {
     return request.get("/vortflow/statuses", { params });
 }
 
@@ -448,6 +448,16 @@ export function updateVortflowStatus(id: string, data: { name?: string; icon?: s
 
 export function deleteVortflowStatus(id: string) {
     return request.delete(`/vortflow/statuses/${id}`);
+}
+
+// ---- Description Templates ----
+
+export function getVortflowDescriptionTemplates() {
+    return request.get("/vortflow/description-templates");
+}
+
+export function updateVortflowDescriptionTemplate(workItemType: string, data: { content: string }) {
+    return request.put(`/vortflow/description-templates/${encodeURIComponent(workItemType)}`, data);
 }
 
 // ---- Test Modules ----

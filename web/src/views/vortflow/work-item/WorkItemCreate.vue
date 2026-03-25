@@ -14,6 +14,7 @@ import {
     getVortgitRepoBranches,
     getVortflowIterations,
     getVortflowVersions,
+    getVortflowDescriptionTemplates,
 } from "@/api";
 import { useWorkItemCommon } from "./useWorkItemCommon";
 import type { WorkItemType, Priority, DateRange, NewBugForm, RowItem } from "@/components/vort-biz/work-item/WorkItemTable.types";
@@ -57,38 +58,20 @@ const {
     getWorkItemTypeIconSymbol,
 } = useWorkItemCommon();
 
-const descriptionTemplates: Record<WorkItemType, string> = {
-    "需求": [
-        "## 需求背景",
-        "<!-- 描述需求的业务背景和目标 -->",
-        "",
-        "## 用户故事",
-        "作为 ___，我希望 ___，以便 ___。",
-        "",
-        "## 验收标准",
-        "1. ",
-        "2. ",
-        "3. ",
-    ].join("\n"),
+const FALLBACK_TEMPLATES: Record<WorkItemType, string> = {
+    "需求": "",
     "任务": "",
-    "缺陷": [
-        "## 问题描述",
-        "<!-- 请详细描述发现的问题 -->",
-        "",
-        "## 复现步骤",
-        "1. ",
-        "2. ",
-        "3. ",
-        "",
-        "## 预期结果",
-        "<!-- 描述期望的行为 -->",
-        "",
-        "## 实际结果",
-        "<!-- 描述实际发生的情况 -->",
-    ].join("\n"),
+    "缺陷": "",
 };
 
-const getDescriptionTemplate = (type: WorkItemType): string => descriptionTemplates[type] ?? "";
+const remoteTemplates = ref<Record<string, string>>({});
+
+const getDescriptionTemplate = (type: WorkItemType): string => {
+    if (remoteTemplates.value[type] !== undefined && remoteTemplates.value[type] !== "") {
+        return remoteTemplates.value[type];
+    }
+    return FALLBACK_TEMPLATES[type] ?? "";
+};
 
 const createInitialBugForm = (): NewBugForm => ({
     title: "",
@@ -618,6 +601,16 @@ watch(() => props.initialDraft, (draft) => {
 });
 
 onMounted(async () => {
+    try {
+        const res: any = await getVortflowDescriptionTemplates();
+        if (res?.items) {
+            remoteTemplates.value = res.items;
+            if (!createBugForm.description || createBugForm.description === FALLBACK_TEMPLATES[props.type]) {
+                createBugForm.description = getDescriptionTemplate(props.type);
+            }
+        }
+    } catch { /* use fallback */ }
+
     await loadMemberOptions();
     if (props.useApi) {
         await loadApiProjects();

@@ -9,9 +9,10 @@ import {
     getMemberSkills, createPersonalSkill, updatePersonalSkill, deletePersonalSkill,
     getPublicSkills, subscribeMemberSkill, unsubscribeMemberSkill, generateMemberBioPrompt,
     getPluginPersonalSettings, getPluginPersonalSetting, savePluginPersonalSetting, deletePluginPersonalSetting,
+    getAccessTokens, createAccessToken, revokeAccessToken,
 } from "@/api";
 import { message, dialog } from "@/components/vort";
-import { Shield, Bell, User, GitBranch, Sparkles, Plus, Trash2, Globe, Bot, Puzzle } from "lucide-vue-next";
+import { Shield, Bell, User, GitBranch, Sparkles, Plus, Trash2, Globe, Bot, Puzzle, Key, Copy, Check } from "lucide-vue-next";
 import AvatarCropper from "vue-avatar-cropper";
 import "cropperjs/dist/cropper.min.css";
 
@@ -133,6 +134,7 @@ const menuItems = [
     { key: "basic", label: "基本设置", icon: User },
     { key: "skills", label: "我的技能", icon: Sparkles },
     { key: "security", label: "安全设置", icon: Shield },
+    { key: "tokens", label: "访问令牌", icon: Key },
     { key: "git", label: "Git 配置", icon: GitBranch },
     { key: "plugins", label: "插件配置", icon: Puzzle },
     { key: "notification", label: "通知设置", icon: Bell },
@@ -622,6 +624,104 @@ async function handleDeletePluginConfig(pluginName: string) {
     } catch { message.error("操作失败"); }
 }
 
+// ---- 访问令牌 (PAT) ----
+
+interface TokenItem {
+    id: string;
+    name: string;
+    token_prefix: string;
+    expires_at: string | null;
+    last_used_at: string | null;
+    created_at: string | null;
+}
+
+const tokensList = ref<TokenItem[]>([]);
+const tokensLoading = ref(false);
+const tokensLoaded = ref(false);
+const tokenDialogOpen = ref(false);
+const tokenForm = reactive({ name: "", expires_days: 0 });
+const creatingToken = ref(false);
+
+const newTokenValue = ref("");
+const newTokenDialogOpen = ref(false);
+const tokenCopied = ref(false);
+
+async function loadTokens() {
+    tokensLoading.value = true;
+    try {
+        const res: any = await getAccessTokens();
+        tokensList.value = res?.tokens || [];
+        tokensLoaded.value = true;
+    } catch { tokensList.value = []; }
+    finally { tokensLoading.value = false; }
+}
+
+function openCreateTokenDialog() {
+    tokenForm.name = "";
+    tokenForm.expires_days = 0;
+    tokenDialogOpen.value = true;
+}
+
+async function handleCreateToken() {
+    if (!tokenForm.name.trim()) {
+        message.error("请输入令牌名称");
+        return;
+    }
+    creatingToken.value = true;
+    try {
+        const res: any = await createAccessToken(
+            tokenForm.name.trim(),
+            tokenForm.expires_days > 0 ? tokenForm.expires_days : undefined,
+        );
+        tokenDialogOpen.value = false;
+        newTokenValue.value = res.token;
+        newTokenDialogOpen.value = true;
+        tokenCopied.value = false;
+        loadTokens();
+    } catch (e: any) {
+        message.error(e?.response?.data?.detail || "创建失败");
+    } finally { creatingToken.value = false; }
+}
+
+async function copyToken() {
+    const text = newTokenValue.value;
+    try {
+        await navigator.clipboard.writeText(text);
+    } catch {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.cssText = "position:fixed;left:-9999px;top:-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+    }
+    tokenCopied.value = true;
+    message.success("已复制到剪贴板");
+}
+
+function handleRevokeToken(token: TokenItem) {
+    dialog.confirm({
+        title: `确认撤销令牌「${token.name}」？`,
+        content: "撤销后使用该令牌的所有连接将立即失效，且无法恢复。",
+        onOk: async () => {
+            try {
+                await revokeAccessToken(token.id);
+                message.success("已撤销");
+                loadTokens();
+            } catch { message.error("撤销失败"); }
+        },
+    });
+}
+
+function formatTime(iso: string | null) {
+    if (!iso) return "-";
+    try {
+        const d = new Date(iso);
+        return d.toLocaleString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+    } catch { return iso; }
+}
+
 const router = useRouter();
 
 async function handleAiGenerateBio() {
@@ -636,6 +736,7 @@ async function handleAiGenerateBio() {
 // 切换菜单
 function handleMenuClick(key: string) {
     activeMenu.value = key;
+    router.replace({ query: key === "basic" ? {} : { tab: key } });
     if (key === "notification" && channels.value.length === 0) {
         loadNotifySettings();
     }
@@ -647,6 +748,9 @@ function handleMenuClick(key: string) {
     }
     if (key === "plugins" && !pluginsLoaded.value) {
         loadPluginSettings();
+    }
+    if (key === "tokens" && !tokensLoaded.value) {
+        loadTokens();
     }
 }
 </script>
@@ -804,6 +908,70 @@ function handleMenuClick(key: string) {
                                     <VortButton variant="link" @click="item.actionFn">{{ item.action }}</VortButton>
                                 </div>
                             </div>
+                        </div>
+
+                        <!-- ========== 访问令牌 ========== -->
+                        <div v-else-if="activeMenu === 'tokens'">
+                            <div class="flex items-center justify-between mb-2">
+                                <h3 class="text-base font-medium text-gray-800">访问令牌</h3>
+                                <VortButton variant="primary" size="small" @click="openCreateTokenDialog">
+                                    <Plus :size="14" class="mr-1" /> 创建令牌
+                                </VortButton>
+                            </div>
+                            <p class="text-sm text-gray-400 mb-6">用于 MCP 客户端（Cursor / Claude Desktop 等）认证身份。令牌创建后仅显示一次，请妥善保存。</p>
+
+                            <VortSpin :spinning="tokensLoading">
+                                <div v-if="tokensList.length === 0 && tokensLoaded" class="text-center py-8 text-gray-400 text-sm">
+                                    暂无访问令牌
+                                </div>
+                                <div v-else class="space-y-3">
+                                    <div
+                                        v-for="token in tokensList"
+                                        :key="token.id"
+                                        class="flex items-center justify-between p-4 border border-gray-100 rounded-lg"
+                                    >
+                                        <div class="flex items-center gap-3 min-w-0">
+                                            <div class="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center flex-shrink-0">
+                                                <Key :size="16" class="text-amber-500" />
+                                            </div>
+                                            <div class="min-w-0">
+                                                <div class="text-sm font-medium text-gray-700">{{ token.name }}</div>
+                                                <div class="text-xs text-gray-400 mt-0.5 flex items-center gap-3">
+                                                    <span class="font-mono">{{ token.token_prefix }}...</span>
+                                                    <span>创建于 {{ formatTime(token.created_at) }}</span>
+                                                    <span v-if="token.last_used_at">最近使用 {{ formatTime(token.last_used_at) }}</span>
+                                                    <span v-if="token.expires_at" class="text-orange-500">{{ new Date(token.expires_at) < new Date() ? '已过期' : `${formatTime(token.expires_at)} 过期` }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <VortButton
+                                            variant="link"
+                                            size="small"
+                                            class="text-red-500 flex-shrink-0"
+                                            @click="handleRevokeToken(token)"
+                                        >
+                                            撤销
+                                        </VortButton>
+                                    </div>
+                                </div>
+
+                                <!-- 使用说明 -->
+                                <div class="p-4 bg-blue-50 rounded-lg mt-6">
+                                    <div class="text-sm font-medium text-blue-700 mb-2">如何使用？</div>
+                                    <p class="text-xs text-blue-600 mb-2">将令牌配置到项目的 <code class="bg-blue-100 px-1 rounded">.cursor/mcp.json</code> 中：</p>
+                                    <pre class="text-xs text-blue-700 bg-blue-100 rounded p-3 overflow-x-auto"><code>{
+  "mcpServers": {
+    "openvort": {
+      "url": "http://localhost:8090/mcp/",
+      "headers": {
+        "Authorization": "Bearer ovt_your_token_here"
+      }
+    }
+  }
+}</code></pre>
+                                    <p class="text-xs text-blue-600 mt-2">配置后 MCP 即可识别你的身份，AI 客户端可以直接说「看看我的 Bug」。</p>
+                                </div>
+                            </VortSpin>
                         </div>
 
                         <!-- ========== Git 配置 ========== -->
@@ -1115,6 +1283,48 @@ function handleMenuClick(key: string) {
                 <div v-if="field.description" class="text-xs text-gray-400 mt-1">{{ field.description }}</div>
             </VortFormItem>
         </VortForm>
+    </VortDialog>
+
+    <!-- 创建访问令牌弹窗 -->
+    <VortDialog :open="tokenDialogOpen" title="创建访问令牌" :footer="false" @update:open="tokenDialogOpen = $event">
+        <VortForm label-width="100px" class="mt-4">
+            <VortFormItem label="令牌名称" required>
+                <VortInput v-model="tokenForm.name" placeholder="如：Cursor MCP、Claude Desktop" />
+            </VortFormItem>
+            <VortFormItem label="有效期">
+                <VortSelect v-model="tokenForm.expires_days" :options="[
+                    { label: '永不过期', value: 0 },
+                    { label: '30 天', value: 30 },
+                    { label: '90 天', value: 90 },
+                    { label: '365 天', value: 365 },
+                ]" />
+            </VortFormItem>
+            <VortFormItem>
+                <div class="flex gap-3">
+                    <VortButton variant="primary" :loading="creatingToken" @click="handleCreateToken">创建</VortButton>
+                    <VortButton @click="tokenDialogOpen = false">取消</VortButton>
+                </div>
+            </VortFormItem>
+        </VortForm>
+    </VortDialog>
+
+    <!-- 新令牌展示弹窗 -->
+    <VortDialog :open="newTokenDialogOpen" title="令牌已创建" :footer="false" :closable="false" @update:open="newTokenDialogOpen = $event">
+        <div class="mt-2">
+            <div class="p-3 bg-amber-50 border border-amber-200 rounded-lg mb-4">
+                <p class="text-sm text-amber-800 font-medium">请立即复制并妥善保存此令牌，关闭后将无法再次查看。</p>
+            </div>
+            <div class="flex items-center gap-2">
+                <code class="flex-1 text-sm bg-gray-100 rounded px-3 py-2 font-mono break-all select-all">{{ newTokenValue }}</code>
+                <VortButton size="small" @click="copyToken">
+                    <Check v-if="tokenCopied" :size="14" class="text-green-500" />
+                    <Copy v-else :size="14" />
+                </VortButton>
+            </div>
+            <div class="mt-4 flex justify-end">
+                <VortButton variant="primary" @click="newTokenDialogOpen = false">我已保存，关闭</VortButton>
+            </div>
+        </div>
     </VortDialog>
 
     <!-- 个人技能编辑弹窗 -->

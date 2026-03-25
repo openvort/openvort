@@ -13,7 +13,10 @@ sub_router = APIRouter()
 
 
 @sub_router.get("/statuses")
-async def list_statuses(keyword: str = Query("", alias="keyword")):
+async def list_statuses(
+    keyword: str = Query("", alias="keyword"),
+    work_item_type: str = Query("", alias="work_item_type"),
+):
     sf = get_session_factory()
     async with sf() as session:
         await _ensure_default_statuses(session)
@@ -22,6 +25,8 @@ async def list_statuses(keyword: str = Query("", alias="keyword")):
         query = select(FlowStatus).order_by(FlowStatus.sort_order, FlowStatus.created_at)
         if keyword.strip():
             query = query.where(FlowStatus.name.contains(keyword.strip()))
+        if work_item_type.strip():
+            query = query.where(FlowStatus.work_item_types_json.contains(work_item_type.strip()))
         result = await session.execute(query)
         statuses = result.scalars().all()
     return {"items": [_status_dict(s) for s in statuses]}
