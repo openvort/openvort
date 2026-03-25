@@ -351,7 +351,7 @@ class FlowStatus(Base):
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(100), unique=True)
-    icon: Mapped[str] = mapped_column(String(10), default="○")
+    icon: Mapped[str] = mapped_column(String(50), default="○")
     icon_color: Mapped[str] = mapped_column(String(20), default="#3b82f6")
     command: Mapped[str] = mapped_column(String(200), default="")
     work_item_types_json: Mapped[str] = mapped_column(Text, default="[]")

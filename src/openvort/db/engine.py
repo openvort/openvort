@@ -430,7 +430,7 @@ async def init_db(database_url: str) -> None:
             CREATE TABLE IF NOT EXISTS flow_statuses (
                 id VARCHAR(32) PRIMARY KEY,
                 name VARCHAR(100) NOT NULL UNIQUE,
-                icon VARCHAR(10) DEFAULT '○',
+                icon VARCHAR(50) DEFAULT '○',
                 icon_color VARCHAR(20) DEFAULT '#3b82f6',
                 command VARCHAR(200) DEFAULT '',
                 work_item_types_json TEXT DEFAULT '[]',
@@ -439,6 +439,9 @@ async def init_db(database_url: str) -> None:
                 updated_at TIMESTAMP DEFAULT now()
             )
         """))
+        await conn.execute(text(
+            "ALTER TABLE flow_statuses ALTER COLUMN icon TYPE VARCHAR(50)"
+        ))
 
     # VortFlow: test case module / test case / test case - work item link
     async with _engine.begin() as conn:
