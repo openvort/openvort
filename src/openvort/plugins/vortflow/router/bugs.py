@@ -1,7 +1,7 @@
 import json
 
 from fastapi import APIRouter, Query, Request
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 
 from openvort.db.engine import get_session_factory
 from openvort.web.app import require_auth
@@ -24,6 +24,7 @@ from openvort.plugins.vortflow.models import (
     FlowIteration,
     FlowIterationStory,
     FlowIterationBug,
+    FlowVersionBug,
 )
 from openvort.plugins.vortflow.engine import (
     BUG_TRANSITIONS,
@@ -269,6 +270,8 @@ async def delete_bug(bug_id: str):
         b = await session.get(FlowBug, bug_id)
         if not b:
             return {"error": "缺陷不存在"}
+        await session.execute(delete(FlowIterationBug).where(FlowIterationBug.bug_id == bug_id))
+        await session.execute(delete(FlowVersionBug).where(FlowVersionBug.bug_id == bug_id))
         await session.delete(b)
         await _log_event(session, "bug", bug_id, "deleted", {"title": b.title})
         await session.commit()

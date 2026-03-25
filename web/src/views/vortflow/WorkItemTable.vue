@@ -1664,8 +1664,15 @@ onMounted(async () => {
     } else if (action === "detail" && id) {
         const urlTab = route.query.tab as string;
         const tabTypeMap: Record<string, WorkItemType> = { story: "需求", task: "任务", bug: "缺陷" };
+        const tabRouteMap: Record<string, string> = { story: "/vortflow/stories", task: "/vortflow/tasks", bug: "/vortflow/bugs" };
         const urlType = tabTypeMap[urlTab];
-        if (urlType && urlType !== props.type) return;
+        if (urlType && urlType !== props.type) {
+            const targetPath = tabRouteMap[urlTab];
+            if (targetPath) {
+                router.replace({ path: targetPath, query: { action: "detail", id, tab: urlTab } });
+            }
+            return;
+        }
 
         let record = findItemRowByIdentifier(id) || await loadItemById(id, props.type);
         if (!record && !urlType) {
