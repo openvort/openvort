@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import PopoverSelect from "@/components/vort-biz/popover-select/PopoverSelect.vue";
+import StatusIcon from "./StatusIcon.vue";
 import type { Status, StatusOption } from "./WorkItemTable.types";
 
 interface Props {
@@ -31,12 +32,14 @@ const statusClassMap: Record<string, string> = {
     修复中: "bg-blue-50 text-blue-600",
     已修复: "bg-blue-50 text-blue-600",
     延期处理: "bg-sky-100 text-sky-700",
+    延期修复: "bg-sky-100 text-sky-700",
     设计如此: "bg-amber-100 text-amber-600",
     再次打开: "bg-red-100 text-red-600",
     无法复现: "bg-amber-100 text-amber-600",
     已关闭: "bg-gray-100 text-gray-700",
     暂时搁置: "bg-gray-100 text-gray-500",
     已取消: "bg-red-100 text-red-600",
+    收集中: "bg-gray-100 text-gray-400",
     意向: "bg-slate-100 text-slate-600",
     暂搁置: "bg-slate-100 text-slate-500",
     设计中: "bg-indigo-100 text-indigo-600",
@@ -49,6 +52,10 @@ const statusClassMap: Record<string, string> = {
     待办的: "bg-slate-100 text-slate-600",
     进行中: "bg-blue-100 text-blue-600",
 };
+
+const currentOption = computed(() =>
+    props.options.find((o) => o.value === props.modelValue),
+);
 
 const filteredOptions = computed(() => {
     const kw = keyword.value.trim().toLowerCase();
@@ -84,6 +91,7 @@ const handleTriggerClick = (event: MouseEvent) => {
             <slot>
                 <div class="status-cell-trigger" :class="{ 'is-disabled': disabled }" @click="handleTriggerClick">
                     <span class="status-badge" :class="[statusClassMap[modelValue] || '', { 'is-open': triggerOpen }]">
+                        <StatusIcon v-if="currentOption?.icon" :name="currentOption.icon" :size="12" :color="currentOption.iconColor" />
                         {{ modelValue || placeholder }}
                     </span>
                 </div>
@@ -104,6 +112,7 @@ const handleTriggerClick = (event: MouseEvent) => {
                         @click.stop
                         @update:checked="!disabled && handleSelect(opt.value)"
                     />
+                    <StatusIcon v-if="opt.icon" :name="opt.icon" :size="14" :color="opt.iconColor" />
                     <span class="text-sm text-gray-700 leading-5">{{ opt.label }}</span>
                 </div>
             </div>
@@ -125,6 +134,7 @@ const handleTriggerClick = (event: MouseEvent) => {
 .status-badge {
     display: inline-flex;
     align-items: center;
+    gap: 4px;
     padding: 4px 8px;
     border-radius: 4px;
     font-size: 12px;

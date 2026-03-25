@@ -1,6 +1,6 @@
-"""Test Plan CRUD, Plan Cases & Executions."""
+"""Test Plan CRUD, Plan Cases, Executions & Code Reviews."""
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import delete as sa_delete, func, select
 
@@ -13,8 +13,11 @@ from openvort.plugins.vortflow.models import (
     FlowTestPlan,
     FlowTestPlanCase,
     FlowTestPlanExecution,
+    FlowTestPlanReview,
+    FlowTestPlanReviewHistory,
     FlowVersion,
 )
+from openvort.utils.logging import get_logger
 from openvort.web.app import require_auth
 
 from .helpers import (
@@ -23,6 +26,8 @@ from .helpers import (
     _resolve_member_name,
     _test_plan_dict,
 )
+
+log = get_logger("plugins.vortflow.test_plans")
 
 sub_router = APIRouter()
 
@@ -61,6 +66,17 @@ class TestPlanExecutionBody(BaseModel):
     executor_id: str | None = None
     notes: str = ""
     bug_id: str | None = None
+
+
+class TestPlanAddReviewsBody(BaseModel):
+    reviews: list[dict]  # [{repo_id, pr_number, pr_url, pr_title, head_branch, base_branch}]
+
+
+class TestPlanUpdateReviewBody(BaseModel):
+    reviewer_id: str | None = None
+    review_status: str | None = None  # pending/approved/rejected/changes_requested
+    review_notes: str | None = None
+    is_ai: bool = False
 
 
 # ============ Helpers ============
@@ -112,6 +128,33 @@ async def _plan_stats(session, plan_id: str) -> dict:
     }
 
 
+async def _review_stats(session, plan_id: str) -> dict:
+    """Compute code review stats for a single plan."""
+    rows = (await session.execute(
+        select(FlowTestPlanReview.review_status, func.count())
+        .where(FlowTestPlanReview.plan_id == plan_id)
+        .group_by(FlowTestPlanReview.review_status)
+    )).all()
+    total = pending = approved = rejected = changes_requested = 0
+    for status, cnt in rows:
+        total += cnt
+        if status == "pending":
+            pending = cnt
+        elif status == "approved":
+            approved = cnt
+        elif status == "rejected":
+            rejected = cnt
+        elif status == "changes_requested":
+            changes_requested = cnt
+    return {
+        "review_total": total,
+        "review_pending": pending,
+        "review_approved": approved,
+        "review_rejected": rejected,
+        "review_changes_requested": changes_requested,
+    }
+
+
 async def _enrich_plan(session, plan: FlowTestPlan) -> dict:
     """Build a full dict for a plan including stats and resolved names."""
     owner_name = await _resolve_member_name(session, plan.owner_id)
@@ -124,13 +167,17 @@ async def _enrich_plan(session, plan: FlowTestPlan) -> dict:
         v = await session.get(FlowVersion, plan.version_id)
         version_name = v.name if v else ""
     stats = await _plan_stats(session, plan.id)
-    return _test_plan_dict(
-        plan,
-        owner_name=owner_name,
-        iteration_name=iteration_name,
-        version_name=version_name,
-        **stats,
-    )
+    r_stats = await _review_stats(session, plan.id)
+    return {
+        **_test_plan_dict(
+            plan,
+            owner_name=owner_name,
+            iteration_name=iteration_name,
+            version_name=version_name,
+            **stats,
+        ),
+        **r_stats,
+    }
 
 
 # ============ Test Plan CRUD ============
@@ -181,6 +228,8 @@ async def get_test_plan(plan_id: str):
 @sub_router.post("/test-plans")
 async def create_test_plan(body: TestPlanCreate, request: Request):
     require_auth(request)
+    if not body.project_id or not body.project_id.strip():
+        raise HTTPException(status_code=400, detail="project_id 不能为空")
     sf = get_session_factory()
     async with sf() as session:
         plan = FlowTestPlan(
@@ -227,7 +276,7 @@ async def delete_test_plan(plan_id: str):
         plan = await session.get(FlowTestPlan, plan_id)
         if not plan:
             return {"error": "测试计划不存在"}
-        # Cascade: executions -> plan_cases -> plan
+        # Cascade: executions -> plan_cases -> reviews -> plan
         case_ids_result = await session.execute(
             select(FlowTestPlanCase.id).where(FlowTestPlanCase.plan_id == plan_id)
         )
@@ -239,6 +288,9 @@ async def delete_test_plan(plan_id: str):
             )
         await session.execute(
             sa_delete(FlowTestPlanCase).where(FlowTestPlanCase.plan_id == plan_id)
+        )
+        await session.execute(
+            sa_delete(FlowTestPlanReview).where(FlowTestPlanReview.plan_id == plan_id)
         )
         await session.delete(plan)
         await session.commit()
@@ -549,3 +601,362 @@ async def list_executions(plan_id: str, plan_case_id: str):
                 "created_at": ex.created_at.isoformat() if ex.created_at else None,
             })
     return {"items": items}
+
+
+# ============ Code Reviews ============
+
+def _review_to_dict(r: FlowTestPlanReview, *, reviewer_name: str = "", repo_name: str = "") -> dict:
+    return {
+        "id": r.id,
+        "plan_id": r.plan_id,
+        "repo_id": r.repo_id,
+        "repo_name": repo_name,
+        "pr_number": r.pr_number,
+        "pr_url": r.pr_url,
+        "pr_title": r.pr_title,
+        "head_branch": r.head_branch,
+        "base_branch": r.base_branch,
+        "reviewer_id": r.reviewer_id,
+        "reviewer_name": reviewer_name,
+        "review_status": r.review_status,
+        "review_notes": r.review_notes,
+        "added_by": r.added_by,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+        "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+    }
+
+
+@sub_router.get("/test-plans/{plan_id}/reviews")
+async def list_plan_reviews(plan_id: str):
+    sf = get_session_factory()
+    async with sf() as session:
+        rows = (await session.execute(
+            select(FlowTestPlanReview)
+            .where(FlowTestPlanReview.plan_id == plan_id)
+            .order_by(FlowTestPlanReview.created_at.desc())
+        )).scalars().all()
+
+        # Batch-resolve repo names and reviewer names
+        from openvort.plugins.vortgit.models import GitRepo
+        repo_ids = {r.repo_id for r in rows if r.repo_id}
+        repo_map: dict[str, str] = {}
+        if repo_ids:
+            repos = (await session.execute(
+                select(GitRepo).where(GitRepo.id.in_(list(repo_ids)))
+            )).scalars().all()
+            repo_map = {r.id: r.name for r in repos}
+
+        member_ids = {r.reviewer_id for r in rows if r.reviewer_id}
+        member_map: dict[str, str] = {}
+        if member_ids:
+            members = (await session.execute(
+                select(Member).where(Member.id.in_(list(member_ids)))
+            )).scalars().all()
+            member_map = {m.id: m.name for m in members}
+
+        items = [
+            _review_to_dict(
+                r,
+                reviewer_name=member_map.get(r.reviewer_id, "") if r.reviewer_id else "",
+                repo_name=repo_map.get(r.repo_id, ""),
+            )
+            for r in rows
+        ]
+    return {"items": items}
+
+
+@sub_router.post("/test-plans/{plan_id}/reviews")
+async def add_plan_reviews(plan_id: str, body: TestPlanAddReviewsBody, request: Request):
+    payload = require_auth(request)
+    member_id = payload.get("sub", "")
+    sf = get_session_factory()
+    async with sf() as session:
+        plan = await session.get(FlowTestPlan, plan_id)
+        if not plan:
+            return {"error": "测试计划不存在"}
+
+        existing = (await session.execute(
+            select(FlowTestPlanReview.repo_id, FlowTestPlanReview.pr_number)
+            .where(FlowTestPlanReview.plan_id == plan_id)
+        )).all()
+        existing_set = {(r[0], r[1]) for r in existing}
+
+        added = 0
+        for item in body.reviews:
+            repo_id = item.get("repo_id", "")
+            pr_number = item.get("pr_number", 0)
+            if not repo_id or not pr_number:
+                continue
+            if (repo_id, pr_number) in existing_set:
+                continue
+            session.add(FlowTestPlanReview(
+                plan_id=plan_id,
+                repo_id=repo_id,
+                pr_number=pr_number,
+                pr_url=item.get("pr_url", ""),
+                pr_title=item.get("pr_title", ""),
+                head_branch=item.get("head_branch", ""),
+                base_branch=item.get("base_branch", ""),
+                added_by=member_id or None,
+            ))
+            added += 1
+        await session.commit()
+    return {"ok": True, "added": added}
+
+
+@sub_router.put("/test-plans/{plan_id}/reviews/{review_id}")
+async def update_plan_review(plan_id: str, review_id: str, body: TestPlanUpdateReviewBody, request: Request):
+    payload = require_auth(request)
+    actor_id = payload.get("sub", "")
+    sf = get_session_factory()
+    async with sf() as session:
+        review = await session.get(FlowTestPlanReview, review_id)
+        if not review or review.plan_id != plan_id:
+            return {"error": "评审项不存在"}
+
+        old_status = review.review_status
+
+        if body.reviewer_id is not None:
+            old_reviewer = review.reviewer_id
+            review.reviewer_id = body.reviewer_id or None
+            if old_reviewer != review.reviewer_id:
+                session.add(FlowTestPlanReviewHistory(
+                    review_id=review_id, action="reviewer_assigned",
+                    notes=f"评审人变更", actor_id=actor_id or None,
+                ))
+
+        if body.review_status is not None:
+            review.review_status = body.review_status
+        if body.review_notes is not None:
+            review.review_notes = body.review_notes
+
+        if body.review_status and body.review_status != old_status:
+            session.add(FlowTestPlanReviewHistory(
+                review_id=review_id, action="status_changed",
+                old_status=old_status, new_status=body.review_status,
+                notes=body.review_notes or "", actor_id=actor_id or None,
+                is_ai=body.is_ai if hasattr(body, "is_ai") else False,
+            ))
+
+        await session.commit()
+        await session.refresh(review)
+        reviewer_name = await _resolve_member_name(session, review.reviewer_id)
+        from openvort.plugins.vortgit.models import GitRepo
+        repo = await session.get(GitRepo, review.repo_id)
+        return _review_to_dict(review, reviewer_name=reviewer_name, repo_name=repo.name if repo else "")
+
+
+@sub_router.delete("/test-plans/{plan_id}/reviews/{review_id}")
+async def remove_plan_review(plan_id: str, review_id: str):
+    sf = get_session_factory()
+    async with sf() as session:
+        review = await session.get(FlowTestPlanReview, review_id)
+        if not review or review.plan_id != plan_id:
+            return {"error": "评审项不存在"}
+        await session.delete(review)
+        await session.commit()
+    return {"ok": True}
+
+
+@sub_router.get("/test-plans/{plan_id}/available-prs")
+async def list_available_prs(plan_id: str, repo_id: str = Query(...)):
+    """Fetch open PRs from a Git repo via VortGit provider."""
+    from openvort.plugins.vortgit.models import GitProvider, GitRepo
+
+    sf = get_session_factory()
+    async with sf() as session:
+        repo = await session.get(GitRepo, repo_id)
+        if not repo:
+            raise HTTPException(404, "仓库不存在")
+        provider = await session.get(GitProvider, repo.provider_id)
+        if not provider:
+            raise HTTPException(404, "Git 平台配置不存在")
+
+        already = (await session.execute(
+            select(FlowTestPlanReview.pr_number)
+            .where(FlowTestPlanReview.plan_id == plan_id, FlowTestPlanReview.repo_id == repo_id)
+        )).scalars().all()
+        already_set = set(already)
+
+    from openvort.plugins.vortgit.crypto import decrypt_token
+
+    token = decrypt_token(provider.access_token) if provider.access_token else ""
+    if provider.platform == "gitee":
+        from openvort.plugins.vortgit.providers.gitee import GiteeProvider
+        client = GiteeProvider(access_token=token, api_base=provider.api_base)
+    else:
+        raise HTTPException(400, f"暂不支持的平台: {provider.platform}")
+
+    try:
+        prs = await client.list_pull_requests(repo.full_name, state="open", per_page=50)
+    except Exception as e:
+        log.error(f"Failed to fetch PRs from repo {repo.full_name}: {e}")
+        raise HTTPException(502, f"获取 PR 列表失败: {e}")
+    finally:
+        await client.close()
+
+    items = []
+    for pr in prs:
+        items.append({
+            **pr,
+            "already_added": pr.get("number", 0) in already_set,
+        })
+    return {"items": items}
+
+
+# ============ Review History ============
+
+@sub_router.get("/test-plans/{plan_id}/reviews/{review_id}/history")
+async def list_review_history(plan_id: str, review_id: str):
+    sf = get_session_factory()
+    async with sf() as session:
+        review = await session.get(FlowTestPlanReview, review_id)
+        if not review or review.plan_id != plan_id:
+            return {"error": "评审项不存在"}
+        rows = (await session.execute(
+            select(FlowTestPlanReviewHistory)
+            .where(FlowTestPlanReviewHistory.review_id == review_id)
+            .order_by(FlowTestPlanReviewHistory.created_at.desc())
+        )).scalars().all()
+
+        member_ids = {r.actor_id for r in rows if r.actor_id}
+        member_map: dict[str, str] = {}
+        if member_ids:
+            members = (await session.execute(
+                select(Member).where(Member.id.in_(list(member_ids)))
+            )).scalars().all()
+            member_map = {m.id: m.name for m in members}
+
+        items = [{
+            "id": r.id,
+            "review_id": r.review_id,
+            "action": r.action,
+            "old_status": r.old_status,
+            "new_status": r.new_status,
+            "notes": r.notes,
+            "actor_id": r.actor_id,
+            "actor_name": member_map.get(r.actor_id, "") if r.actor_id else "",
+            "is_ai": r.is_ai,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        } for r in rows]
+    return {"items": items}
+
+
+# ============ AI Code Review ============
+
+def _create_git_client(provider):
+    """Create a git provider client."""
+    from openvort.plugins.vortgit.crypto import decrypt_token
+    token = decrypt_token(provider.access_token) if provider.access_token else ""
+    if provider.platform == "gitee":
+        from openvort.plugins.vortgit.providers.gitee import GiteeProvider
+        return GiteeProvider(access_token=token, api_base=provider.api_base)
+    raise HTTPException(400, f"暂不支持的平台: {provider.platform}")
+
+
+@sub_router.post("/test-plans/{plan_id}/reviews/{review_id}/ai-review")
+async def ai_review(plan_id: str, review_id: str, request: Request):
+    """Use LLM to review PR code changes."""
+    payload = require_auth(request)
+    actor_id = payload.get("sub", "")
+    from openvort.plugins.vortgit.models import GitProvider, GitRepo
+
+    sf = get_session_factory()
+    async with sf() as session:
+        review = await session.get(FlowTestPlanReview, review_id)
+        if not review or review.plan_id != plan_id:
+            return {"error": "评审项不存在"}
+        repo = await session.get(GitRepo, review.repo_id)
+        if not repo:
+            return {"error": "仓库不存在"}
+        provider = await session.get(GitProvider, repo.provider_id)
+        if not provider:
+            return {"error": "Git 平台配置不存在"}
+
+    client = _create_git_client(provider)
+    try:
+        files = await client.get_pull_request_files(repo.full_name, review.pr_number)
+        pr_detail = await client.get_pull_request_detail(repo.full_name, review.pr_number)
+    except Exception as e:
+        log.error(f"Failed to fetch PR data for AI review: {e}")
+        raise HTTPException(502, f"获取 PR 数据失败: {e}")
+    finally:
+        await client.close()
+
+    diff_parts = []
+    for f in files[:30]:
+        header = f"--- {f.get('filename', '')}\n"
+        patch = f.get("patch", "")
+        if patch and isinstance(patch, str):
+            diff_parts.append(header + patch)
+        elif isinstance(patch, dict):
+            diff_parts.append(header + str(patch.get("diff", patch)))
+    diff_text = "\n".join(diff_parts)
+    if len(diff_text) > 30000:
+        diff_text = diff_text[:30000] + "\n... (diff truncated)"
+
+    pr_body = pr_detail.get("body", "") or ""
+    prompt = (
+        "你是一名资深代码评审员。请审查以下 Pull Request 的代码变更。\n\n"
+        f"## PR 信息\n"
+        f"标题：{review.pr_title}\n"
+        f"描述：{pr_body[:500]}\n"
+        f"分支：{review.head_branch} → {review.base_branch}\n\n"
+        f"## 代码变更\n```diff\n{diff_text}\n```\n\n"
+        "请从以下维度评审：\n"
+        "1. 代码逻辑正确性\n"
+        "2. 安全隐患\n"
+        "3. 性能问题\n"
+        "4. 代码风格和可维护性\n"
+        "5. 是否有遗漏的边界情况\n\n"
+        "请用中文回复。先给出评审结论（通过 / 需修改），然后逐条列出发现的问题（如果有）。\n"
+        "格式：\n"
+        "评审结论：通过 或 需修改\n"
+        "评审意见：\n（逐条列出发现的问题，没有问题则写'代码质量良好，无明显问题'）"
+    )
+
+    from openvort.core.engine.llm import LLMClient
+    from openvort.config.settings import get_settings
+    settings = get_settings()
+    llm = LLMClient(settings.llm.get_model_chain())
+    try:
+        result = await llm.create(
+            system="你是一名专业的代码评审员，擅长发现代码中的逻辑错误、安全隐患和性能问题。",
+            messages=[{"role": "user", "content": prompt}],
+        )
+    except Exception as e:
+        log.error(f"AI review LLM call failed: {e}")
+        raise HTTPException(502, f"AI 评审调用失败: {e}")
+
+    ai_text = ""
+    if hasattr(result, "content"):
+        for block in result.content:
+            if hasattr(block, "text"):
+                ai_text += block.text
+    if not ai_text:
+        ai_text = str(result)
+
+    ai_status = "approved"
+    if "需修改" in ai_text or "需要修改" in ai_text:
+        ai_status = "changes_requested"
+    elif "已驳回" in ai_text:
+        ai_status = "rejected"
+
+    async with sf() as session:
+        review = await session.get(FlowTestPlanReview, review_id)
+        if review:
+            old_status = review.review_status
+            review.review_status = ai_status
+            review.review_notes = ai_text
+            session.add(FlowTestPlanReviewHistory(
+                review_id=review_id, action="status_changed",
+                old_status=old_status, new_status=ai_status,
+                notes=ai_text, actor_id=actor_id or None, is_ai=True,
+            ))
+            await session.commit()
+            await session.refresh(review)
+            reviewer_name = await _resolve_member_name(session, review.reviewer_id)
+            from openvort.plugins.vortgit.models import GitRepo as GR
+            repo_obj = await session.get(GR, review.repo_id)
+            return _review_to_dict(review, reviewer_name=reviewer_name, repo_name=repo_obj.name if repo_obj else "")
+    return {"error": "评审项不存在"}

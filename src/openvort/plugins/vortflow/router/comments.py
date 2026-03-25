@@ -27,6 +27,11 @@ class CommentCreate(BaseModel):
     mentions: list[str] = []
 
 
+class CommentUpdate(BaseModel):
+    content: str
+    mentions: list[str] = []
+
+
 @sub_router.get("/comments/{entity_type}/{entity_id}")
 async def list_comments(entity_type: str, entity_id: str):
     sf = get_session_factory()
@@ -90,6 +95,33 @@ async def create_comment(entity_type: str, entity_id: str, body: CommentCreate, 
         creator_id=item_creator_id,
         collaborator_ids=item_collaborators,
     ))
+    return {
+        "id": c.id, "entity_type": c.entity_type, "entity_id": c.entity_id,
+        "author_id": c.author_id, "content": c.content,
+        "mentions": _parse_json_list(c.mentions_json),
+        "created_at": c.created_at.isoformat() if c.created_at else None,
+        "updated_at": c.updated_at.isoformat() if c.updated_at else None,
+    }
+
+
+@sub_router.patch("/comments/{comment_id}")
+async def update_comment(comment_id: int, body: CommentUpdate, request: Request):
+    payload = require_auth(request)
+    member_id = payload.get("sub", "")
+    sf = get_session_factory()
+    async with sf() as session:
+        c = await session.get(FlowComment, comment_id)
+        if not c:
+            return {"error": "评论不存在"}
+        if c.author_id != member_id:
+            return {"error": "只能编辑自己的评论"}
+        c.content = body.content
+        c.mentions_json = json.dumps(body.mentions or [], ensure_ascii=False)
+        await _log_event(session, c.entity_type, c.entity_id, "comment_updated",
+                         {"author_id": member_id, "comment_id": comment_id, "preview": body.content[:100]},
+                         actor_id=member_id)
+        await session.commit()
+        await session.refresh(c)
     return {
         "id": c.id, "entity_type": c.entity_type, "entity_id": c.entity_id,
         "author_id": c.author_id, "content": c.content,

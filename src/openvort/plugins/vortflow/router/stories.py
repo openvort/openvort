@@ -14,6 +14,8 @@ from openvort.plugins.vortflow.router.helpers import (
     _validate_story_parent,
     _collect_story_descendant_ids,
     _attach_story_links,
+    _attach_story_progress,
+    _calc_story_progress,
 )
 from openvort.plugins.vortflow.router.schemas import (
     StoryCreate,
@@ -25,6 +27,7 @@ from openvort.plugins.vortflow.models import (
     FlowTask,
     FlowBug,
     FlowIterationStory,
+    FlowVersionStory,
 )
 from openvort.plugins.vortflow.engine import (
     STORY_TRANSITIONS,
@@ -70,8 +73,13 @@ async def list_stories(
             stmt = stmt.where(FlowStory.project_id == project_id)
             count_stmt = count_stmt.where(FlowStory.project_id == project_id)
         if state:
-            stmt = stmt.where(FlowStory.state == state)
-            count_stmt = count_stmt.where(FlowStory.state == state)
+            states = [s.strip() for s in state.split(",") if s.strip()]
+            if len(states) == 1:
+                stmt = stmt.where(FlowStory.state == states[0])
+                count_stmt = count_stmt.where(FlowStory.state == states[0])
+            elif states:
+                stmt = stmt.where(FlowStory.state.in_(states))
+                count_stmt = count_stmt.where(FlowStory.state.in_(states))
         if keyword:
             like = f"%{keyword}%"
             stmt = stmt.where(FlowStory.title.ilike(like))
@@ -103,6 +111,7 @@ async def list_stories(
         rows = (await session.execute(stmt)).scalars().all()
         story_ids = [row.id for row in rows]
         child_count_map: dict[str, int] = {}
+        task_count_map: dict[str, int] = {}
         if story_ids:
             child_count_rows = await session.execute(
                 select(FlowStory.parent_id, func.count())
@@ -114,8 +123,21 @@ async def list_stories(
                 for parent_story_id, child_count in child_count_rows.all()
                 if parent_story_id
             }
-        items = [{**_story_dict(r), "children_count": child_count_map.get(r.id, 0)} for r in rows]
+            task_count_rows = await session.execute(
+                select(FlowTask.story_id, func.count())
+                .where(FlowTask.story_id.in_(story_ids))
+                .group_by(FlowTask.story_id)
+            )
+            task_count_map = {
+                sid: cnt for sid, cnt in task_count_rows.all() if sid
+            }
+        items = [{
+            **_story_dict(r),
+            "children_count": child_count_map.get(r.id, 0),
+            "task_count": task_count_map.get(r.id, 0),
+        } for r in rows]
         await _attach_story_links(session, items)
+        await _attach_story_progress(session, items)
     return {
         "total": total,
         "items": items,
@@ -137,12 +159,16 @@ async def get_story(story_id: str):
         children_count = (await session.execute(
             select(func.count()).select_from(FlowStory).where(FlowStory.parent_id == story_id)
         )).scalar_one()
-        items = await _attach_story_links(session, [{
+        item = {
             **_story_dict(r),
             "task_count": task_count,
             "bug_count": bug_count,
             "children_count": children_count,
-        }])
+        }
+        computed = await _calc_story_progress(session, story_id)
+        if computed is not None:
+            item["progress"] = computed
+        items = await _attach_story_links(session, [item])
     return items[0]
 
 @sub_router.post("/stories")
@@ -166,6 +192,7 @@ async def create_story(body: StoryCreate, request: Request):
             assignee_id=body.assignee_id or None,
             tags_json=json.dumps(body.tags or [], ensure_ascii=False),
             collaborators_json=json.dumps(body.collaborators or [], ensure_ascii=False),
+            attachments_json=json.dumps(body.attachments or [], ensure_ascii=False),
             deadline=_parse_dt(body.deadline),
         )
         session.add(s)
@@ -224,6 +251,9 @@ async def update_story(story_id: str, body: StoryUpdate, request: Request):
         if body.collaborators is not None:
             s.collaborators_json = json.dumps(body.collaborators, ensure_ascii=False)
             changes["collaborators"] = body.collaborators
+        if body.attachments is not None:
+            s.attachments_json = json.dumps(body.attachments, ensure_ascii=False)
+            changes["attachments"] = body.attachments
         if body.deadline is not None:
             s.deadline = _parse_dt(body.deadline)
             changes["deadline"] = body.deadline
@@ -239,6 +269,9 @@ async def update_story(story_id: str, body: StoryUpdate, request: Request):
         if body.branch is not None:
             s.branch = body.branch
             changes["branch"] = body.branch
+        if body.progress is not None:
+            s.progress = max(0, min(100, body.progress))
+            changes["progress"] = s.progress
         if changes:
             await _log_event(session, "story", story_id, "updated", changes, actor_id=actor_id)
         await session.commit()
@@ -284,7 +317,8 @@ async def delete_story(story_id: str):
             return {"error": "需求不存在"}
         descendant_ids = await _collect_story_descendant_ids(session, [story_id])
         target_story_ids = [story_id, *descendant_ids]
-        # Delete related tasks and bugs for the full story subtree.
+        await session.execute(sa_delete(FlowIterationStory).where(FlowIterationStory.story_id.in_(target_story_ids)))
+        await session.execute(sa_delete(FlowVersionStory).where(FlowVersionStory.story_id.in_(target_story_ids)))
         await session.execute(sa_delete(FlowTask).where(FlowTask.story_id.in_(target_story_ids)))
         await session.execute(sa_delete(FlowBug).where(FlowBug.story_id.in_(target_story_ids)))
         await session.execute(sa_delete(FlowStory).where(FlowStory.id.in_(descendant_ids)))
@@ -359,6 +393,7 @@ async def copy_story(story_id: str, request: Request):
             assignee_id=getattr(src, "assignee_id", None),
             tags_json=src.tags_json,
             collaborators_json=src.collaborators_json,
+            attachments_json=src.attachments_json,
             deadline=src.deadline,
         )
         session.add(new_story)

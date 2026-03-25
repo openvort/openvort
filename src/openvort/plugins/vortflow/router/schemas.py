@@ -36,6 +36,7 @@ class StoryCreate(BaseModel):
     assignee_id: str | None = None
     tags: list[str] = []
     collaborators: list[str] = []
+    attachments: list[dict] = []
     deadline: str | None = None
 
 class StoryUpdate(BaseModel):
@@ -47,6 +48,7 @@ class StoryUpdate(BaseModel):
     assignee_id: str | None = None
     tags: list[str] | None = None
     collaborators: list[str] | None = None
+    attachments: list[dict] | None = None
     deadline: str | None = None
     pm_id: str | None = None
     project_id: str | None = None
@@ -54,6 +56,7 @@ class StoryUpdate(BaseModel):
     end_at: str | None = None
     repo_id: str | None = None
     branch: str | None = None
+    progress: int | None = None
 
 class TaskCreate(BaseModel):
     project_id: str | None = None
@@ -66,6 +69,7 @@ class TaskCreate(BaseModel):
     creator_id: str | None = None
     tags: list[str] = []
     collaborators: list[str] = []
+    attachments: list[dict] = []
     estimate_hours: float | None = None
     deadline: str | None = None
 
@@ -78,6 +82,7 @@ class TaskUpdate(BaseModel):
     assignee_id: str | None = None
     tags: list[str] | None = None
     collaborators: list[str] | None = None
+    attachments: list[dict] | None = None
     estimate_hours: float | None = None
     actual_hours: float | None = None
     deadline: str | None = None
@@ -85,6 +90,7 @@ class TaskUpdate(BaseModel):
     end_at: str | None = None
     repo_id: str | None = None
     branch: str | None = None
+    progress: int | None = None
 
 class BugCreate(BaseModel):
     project_id: str | None = None
@@ -95,6 +101,7 @@ class BugCreate(BaseModel):
     severity: int = 3
     tags: list[str] = []
     collaborators: list[str] = []
+    attachments: list[dict] = []
     assignee_id: str | None = None
     deadline: str | None = None
 
@@ -107,6 +114,7 @@ class BugUpdate(BaseModel):
     assignee_id: str | None = None
     tags: list[str] | None = None
     collaborators: list[str] | None = None
+    attachments: list[dict] | None = None
     estimate_hours: float | None = None
     actual_hours: float | None = None
     deadline: str | None = None
@@ -288,3 +296,7 @@ class TestCaseWorkItemBody(BaseModel):
     test_case_id: str
     entity_type: str  # story/task/bug
     entity_id: str
+
+
+class DescriptionTemplateUpdate(BaseModel):
+    content: str = ""

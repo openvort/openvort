@@ -69,3 +69,17 @@ export function deletePluginPersonalSetting(pluginName: string) {
 export function getEnabledChannels() {
     return request.get("/admin/channels");
 }
+
+// ---- Personal Access Token (PAT) ----
+
+export function getAccessTokens() {
+    return request.get("/me/tokens");
+}
+
+export function createAccessToken(name: string, expires_days?: number) {
+    return request.post("/me/tokens", { name, expires_days: expires_days || null });
+}
+
+export function revokeAccessToken(tokenId: string) {
+    return request.delete(`/me/tokens/${tokenId}`);
+}

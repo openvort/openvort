@@ -104,6 +104,8 @@ const containerStyle = computed(() => ({
     bottom: pos.value.bottom + "px",
 }));
 
+const isTopCorner = computed(() => currentCorner.value === "tr" || currentCorner.value === "tl");
+
 const panelStyle = computed(() => {
     const style: Record<string, string> = {
         width: showContacts.value ? "660px" : "420px",
@@ -175,7 +177,7 @@ watch(pendingPrompt, (prompt) => {
     <Teleport to="body">
     <div v-if="!isOnChatPage" class="ai-float-container" :class="{ 'ai-float-snapping': snapping }" :style="containerStyle">
         <transition name="ai-float-panel" type="animation">
-            <div v-if="panelOpen" class="ai-float-panel" :style="panelStyle">
+            <div v-if="panelOpen" class="ai-float-panel" :class="{ 'ai-float-panel-top': isTopCorner }" :style="panelStyle">
                 <div class="ai-float-body">
                     <ChatView
                         ref="chatRef"
@@ -298,6 +300,10 @@ watch(pendingPrompt, (prompt) => {
     flex-direction: column;
     overflow: hidden;
     transition: width 0.25s ease;
+}
+.ai-float-panel-top {
+    bottom: auto;
+    top: 56px;
 }
 
 .ai-float-body {

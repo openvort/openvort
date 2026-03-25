@@ -18,8 +18,8 @@ class UpdateProgressTool(BaseTool):
     name = "vortflow_update_progress"
     description = (
         "推进 VortFlow 中需求/任务/缺陷的状态。"
-        "需求状态流: intake → review → pm_refine → design → breakdown → dev_assign → in_progress → testing → done。"
-        "review 可驳回到 rejected，rejected 可回到 intake。testing 可进入 bugfix 循环。"
+        "需求状态流: submitted → intake → review → pm_refine → design → breakdown → dev_assign → in_progress → testing → done。"
+        "submitted 可直接到 rejected。review 可驳回到 rejected，rejected 可回到 submitted。testing 可进入 bugfix 循环。"
         "任务状态: todo → in_progress → done → closed。"
         "缺陷状态: open → confirmed → fixing → resolved → verified → closed。"
     )

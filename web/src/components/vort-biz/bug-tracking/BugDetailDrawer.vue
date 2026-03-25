@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { Pencil } from "lucide-vue-next";
+import StatusIcon from "@/components/vort-biz/work-item/StatusIcon.vue";
 import type { RowItem, Priority, Status, WorkType, DateRange, DetailComment, DetailLog } from "./types";
 import {
     priorityOptions,
@@ -69,7 +70,7 @@ const closeDrawer = () => {
                                 class="px-2 py-0.5 text-xs rounded border"
                                 :class="statusClassMap[props.state.detailCurrentRecord.value?.status as Status]"
                             >
-                                <span class="mr-1">{{ statusIconMap[props.state.detailCurrentRecord.value?.status as Status] }}</span>
+                                <StatusIcon :name="statusIconMap[props.state.detailCurrentRecord.value?.status as Status]" :size="12" class="mr-1 inline-flex" />
                                 {{ props.state.detailCurrentRecord.value?.status }}
                             </span>
                             <span class="text-sm text-gray-500">创建人：{{ props.state.detailCurrentRecord.value?.creator }}</span>

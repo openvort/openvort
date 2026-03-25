@@ -48,16 +48,26 @@ async def search_marketplace(
 
 @router.get("/detail/{slug}")
 async def get_extension_detail(slug: str, author: str = ""):
-    """Get full extension detail by slug."""
+    """Get full extension detail by slug, enriched with local registry data."""
     installer = get_marketplace_installer()
     if not installer:
         raise HTTPException(status_code=503, detail="Marketplace not configured")
 
     try:
         result = await installer.client.get_extension_detail(slug, author=author)
-        return result
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Marketplace request failed: {e}")
+
+    if isinstance(result, dict) and result.get("type") == "plugin":
+        plugin = installer.registry.get_plugin(slug)
+        if plugin:
+            tools = [{"name": t.name, "description": t.description} for t in plugin.get_tools()]
+            result["tools"] = tools
+            result["toolsCount"] = len(tools)
+            result["promptsCount"] = len(plugin.get_prompts())
+            result["localEnabled"] = not installer.registry.is_plugin_disabled(slug)
+
+    return result
 
 
 @router.post("/install/skill")

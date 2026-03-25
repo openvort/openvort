@@ -333,7 +333,7 @@ class MarketplaceInstaller:
             for d in self.plugins_local_dir.iterdir():
                 if d.is_dir():
                     meta = self._load_plugin_meta(d.name)
-                    items.append({
+                    item: dict[str, Any] = {
                         "name": meta.get("displayName") or meta.get("name") or d.name,
                         "displayName": meta.get("displayName") or meta.get("name") or d.name,
                         "description": meta.get("description", ""),
@@ -344,7 +344,20 @@ class MarketplaceInstaller:
                         "method": meta.get("method", "bundle"),
                         "install_path": str(d),
                         "scope": "marketplace",
-                    })
+                    }
+                    plugin = self.registry.get_plugin(d.name)
+                    if plugin:
+                        tools = [{"name": t.name, "description": t.description} for t in plugin.get_tools()]
+                        item["tools"] = tools
+                        item["toolsCount"] = len(tools)
+                        item["promptsCount"] = len(plugin.get_prompts())
+                        item["enabled"] = not self.registry.is_plugin_disabled(d.name)
+                    else:
+                        item["tools"] = []
+                        item["toolsCount"] = 0
+                        item["promptsCount"] = 0
+                        item["enabled"] = False
+                    items.append(item)
 
         return items
 

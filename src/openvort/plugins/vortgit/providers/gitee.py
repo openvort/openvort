@@ -190,6 +190,42 @@ class GiteeProvider(GitProviderBase):
             for pr in items
         ]
 
+    async def get_pull_request_detail(self, full_name: str, pr_number: int) -> dict:
+        pr = await self._get(f"/repos/{full_name}/pulls/{pr_number}")
+        if not isinstance(pr, dict):
+            return {}
+        return {
+            "number": pr.get("number", 0),
+            "title": pr.get("title", ""),
+            "body": pr.get("body", ""),
+            "state": pr.get("state", ""),
+            "url": pr.get("html_url", ""),
+            "head": (pr.get("head") or {}).get("ref", ""),
+            "base": (pr.get("base") or {}).get("ref", ""),
+            "commits": pr.get("commits", 0),
+            "additions": pr.get("additions", 0),
+            "deletions": pr.get("deletions", 0),
+            "changed_files": pr.get("changed_files", 0),
+            "created_at": pr.get("created_at", ""),
+        }
+
+    async def get_pull_request_files(self, full_name: str, pr_number: int) -> list[dict]:
+        items = await self._get(f"/repos/{full_name}/pulls/{pr_number}/files")
+        if not isinstance(items, list):
+            return []
+        result = []
+        for f in items:
+            raw_patch = f.get("patch", "")
+            patch = raw_patch if isinstance(raw_patch, str) else str(raw_patch)
+            result.append({
+                "filename": f.get("filename", ""),
+                "status": f.get("status", ""),
+                "additions": f.get("additions", 0),
+                "deletions": f.get("deletions", 0),
+                "patch": patch,
+            })
+        return result
+
     async def create_pull_request(
         self, full_name: str, *, title: str, head: str, base: str, body: str = ""
     ) -> dict:

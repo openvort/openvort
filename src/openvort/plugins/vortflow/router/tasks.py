@@ -13,6 +13,8 @@ from openvort.plugins.vortflow.router.helpers import (
     _parse_json_list,
     _resolve_task_story_and_parent,
     _attach_task_links,
+    _attach_task_progress,
+    _calc_task_progress,
 )
 from openvort.plugins.vortflow.router.schemas import (
     TaskCreate,
@@ -83,8 +85,13 @@ async def list_tasks(
             stmt = stmt.where(FlowTask.parent_id == parent_id)
             count_stmt = count_stmt.where(FlowTask.parent_id == parent_id)
         if state:
-            stmt = stmt.where(FlowTask.state == state)
-            count_stmt = count_stmt.where(FlowTask.state == state)
+            states = [s.strip() for s in state.split(",") if s.strip()]
+            if len(states) == 1:
+                stmt = stmt.where(FlowTask.state == states[0])
+                count_stmt = count_stmt.where(FlowTask.state == states[0])
+            elif states:
+                stmt = stmt.where(FlowTask.state.in_(states))
+                count_stmt = count_stmt.where(FlowTask.state.in_(states))
         if task_type:
             stmt = stmt.where(FlowTask.task_type == task_type)
             count_stmt = count_stmt.where(FlowTask.task_type == task_type)
@@ -120,6 +127,7 @@ async def list_tasks(
             }
         items = [{**_task_dict(r), "children_count": child_count_map.get(r.id, 0)} for r in rows]
         await _attach_task_links(session, items)
+        await _attach_task_progress(session, items)
     return {
         "total": total,
         "items": items,
@@ -135,7 +143,11 @@ async def get_task(task_id: str):
         children_count = (await session.execute(
             select(func.count()).select_from(FlowTask).where(FlowTask.parent_id == task_id)
         )).scalar_one()
-        items = await _attach_task_links(session, [{**_task_dict(r), "children_count": children_count}])
+        item = {**_task_dict(r), "children_count": children_count}
+        computed = await _calc_task_progress(session, task_id)
+        if computed is not None:
+            item["progress"] = computed
+        items = await _attach_task_links(session, [item])
     return items[0]
 
 @sub_router.post("/tasks")
@@ -168,6 +180,7 @@ async def create_task(body: TaskCreate, request: Request):
             estimate_hours=body.estimate_hours,
             tags_json=json.dumps(body.tags or [], ensure_ascii=False),
             collaborators_json=json.dumps(body.collaborators or [], ensure_ascii=False),
+            attachments_json=json.dumps(body.attachments or [], ensure_ascii=False),
             deadline=_parse_dt(body.deadline),
         )
         session.add(t)
@@ -216,6 +229,9 @@ async def update_task(task_id: str, body: TaskUpdate, request: Request):
         if body.collaborators is not None:
             t.collaborators_json = json.dumps(body.collaborators, ensure_ascii=False)
             changes["collaborators"] = body.collaborators
+        if body.attachments is not None:
+            t.attachments_json = json.dumps(body.attachments, ensure_ascii=False)
+            changes["attachments"] = body.attachments
         if body.deadline is not None:
             t.deadline = _parse_dt(body.deadline)
             changes["deadline"] = body.deadline
@@ -231,6 +247,9 @@ async def update_task(task_id: str, body: TaskUpdate, request: Request):
         if body.branch is not None:
             t.branch = body.branch
             changes["branch"] = body.branch
+        if body.progress is not None:
+            t.progress = max(0, min(100, body.progress))
+            changes["progress"] = t.progress
         if changes:
             await _log_event(session, "task", task_id, "updated", changes, actor_id=actor_id)
         await session.commit()
@@ -337,6 +356,7 @@ async def copy_task(task_id: str, request: Request):
             estimate_hours=src.estimate_hours,
             tags_json=src.tags_json,
             collaborators_json=src.collaborators_json,
+            attachments_json=src.attachments_json,
             deadline=src.deadline,
         )
         session.add(new_task)

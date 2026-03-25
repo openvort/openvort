@@ -6,7 +6,7 @@ import string
 import uuid
 from fastapi import APIRouter, File, UploadFile
 from pydantic import BaseModel
-from sqlalchemy import select, func as sa_func
+from sqlalchemy import select, text, func as sa_func
 
 from openvort.config.settings import get_settings
 from openvort.web.deps import get_db_session_factory, get_auth_service
@@ -54,6 +54,84 @@ def _extract_member_posts(member) -> list[str]:
     if primary_post and primary_post not in stored_posts:
         stored_posts.insert(0, primary_post)
     return stored_posts
+
+
+async def _cleanup_member_references(session, member_ids: list[str]):
+    """Clean up all foreign key references to members before deletion.
+
+    Nullable FK columns are SET NULL; non-nullable association/owned records are DELETEd.
+    """
+    if not member_ids:
+        return
+
+    _SET_NULL_SPECS: list[tuple[str, str]] = [
+        # VortFlow
+        ("flow_projects", "owner_id"),
+        ("flow_stories", "submitter_id"),
+        ("flow_stories", "assignee_id"),
+        ("flow_stories", "pm_id"),
+        ("flow_stories", "designer_id"),
+        ("flow_stories", "reviewer_id"),
+        ("flow_tasks", "assignee_id"),
+        ("flow_tasks", "creator_id"),
+        ("flow_bugs", "reporter_id"),
+        ("flow_bugs", "assignee_id"),
+        ("flow_bugs", "developer_id"),
+        ("flow_events", "actor_id"),
+        ("flow_iterations", "owner_id"),
+        ("flow_versions", "owner_id"),
+        ("flow_work_item_links", "created_by"),
+        ("flow_test_cases", "maintainer_id"),
+        ("flow_test_case_work_items", "created_by"),
+        ("flow_test_plans", "owner_id"),
+        ("flow_test_plan_cases", "created_by"),
+        ("flow_test_plan_executions", "executor_id"),
+        ("flow_test_plan_reviews", "reviewer_id"),
+        ("flow_test_plan_reviews", "added_by"),
+        ("flow_test_plan_review_histories", "actor_id"),
+        # VortGit
+        ("git_providers", "owner_id"),
+        # Report
+        ("report_templates", "owner_id"),
+        ("report_rules", "reviewer_id"),
+        ("reports", "reviewer_id"),
+        # System
+        ("voice_providers", "owner_id"),
+    ]
+
+    _DELETE_SPECS: list[tuple[str, str]] = [
+        ("member_roles", "member_id"),
+        ("match_suggestions", "target_member_id"),
+        ("flow_project_members", "member_id"),
+        ("flow_views", "owner_id"),
+        ("flow_column_settings", "member_id"),
+        ("flow_comments", "author_id"),
+        ("git_repo_members", "member_id"),
+        ("git_workspaces", "member_id"),
+        ("git_code_tasks", "member_id"),
+        ("schedule_jobs", "owner_id"),
+        ("work_assignments", "requested_by_member_id"),
+        ("work_assignments", "assignee_member_id"),
+        ("member_skills", "member_id"),
+        ("member_plugin_settings", "member_id"),
+        ("channel_bots", "member_id"),
+        ("reporting_relations", "reporter_id"),
+        ("reporting_relations", "supervisor_id"),
+        ("reports", "reporter_id"),
+        ("sketches", "created_by"),
+    ]
+
+    for table, col in _SET_NULL_SPECS:
+        await session.execute(
+            text(f'UPDATE "{table}" SET "{col}" = NULL WHERE "{col}" = ANY(:ids)'),
+            {"ids": member_ids},
+        )
+
+    for table, col in _DELETE_SPECS:
+        await session.execute(
+            text(f'DELETE FROM "{table}" WHERE "{col}" = ANY(:ids)'),
+            {"ids": member_ids},
+        )
 
 
 # ---- 请求模型 ----
@@ -610,9 +688,8 @@ async def toggle_account(member_id: str):
 
 @router.delete("/{member_id}")
 async def delete_member(member_id: str):
-    """删除成员（同时删除关联的平台身份、角色绑定、匹配建议）"""
-    from openvort.contacts.models import Member, PlatformIdentity, MatchSuggestion
-    from openvort.auth.models import MemberRole
+    """删除成员（同时清理所有外键关联）"""
+    from openvort.contacts.models import Member
 
     session_factory = get_db_session_factory()
     auth_service = get_auth_service()
@@ -624,19 +701,7 @@ async def delete_member(member_id: str):
         if not member:
             return {"success": False, "error": "成员不存在"}
 
-        # 删除角色绑定
-        role_stmt = select(MemberRole).where(MemberRole.member_id == member_id)
-        role_result = await session.execute(role_stmt)
-        for mr in role_result.scalars().all():
-            await session.delete(mr)
-
-        # 删除匹配建议
-        match_stmt = select(MatchSuggestion).where(MatchSuggestion.target_member_id == member_id)
-        match_result = await session.execute(match_stmt)
-        for ms in match_result.scalars().all():
-            await session.delete(ms)
-
-        # 删除成员（cascade 会删除 platform_identities）
+        await _cleanup_member_references(session, [member_id])
         await session.delete(member)
         await session.commit()
 
@@ -649,32 +714,23 @@ async def delete_member(member_id: str):
 @router.post("/batch/delete")
 async def batch_delete(req: BatchIdsRequest):
     """批量删除成员"""
-    from openvort.contacts.models import Member, MatchSuggestion
-    from openvort.auth.models import MemberRole
+    from openvort.contacts.models import Member
 
     session_factory = get_db_session_factory()
     auth_service = get_auth_service()
     deleted = 0
 
     async with session_factory() as session:
-        for mid in req.ids:
-            stmt = select(Member).where(Member.id == mid)
-            result = await session.execute(stmt)
-            member = result.scalar_one_or_none()
-            if not member:
-                continue
+        stmt = select(Member).where(Member.id.in_(req.ids))
+        result = await session.execute(stmt)
+        members = result.scalars().all()
+        if not members:
+            return {"success": True, "deleted": 0}
 
-            # 删除角色绑定
-            role_stmt = select(MemberRole).where(MemberRole.member_id == mid)
-            for mr in (await session.execute(role_stmt)).scalars().all():
-                await session.delete(mr)
-
-            # 删除匹配建议
-            match_stmt = select(MatchSuggestion).where(MatchSuggestion.target_member_id == mid)
-            for ms in (await session.execute(match_stmt)).scalars().all():
-                await session.delete(ms)
-
-            await session.delete(member)
+        found_ids = [m.id for m in members]
+        await _cleanup_member_references(session, found_ids)
+        for m in members:
+            await session.delete(m)
             deleted += 1
 
         await session.commit()

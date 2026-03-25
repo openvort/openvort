@@ -62,7 +62,7 @@ export function getVortflowStory(id: string) {
     return request.get(`/vortflow/stories/${id}`);
 }
 
-export function createVortflowStory(data: { project_id: string; title: string; description?: string; priority?: number; parent_id?: string; assignee_id?: string; tags?: string[]; collaborators?: string[]; deadline?: string }) {
+export function createVortflowStory(data: { project_id: string; title: string; description?: string; priority?: number; parent_id?: string; assignee_id?: string; tags?: string[]; collaborators?: string[]; attachments?: { name: string; url: string; size: number }[]; deadline?: string }) {
     return request.post("/vortflow/stories", data);
 }
 
@@ -75,6 +75,7 @@ export function updateVortflowStory(id: string, data: {
     assignee_id?: string | null;
     tags?: string[];
     collaborators?: string[];
+    attachments?: { name: string; url: string; size: number }[];
     deadline?: string;
     pm_id?: string | null;
     project_id?: string | null;
@@ -82,6 +83,7 @@ export function updateVortflowStory(id: string, data: {
     end_at?: string;
     repo_id?: string | null;
     branch?: string;
+    progress?: number;
 }) {
     return request.put(`/vortflow/stories/${id}`, data);
 }
@@ -112,7 +114,7 @@ export function getVortflowTask(id: string) {
     return request.get(`/vortflow/tasks/${id}`);
 }
 
-export function createVortflowTask(data: { project_id?: string; story_id?: string; parent_id?: string; title: string; description?: string; task_type?: string; assignee_id?: string; tags?: string[]; collaborators?: string[]; estimate_hours?: number; deadline?: string }) {
+export function createVortflowTask(data: { project_id?: string; story_id?: string; parent_id?: string; title: string; description?: string; task_type?: string; assignee_id?: string; tags?: string[]; collaborators?: string[]; attachments?: { name: string; url: string; size: number }[]; estimate_hours?: number; deadline?: string }) {
     return request.post("/vortflow/tasks", data);
 }
 
@@ -125,6 +127,7 @@ export function updateVortflowTask(id: string, data: {
     assignee_id?: string;
     tags?: string[];
     collaborators?: string[];
+    attachments?: { name: string; url: string; size: number }[];
     estimate_hours?: number;
     actual_hours?: number;
     deadline?: string;
@@ -132,6 +135,7 @@ export function updateVortflowTask(id: string, data: {
     end_at?: string;
     repo_id?: string | null;
     branch?: string;
+    progress?: number;
 }) {
     return request.put(`/vortflow/tasks/${id}`, data);
 }
@@ -162,7 +166,7 @@ export function getVortflowBug(id: string) {
     return request.get(`/vortflow/bugs/${id}`);
 }
 
-export function createVortflowBug(data: { project_id?: string; story_id?: string; task_id?: string; title: string; description?: string; severity?: number; assignee_id?: string; tags?: string[]; collaborators?: string[]; deadline?: string }) {
+export function createVortflowBug(data: { project_id?: string; story_id?: string; task_id?: string; title: string; description?: string; severity?: number; assignee_id?: string; tags?: string[]; collaborators?: string[]; attachments?: { name: string; url: string; size: number }[]; deadline?: string }) {
     return request.post("/vortflow/bugs", data);
 }
 
@@ -175,6 +179,7 @@ export function updateVortflowBug(id: string, data: {
     assignee_id?: string;
     tags?: string[];
     collaborators?: string[];
+    attachments?: { name: string; url: string; size: number }[];
     estimate_hours?: number;
     actual_hours?: number;
     deadline?: string;
@@ -376,6 +381,10 @@ export function createVortflowComment(entityType: string, entityId: string, data
     return request.post(`/vortflow/comments/${entityType}/${entityId}`, data);
 }
 
+export function updateVortflowComment(commentId: number | string, data: { content: string; mentions?: string[] }) {
+    return request.patch(`/vortflow/comments/${commentId}`, data);
+}
+
 export function getVortflowActivity(entityType: string, entityId: string, params?: { page?: number; page_size?: number }) {
     return request.get(`/vortflow/activity/${entityType}/${entityId}`, { params });
 }
@@ -434,7 +443,7 @@ export function migrateVortflowTag(id: string, data: { target_tag_id?: string | 
 
 // ---- Statuses ----
 
-export function getVortflowStatuses(params?: { keyword?: string }) {
+export function getVortflowStatuses(params?: { keyword?: string; work_item_type?: string }) {
     return request.get("/vortflow/statuses", { params });
 }
 
@@ -448,6 +457,16 @@ export function updateVortflowStatus(id: string, data: { name?: string; icon?: s
 
 export function deleteVortflowStatus(id: string) {
     return request.delete(`/vortflow/statuses/${id}`);
+}
+
+// ---- Description Templates ----
+
+export function getVortflowDescriptionTemplates() {
+    return request.get("/vortflow/description-templates");
+}
+
+export function updateVortflowDescriptionTemplate(workItemType: string, data: { content: string }) {
+    return request.put(`/vortflow/description-templates/${encodeURIComponent(workItemType)}`, data);
 }
 
 // ---- Test Modules ----
@@ -625,6 +644,87 @@ export function addVortflowTestPlanExecution(planId: string, planCaseId: string,
 
 export function getVortflowTestPlanExecutions(planId: string, planCaseId: string) {
     return request.get(`/vortflow/test-plans/${planId}/cases/${planCaseId}/executions`);
+}
+
+// ---- Test Plan Reviews ----
+
+export function getVortflowTestPlanReviews(planId: string) {
+    return request.get(`/vortflow/test-plans/${planId}/reviews`);
+}
+
+export function addVortflowTestPlanReviews(planId: string, data: {
+    reviews: Array<{
+        repo_id: string;
+        pr_number: number;
+        pr_url: string;
+        pr_title: string;
+        head_branch: string;
+        base_branch: string;
+    }>;
+}) {
+    return request.post(`/vortflow/test-plans/${planId}/reviews`, data);
+}
+
+export function updateVortflowTestPlanReview(planId: string, reviewId: string, data: {
+    reviewer_id?: string | null;
+    review_status?: string;
+    review_notes?: string;
+}) {
+    return request.put(`/vortflow/test-plans/${planId}/reviews/${reviewId}`, data);
+}
+
+export function removeVortflowTestPlanReview(planId: string, reviewId: string) {
+    return request.delete(`/vortflow/test-plans/${planId}/reviews/${reviewId}`);
+}
+
+export function getVortflowAvailablePRs(planId: string, repoId: string) {
+    return request.get(`/vortflow/test-plans/${planId}/available-prs`, { params: { repo_id: repoId } });
+}
+
+export function getVortflowReviewHistory(planId: string, reviewId: string) {
+    return request.get(`/vortflow/test-plans/${planId}/reviews/${reviewId}/history`);
+}
+
+export function triggerVortflowAiReview(planId: string, reviewId: string) {
+    return request.post(`/vortflow/test-plans/${planId}/reviews/${reviewId}/ai-review`, null, { timeout: 120000 });
+}
+
+// ---- Test Reports ----
+
+export function getVortflowTestReports(params: { plan_id?: string; project_id?: string; page?: number; page_size?: number }) {
+    return request.get("/vortflow/test-reports", { params });
+}
+
+export function getVortflowTestReport(reportId: string) {
+    return request.get(`/vortflow/test-reports/${reportId}`);
+}
+
+export function createVortflowTestReport(data: { plan_id: string; title?: string }) {
+    return request.post("/vortflow/test-reports", data);
+}
+
+export function updateVortflowTestReport(reportId: string, data: { title?: string; summary?: string }) {
+    return request.put(`/vortflow/test-reports/${reportId}`, data);
+}
+
+export function deleteVortflowTestReport(reportId: string) {
+    return request.delete(`/vortflow/test-reports/${reportId}`);
+}
+
+// ---- Work Item Convert ----
+
+export function convertWorkItem(data: { from_type: string; id: string; to_type: string }) {
+    return request.post("/vortflow/work-items/convert", data);
+}
+
+// ---- File Uploads ----
+
+export function uploadVortflowFile(file: File): Promise<{ url: string; name: string; size: number }> {
+    const formData = new FormData();
+    formData.append("file", file);
+    return request.post("/uploads/vortflow/file", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+    });
 }
 
 // ---- Notify ----

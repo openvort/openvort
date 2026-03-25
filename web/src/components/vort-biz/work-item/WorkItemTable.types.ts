@@ -13,6 +13,7 @@ export type Status =
     | "已关闭"
     | "暂时搁置"
     | "已取消"
+    | "收集中"
     | "意向"
     | "暂搁置"
     | "设计中"
@@ -48,6 +49,12 @@ export interface WorkItemTableProps {
     viewFilters?: ViewFilters;
 }
 
+export interface AttachmentItem {
+    name: string;
+    url: string;
+    size: number;
+}
+
 export interface NewBugForm {
     title: string;
     owner: string;
@@ -62,6 +69,7 @@ export interface NewBugForm {
     storyId?: string;
     priority: Priority | "";
     tags: string[];
+    attachments: AttachmentItem[];
     repo: string;
     branch: string;
     startAt: string;
@@ -77,6 +85,7 @@ export interface RowItem {
     parentId?: string;
     parentTitle?: string;
     childrenCount?: number;
+    taskCount?: number;
     isChild?: boolean;
     priority: Priority;
     tags: string[];
@@ -98,22 +107,27 @@ export interface RowItem {
     iteration?: string;
     versionId?: string;
     version?: string;
+    progress?: number;
     estimateHours?: number | string;
     loggedHours?: number | string;
     remainHours?: number | string;
     repoId?: string;
     repo?: string;
     branch?: string;
+    attachments?: AttachmentItem[];
     startAt?: string;
     endAt?: string;
     children?: RowItem[];
     _prevIteration?: string;
     _prevVersion?: string;
+    _createdAtRaw?: string;
+    _updatedAtRaw?: string;
 }
 
 export interface DetailComment {
     id: string;
     author: string;
+    authorId?: string;
     createdAt: string;
     content: string;
 }
@@ -142,4 +156,5 @@ export interface StatusOption {
     value: Status;
     icon: string;
     iconClass: string;
+    iconColor?: string;
 }

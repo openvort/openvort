@@ -32,6 +32,7 @@ import { useWorkItemViewState } from "./composables/useWorkItemViewState";
 import { useWorkItemDataSource } from "./composables/useWorkItemDataSource";
 import { useWorkItemCommon } from "./work-item/useWorkItemCommon";
 import { useWorkItemInlineEdit } from "./work-item/useWorkItemInlineEdit";
+import { useWorkItemDraft } from "./work-item/useWorkItemDraft";
 import {
     getVortflowStories,
     getVortflowProjects, createVortflowStory, createVortflowTask, createVortflowBug,
@@ -45,6 +46,8 @@ import {
     getVortgitRepos, getVortgitRepoBranches,
     getVortflowTags,
     getVortflowIterations,
+    getVortflowDescriptionTemplates,
+    convertWorkItem,
 } from "@/api";
 import type {
     WorkItemType,
@@ -137,10 +140,14 @@ const {
     bugStatusFilterOptions,
     demandStatusFilterOptions,
     taskStatusFilterOptions,
+    loadStatusOptions,
 } = useWorkItemCommon();
 
+const { saveDraft, loadDraft, clearDraft } = useWorkItemDraft();
+const createDraftData = ref<NewBugForm | null>(null);
+
 const keyword = ref("");
-const owner = ref("");
+const owner = ref<string[]>([]);
 const type = ref<WorkItemType | "">(props.type ?? "");
 const status = ref<string[]>([]);
 const totalCount = ref(0);
@@ -159,6 +166,14 @@ const createBugDrawerOpen = computed({
     set: (val: boolean) => {
         if (!val) {
             cacheDescDraftBeforeClose();
+            if (createBugDrawerMode.value === "create") {
+                const formData = createWorkItemRef.value?.getFormData?.();
+                const descTemplate = createWorkItemRef.value?.getDescriptionTemplateForCurrentType?.() ?? "";
+                if (formData) {
+                    const workItemType = (props.type || formData.type || "缺陷") as WorkItemType;
+                    saveDraft(workItemType, formData, createParentItemId.value, descTemplate);
+                }
+            }
             router.replace({ query: { ...route.query, action: undefined, id: undefined, parentId: undefined, tab: undefined } });
         }
     }
@@ -177,6 +192,8 @@ const createWorkItemRef = ref<{
     submit: () => NewBugForm | null;
     reset: () => void;
     cancel: () => void;
+    getFormData: () => NewBugForm;
+    getDescriptionTemplateForCurrentType: () => string;
 } | null>(null);
 const createBugAttachments = ref<CreateBugAttachment[]>([]);
 const createAttachmentInputRef = ref<HTMLInputElement | null>(null);
@@ -187,40 +204,20 @@ const currentProjectName = computed(() => {
 });
 
 
-const descriptionTemplates: Record<WorkItemType, string> = {
-    "需求": [
-        "## 需求背景",
-        "<!-- 描述需求的业务背景和目标 -->",
-        "",
-        "## 用户故事",
-        "作为 ___，我希望 ___，以便 ___。",
-        "",
-        "## 验收标准",
-        "1. ",
-        "2. ",
-        "3. ",
-    ].join("\n"),
+const FALLBACK_TEMPLATES: Record<WorkItemType, string> = {
+    "需求": "",
     "任务": "",
-    "缺陷": [
-        "环境：请填写",
-        "",
-        "账号：请填写",
-        "",
-        "密码：请填写",
-        "",
-        "前置条件：请填写",
-        "",
-        "操作步骤：",
-        "步骤1：",
-        "步骤2：",
-        "",
-        "实际结果：请填写",
-        "",
-        "预期结果：请填写",
-    ].join("\n"),
+    "缺陷": "",
 };
 
-const getDescriptionTemplate = (type: WorkItemType): string => descriptionTemplates[type] ?? "";
+const remoteTemplates = ref<Record<string, string>>({});
+
+const getDescriptionTemplate = (type: WorkItemType): string => {
+    if (remoteTemplates.value[type] !== undefined && remoteTemplates.value[type] !== "") {
+        return remoteTemplates.value[type];
+    }
+    return FALLBACK_TEMPLATES[type] ?? "";
+};
 
 const onAvatarError = (e: Event) => {
     const el = e.target as HTMLImageElement | null;
@@ -257,6 +254,9 @@ const branchLoadingMap = reactive<Record<string, boolean>>({});
 const estimateEditingFor = ref<string | null>(null);
 const estimateDraftMap = reactive<Record<string, number | null>>({});
 const estimateInputRef = ref<any>(null);
+const progressEditingFor = ref<string | null>(null);
+const progressDraftMap = reactive<Record<string, number | null>>({});
+const progressInputRef = ref<any>(null);
 const projectPickerOpenMap = reactive<Record<string, boolean>>({});
 const iterationPickerOpenMap = reactive<Record<string, boolean>>({});
 const repoPickerOpenMap = reactive<Record<string, boolean>>({});
@@ -298,6 +298,7 @@ const STATUS_DOT_COLOR_MAP: Record<string, string> = {
     "已修复": "#3b82f6",
     "已关闭": "#374151",
     "已取消": "#ef4444",
+    "收集中": "#94a3b8",
     "意向": "#64748b",
     "设计中": "#6366f1",
     "开发中": "#3b82f6",
@@ -306,10 +307,12 @@ const STATUS_DOT_COLOR_MAP: Record<string, string> = {
     "待办的": "#64748b",
     "进行中": "#3b82f6",
     "延期处理": "#0284c7",
+    "延期修复": "#3b82f6",
     "设计如此": "#d97706",
     "再次打开": "#ef4444",
     "无法复现": "#d97706",
     "暂时搁置": "#6b7280",
+    "暂搁置": "#64748b",
     "开发完成": "#0891b2",
     "待发布": "#d97706",
     "发布完成": "#059669",
@@ -320,7 +323,7 @@ const statusFilterConfig = computed<ColumnFilterConfig>(() => ({
     options: currentStatusFilterOptions.value.map(o => ({
         label: o.label,
         value: o.value,
-        dotColor: STATUS_DOT_COLOR_MAP[o.label] || "#9ca3af",
+        dotColor: o.iconColor || STATUS_DOT_COLOR_MAP[o.label] || "#9ca3af",
     })),
 }));
 
@@ -630,6 +633,8 @@ const syncRecordUpdateToApi = async (
         end_at?: string;
         repo_id?: string | null;
         branch?: string;
+        progress?: number;
+        attachments?: { name: string; url: string; size: number }[];
     }
 ) => {
     if (!props.useApi) return;
@@ -651,6 +656,8 @@ const syncRecordUpdateToApi = async (
             end_at: patch.end_at,
             repo_id: patch.repo_id,
             branch: patch.branch,
+            progress: patch.progress,
+            attachments: patch.attachments,
         });
         record.updatedAt = formatCnTime(new Date());
         return;
@@ -671,6 +678,8 @@ const syncRecordUpdateToApi = async (
             repo_id: patch.repo_id,
             branch: patch.branch,
             project_id: patch.project_id,
+            progress: patch.progress,
+            attachments: patch.attachments,
         });
         record.updatedAt = formatCnTime(new Date());
         return;
@@ -691,6 +700,7 @@ const syncRecordUpdateToApi = async (
         repo_id: patch.repo_id,
         branch: patch.branch,
         project_id: patch.project_id,
+        attachments: patch.attachments,
     });
     record.updatedAt = formatCnTime(new Date());
 };
@@ -798,6 +808,35 @@ const openEstimateEditor = (record: RowItem) => {
         : Number(record.estimateHours);
     estimateEditingFor.value = key;
     nextTick(() => estimateInputRef.value?.focus());
+};
+
+const isProgressReadonly = (record: RowItem) => {
+    if ((record.childrenCount || 0) > 0) return true;
+    if (record.type === "需求" && (record.taskCount || 0) > 0) return true;
+    return false;
+};
+
+const selectRowProgress = async (record: RowItem, value?: number | null) => {
+    const key = getInteractiveCellKey(record);
+    const prevProgress = record.progress;
+    const nextValue = value == null ? 0 : Math.max(0, Math.min(100, Math.round(Number(value))));
+    record.progress = nextValue;
+    progressEditingFor.value = null;
+    try {
+        await syncRecordUpdateToApi(record, { progress: nextValue });
+    } catch (error: any) {
+        record.progress = prevProgress;
+        progressDraftMap[key] = prevProgress ?? 0;
+        message.error(error?.message || "进度同步失败");
+    }
+};
+
+const openProgressEditor = (record: RowItem) => {
+    if (isProgressReadonly(record)) return;
+    const key = getInteractiveCellKey(record);
+    progressDraftMap[key] = record.progress ?? 0;
+    progressEditingFor.value = key;
+    nextTick(() => progressInputRef.value?.focus());
 };
 
 const selectRowProject = async (record: RowItem, projectId?: string) => {
@@ -963,20 +1002,25 @@ const {
 });
 
 const tableRef = ref<any>(null);
+const refreshKey = ref(0);
 
 const queryParams = computed(() => ({
     keyword: keyword.value,
     owner: owner.value,
     type: props.type || type.value,
-    status: status.value
+    status: status.value,
+    _rk: refreshKey.value,
 }));
+
+const refreshTable = () => {
+    refreshKey.value++;
+};
 
 const onReset = () => {
     keyword.value = "";
-    owner.value = "";
+    owner.value = [];
     type.value = props.type ?? "";
     status.value = [];
-    tableRef.value?.refresh?.();
 };
 
 watch(() => props.projectId, () => {
@@ -1005,6 +1049,7 @@ const rowSelection = computed(() => ({
 const clearSelection = () => {
     selectedRowKeys.value = [];
     selectedRows.value = [];
+    tableRef.value?.clearSelection?.();
 };
 
 const deleteOne = async (record: RowItem) => {
@@ -1025,7 +1070,7 @@ const handleBatchDelete = async () => {
     else if (failed === rows.length) message.error("批量删除失败");
     else message.warning(`已删除 ${rows.length - failed} 条，失败 ${failed} 条`);
     clearSelection();
-    tableRef.value?.refresh?.();
+    refreshTable();
 };
 
 const resetCreateBugForm = () => {
@@ -1039,6 +1084,9 @@ const handleCreateBug = async () => {
     createParentItemId.value = "";
     createProjectId.value = props.projectId || "";
     resetCreateBugForm();
+    const workItemType = (props.type || "缺陷") as WorkItemType;
+    const draft = loadDraft(workItemType, "");
+    createDraftData.value = draft;
     createBugForm.type = props.type ?? createBugForm.type;
     router.replace({ query: { ...route.query, action: "create", parentId: undefined } });
 };
@@ -1049,6 +1097,7 @@ const handleCreateChild = async (record: RowItem) => {
     createBugDrawerMode.value = "create";
     createParentItemId.value = String(record.backendId);
     createProjectId.value = record.projectId || "";
+    createDraftData.value = null;
     resetCreateBugForm();
     router.replace({ query: { ...route.query, action: "create", parentId: String(record.backendId), id: undefined } });
 };
@@ -1096,9 +1145,29 @@ const handleCopyWorkItem = async () => {
     }
 };
 
+const _TYPE_TO_BACKEND: Record<string, string> = { "需求": "story", "任务": "task", "缺陷": "bug" };
+
 const handleDetailUpdate = async (data: Partial<RowItem>) => {
     if (!detailCurrentRecord.value) return;
     const rec = detailCurrentRecord.value;
+
+    if (data.type && props.useApi && rec.backendId) {
+        const fromBackend = _TYPE_TO_BACKEND[rec.type];
+        const toBackend = _TYPE_TO_BACKEND[data.type];
+        if (fromBackend && toBackend && fromBackend !== toBackend) {
+            try {
+                const res: any = await convertWorkItem({ from_type: fromBackend, id: rec.backendId, to_type: toBackend });
+                if (res?.error) { message.error(res.error); return; }
+                message.success(res?.message || "类型转换成功");
+                handleCancelCreateBug();
+                tableRef.value?.refresh?.();
+            } catch {
+                message.error("类型转换失败");
+            }
+            return;
+        }
+    }
+
     Object.assign(rec, data);
 
     if (!props.useApi || !rec.backendId) return;
@@ -1124,6 +1193,9 @@ const handleDetailUpdate = async (data: Partial<RowItem>) => {
         const pt = data.planTime;
         const deadline = (pt && pt[1]) ? pt[1] : undefined;
         await syncRecordUpdateToApi(rec, { deadline: deadline || undefined });
+    }
+    if (data.progress !== undefined) {
+        await syncRecordUpdateToApi(rec, { progress: data.progress });
     }
     if (data.estimateHours !== undefined) {
         const value = data.estimateHours === "" || data.estimateHours == null
@@ -1182,6 +1254,9 @@ const handleDetailUpdate = async (data: Partial<RowItem>) => {
             }
             rec._prevVersion = nextVer;
         }
+    }
+    if (data.attachments !== undefined) {
+        await syncRecordUpdateToApi(rec, { attachments: data.attachments });
     }
 };
 
@@ -1249,6 +1324,7 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
                     parent_id: formData.parentId || undefined,
                     tags: [...formData.tags],
                     collaborators: [...formData.collaborators],
+                    attachments: [...(formData.attachments || [])],
                     deadline: formData.planTime?.[1] || undefined,
                 });
                 if (createdItem?.id && ownerId) {
@@ -1269,6 +1345,7 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
                     assignee_id: ownerId,
                     tags: [...formData.tags],
                     collaborators: [...formData.collaborators],
+                    attachments: [...(formData.attachments || [])],
                     deadline: formData.planTime?.[1] || undefined,
                 });
             } else {
@@ -1281,6 +1358,7 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
                     assignee_id: ownerId,
                     tags: [...formData.tags],
                     collaborators: [...formData.collaborators],
+                    attachments: [...(formData.attachments || [])],
                     deadline: formData.planTime?.[1] || undefined,
                 });
             }
@@ -1323,9 +1401,12 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
             }
             tableRef.value?.refresh?.();
             message.success("新建成功");
+            clearDraft((props.type || formData.type || "缺陷") as WorkItemType);
+            createDraftData.value = null;
             if (keepCreating) {
                 createWorkItemRef.value?.reset();
             } else {
+                createWorkItemRef.value?.reset();
                 handleCancelCreateBug();
             }
             return;
@@ -1598,8 +1679,12 @@ onMounted(async () => {
         loadRepoOptions(),
         loadIterationOptions(),
         loadTagDefinitions(),
+        loadStatusOptions(),
         vortFlowStore.loadColumnSettings(props.type || ""),
         vortFlowStore.loadViews(props.type || ""),
+        getVortflowDescriptionTemplates().then((res: any) => {
+            if (res?.items) remoteTemplates.value = res.items;
+        }).catch(() => {}),
     ]);
     columnSettings.value = loadColumnSettingsFromStore();
     resetViewBaseline();
@@ -1617,8 +1702,15 @@ onMounted(async () => {
     } else if (action === "detail" && id) {
         const urlTab = route.query.tab as string;
         const tabTypeMap: Record<string, WorkItemType> = { story: "需求", task: "任务", bug: "缺陷" };
+        const tabRouteMap: Record<string, string> = { story: "/vortflow/stories", task: "/vortflow/tasks", bug: "/vortflow/bugs" };
         const urlType = tabTypeMap[urlTab];
-        if (urlType && urlType !== props.type) return;
+        if (urlType && urlType !== props.type) {
+            const targetPath = tabRouteMap[urlTab];
+            if (targetPath) {
+                router.replace({ path: targetPath, query: { action: "detail", id, tab: urlTab } });
+            }
+            return;
+        }
 
         let record = findItemRowByIdentifier(id) || await loadItemById(id, props.type);
         if (!record && !urlType) {
@@ -1734,6 +1826,7 @@ onMounted(async () => {
                 ref="tableRef"
                 :columns="columns"
                 :request="request"
+                :immediate="false"
                 :post-process-data="postProcessTableRows"
                 :params="queryParams"
                 :row-key="rowKeyGetter"
@@ -2047,6 +2140,37 @@ onMounted(async () => {
                     </TableCell>
                 </template>
 
+                <template #progress="{ record }">
+                    <TableCell @click.stop="openProgressEditor(record)">
+                        <template v-if="record.type === '需求' || record.type === '任务'">
+                            <div class="progress-cell">
+                                <div class="progress-bar">
+                                    <div
+                                        class="progress-fill"
+                                        :style="{ width: (record.progress || 0) + '%' }"
+                                    />
+                                </div>
+                                <template v-if="!isProgressReadonly(record) && progressEditingFor === getInteractiveCellKey(record)">
+                                    <vort-input-number
+                                        ref="progressInputRef"
+                                        v-model="progressDraftMap[getInteractiveCellKey(record)]"
+                                        :min="0"
+                                        :max="100"
+                                        :step="5"
+                                        size="small"
+                                        style="width:64px"
+                                        @click.stop
+                                        @blur="selectRowProgress(record, progressDraftMap[getInteractiveCellKey(record)])"
+                                        @keyup.enter="selectRowProgress(record, progressDraftMap[getInteractiveCellKey(record)])"
+                                    />
+                                </template>
+                                <span v-else class="progress-text" :class="{ 'cursor-pointer': !isProgressReadonly(record) }">{{ record.progress || 0 }}%</span>
+                            </div>
+                        </template>
+                        <span v-else class="text-sm text-gray-300">-</span>
+                    </TableCell>
+                </template>
+
                 <template #estimateHours="{ text, record }">
                     <TableCell @click.stop="openEstimateEditor(record)">
                         <div class="min-h-8 flex items-center">
@@ -2213,6 +2337,7 @@ onMounted(async () => {
                     :parent-id="createParentItemId"
                     :parent-record="createParentRecord"
                     :iteration-id="props.iterationId"
+                    :initial-draft="createDraftData"
                     @close="handleCancelCreateBug"
                     @success="handleCreateSuccess"
                 />
@@ -2267,7 +2392,7 @@ onMounted(async () => {
             :selected-rows="selectedRows"
             :work-item-type="(props.type || '缺陷') as WorkItemType"
             :status-options="currentStatusFilterOptions"
-            @done="() => { clearSelection(); tableRef?.refresh?.(); }"
+            @done="() => { clearSelection(); refreshTable(); }"
         />
         <ViewManageDialog
             v-model:open="viewManageOpen"
@@ -2287,6 +2412,23 @@ onMounted(async () => {
 
 <style scoped>
 @reference "../../assets/styles/index.css";
+
+.progress-cell {
+    @apply flex items-center gap-2;
+}
+.progress-bar {
+    @apply flex-1 h-2 rounded-full overflow-hidden;
+    background-color: var(--vort-bg-secondary, #f0f0f0);
+    min-width: 60px;
+}
+.progress-fill {
+    @apply h-full rounded-full transition-all duration-200;
+    background-color: #22c55e;
+}
+.progress-text {
+    @apply text-sm text-gray-600 whitespace-nowrap;
+    min-width: 36px;
+}
 
 .title-link-cell {
     @apply flex items-center justify-start gap-2 cursor-pointer max-w-full !p-0 !h-auto !bg-transparent;

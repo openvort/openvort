@@ -23,6 +23,7 @@ const ALL_COLUMN_DEFS: Array<ProTableColumn<RowItem> & { key: string }> = [
     { key: "updatedAt", title: "更新时间", dataIndex: "updatedAt", width: 150, align: "left", slot: "updatedAt" },
     { key: "iteration", title: "迭代", dataIndex: "iteration", width: 140, align: "left", slot: "iteration" },
     { key: "version", title: "版本", dataIndex: "version", width: 120, align: "left", slot: "version" },
+    { key: "progress", title: "进度", dataIndex: "progress", width: 160, align: "left", slot: "progress" },
     { key: "estimateHours", title: "预估工时", dataIndex: "estimateHours", width: 100, sorter: true, align: "left", slot: "estimateHours" },
     { key: "repo", title: "关联仓库", dataIndex: "repo", width: 140, align: "left", slot: "repo" },
     { key: "branch", title: "关联分支", dataIndex: "branch", width: 140, align: "left", slot: "branch" },
@@ -32,18 +33,25 @@ const ALL_COLUMN_DEFS: Array<ProTableColumn<RowItem> & { key: string }> = [
 ];
 
 const DEFAULT_VISIBLE_KEYS = new Set([
-    "workNo", "title", "status", "owner", "priority", "tags",
+    "workNo", "title", "status", "owner", "priority", "progress", "tags",
     "createdAt", "collaborators", "type", "planTime", "creator",
 ]);
+
+const EXCLUDED_COLUMNS_BY_TYPE: Record<string, Set<string>> = {
+    "缺陷": new Set(["progress"]),
+};
 
 export function useWorkItemColumns(options: UseWorkItemColumnsOptions) {
     const { workItemType } = options;
     const vortFlowStore = useVortFlowStore();
 
+    const excludedKeys = EXCLUDED_COLUMNS_BY_TYPE[workItemType] ?? new Set<string>();
+    const typeColumnDefs = ALL_COLUMN_DEFS.filter(c => !excludedKeys.has(c.key));
+
     const columnSettingsOpen = ref(false);
 
     const buildDefaultColumnSettings = (): ColumnSettingItem[] =>
-        ALL_COLUMN_DEFS.map(c => ({
+        typeColumnDefs.map(c => ({
             key: c.key,
             title: c.title || c.key,
             fixed: c.key === "workNo" || c.key === "title",
@@ -130,7 +138,7 @@ export function useWorkItemColumns(options: UseWorkItemColumnsOptions) {
 
     const columns = computed<ProTableColumn<RowItem>[]>(() => {
         const orderedKeys = columnSettings.value.filter(s => s.visible).map(s => s.key);
-        const colMap = new Map(ALL_COLUMN_DEFS.map(c => [c.key, c]));
+        const colMap = new Map(typeColumnDefs.map(c => [c.key, c]));
         const persisted = vortFlowStore.getColumnSettings(workItemType || "");
         const widthMap = new Map<string, number>();
         if (persisted) {

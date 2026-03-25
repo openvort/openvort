@@ -56,6 +56,7 @@ const stateOptions = [
 
 const demandStatusFilterOptions = [
     { label: "已取消", value: "已取消", icon: "✕", iconClass: "text-red-500" },
+    { label: "收集中", value: "收集中", icon: "◇", iconClass: "text-gray-400" },
     { label: "意向", value: "意向", icon: "○", iconClass: "text-slate-500" },
     { label: "暂搁置", value: "暂搁置", icon: "⌛", iconClass: "text-slate-400" },
     { label: "设计中", value: "设计中", icon: "✎", iconClass: "text-indigo-500" },
@@ -70,13 +71,14 @@ const demandStatusFilterOptions = [
 const stateBackendToDisplay: Record<string, string> = {
     draft: "待确认", designing: "设计中", developing: "开发中", developed: "开发完成",
     testing: "测试中", released: "发布完成", closed: "已完成", rejected: "已取消",
-    intake: "意向", review: "意向", pm_refine: "设计中", design: "设计中",
+    submitted: "收集中", intake: "意向", review: "意向", pm_refine: "设计中", design: "设计中",
     breakdown: "开发中", dev_assign: "开发中", in_progress: "开发中", bugfix: "开发中",
     done: "已完成",
 };
 
 const displayToStateBackend: Record<string, string[]> = {
     "已取消": ["rejected"],
+    "收集中": ["submitted"],
     "意向": ["intake", "review"],
     "暂搁置": ["rejected"],
     "设计中": ["pm_refine", "design"],

@@ -36,7 +36,7 @@ export interface UseWorkItemDataSourceOptions {
     propIterationId: ComputedRef<string> | Ref<string>;
     propViewFilters: ComputedRef<Record<string, any>> | Ref<Record<string, any>>;
     type: Ref<string>;
-    owner: Ref<string>;
+    owner: Ref<string[]>;
     status: Ref<string[]>;
     columnFilters: Record<string, ColumnFilterValue | null>;
     columnSortField: Ref<string>;
@@ -125,6 +125,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
             : undefined;
         const iterationId = item?.iteration_id ? String(item.iteration_id) : "";
         const versionId = item?.version_id ? String(item.version_id) : "";
+        const progress = item?.progress != null ? Number(item.progress) : 0;
         const startAt = item?.start_at ? String(item.start_at).split("T")[0] : "";
         const endAt = item?.end_at ? String(item.end_at).split("T")[0] : "";
         return {
@@ -134,6 +135,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
             parentId: item?.parent_id ? String(item.parent_id) : "",
             parentTitle: "",
             childrenCount: Number(item?.children_count || 0),
+            taskCount: Number(item?.task_count || 0),
             isChild: Boolean(item?.parent_id),
             priority: mapBackendPriority(item, typeValue),
             tags,
@@ -143,11 +145,14 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
             collaborators: collaboratorsFromBackend,
             type: typeValue,
             planTime: [planDate, planDate],
+            planStartDate: planDate,
+            planEndDate: planDate,
             description: item?.description || "",
             ownerId: ownerSourceId,
             owner: ownerName,
             creator: creatorName,
             projectId: item?.project_id ? String(item.project_id) : "",
+            progress,
             projectName: item?.project_id ? (apiProjects.value.find(p => p.id === String(item.project_id))?.name || "") : "",
             iterationId,
             iteration: item?.iteration_name ? String(item.iteration_name) : "",
@@ -159,23 +164,35 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
             repoId: item?.repo_id ? String(item.repo_id) : "",
             repo: "",
             branch: item?.branch ? String(item.branch) : "",
+            attachments: Array.isArray(item?.attachments) ? item.attachments : [],
             startAt,
             endAt,
             _prevIteration: iterationId,
             _prevVersion: versionId,
+            _createdAtRaw: item?.created_at ? String(item.created_at) : "",
+            _updatedAtRaw: item?.updated_at ? String(item.updated_at) : "",
         };
     };
 
-    const createOwnerMatcher = (ownerValue: string) => {
-        const normalizedOwner = String(ownerValue || "").trim();
-        const ownerMemberId = normalizedOwner && normalizedOwner !== "未指派" ? getMemberIdByName(normalizedOwner) : "";
+    const createOwnerMatcher = (ownerValues: string | string[]) => {
+        const ownerArray = (Array.isArray(ownerValues) ? ownerValues : (ownerValues ? [ownerValues] : []))
+            .map(v => String(v || "").trim())
+            .filter(Boolean);
+        const ownerMemberIds = ownerArray
+            .filter(v => v !== "未指派")
+            .map(v => getMemberIdByName(v))
+            .filter(Boolean);
+        const hasUnassigned = ownerArray.includes("未指派");
+        const singleMemberId = ownerMemberIds.length === 1 && !hasUnassigned ? ownerMemberIds[0] : "";
         const matchOwner = (row: RowItem) => {
-            if (!normalizedOwner) return true;
-            if (normalizedOwner === "未指派") return !String(row.ownerId || "").trim();
-            if (ownerMemberId) return String(row.ownerId || "").trim() === ownerMemberId;
-            return row.owner === normalizedOwner;
+            if (!ownerArray.length) return true;
+            const rowOwnerId = String(row.ownerId || "").trim();
+            if (hasUnassigned && !rowOwnerId) return true;
+            if (ownerMemberIds.length && ownerMemberIds.includes(rowOwnerId)) return true;
+            if (ownerArray.includes(row.owner as string)) return true;
+            return false;
         };
-        return { ownerMemberId, matchOwner };
+        return { ownerMemberId: singleMemberId, matchOwner };
     };
 
     const cacheItemRows = (rows: RowItem[]) => {
@@ -240,7 +257,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
         return rows;
     };
 
-    const getVisibleChildRows = (rows: RowItem[], ownerValue = owner.value, statusValues: string[] = status.value) => {
+    const getVisibleChildRows = (rows: RowItem[], ownerValue: string | string[] = owner.value, statusValues: string[] = status.value) => {
         const currentType = String(propType ?? type.value ?? "").trim();
         if (!useApi.value || (currentType !== "需求" && currentType !== "任务")) return rows;
         const { matchOwner } = createOwnerMatcher(ownerValue);
@@ -309,9 +326,9 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
                     if (vals?.length && !vals.includes(row.type || "")) return false;
                 } else if (field === "createdAt" || field === "planTime" || field === "updatedAt" || field === "startAt" || field === "endAt") {
                     const dateFieldMap: Record<string, string> = {
-                        createdAt: row.createdAt,
+                        createdAt: row._createdAtRaw || row.createdAt,
                         planTime: row.planStartDate || row.planEndDate || "",
-                        updatedAt: row.updatedAt || "",
+                        updatedAt: row._updatedAtRaw || row.updatedAt || "",
                         startAt: row.startAt || "",
                         endAt: row.endAt || "",
                     };
@@ -400,8 +417,9 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
     const request = async (params: ProTableRequestParams): Promise<ProTableResponse<RowItem>> => {
         await loadMemberOptions?.();
         const kw = String(params.keyword ?? "").trim().toLowerCase();
-        const ownerValue = String(params.owner ?? "").trim();
-        const { ownerMemberId, matchOwner } = createOwnerMatcher(ownerValue);
+        const ownerValues: string[] = Array.isArray(params.owner) ? params.owner : (params.owner ? [String(params.owner)] : []);
+        const hasOwnerFilter = ownerValues.length > 0;
+        const { ownerMemberId, matchOwner } = createOwnerMatcher(ownerValues);
         const typeValue = String(propType ?? params.type ?? "").trim();
         const statusValues: string[] = Array.isArray(params.status) ? params.status.filter(Boolean) : [];
         const current = Number(params.current || 1);
@@ -497,27 +515,13 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
             let rows: RowItem[] = [];
             let totalFromApi = 0;
 
+            const combinedState = backendStates?.join(",");
             const hasColumnFilters = Object.keys(columnFilters).some(k => columnFilters[k] != null);
             const needFetchAll = hasColumnFilters
-                || (backendStates && backendStates.length > 1)
-                || (ownerValue && (workType === "需求" || ownerValue === "未指派" || !ownerMemberId));
+                || (hasOwnerFilter && (workType === "需求" || ownerValues.includes("未指派") || !ownerMemberId));
 
             if (needFetchAll) {
-                let allItems: any[];
-                if (backendStates && backendStates.length > 1) {
-                    const merged = new Map<string, any>();
-                    const itemGroups = await Promise.all(backendStates.map((state) => fetchAllItemsByState(state)));
-                    for (const items of itemGroups) {
-                        for (const item of items) {
-                            const id = String(item?.id || "");
-                            if (!id || merged.has(id)) continue;
-                            merged.set(id, item);
-                        }
-                    }
-                    allItems = [...merged.values()];
-                } else {
-                    allItems = await fetchAllItemsByState(backendStates?.[0]);
-                }
+                const allItems = await fetchAllItemsByState(combinedState);
                 let allRows = buildRowsFromItems(allItems)
                     .filter((x) => !statusValues.length || statusValues.includes(x.status))
                     .filter(matchOwner);
@@ -528,7 +532,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
                     allRows = allRows.filter((x) => !completedStatuses.has(x.status));
                 }
 
-                const optionRows = workType === "需求" || workType === "任务" ? getVisibleChildRows(allRows, ownerValue, statusValues) : allRows;
+                const optionRows = workType === "需求" || workType === "任务" ? getVisibleChildRows(allRows, ownerValues, statusValues) : allRows;
                 collectTagOptions(optionRows);
                 collectEnumOptions(optionRows);
 
@@ -539,7 +543,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
                 if (current === 1) {
                     let pinnedRows = pinnedRowsByType[workType] || [];
                     if (statusValues.length) pinnedRows = pinnedRows.filter((x) => statusValues.includes(x.status));
-                    if (ownerValue) pinnedRows = pinnedRows.filter(matchOwner);
+                    if (hasOwnerFilter) pinnedRows = pinnedRows.filter(matchOwner);
                     const pinnedIds = new Set(pinnedRows.map((x) => x.backendId || x.workNo));
                     allRows = [...pinnedRows, ...allRows.filter((x) => !pinnedIds.has(x.backendId || x.workNo))];
                     totalFromApi = allRows.length;
@@ -549,33 +553,46 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
                 rows = allRows.slice(start, start + pageSize);
             } else {
                 const backendState = backendStates?.[0];
-                const res: any = await requestByState(backendState, current, pageSize);
-                rows = buildRowsFromItems((res as any)?.items || []);
-                if (statusValues.length) rows = rows.filter((x) => statusValues.includes(x.status));
-                if (ownerValue) rows = rows.filter(matchOwner);
-                totalFromApi = Number((res as any)?.total || rows.length);
-
-                if (current === 1) {
-                    let pinnedRows = pinnedRowsByType[workType] || [];
-                    if (statusValues.length) pinnedRows = pinnedRows.filter((x) => statusValues.includes(x.status));
-                    if (ownerValue) pinnedRows = pinnedRows.filter(matchOwner);
-                    const pinnedIds = new Set(pinnedRows.map((x) => x.backendId || x.workNo));
-                    rows = [...pinnedRows, ...rows.filter((x) => !pinnedIds.has(x.backendId || x.workNo))];
-                    rows = rows.slice(0, pageSize);
+                if (hasOwnerFilter && (workType === "需求" || ownerValues.includes("未指派") || !ownerMemberId)) {
+                    const allItems = await fetchAllItemsByState(backendState);
+                    const allRows = buildRowsFromItems(allItems)
+                        .filter((x) => !statusValues.length || statusValues.includes(x.status))
+                        .filter(matchOwner);
+                    totalFromApi = allRows.length;
+                    const start = (current - 1) * pageSize;
+                    rows = allRows.slice(start, start + pageSize);
+                } else {
+                    const res: any = await requestByState(backendState, current, pageSize);
+                    rows = buildRowsFromItems((res as any)?.items || []);
+                    if (statusValues.length) rows = rows.filter((x) => statusValues.includes(x.status));
+                    if (hasOwnerFilter) rows = rows.filter(matchOwner);
+                    totalFromApi = Number((res as any)?.total || rows.length);
                 }
-                const isIncompleteView = vf.status === "incomplete";
-                if (isIncompleteView) {
-                    const completedStatuses: Set<string> = new Set(["已完成", "已关闭", "已取消", "发布完成"]);
-                    rows = rows.filter((x) => !completedStatuses.has(x.status));
-                    totalFromApi = rows.length;
-                }
-                rows = applyColumnSort(rows);
-
-                const optionRows = workType === "需求" || workType === "任务" ? getVisibleChildRows(rows, ownerValue, statusValues) : rows;
-                collectTagOptions(optionRows);
-                collectEnumOptions(optionRows);
             }
 
+            if (current === 1) {
+                let pinnedRows = pinnedRowsByType[workType] || [];
+                if (statusValues.length) pinnedRows = pinnedRows.filter((x) => statusValues.includes(x.status));
+                if (hasOwnerFilter) pinnedRows = pinnedRows.filter(matchOwner);
+                const pinnedIds = new Set(pinnedRows.map((x) => x.backendId || x.workNo));
+                rows = [...pinnedRows, ...rows.filter((x) => !pinnedIds.has(x.backendId || x.workNo))];
+                rows = rows.slice(0, pageSize);
+            }
+            const isIncompleteView = vf.status === "incomplete";
+            if (isIncompleteView) {
+                const completedStatuses: Set<string> = new Set(["已完成", "已关闭", "已取消", "发布完成"]);
+                rows = rows.filter((x) => !completedStatuses.has(x.status));
+                totalFromApi = rows.length;
+            }
+            const beforeFilterCount = rows.length;
+            rows = applyColumnFilters(rows);
+            rows = applyColumnSort(rows);
+            if (rows.length < beforeFilterCount) {
+                totalFromApi = rows.length;
+            }
+            const optionRows = workType === "需求" || workType === "任务" ? getVisibleChildRows(rows, ownerValues, statusValues) : rows;
+            collectTagOptions(optionRows);
+            collectEnumOptions(optionRows);
             totalCount.value = totalFromApi;
             return { data: rows, total: totalFromApi, current, pageSize };
         }

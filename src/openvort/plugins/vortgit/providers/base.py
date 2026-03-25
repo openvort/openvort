@@ -69,6 +69,16 @@ class GitProviderBase(ABC):
         ...
 
     @abstractmethod
+    async def get_pull_request_detail(self, full_name: str, pr_number: int) -> dict:
+        """Get single PR detail. Returns: number, title, body, state, url, head, base, created_at."""
+        ...
+
+    @abstractmethod
+    async def get_pull_request_files(self, full_name: str, pr_number: int) -> list[dict]:
+        """List changed files. Returns: filename, status, additions, deletions, patch."""
+        ...
+
+    @abstractmethod
     async def create_pull_request(
         self, full_name: str, *, title: str, head: str, base: str, body: str = ""
     ) -> dict:

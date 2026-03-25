@@ -57,6 +57,18 @@ def _parse_json_list(raw: str | None) -> list[str]:
     return result
 
 
+def _parse_attachments(raw: str | None) -> list[dict]:
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return []
+    if not isinstance(data, list):
+        return []
+    return [item for item in data if isinstance(item, dict)]
+
+
 # ---------------------------------------------------------------------------
 # Serializer dicts
 # ---------------------------------------------------------------------------
@@ -82,6 +94,8 @@ def _story_dict(r: FlowStory) -> dict:
         "pm_id": r.pm_id, "designer_id": r.designer_id, "reviewer_id": r.reviewer_id,
         "tags": _parse_json_list(r.tags_json),
         "collaborators": _parse_json_list(r.collaborators_json),
+        "attachments": _parse_attachments(getattr(r, "attachments_json", "[]")),
+        "progress": getattr(r, "progress", None) or 0,
         "deadline": r.deadline.isoformat() if r.deadline else None,
         "start_at": r.start_at.isoformat() if getattr(r, "start_at", None) else None,
         "end_at": r.end_at.isoformat() if getattr(r, "end_at", None) else None,
@@ -100,6 +114,8 @@ def _task_dict(r: FlowTask) -> dict:
         "assignee_id": r.assignee_id, "creator_id": r.creator_id,
         "tags": _parse_json_list(r.tags_json),
         "collaborators": _parse_json_list(r.collaborators_json),
+        "attachments": _parse_attachments(getattr(r, "attachments_json", "[]")),
+        "progress": getattr(r, "progress", None) or 0,
         "estimate_hours": r.estimate_hours, "actual_hours": r.actual_hours,
         "deadline": r.deadline.isoformat() if r.deadline else None,
         "start_at": r.start_at.isoformat() if getattr(r, "start_at", None) else None,
@@ -120,6 +136,7 @@ def _bug_dict(r: FlowBug) -> dict:
         "developer_id": r.developer_id,
         "tags": _parse_json_list(r.tags_json),
         "collaborators": _parse_json_list(r.collaborators_json),
+        "attachments": _parse_attachments(getattr(r, "attachments_json", "[]")),
         "estimate_hours": getattr(r, "estimate_hours", None),
         "actual_hours": getattr(r, "actual_hours", None),
         "deadline": r.deadline.isoformat() if getattr(r, "deadline", None) else None,
@@ -560,51 +577,63 @@ async def _sync_missing_tags(session) -> bool:
 # ---------------------------------------------------------------------------
 
 _STATUS_DEFAULTS: list[dict] = [
-    {"name": "意向", "icon": "○", "icon_color": "#64748b", "work_item_types": ["需求"]},
-    {"name": "已拒绝", "icon": "⊗", "icon_color": "#ef4444", "work_item_types": []},
-    {"name": "设计中", "icon": "✎", "icon_color": "#6366f1", "work_item_types": ["需求"]},
-    {"name": "开发中", "icon": "◔", "icon_color": "#3b82f6", "work_item_types": ["需求"]},
-    {"name": "开发完成", "icon": "✓", "icon_color": "#22c55e", "work_item_types": ["需求"]},
-    {"name": "测试中", "icon": "⊠", "icon_color": "#ef4444", "work_item_types": ["需求"]},
-    {"name": "测试完成", "icon": "✓", "icon_color": "#7c3aed", "work_item_types": ["需求"]},
-    {"name": "已测完回归中", "icon": "◔", "icon_color": "#3b82f6", "work_item_types": ["需求"]},
-    {"name": "待发布", "icon": "◔", "icon_color": "#f59e0b", "work_item_types": ["需求"]},
-    {"name": "发布完成", "icon": "✓", "icon_color": "#22c55e", "work_item_types": ["需求"]},
-    {"name": "已完成", "icon": "✓", "icon_color": "#22c55e", "work_item_types": ["任务", "需求"]},
-    {"name": "已取消", "icon": "⊗", "icon_color": "#ef4444", "work_item_types": ["任务", "需求"]},
-    {"name": "暂搁置", "icon": "⊠", "icon_color": "#64748b", "work_item_types": ["需求", "缺陷"]},
-    {"name": "待办的", "icon": "○", "icon_color": "#64748b", "work_item_types": ["任务"]},
-    {"name": "进行中", "icon": "◔", "icon_color": "#3b82f6", "work_item_types": ["任务"]},
-    {"name": "已验收", "icon": "✓", "icon_color": "#22c55e", "work_item_types": []},
-    {"name": "待确认", "icon": "○", "icon_color": "#64748b", "work_item_types": ["缺陷"]},
-    {"name": "已确认", "icon": "○", "icon_color": "#64748b", "work_item_types": []},
-    {"name": "修复中", "icon": "◔", "icon_color": "#3b82f6", "work_item_types": ["缺陷"]},
-    {"name": "已修复", "icon": "✓", "icon_color": "#3b82f6", "work_item_types": ["缺陷"]},
-    {"name": "已关闭", "icon": "✓", "icon_color": "#64748b", "work_item_types": ["缺陷"]},
-    {"name": "无法复现", "icon": "◔", "icon_color": "#f59e0b", "work_item_types": ["缺陷"]},
-    {"name": "再次打开", "icon": "⊗", "icon_color": "#ef4444", "work_item_types": ["缺陷"]},
-    {"name": "设计如此", "icon": "⊠", "icon_color": "#f59e0b", "work_item_types": ["缺陷"]},
-    {"name": "延期修复", "icon": "▷", "icon_color": "#3b82f6", "work_item_types": ["缺陷"]},
+    {"name": "收集中", "icon": "◇", "icon_color": "#94a3b8", "command": "submitted", "work_item_types": ["需求"]},
+    {"name": "意向", "icon": "○", "icon_color": "#64748b", "command": "intake,review", "work_item_types": ["需求"]},
+    {"name": "已拒绝", "icon": "⊗", "icon_color": "#ef4444", "command": "rejected", "work_item_types": []},
+    {"name": "设计中", "icon": "✎", "icon_color": "#6366f1", "command": "pm_refine,design", "work_item_types": ["需求"]},
+    {"name": "开发中", "icon": "◔", "icon_color": "#3b82f6", "command": "breakdown,dev_assign,in_progress,bugfix", "work_item_types": ["需求"]},
+    {"name": "开发完成", "icon": "✓", "icon_color": "#22c55e", "command": "", "work_item_types": ["需求"]},
+    {"name": "测试中", "icon": "⊠", "icon_color": "#ef4444", "command": "", "work_item_types": ["需求"]},
+    {"name": "测试完成", "icon": "✓", "icon_color": "#7c3aed", "command": "testing", "work_item_types": ["需求"]},
+    {"name": "已测完回归中", "icon": "◔", "icon_color": "#3b82f6", "command": "", "work_item_types": ["需求"]},
+    {"name": "待发布", "icon": "◔", "icon_color": "#f59e0b", "command": "", "work_item_types": ["需求"]},
+    {"name": "发布完成", "icon": "✓", "icon_color": "#22c55e", "command": "", "work_item_types": ["需求"]},
+    {"name": "已完成", "icon": "✓", "icon_color": "#22c55e", "command": "done", "work_item_types": ["任务", "需求"]},
+    {"name": "已取消", "icon": "⊗", "icon_color": "#ef4444", "command": "rejected,closed", "work_item_types": ["任务", "需求"]},
+    {"name": "暂搁置", "icon": "⊠", "icon_color": "#64748b", "command": "suspended", "work_item_types": ["需求", "缺陷"]},
+    {"name": "待办的", "icon": "○", "icon_color": "#64748b", "command": "todo", "work_item_types": ["任务"]},
+    {"name": "进行中", "icon": "◔", "icon_color": "#3b82f6", "command": "in_progress", "work_item_types": ["任务"]},
+    {"name": "已验收", "icon": "✓", "icon_color": "#22c55e", "command": "", "work_item_types": []},
+    {"name": "待确认", "icon": "○", "icon_color": "#64748b", "command": "open,confirmed", "work_item_types": ["缺陷"]},
+    {"name": "已确认", "icon": "○", "icon_color": "#64748b", "command": "confirmed", "work_item_types": []},
+    {"name": "修复中", "icon": "◔", "icon_color": "#3b82f6", "command": "fixing", "work_item_types": ["缺陷"]},
+    {"name": "已修复", "icon": "✓", "icon_color": "#3b82f6", "command": "resolved", "work_item_types": ["缺陷"]},
+    {"name": "已关闭", "icon": "✓", "icon_color": "#64748b", "command": "verified,closed", "work_item_types": ["缺陷"]},
+    {"name": "无法复现", "icon": "◔", "icon_color": "#f59e0b", "command": "not_reproducible", "work_item_types": ["缺陷"]},
+    {"name": "再次打开", "icon": "⊗", "icon_color": "#ef4444", "command": "reopened", "work_item_types": ["缺陷"]},
+    {"name": "设计如此", "icon": "⊠", "icon_color": "#f59e0b", "command": "by_design", "work_item_types": ["缺陷"]},
+    {"name": "延期修复", "icon": "▷", "icon_color": "#3b82f6", "command": "deferred", "work_item_types": ["缺陷"]},
 ]
+
+_STATUS_COMMAND_MAP: dict[str, str] = {s["name"]: s["command"] for s in _STATUS_DEFAULTS}
 
 
 async def _ensure_default_statuses(session):
-    """Seed default statuses if table is empty."""
+    """Seed default statuses if table is empty; sync command field for existing records."""
     count_result = await session.execute(
         select(func.count()).select_from(FlowStatus)
     )
-    if (count_result.scalar() or 0) > 0:
+    if (count_result.scalar() or 0) == 0:
+        for idx, s in enumerate(_STATUS_DEFAULTS):
+            status = FlowStatus(
+                name=s["name"],
+                icon=s["icon"],
+                icon_color=s["icon_color"],
+                command=s.get("command", ""),
+                work_item_types_json=json.dumps(s["work_item_types"], ensure_ascii=False),
+                sort_order=idx,
+            )
+            session.add(status)
+        await session.flush()
         return
-    for idx, s in enumerate(_STATUS_DEFAULTS):
-        status = FlowStatus(
-            name=s["name"],
-            icon=s["icon"],
-            icon_color=s["icon_color"],
-            work_item_types_json=json.dumps(s["work_item_types"], ensure_ascii=False),
-            sort_order=idx,
-        )
-        session.add(status)
-    await session.flush()
+
+    result = await session.execute(
+        select(FlowStatus).where(FlowStatus.command == "")
+    )
+    for status in result.scalars().all():
+        expected = _STATUS_COMMAND_MAP.get(status.name, "")
+        if expected:
+            status.command = expected
 
 
 # ---------------------------------------------------------------------------
@@ -672,3 +701,132 @@ async def _resolve_linked_entity(session, link: FlowTestCaseWorkItem) -> dict:
             base["entity_state"] = entity.state
 
     return base
+
+
+# ---------------------------------------------------------------------------
+# Progress calculation
+# ---------------------------------------------------------------------------
+
+async def _calc_task_progress(session, task_id: str) -> int | None:
+    """Calculate parent task progress as average of child tasks.
+    Returns computed value if children exist, None otherwise."""
+    result = await session.execute(
+        select(func.avg(FlowTask.progress), func.count())
+        .where(FlowTask.parent_id == task_id)
+    )
+    row = result.one()
+    count = row[1] or 0
+    if count == 0:
+        return None
+    return round(row[0] or 0)
+
+
+async def _calc_story_progress(session, story_id: str) -> int | None:
+    """Calculate story progress as average of all related tasks
+    (direct tasks + tasks under descendant stories).
+    Returns computed value if tasks exist, None otherwise."""
+    all_story_ids = [story_id]
+    pending = [story_id]
+    while pending:
+        child_rows = (
+            await session.execute(
+                select(FlowStory.id).where(FlowStory.parent_id.in_(pending))
+            )
+        ).scalars().all()
+        next_ids = [cid for cid in child_rows if cid not in all_story_ids]
+        if not next_ids:
+            break
+        all_story_ids.extend(next_ids)
+        pending = next_ids
+
+    result = await session.execute(
+        select(func.avg(FlowTask.progress), func.count())
+        .where(FlowTask.story_id.in_(all_story_ids))
+    )
+    row = result.one()
+    count = row[1] or 0
+    if count == 0:
+        return None
+    return round(row[0] or 0)
+
+
+async def _attach_story_progress(session, items: list[dict]) -> list[dict]:
+    """Batch-compute progress for story list items."""
+    story_ids = [str(item.get("id") or "") for item in items if item.get("id")]
+    if not story_ids:
+        return items
+
+    all_story_ids = list(story_ids)
+    parent_map: dict[str, str] = {}
+    pending = list(story_ids)
+    while pending:
+        child_rows = (
+            await session.execute(
+                select(FlowStory.id, FlowStory.parent_id)
+                .where(FlowStory.parent_id.in_(pending))
+            )
+        ).all()
+        next_ids = []
+        for cid, pid in child_rows:
+            if cid not in all_story_ids:
+                all_story_ids.append(cid)
+                parent_map[cid] = pid
+                next_ids.append(cid)
+        if not next_ids:
+            break
+        pending = next_ids
+
+    task_rows = (
+        await session.execute(
+            select(FlowTask.story_id, FlowTask.progress)
+            .where(FlowTask.story_id.in_(all_story_ids))
+        )
+    ).all()
+
+    def _root_story(sid: str) -> str:
+        visited: set[str] = set()
+        while sid in parent_map and sid not in visited:
+            visited.add(sid)
+            sid = parent_map[sid]
+        return sid
+
+    story_task_progress: dict[str, list[int]] = {sid: [] for sid in story_ids}
+    for task_story_id, task_progress in task_rows:
+        root = _root_story(str(task_story_id or ""))
+        if root in story_task_progress:
+            story_task_progress[root].append(task_progress or 0)
+
+    for item in items:
+        sid = str(item.get("id") or "")
+        tasks_progress = story_task_progress.get(sid, [])
+        if tasks_progress:
+            item["progress"] = round(sum(tasks_progress) / len(tasks_progress))
+
+    return items
+
+
+async def _attach_task_progress(session, items: list[dict]) -> list[dict]:
+    """Batch-compute progress for parent tasks in a task list."""
+    task_ids = [str(item.get("id") or "") for item in items if item.get("id")]
+    if not task_ids:
+        return items
+
+    result = (
+        await session.execute(
+            select(FlowTask.parent_id, func.avg(FlowTask.progress), func.count())
+            .where(FlowTask.parent_id.in_(task_ids))
+            .group_by(FlowTask.parent_id)
+        )
+    ).all()
+
+    parent_progress: dict[str, int] = {}
+    for parent_id, avg_progress, count in result:
+        if count and count > 0:
+            parent_progress[str(parent_id)] = round(avg_progress or 0)
+
+    for item in items:
+        tid = str(item.get("id") or "")
+        if tid in parent_progress:
+            item["progress"] = parent_progress[tid]
+
+    return items

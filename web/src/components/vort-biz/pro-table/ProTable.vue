@@ -31,6 +31,7 @@ interface Props<T = any> {
   rowSelection?: TableRowSelection<T>;
   scroll?: TableScroll;
   toolbar?: any;
+  immediate?: boolean;
 }
 
 const props = withDefaults(defineProps<Props<T>>(), {
@@ -44,7 +45,8 @@ const props = withDefaults(defineProps<Props<T>>(), {
   cellPadding: "none",
   loading: false,
   pagination: () => ({ current: 1, pageSize: 20, total: 0, showPagination: true }),
-  toolbar: () => ({ refresh: true, columnSetting: true })
+  toolbar: () => ({ refresh: true, columnSetting: true }),
+  immediate: true
 });
 
 const emit = defineEmits<{
@@ -117,7 +119,7 @@ watch(
 );
 
 // 初始加载
-if (props.request) {
+if (props.request && props.immediate) {
   fetchData();
 }
 
@@ -897,6 +899,7 @@ onBeforeUnmount(() => {
 // ==================== 暴露方法 ====================
 defineExpose({
   refresh: handleRefresh,
+  clearSelection: () => { selectedRowKeys.value = []; },
   dataSource: internalDataSource,
   total,
   current,

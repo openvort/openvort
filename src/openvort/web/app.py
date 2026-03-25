@@ -327,9 +327,12 @@ def create_app() -> FastAPI:
     _editor_uploads.mkdir(parents=True, exist_ok=True)
     _mcp_uploads = _uploads_root / "mcp"
     _mcp_uploads.mkdir(parents=True, exist_ok=True)
+    _vortflow_uploads = _uploads_root / "vortflow"
+    _vortflow_uploads.mkdir(parents=True, exist_ok=True)
     app.mount("/uploads/chat", StaticFiles(directory=str(_chat_uploads)), name="chat-uploads")
     app.mount("/uploads/editor", StaticFiles(directory=str(_editor_uploads)), name="editor-uploads")
     app.mount("/uploads/mcp", StaticFiles(directory=str(_mcp_uploads)), name="mcp-uploads")
+    app.mount("/uploads/vortflow", StaticFiles(directory=str(_vortflow_uploads)), name="vortflow-uploads")
     app.mount("/uploads", StaticFiles(directory=str(_uploads_root)), name="uploads")
 
     # 尝试挂载前端静态文件（构建产物）+ SPA fallback

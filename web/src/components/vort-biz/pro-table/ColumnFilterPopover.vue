@@ -2,6 +2,7 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from "vue";
 import { Checkbox, Select, SelectOption, DatePicker, RangePicker, Button, Divider } from "@/components/vort";
 import { Filter } from "lucide-vue-next";
+import StatusIcon from "@/components/vort-biz/work-item/StatusIcon.vue";
 
 export type FilterType = "enum" | "date" | "text";
 export type FilterOperator = "contains" | "gt" | "lt" | "between" | "eq" | "gte" | "lte";
@@ -157,7 +158,7 @@ const isInsideChildPopup = (target: Node): boolean => {
     const el = target as HTMLElement;
     if (!el.closest) return false;
     return !!el.closest(
-        "[data-radix-popper-content-wrapper], .vort-datepicker-panel, .vort-range-picker-panel"
+        "[data-radix-popper-content-wrapper], [data-reka-popper-content-wrapper], .vort-datepicker-panel, .vort-range-picker-panel"
     );
 };
 
@@ -279,7 +280,7 @@ const handleClear = () => {
                                     {{ opt.avatarLabel }}
                                     <img v-if="opt.avatarUrl" :src="opt.avatarUrl" class="enum-avatar-img absolute inset-0" @error="$event.target.style.display = 'none'" />
                                 </span>
-                                <span v-else-if="opt.icon" class="enum-icon" :class="opt.iconClass">{{ opt.icon }}</span>
+                                <span v-else-if="opt.icon" class="enum-icon" :class="opt.iconClass"><StatusIcon :name="opt.icon" :size="14" /></span>
                                 <span class="enum-label">{{ opt.label }}</span>
                             </div>
                         </div>

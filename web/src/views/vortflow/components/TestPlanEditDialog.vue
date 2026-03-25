@@ -44,6 +44,7 @@ const {
 const formRef = ref();
 const submitting = ref(false);
 const form = ref({
+    project_id: "",
     title: "",
     description: "",
     owner_id: "",
@@ -54,6 +55,7 @@ const form = ref({
 });
 
 const rules = z.object({
+    project_id: z.string().min(1, "请选择项目"),
     title: z.string().min(1, "请输入计划标题"),
     owner_id: z.string().min(1, "请选择负责人"),
     start_date: z.string().min(1, "请选择计划时间"),
@@ -71,23 +73,33 @@ const versionOptions = ref<{ id: string; name: string }[]>([]);
 
 const isEdit = () => !!props.editData?.id;
 
-async function loadOptions() {
-    const projectId = props.editData?.project_id || vortFlowStore.selectedProjectId;
-    if (!projectId) return;
+async function loadOptions(projectId?: string) {
+    const pid = projectId || form.value.project_id;
+    if (!pid) {
+        iterationOptions.value = [];
+        versionOptions.value = [];
+        return;
+    }
     const [iterRes, verRes] = await Promise.all([
-        getVortflowIterations({ project_id: projectId, page_size: 100 }),
-        getVortflowVersions({ project_id: projectId, page_size: 100 }),
+        getVortflowIterations({ project_id: pid, page_size: 100 }),
+        getVortflowVersions({ project_id: pid, page_size: 100 }),
     ]);
     iterationOptions.value = ((iterRes as any).items || []).map((i: any) => ({ id: i.id, name: i.name }));
     versionOptions.value = ((verRes as any).items || []).map((v: any) => ({ id: v.id, name: v.name }));
 }
 
+function handleProjectChange() {
+    form.value.iteration_id = "";
+    form.value.version_id = "";
+    loadOptions();
+}
+
 watch(() => props.open, async (val) => {
     if (!val) return;
     await loadMemberOptions();
-    await loadOptions();
     if (props.editData?.id) {
         form.value = {
+            project_id: props.editData.project_id || "",
             title: props.editData.title || "",
             description: props.editData.description || "",
             owner_id: props.editData.owner_id || "",
@@ -98,6 +110,7 @@ watch(() => props.open, async (val) => {
         };
     } else {
         form.value = {
+            project_id: vortFlowStore.selectedProjectId || "",
             title: "",
             description: "",
             owner_id: "",
@@ -107,6 +120,7 @@ watch(() => props.open, async (val) => {
             end_date: "",
         };
     }
+    await loadOptions();
     submitting.value = false;
 });
 
@@ -132,8 +146,7 @@ async function handleSubmit() {
         if (isEdit()) {
             await updateVortflowTestPlan(props.editData!.id!, payload);
         } else {
-            const projectId = vortFlowStore.selectedProjectId || "";
-            await createVortflowTestPlan({ ...payload, project_id: projectId });
+            await createVortflowTestPlan({ ...payload, project_id: form.value.project_id });
         }
         emit("saved");
         emit("update:open", false);
@@ -153,6 +166,14 @@ async function handleSubmit() {
         @update:open="emit('update:open', $event)"
     >
         <vort-form ref="formRef" :model="form" :rules="rules" label-width="80px">
+            <vort-form-item v-if="!isEdit()" label="所属项目" name="project_id" required>
+                <vort-select v-model="form.project_id" placeholder="请选择项目" @change="handleProjectChange">
+                    <vort-select-option v-for="p in vortFlowStore.projects" :key="p.id" :value="p.id">
+                        {{ p.name }}
+                    </vort-select-option>
+                </vort-select>
+            </vort-form-item>
+
             <vort-form-item label="标题" name="title" required>
                 <vort-input v-model="form.title" placeholder="请输入计划标题" />
             </vort-form-item>

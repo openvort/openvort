@@ -1,7 +1,7 @@
 import json
 
 from fastapi import APIRouter, Query, Request
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 
 from openvort.db.engine import get_session_factory
 from openvort.web.app import require_auth
@@ -24,6 +24,7 @@ from openvort.plugins.vortflow.models import (
     FlowIteration,
     FlowIterationStory,
     FlowIterationBug,
+    FlowVersionBug,
 )
 from openvort.plugins.vortflow.engine import (
     BUG_TRANSITIONS,
@@ -87,8 +88,13 @@ async def list_bugs(
             stmt = stmt.where(FlowBug.story_id == story_id)
             count_stmt = count_stmt.where(FlowBug.story_id == story_id)
         if state:
-            stmt = stmt.where(FlowBug.state == state)
-            count_stmt = count_stmt.where(FlowBug.state == state)
+            states = [s.strip() for s in state.split(",") if s.strip()]
+            if len(states) == 1:
+                stmt = stmt.where(FlowBug.state == states[0])
+                count_stmt = count_stmt.where(FlowBug.state == states[0])
+            elif states:
+                stmt = stmt.where(FlowBug.state.in_(states))
+                count_stmt = count_stmt.where(FlowBug.state.in_(states))
         if severity:
             stmt = stmt.where(FlowBug.severity == severity)
             count_stmt = count_stmt.where(FlowBug.severity == severity)
@@ -171,6 +177,7 @@ async def create_bug(body: BugCreate, request: Request):
             deadline=_parse_dt(body.deadline) if body.deadline else None,
             tags_json=json.dumps(body.tags or [], ensure_ascii=False),
             collaborators_json=json.dumps(body.collaborators or [], ensure_ascii=False),
+            attachments_json=json.dumps(body.attachments or [], ensure_ascii=False),
         )
         session.add(b)
         await session.flush()
@@ -212,6 +219,9 @@ async def update_bug(bug_id: str, body: BugUpdate, request: Request):
         if body.collaborators is not None:
             b.collaborators_json = json.dumps(body.collaborators, ensure_ascii=False)
             changes["collaborators"] = body.collaborators
+        if body.attachments is not None:
+            b.attachments_json = json.dumps(body.attachments, ensure_ascii=False)
+            changes["attachments"] = body.attachments
         if body.deadline is not None:
             b.deadline = _parse_dt(body.deadline)
             changes["deadline"] = body.deadline
@@ -264,6 +274,8 @@ async def delete_bug(bug_id: str):
         b = await session.get(FlowBug, bug_id)
         if not b:
             return {"error": "缺陷不存在"}
+        await session.execute(delete(FlowIterationBug).where(FlowIterationBug.bug_id == bug_id))
+        await session.execute(delete(FlowVersionBug).where(FlowVersionBug.bug_id == bug_id))
         await session.delete(b)
         await _log_event(session, "bug", bug_id, "deleted", {"title": b.title})
         await session.commit()
@@ -323,6 +335,7 @@ async def copy_bug(bug_id: str, request: Request):
             reporter_id=member_id or None,
             tags_json=src.tags_json,
             collaborators_json=src.collaborators_json,
+            attachments_json=src.attachments_json,
             deadline=src.deadline,
         )
         session.add(new_bug)
