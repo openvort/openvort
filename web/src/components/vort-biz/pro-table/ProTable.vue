@@ -897,6 +897,7 @@ onBeforeUnmount(() => {
 // ==================== 暴露方法 ====================
 defineExpose({
   refresh: handleRefresh,
+  clearSelection: () => { selectedRowKeys.value = []; },
   dataSource: internalDataSource,
   total,
   current,

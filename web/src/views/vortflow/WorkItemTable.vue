@@ -997,13 +997,19 @@ const {
 });
 
 const tableRef = ref<any>(null);
+const refreshKey = ref(0);
 
 const queryParams = computed(() => ({
     keyword: keyword.value,
     owner: owner.value,
     type: props.type || type.value,
-    status: status.value
+    status: status.value,
+    _rk: refreshKey.value,
 }));
+
+const refreshTable = () => {
+    refreshKey.value++;
+};
 
 const onReset = () => {
     keyword.value = "";
@@ -1038,6 +1044,7 @@ const rowSelection = computed(() => ({
 const clearSelection = () => {
     selectedRowKeys.value = [];
     selectedRows.value = [];
+    tableRef.value?.clearSelection?.();
 };
 
 const deleteOne = async (record: RowItem) => {
@@ -1058,7 +1065,7 @@ const handleBatchDelete = async () => {
     else if (failed === rows.length) message.error("批量删除失败");
     else message.warning(`已删除 ${rows.length - failed} 条，失败 ${failed} 条`);
     clearSelection();
-    tableRef.value?.refresh?.();
+    refreshTable();
 };
 
 const resetCreateBugForm = () => {
@@ -2353,7 +2360,7 @@ onMounted(async () => {
             :selected-rows="selectedRows"
             :work-item-type="(props.type || '缺陷') as WorkItemType"
             :status-options="currentStatusFilterOptions"
-            @done="() => { clearSelection(); tableRef?.refresh?.(); }"
+            @done="() => { clearSelection(); refreshTable(); }"
         />
         <ViewManageDialog
             v-model:open="viewManageOpen"
