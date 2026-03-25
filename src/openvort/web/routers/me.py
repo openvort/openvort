@@ -557,6 +557,115 @@ async def delete_plugin_personal_settings(request: Request, plugin_name: str):
     return {"success": True}
 
 
+# ---- 访问令牌 (Personal Access Token) ----
+
+class CreateTokenRequest(BaseModel):
+    name: str
+    expires_days: int | None = None  # None = never expires
+
+
+@router.post("/tokens")
+async def create_access_token(request: Request, req: CreateTokenRequest):
+    """Create a new Personal Access Token. The full token is returned only once."""
+    import secrets
+    from datetime import datetime, timedelta, timezone
+    from openvort.web.auth import hash_password
+
+    member_id = _get_member_id(request)
+    if not req.name.strip():
+        raise HTTPException(status_code=400, detail="令牌名称不能为空")
+
+    raw_token = "ovt_" + secrets.token_hex(20)
+    token_prefix = raw_token[:8]
+    token_hash = hash_password(raw_token)
+
+    expires_at = None
+    if req.expires_days and req.expires_days > 0:
+        expires_at = datetime.now(timezone.utc) + timedelta(days=req.expires_days)
+
+    token_id = uuid.uuid4().hex
+
+    session_factory = get_db_session_factory()
+    async with session_factory() as session:
+        from sqlalchemy import text
+        await session.execute(
+            text("""
+                INSERT INTO personal_access_tokens (id, member_id, name, token_prefix, token_hash, expires_at)
+                VALUES (:id, :member_id, :name, :prefix, :hash, :expires_at)
+            """),
+            {
+                "id": token_id,
+                "member_id": member_id,
+                "name": req.name.strip(),
+                "prefix": token_prefix,
+                "hash": token_hash,
+                "expires_at": expires_at,
+            },
+        )
+        await session.commit()
+
+    return {
+        "id": token_id,
+        "name": req.name.strip(),
+        "token": raw_token,
+        "token_prefix": token_prefix,
+        "expires_at": expires_at.isoformat() if expires_at else None,
+    }
+
+
+@router.get("/tokens")
+async def list_access_tokens(request: Request):
+    """List all PATs for the current user (without full token)."""
+    member_id = _get_member_id(request)
+    session_factory = get_db_session_factory()
+
+    async with session_factory() as session:
+        from sqlalchemy import text
+        result = await session.execute(
+            text("""
+                SELECT id, name, token_prefix, expires_at, last_used_at, created_at
+                FROM personal_access_tokens
+                WHERE member_id = :member_id
+                ORDER BY created_at DESC
+            """),
+            {"member_id": member_id},
+        )
+        rows = result.mappings().all()
+
+    return {
+        "tokens": [
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "token_prefix": row["token_prefix"],
+                "expires_at": row["expires_at"].isoformat() if row["expires_at"] else None,
+                "last_used_at": row["last_used_at"].isoformat() if row["last_used_at"] else None,
+                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+            }
+            for row in rows
+        ]
+    }
+
+
+@router.delete("/tokens/{token_id}")
+async def revoke_access_token(request: Request, token_id: str):
+    """Revoke (delete) a PAT."""
+    member_id = _get_member_id(request)
+    session_factory = get_db_session_factory()
+
+    async with session_factory() as session:
+        from sqlalchemy import text
+        result = await session.execute(
+            text("DELETE FROM personal_access_tokens WHERE id = :id AND member_id = :member_id"),
+            {"id": token_id, "member_id": member_id},
+        )
+        await session.commit()
+        if result.rowcount == 0:
+            raise HTTPException(status_code=404, detail="令牌不存在")
+
+    return {"success": True}
+
+
 @router.get("/workspace")
 async def get_workspace(request: Request):
     """个人工作台数据"""

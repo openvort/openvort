@@ -8,7 +8,7 @@ import type { WorkItemType, Status, MemberOption } from "../work-item";
 
 export interface WorkItemFiltersProps {
     keyword?: string;
-    owner?: string;
+    owner?: string[];
     type?: WorkItemType | "";
     status?: string[];
     pageTitle?: string;
@@ -23,7 +23,7 @@ export interface WorkItemFiltersProps {
 
 const props = withDefaults(defineProps<WorkItemFiltersProps>(), {
     keyword: "",
-    owner: "",
+    owner: () => [],
     type: "",
     status: () => [],
     pageTitle: "缺陷",
@@ -38,7 +38,7 @@ const props = withDefaults(defineProps<WorkItemFiltersProps>(), {
 
 const emit = defineEmits<{
     "update:keyword": [value: string];
-    "update:owner": [value: string];
+    "update:owner": [value: string[]];
     "update:type": [value: string];
     "update:status": [value: string[]];
     search: [];
@@ -49,11 +49,6 @@ const emit = defineEmits<{
 const keyword = computed({
     get: () => props.keyword,
     set: (val) => emit("update:keyword", val)
-});
-
-const owner = computed({
-    get: () => props.owner,
-    set: (val) => emit("update:owner", val)
 });
 
 const type = computed({
@@ -88,11 +83,12 @@ const filteredTypeOptions = computed(() => {
     return props.typeOptions.filter(t => t.includes(kw));
 });
 
-const selectOwner = (value: string) => {
-    owner.value = value;
-    ownerDropdownOpen.value = false;
-    ownerKeyword.value = "";
-};
+const ownerDisplayLabel = computed(() => {
+    if (!props.owner.length) return "";
+    return props.owner[0] || "";
+});
+
+const ownerExtraCount = computed(() => Math.max(0, props.owner.length - 1));
 
 const selectType = (value: WorkItemType) => {
     type.value = value;
@@ -131,8 +127,8 @@ const onCreate = () => emit("create");
             </div>
 
             <WorkItemMemberPicker
-                mode="owner"
-                :owner="owner"
+                mode="collaborators"
+                :collaborators="props.owner"
                 :groups="props.ownerGroups"
                 :open="ownerDropdownOpen"
                 v-model:keyword="ownerKeyword"
@@ -141,7 +137,7 @@ const onCreate = () => emit("create");
                 unassigned-value="未指派"
                 :dropdown-max-height="460"
                 @update:open="(open) => ownerDropdownOpen = open"
-                @update:owner="selectOwner"
+                @update:collaborators="(val) => emit('update:owner', val)"
             >
                 <template #trigger="{ open }">
                     <div
@@ -150,10 +146,11 @@ const onCreate = () => emit("create");
                         tabindex="0"
                         @click.stop="ownerDropdownOpen = !ownerDropdownOpen"
                     >
-                        <div class="flex items-center w-full gap-2 min-w-0">
-                            <span class="filter-select-value text-sm truncate" :class="owner ? 'text-[var(--vort-text,rgba(0,0,0,0.88))]' : 'text-[var(--vort-text-quaternary,rgba(0,0,0,0.25))]'">
-                                {{ owner || "负责人" }}
+                        <div class="flex items-center w-full gap-1.5 min-w-0">
+                            <span class="filter-select-value text-sm truncate" :class="props.owner.length ? 'text-[var(--vort-text,rgba(0,0,0,0.88))]' : 'text-[var(--vort-text-quaternary,rgba(0,0,0,0.25))]'">
+                                {{ ownerDisplayLabel || "负责人" }}
                             </span>
+                            <span v-if="ownerExtraCount > 0" class="status-extra-badge">(+{{ ownerExtraCount }})</span>
                             <span class="vort-select-arrow ml-auto" :class="{ 'vort-select-arrow-open': open }">
                                 <DownOutlined />
                             </span>

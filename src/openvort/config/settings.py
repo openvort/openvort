@@ -198,6 +198,17 @@ class MarketplaceSettings(BaseSettings):
     enabled: bool = True
 
 
+class McpSettings(BaseSettings):
+    """MCP Server 配置"""
+
+    model_config = SettingsConfigDict(
+        env_prefix="OPENVORT_MCP_", env_file=str(_ENV_FILE), env_file_encoding="utf-8", extra="ignore",
+    )
+
+    allow_anonymous_localhost: bool = False  # 允许 localhost 匿名访问（自动映射到指定成员）
+    anonymous_member_name: str = ""  # 匿名访问时使用的成员姓名
+
+
 class WebSettings(BaseSettings):
     """Web 管理面板配置"""
 
@@ -251,6 +262,9 @@ class Settings(BaseSettings):
 
     # OpenClaw 集成
     openclaw: OpenClawSettings = Field(default_factory=OpenClawSettings)
+
+    # MCP
+    mcp: McpSettings = Field(default_factory=McpSettings)
 
     # Web 面板
     web: WebSettings = Field(default_factory=WebSettings)

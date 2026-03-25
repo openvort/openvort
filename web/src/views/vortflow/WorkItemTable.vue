@@ -140,7 +140,7 @@ const {
 } = useWorkItemCommon();
 
 const keyword = ref("");
-const owner = ref("");
+const owner = ref<string[]>([]);
 const type = ref<WorkItemType | "">(props.type ?? "");
 const status = ref<string[]>([]);
 const totalCount = ref(0);
@@ -906,7 +906,7 @@ const queryParams = computed(() => ({
 
 const onReset = () => {
     keyword.value = "";
-    owner.value = "";
+    owner.value = [];
     type.value = props.type ?? "";
     status.value = [];
     tableRef.value?.refresh?.();
