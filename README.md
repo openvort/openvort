@@ -22,7 +22,7 @@
 - **多 IM 支持** — 企业微信、钉钉、飞书、OpenClaw 多平台网关，支持语音消息收发（ASR/TTS）
 - **Web 管理面板** — Vue 3 + FastAPI，支持 AI 聊天（SSE 流式）、概览仪表盘、AI 配置中心、项目管理、代码仓库、知识库、汇报、定时任务、通知中心等
 - **插件化架构** — Plugin 是 OpenVort 的核心扩展单元，Channel（IM 通道）和 Plugin（Tool + Prompt）均可插拔，`pip install` 即可扩展
-- **内置 11 个插件** — 禅道、VortFlow 敏捷流程、VortGit 代码仓库、VortSketch AI 原型生成、Jenkins CI/CD、知识库（RAG）、汇报管理、定时任务、浏览器自动化、系统管理
+- **内置 10 个插件** — VortFlow 敏捷流程、VortGit 代码仓库、VortSketch AI 原型生成、Jenkins CI/CD、知识库（RAG）、汇报管理、定时任务、浏览器自动化、系统管理
 - **Skill 知识注入** — 四级 Skill 体系（内置/公共/个人/市场），按岗位自动映射
 - **扩展市场** — 统一的 Skill + Plugin 市场，支持 Bundle（zip）上传、PyPI 包、CLI 一键发布，SHA-256 内容 Hash 自动检测更新
 - **安全** — RBAC 四级权限、DM 配对、Docker 沙箱、Token 加密、首次登录强制改密
@@ -39,7 +39,7 @@
 
 ```
 用户 ──→ IM 平台 ──→ Channel 适配器 ──→ Dispatcher ──→ Agent Runtime ──→ Plugin Tools ──→ 外部系统
-     (企微/钉钉/飞书)   │                  (防抖/去重)     ↕    ↕              (禅道/Gitee/...)
+     (企微/钉钉/飞书)   │                  (防抖/去重)     ↕    ↕              (Gitee/Jenkins/...)
                         │                            LLM(Claude)  │
           Web 面板 ─────┤                                         │
          (Vue 3 SPA)    └─────────────────────────────────────────┘
@@ -129,7 +129,7 @@ src/openvort/
 │   └── services/   #   Scheduler / NotificationCenter / ChatMessage / Updater
 ├── config/         # 配置（Pydantic Settings + DB 配置服务）
 ├── plugin/         # 插件框架（BasePlugin / BaseTool / Registry / Loader）
-├── plugins/        # 内置插件（禅道 / VortFlow / VortGit / VortSketch / Jenkins / 知识库 / 汇报 / 浏览器 / 定时任务 / 系统）
+├── plugins/        # 内置插件（VortFlow / VortGit / VortSketch / Jenkins / 知识库 / 汇报 / 浏览器 / 定时任务 / 系统）
 ├── channels/       # IM 通道（企微 / 钉钉 / 飞书 / OpenClaw，含语音工具）
 ├── contacts/       # 通讯录（多平台身份映射 + Service + Resolver）
 ├── services/       # 外部服务集成（ASR 语音识别 / TTS 语音合成 / Embedding 向量嵌入）
