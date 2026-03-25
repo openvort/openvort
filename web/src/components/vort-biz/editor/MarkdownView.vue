@@ -40,18 +40,17 @@ const collectImages = () => {
     const imgEls = contentRef.value.querySelectorAll("img");
     const srcs: string[] = [];
     imgEls.forEach((img) => {
-        if (img.src) srcs.push(img.src);
         img.style.cursor = "pointer";
-        img.onclick = () => openPreview(img.src);
         img.onerror = () => {
             img.classList.add("mv-img-broken");
             img.alt = img.alt || "图片加载失败";
         };
         const src = img.getAttribute("src") || "";
-        if (src.startsWith("/uploads/") && !src.startsWith("http")) return;
         if (src.startsWith("http://") && window.location.protocol === "https:") {
             img.src = src.replace("http://", "https://");
         }
+        if (img.src) srcs.push(img.src);
+        img.onclick = () => openPreview(img.src);
     });
     images.value = srcs;
 };

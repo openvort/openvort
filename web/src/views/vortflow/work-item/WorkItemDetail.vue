@@ -144,11 +144,11 @@ const saveEditComment = async (item: DetailComment) => {
         await updateVortflowComment(item.id, { content });
         item.content = content;
         message.success("评论已更新");
+        editingCommentId.value = null;
+        editingCommentContent.value = "";
     } catch {
         message.error("更新评论失败");
     }
-    editingCommentId.value = null;
-    editingCommentContent.value = "";
 };
 const detailCommentsMap = reactive<Record<string, DetailComment[]>>({});
 const detailLogsMap = reactive<Record<string, DetailLog[]>>({});

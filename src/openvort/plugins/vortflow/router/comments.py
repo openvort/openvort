@@ -117,6 +117,9 @@ async def update_comment(comment_id: int, body: CommentUpdate, request: Request)
             return {"error": "只能编辑自己的评论"}
         c.content = body.content
         c.mentions_json = json.dumps(body.mentions or [], ensure_ascii=False)
+        await _log_event(session, c.entity_type, c.entity_id, "comment_updated",
+                         {"author_id": member_id, "comment_id": comment_id, "preview": body.content[:100]},
+                         actor_id=member_id)
         await session.commit()
         await session.refresh(c)
     return {

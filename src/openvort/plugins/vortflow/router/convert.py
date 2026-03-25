@@ -60,13 +60,19 @@ def _map_special_fields(src, from_type: str, to_type: str) -> dict:
         if from_type == "story":
             extra["severity"] = getattr(src, "priority", 3)
         else:
-            extra["severity"] = 3
-    elif to_type == "task":
-        if from_type == "story":
-            priority = getattr(src, "priority", 3)
-            extra["estimate_hours"] = 0.0 if priority == 4 else None
-        else:
-            extra["estimate_hours"] = getattr(src, "estimate_hours", None)
+            extra["severity"] = getattr(src, "severity", 3) if from_type == "bug" else 3
+
+    # --- estimate_hours / actual_hours ---
+    if to_type == "task":
+        extra["estimate_hours"] = getattr(src, "estimate_hours", None)
+        extra["actual_hours"] = getattr(src, "actual_hours", None)
+    elif to_type == "bug":
+        extra["estimate_hours"] = getattr(src, "estimate_hours", None)
+        extra["actual_hours"] = getattr(src, "actual_hours", None)
+
+    # --- story_id (task ↔ bug) ---
+    if to_type in ("task", "bug") and from_type in ("task", "bug"):
+        extra["story_id"] = getattr(src, "story_id", None)
 
     # --- submitter / reporter / creator ---
     if to_type == "story":
@@ -211,7 +217,25 @@ async def convert_work_item(body: ConvertBody, request: Request):
             .values(target_type=to_type, target_id=new_id)
         )
 
-        # --- 7. Delete source record ---
+        # --- 7. Detach FK references before deleting source ---
+        if from_type == "story":
+            await session.execute(
+                update(FlowTask).where(FlowTask.story_id == body.id).values(story_id=None)
+            )
+            await session.execute(
+                update(FlowBug).where(FlowBug.story_id == body.id).values(story_id=None)
+            )
+            await session.execute(
+                update(FlowStory).where(FlowStory.parent_id == body.id).values(parent_id=None)
+            )
+        elif from_type == "task":
+            await session.execute(
+                update(FlowBug).where(FlowBug.task_id == body.id).values(task_id=None)
+            )
+            await session.execute(
+                update(FlowTask).where(FlowTask.parent_id == body.id).values(parent_id=None)
+            )
+
         await session.delete(src)
 
         # --- 8. Log conversion event ---

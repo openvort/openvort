@@ -145,6 +145,8 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
             collaborators: collaboratorsFromBackend,
             type: typeValue,
             planTime: [planDate, planDate],
+            planStartDate: planDate,
+            planEndDate: planDate,
             description: item?.description || "",
             ownerId: ownerSourceId,
             owner: ownerName,
