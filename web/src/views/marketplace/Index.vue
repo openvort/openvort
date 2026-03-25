@@ -36,6 +36,11 @@ interface MarketplaceItem {
     promptsCount?: number;
 }
 
+interface ToolInfo {
+    name: string;
+    description: string;
+}
+
 interface InstalledItem {
     id?: string;
     name: string;
@@ -48,6 +53,9 @@ interface InstalledItem {
     enabled?: boolean;
     type: string;
     method?: string;
+    tools?: ToolInfo[];
+    toolsCount?: number;
+    promptsCount?: number;
 }
 
 interface BundleFile {
@@ -460,6 +468,15 @@ const skillTypeLabel: Record<string, string> = { role: "角色入设", workflow:
 
                         <p class="text-xs text-gray-500 mb-3 line-clamp-2 flex-1">{{ item.description || '暂无描述' }}</p>
 
+                        <div v-if="item.type === 'plugin' && (item.toolsCount || item.promptsCount)" class="flex flex-wrap items-center gap-1.5 mb-3">
+                            <span v-if="item.toolsCount" class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-green-50 text-[11px] text-green-600">
+                                <Wrench :size="10" /> {{ item.toolsCount }} Tools
+                            </span>
+                            <span v-if="item.promptsCount" class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-orange-50 text-[11px] text-orange-600">
+                                <BookOpen :size="10" /> {{ item.promptsCount }} Prompts
+                            </span>
+                        </div>
+
                         <div class="flex items-center justify-between pt-2 border-t border-gray-50" @click.stop>
                             <span
                                 v-if="item.enabled !== false"
@@ -589,6 +606,22 @@ const skillTypeLabel: Record<string, string> = { role: "角色入设", workflow:
                                     size="small"
                                     :bordered="false"
                                 >{{ dep }}</VortTag>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div v-if="detail.type === 'plugin' && (detail as any).tools?.length" class="border border-gray-200 rounded-lg overflow-hidden">
+                        <h4 class="text-sm font-medium text-gray-700 px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center gap-1.5">
+                            <Wrench :size="14" class="text-gray-400" /> 工具能力说明
+                        </h4>
+                        <div class="divide-y divide-gray-100">
+                            <div
+                                v-for="tool in (detail as any).tools"
+                                :key="tool.name"
+                                class="px-4 py-3"
+                            >
+                                <span class="text-sm font-medium text-gray-700">{{ tool.name }}</span>
+                                <p v-if="tool.description" class="text-xs text-gray-500 mt-0.5">{{ tool.description }}</p>
                             </div>
                         </div>
                     </div>
