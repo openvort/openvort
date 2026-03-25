@@ -15,9 +15,10 @@ import {
     getVortflowIterations,
     getVortflowVersions,
     getVortflowDescriptionTemplates,
+    uploadVortflowFile,
 } from "@/api";
 import { useWorkItemCommon } from "./useWorkItemCommon";
-import type { WorkItemType, Priority, DateRange, NewBugForm, RowItem } from "@/components/vort-biz/work-item/WorkItemTable.types";
+import type { WorkItemType, Priority, DateRange, NewBugForm, RowItem, AttachmentItem } from "@/components/vort-biz/work-item/WorkItemTable.types";
 
 interface Props {
     type?: WorkItemType;
@@ -95,6 +96,7 @@ const createInitialBugForm = (): NewBugForm => ({
     storyId: "",
     priority: "" as any,
     tags: [],
+    attachments: [],
     repo: "",
     branch: "",
     startAt: "",
@@ -114,7 +116,52 @@ const createAssigneeDropdownOpen = ref(false);
 const createAssigneeKeyword = ref("");
 const createTagDropdownOpen = ref(false);
 const createTagKeyword = ref("");
-const createAttachments = ref<any[]>([]);
+const attachmentUploading = ref(false);
+const attachmentInputRef = ref<HTMLInputElement | null>(null);
+
+const triggerAttachmentInput = () => attachmentInputRef.value?.click();
+
+const handleAttachmentFiles = async (e: Event) => {
+    const files = (e.target as HTMLInputElement).files;
+    if (!files || files.length === 0) return;
+    attachmentUploading.value = true;
+    try {
+        for (const file of Array.from(files)) {
+            if (file.size > 20 * 1024 * 1024) {
+                message.warning(`文件 ${file.name} 超过 20MB 限制`);
+                continue;
+            }
+            try {
+                const res: any = await uploadVortflowFile(file);
+                if (res?.error) {
+                    message.error(res.error);
+                    continue;
+                }
+                createBugForm.attachments.push({
+                    name: res.name || file.name,
+                    url: res.url,
+                    size: res.size || file.size,
+                });
+            } catch {
+                message.error(`上传 ${file.name} 失败`);
+            }
+        }
+    } finally {
+        attachmentUploading.value = false;
+        if (attachmentInputRef.value) attachmentInputRef.value.value = "";
+    }
+};
+
+const removeAttachment = (index: number) => {
+    createBugForm.attachments.splice(index, 1);
+};
+
+const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+};
+
 const apiProjects = ref<Array<{ id: string; name: string }>>([]);
 const parentStoryOptions = ref<Array<{ id: string; title: string }>>([]);
 const apiRepos = ref<Array<{ id: string; name: string }>>([]);
@@ -571,7 +618,8 @@ const submitForm = (): NewBugForm | null => {
         ...createBugForm,
         collaborators: [...createBugForm.collaborators],
         planTime: [...createBugForm.planTime] as NewBugForm["planTime"],
-        tags: [...createBugForm.tags]
+        tags: [...createBugForm.tags],
+        attachments: [...createBugForm.attachments],
     };
 };
 
@@ -585,6 +633,7 @@ const getFormData = (): NewBugForm => ({
     collaborators: [...createBugForm.collaborators],
     planTime: [...createBugForm.planTime] as NewBugForm["planTime"],
     tags: [...createBugForm.tags],
+    attachments: [...createBugForm.attachments],
 });
 
 const getDescriptionTemplateForCurrentType = (): string => getDescriptionTemplate(createBugForm.type as WorkItemType);
@@ -963,6 +1012,37 @@ watch(() => createBugForm.repo, async (value, oldValue) => {
                     :show-time="true"
                     placeholder="选择日期时间"
                 />
+            </div>
+            <div class="create-bug-field">
+                <label class="create-bug-label">附件</label>
+                <input
+                    ref="attachmentInputRef"
+                    type="file"
+                    multiple
+                    style="display: none"
+                    @change="handleAttachmentFiles"
+                />
+                <div class="attachment-list" v-if="createBugForm.attachments.length > 0">
+                    <div
+                        v-for="(att, idx) in createBugForm.attachments"
+                        :key="att.url"
+                        class="attachment-item"
+                    >
+                        <div class="attachment-info">
+                            <span class="attachment-name" :title="att.name">{{ att.name }}</span>
+                            <span class="attachment-size">{{ formatFileSize(att.size) }}</span>
+                        </div>
+                        <button type="button" class="attachment-remove" @click="removeAttachment(idx)">×</button>
+                    </div>
+                </div>
+                <button
+                    type="button"
+                    class="attachment-add-btn"
+                    :disabled="attachmentUploading"
+                    @click="triggerAttachmentInput"
+                >
+                    {{ attachmentUploading ? "上传中..." : "+ 添加附件" }}
+                </button>
             </div>
             <div class="create-bug-field">
                 <label class="create-bug-label">备注说明</label>
@@ -1346,5 +1426,89 @@ watch(() => createBugForm.repo, async (value, oldValue) => {
     align-items: center;
     gap: 4px;
     flex-wrap: wrap;
+}
+
+.attachment-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.attachment-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    background: #f8fafc;
+}
+
+.attachment-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex: 1;
+}
+
+.attachment-name {
+    font-size: 13px;
+    color: #334155;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.attachment-size {
+    font-size: 12px;
+    color: #94a3b8;
+    flex-shrink: 0;
+}
+
+.attachment-remove {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    color: #94a3b8;
+    font-size: 16px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.15s;
+}
+
+.attachment-remove:hover {
+    color: #ef4444;
+    background: #fef2f2;
+}
+
+.attachment-add-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 12px;
+    border: 1px dashed #cbd5e1;
+    border-radius: 6px;
+    background: #fff;
+    color: #64748b;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+    width: 100%;
+}
+
+.attachment-add-btn:hover:not(:disabled) {
+    border-color: var(--vort-primary, #1456f0);
+    color: var(--vort-primary, #1456f0);
+}
+
+.attachment-add-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
 }
 </style>

@@ -162,6 +162,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
             repoId: item?.repo_id ? String(item.repo_id) : "",
             repo: "",
             branch: item?.branch ? String(item.branch) : "",
+            attachments: Array.isArray(item?.attachments) ? item.attachments : [],
             startAt,
             endAt,
             _prevIteration: iterationId,

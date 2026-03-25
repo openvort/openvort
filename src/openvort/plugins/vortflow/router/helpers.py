@@ -57,6 +57,18 @@ def _parse_json_list(raw: str | None) -> list[str]:
     return result
 
 
+def _parse_attachments(raw: str | None) -> list[dict]:
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return []
+    if not isinstance(data, list):
+        return []
+    return [item for item in data if isinstance(item, dict)]
+
+
 # ---------------------------------------------------------------------------
 # Serializer dicts
 # ---------------------------------------------------------------------------
@@ -82,6 +94,7 @@ def _story_dict(r: FlowStory) -> dict:
         "pm_id": r.pm_id, "designer_id": r.designer_id, "reviewer_id": r.reviewer_id,
         "tags": _parse_json_list(r.tags_json),
         "collaborators": _parse_json_list(r.collaborators_json),
+        "attachments": _parse_attachments(getattr(r, "attachments_json", "[]")),
         "progress": getattr(r, "progress", None) or 0,
         "deadline": r.deadline.isoformat() if r.deadline else None,
         "start_at": r.start_at.isoformat() if getattr(r, "start_at", None) else None,
@@ -101,6 +114,7 @@ def _task_dict(r: FlowTask) -> dict:
         "assignee_id": r.assignee_id, "creator_id": r.creator_id,
         "tags": _parse_json_list(r.tags_json),
         "collaborators": _parse_json_list(r.collaborators_json),
+        "attachments": _parse_attachments(getattr(r, "attachments_json", "[]")),
         "progress": getattr(r, "progress", None) or 0,
         "estimate_hours": r.estimate_hours, "actual_hours": r.actual_hours,
         "deadline": r.deadline.isoformat() if r.deadline else None,
@@ -122,6 +136,7 @@ def _bug_dict(r: FlowBug) -> dict:
         "developer_id": r.developer_id,
         "tags": _parse_json_list(r.tags_json),
         "collaborators": _parse_json_list(r.collaborators_json),
+        "attachments": _parse_attachments(getattr(r, "attachments_json", "[]")),
         "estimate_hours": getattr(r, "estimate_hours", None),
         "actual_hours": getattr(r, "actual_hours", None),
         "deadline": r.deadline.isoformat() if getattr(r, "deadline", None) else None,

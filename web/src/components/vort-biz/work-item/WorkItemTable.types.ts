@@ -49,6 +49,12 @@ export interface WorkItemTableProps {
     viewFilters?: ViewFilters;
 }
 
+export interface AttachmentItem {
+    name: string;
+    url: string;
+    size: number;
+}
+
 export interface NewBugForm {
     title: string;
     owner: string;
@@ -63,6 +69,7 @@ export interface NewBugForm {
     storyId?: string;
     priority: Priority | "";
     tags: string[];
+    attachments: AttachmentItem[];
     repo: string;
     branch: string;
     startAt: string;
@@ -107,6 +114,7 @@ export interface RowItem {
     repoId?: string;
     repo?: string;
     branch?: string;
+    attachments?: AttachmentItem[];
     startAt?: string;
     endAt?: string;
     children?: RowItem[];
@@ -119,6 +127,7 @@ export interface RowItem {
 export interface DetailComment {
     id: string;
     author: string;
+    authorId?: string;
     createdAt: string;
     content: string;
 }

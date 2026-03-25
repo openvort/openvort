@@ -5,16 +5,16 @@ import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMember
 import WorkItemStatus from "@/components/vort-biz/work-item/WorkItemStatus.vue";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
 import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
-import { Copy, CopyPlus, SquarePen, FileText, Bot, Loader2, MoreHorizontal, Send, Trash2 } from "lucide-vue-next";
+import { Copy, CopyPlus, SquarePen, FileText, Bot, Loader2, MoreHorizontal, Send, Trash2, Paperclip, Download, X } from "lucide-vue-next";
 import StatusIcon from "@/components/vort-biz/work-item/StatusIcon.vue";
 import { useInlineAi } from "@/hooks";
 import { useWorkItemCommon } from "./useWorkItemCommon";
 import WorkItemLinkPanel from "./WorkItemLinkPanel.vue";
 import TestCaseLinkPanel from "./TestCaseLinkPanel.vue";
 import NotifyDialog from "./NotifyDialog.vue";
-import { getVortflowProjects, getVortflowIterations, getVortflowVersions, getVortgitRepos, getVortgitRepoBranches, getVortflowComments, createVortflowComment, getVortflowActivity } from "@/api";
+import { getVortflowProjects, getVortflowIterations, getVortflowVersions, getVortgitRepos, getVortgitRepoBranches, getVortflowComments, createVortflowComment, updateVortflowComment, getVortflowActivity, uploadVortflowFile } from "@/api";
 import { useUserStore } from "@/stores";
-import type { WorkItemType, Status, DateRange, RowItem, DetailComment, DetailLog } from "@/components/vort-biz/work-item/WorkItemTable.types";
+import type { WorkItemType, Status, DateRange, RowItem, DetailComment, DetailLog, AttachmentItem } from "@/components/vort-biz/work-item/WorkItemTable.types";
 
 interface Props {
     workNo: string;
@@ -64,9 +64,92 @@ const detailAssigneeGroupOpen = reactive<Record<string, boolean>>({});
 const detailDescEditing = ref(props.initialDescEditing || false);
 const detailDescDraft = ref(props.initialDescDraft ?? "");
 
+const detailAttachmentInputRef = ref<HTMLInputElement | null>(null);
+const detailAttachmentUploading = ref(false);
+
+const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+};
+
+const triggerDetailAttachmentInput = () => detailAttachmentInputRef.value?.click();
+
+const handleDetailAttachmentFiles = async (e: Event) => {
+    const files = (e.target as HTMLInputElement).files;
+    if (!files || files.length === 0 || !record.value) return;
+    detailAttachmentUploading.value = true;
+    const newAttachments: AttachmentItem[] = [...(record.value.attachments || [])];
+    try {
+        for (const file of Array.from(files)) {
+            if (file.size > 20 * 1024 * 1024) {
+                message.warning(`文件 ${file.name} 超过 20MB 限制`);
+                continue;
+            }
+            try {
+                const res: any = await uploadVortflowFile(file);
+                if (res?.error) {
+                    message.error(res.error);
+                    continue;
+                }
+                newAttachments.push({
+                    name: res.name || file.name,
+                    url: res.url,
+                    size: res.size || file.size,
+                });
+            } catch {
+                message.error(`上传 ${file.name} 失败`);
+            }
+        }
+        record.value.attachments = newAttachments;
+        emit("update", { attachments: newAttachments });
+        appendDetailLog("添加了附件");
+    } finally {
+        detailAttachmentUploading.value = false;
+        if (detailAttachmentInputRef.value) detailAttachmentInputRef.value.value = "";
+    }
+};
+
+const removeDetailAttachment = (index: number) => {
+    if (!record.value) return;
+    const newAttachments = [...(record.value.attachments || [])];
+    newAttachments.splice(index, 1);
+    record.value.attachments = newAttachments;
+    emit("update", { attachments: newAttachments });
+    appendDetailLog("删除了附件");
+};
+
 defineExpose({ detailDescEditing, detailDescDraft });
 const notifyDialogOpen = ref(false);
 const detailCommentDraft = ref("");
+const editingCommentId = ref<string | null>(null);
+const editingCommentContent = ref("");
+
+const currentMemberId = computed(() => userStore.userInfo.member_id);
+
+const startEditComment = (item: DetailComment) => {
+    editingCommentId.value = item.id;
+    editingCommentContent.value = item.content;
+};
+
+const cancelEditComment = () => {
+    editingCommentId.value = null;
+    editingCommentContent.value = "";
+};
+
+const saveEditComment = async (item: DetailComment) => {
+    const content = editingCommentContent.value.trim();
+    if (!content) return;
+    try {
+        await updateVortflowComment(item.id, { content });
+        item.content = content;
+        message.success("评论已更新");
+    } catch {
+        message.error("更新评论失败");
+    }
+    editingCommentId.value = null;
+    editingCommentContent.value = "";
+};
 const detailCommentsMap = reactive<Record<string, DetailComment[]>>({});
 const detailLogsMap = reactive<Record<string, DetailLog[]>>({});
 
@@ -250,6 +333,7 @@ const ensureDetailPanelsData = async () => {
         detailCommentsMap[props.workNo] = items.map((c: any) => ({
             id: String(c.id),
             author: getMemberNameById(c.author_id) || c.author_id || "未知",
+            authorId: c.author_id || "",
             createdAt: formatTimeAgo(c.created_at),
             content: c.content || "",
         }));
@@ -1417,6 +1501,33 @@ watch(() => props.initialData, (value) => {
                     </template>
                 </div>
 
+                <div class="bug-detail-attachments">
+                    <div class="bug-detail-attachments-head">
+                        <h4><Paperclip :size="14" /> 附件 ({{ (record.attachments || []).length }})</h4>
+                        <VortButton variant="text" size="small" :disabled="detailAttachmentUploading" @click="triggerDetailAttachmentInput">
+                            {{ detailAttachmentUploading ? "上传中..." : "+ 添加" }}
+                        </VortButton>
+                        <input ref="detailAttachmentInputRef" type="file" multiple style="display: none" @change="handleDetailAttachmentFiles" />
+                    </div>
+                    <div v-if="(record.attachments || []).length > 0" class="bug-detail-attachment-list">
+                        <div v-for="(att, idx) in record.attachments" :key="att.url" class="bug-detail-attachment-item">
+                            <div class="bug-detail-attachment-info">
+                                <span class="bug-detail-attachment-name" :title="att.name">{{ att.name }}</span>
+                                <span class="bug-detail-attachment-size">{{ formatFileSize(att.size) }}</span>
+                            </div>
+                            <div class="bug-detail-attachment-actions">
+                                <a :href="att.url" :download="att.name" class="bug-detail-attachment-download" title="下载">
+                                    <Download :size="14" />
+                                </a>
+                                <button type="button" class="bug-detail-attachment-remove" title="删除" @click="removeDetailAttachment(idx)">
+                                    <X :size="14" />
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div v-else class="bug-detail-attachment-empty">暂无附件</div>
+                </div>
+
                 <div class="bug-detail-bottom-panel">
                     <div class="bug-detail-bottom-tabs">
                         <button
@@ -1444,8 +1555,17 @@ watch(() => props.initialData, (value) => {
                                     <div class="bug-detail-comment-meta">
                                         <span class="author">{{ item.author }}</span>
                                         <span class="time">{{ item.createdAt }}</span>
+                                        <span v-if="item.authorId && item.authorId === currentMemberId && editingCommentId !== item.id"
+                                              class="edit-btn" @click="startEditComment(item)">编辑</span>
                                     </div>
-                                    <div class="bug-detail-comment-content"><MarkdownView :content="item.content" /></div>
+                                    <template v-if="editingCommentId === item.id">
+                                        <VortEditor v-model="editingCommentContent" min-height="80px" />
+                                        <div class="bug-detail-desc-actions" style="margin-top: 8px;">
+                                            <vort-button size="small" @click="cancelEditComment">取消</vort-button>
+                                            <vort-button size="small" variant="primary" @click="saveEditComment(item)">保存</vort-button>
+                                        </div>
+                                    </template>
+                                    <div v-else class="bug-detail-comment-content"><MarkdownView :content="item.content" /></div>
                                 </div>
                             </div>
                         </div>
@@ -2225,6 +2345,106 @@ watch(() => props.initialData, (value) => {
     font-weight: 600;
 }
 
+.bug-detail-attachments {
+    border-top: 1px solid var(--vort-border-secondary);
+    padding-top: 16px;
+    margin-top: 16px;
+}
+
+.bug-detail-attachments-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.bug-detail-attachments-head h4 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--vort-text);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin: 0;
+    flex: 1;
+}
+
+.bug-detail-attachment-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.bug-detail-attachment-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    background: var(--vort-bg-elevated);
+    border-radius: 6px;
+    border: 1px solid var(--vort-border-secondary);
+}
+
+.bug-detail-attachment-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex: 1;
+}
+
+.bug-detail-attachment-name {
+    font-size: 13px;
+    color: var(--vort-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.bug-detail-attachment-size {
+    font-size: 12px;
+    color: var(--vort-text-tertiary);
+    white-space: nowrap;
+}
+
+.bug-detail-attachment-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.bug-detail-attachment-download,
+.bug-detail-attachment-remove {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    color: var(--vort-text-secondary);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.bug-detail-attachment-download:hover {
+    color: var(--vort-primary);
+    background: var(--vort-bg-hover);
+}
+
+.bug-detail-attachment-remove:hover {
+    color: var(--vort-danger, #e53e3e);
+    background: var(--vort-bg-hover);
+}
+
+.bug-detail-attachment-empty {
+    font-size: 13px;
+    color: var(--vort-text-tertiary);
+    padding: 8px 0;
+}
+
 .bug-detail-bottom-panel {
     border-top: 1px solid var(--vort-border-secondary);
     padding-top: 20px;
@@ -2365,6 +2585,17 @@ watch(() => props.initialData, (value) => {
 .bug-detail-comment-meta .time {
     font-size: 12px;
     color: var(--vort-text-tertiary);
+}
+.bug-detail-comment-meta .edit-btn {
+    font-size: 12px;
+    color: var(--vort-primary, #3b82f6);
+    cursor: pointer;
+    margin-left: 8px;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+.bug-detail-comment-item:hover .edit-btn {
+    opacity: 1;
 }
 
 .bug-detail-comment-content {

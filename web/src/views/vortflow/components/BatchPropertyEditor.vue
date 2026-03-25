@@ -12,6 +12,8 @@ import {
     updateVortflowStory, updateVortflowTask, updateVortflowBug,
     getVortflowIterations, getVortflowVersions, getVortflowStories,
     getVortgitRepos,
+    addVortflowIterationStory, addVortflowIterationTask, addVortflowIterationBug,
+    removeVortflowIterationStory, removeVortflowIterationTask, removeVortflowIterationBug,
 } from "@/api";
 import { useVortFlowStore } from "@/stores";
 
@@ -217,22 +219,36 @@ const buildPatch = (change: PropertyChange, row: RowItem): Record<string, any> =
     return patch;
 };
 
-const handleSubmit = async () => {
-    const unsupported = changeRows.value.filter(
-        r => (r.property === "version" || r.property === "iteration") && r.operator === "set",
-    );
-    if (unsupported.length > 0) {
-        message.warning("批量设置迭代/版本暂不支持，请在工作项详情中单独操作");
-        return;
+const applyIterationChange = async (row: RowItem, change: PropertyChange) => {
+    const id = String(row.backendId || "").trim();
+    if (!id) return;
+    const newIterationId = change.operator === "clear" ? null : (change.value as string);
+    const oldIterationId = row.iterationId || "";
+    if (oldIterationId === (newIterationId || "")) return;
+    if (oldIterationId) {
+        try {
+            if (row.type === "需求") await removeVortflowIterationStory(oldIterationId, id);
+            else if (row.type === "任务") await removeVortflowIterationTask(oldIterationId, id);
+            else if (row.type === "缺陷") await removeVortflowIterationBug(oldIterationId, id);
+        } catch { /* old link may already be gone */ }
     }
-    const changes: PropertyChange[] = changeRows.value
+    if (newIterationId) {
+        if (row.type === "需求") await addVortflowIterationStory(newIterationId, { story_id: id });
+        else if (row.type === "任务") await addVortflowIterationTask(newIterationId, { task_id: id });
+        else if (row.type === "缺陷") await addVortflowIterationBug(newIterationId, { bug_id: id });
+    }
+};
+
+const handleSubmit = async () => {
+    const allChanges: PropertyChange[] = changeRows.value
         .filter(r => r.operator === "clear" || r.value != null)
-        .filter(r => r.property !== "version" && r.property !== "iteration")
         .map(r => ({ property: r.property, operator: r.operator, value: r.value }));
-    if (changes.length === 0) {
+    if (allChanges.length === 0) {
         message.warning("请至少选择一个要修改的属性");
         return;
     }
+    const iterationChange = allChanges.find(c => c.property === "iteration");
+    const fieldChanges = allChanges.filter(c => c.property !== "version" && c.property !== "iteration");
     submitting.value = true;
     let successCount = 0;
     let failCount = 0;
@@ -240,18 +256,23 @@ const handleSubmit = async () => {
         for (const row of props.selectedRows) {
             const id = String(row.backendId || "").trim();
             if (!id) continue;
-            const merged: Record<string, any> = {};
-            for (const c of changes) Object.assign(merged, buildPatch(c, row));
             try {
-                if (row.type === "需求") await updateVortflowStory(id, merged);
-                else if (row.type === "任务") await updateVortflowTask(id, merged);
-                else if (row.type === "缺陷") await updateVortflowBug(id, merged);
+                if (fieldChanges.length > 0) {
+                    const merged: Record<string, any> = {};
+                    for (const c of fieldChanges) Object.assign(merged, buildPatch(c, row));
+                    if (Object.keys(merged).length > 0) {
+                        if (row.type === "需求") await updateVortflowStory(id, merged);
+                        else if (row.type === "任务") await updateVortflowTask(id, merged);
+                        else if (row.type === "缺陷") await updateVortflowBug(id, merged);
+                    }
+                }
+                if (iterationChange) await applyIterationChange(row, iterationChange);
                 successCount++;
             } catch { failCount++; }
         }
         if (failCount > 0) message.warning(`成功 ${successCount} 项，失败 ${failCount} 项`);
         else message.success(`已批量修改 ${successCount} 个工作项`);
-        emit("submit", changes);
+        emit("submit", allChanges);
         emit("done");
         open.value = false;
     } finally {

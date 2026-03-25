@@ -177,6 +177,7 @@ async def create_bug(body: BugCreate, request: Request):
             deadline=_parse_dt(body.deadline) if body.deadline else None,
             tags_json=json.dumps(body.tags or [], ensure_ascii=False),
             collaborators_json=json.dumps(body.collaborators or [], ensure_ascii=False),
+            attachments_json=json.dumps(body.attachments or [], ensure_ascii=False),
         )
         session.add(b)
         await session.flush()
@@ -218,6 +219,9 @@ async def update_bug(bug_id: str, body: BugUpdate, request: Request):
         if body.collaborators is not None:
             b.collaborators_json = json.dumps(body.collaborators, ensure_ascii=False)
             changes["collaborators"] = body.collaborators
+        if body.attachments is not None:
+            b.attachments_json = json.dumps(body.attachments, ensure_ascii=False)
+            changes["attachments"] = body.attachments
         if body.deadline is not None:
             b.deadline = _parse_dt(body.deadline)
             changes["deadline"] = body.deadline
@@ -331,6 +335,7 @@ async def copy_bug(bug_id: str, request: Request):
             reporter_id=member_id or None,
             tags_json=src.tags_json,
             collaborators_json=src.collaborators_json,
+            attachments_json=src.attachments_json,
             deadline=src.deadline,
         )
         session.add(new_bug)

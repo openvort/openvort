@@ -62,7 +62,7 @@ export function getVortflowStory(id: string) {
     return request.get(`/vortflow/stories/${id}`);
 }
 
-export function createVortflowStory(data: { project_id: string; title: string; description?: string; priority?: number; parent_id?: string; assignee_id?: string; tags?: string[]; collaborators?: string[]; deadline?: string }) {
+export function createVortflowStory(data: { project_id: string; title: string; description?: string; priority?: number; parent_id?: string; assignee_id?: string; tags?: string[]; collaborators?: string[]; attachments?: { name: string; url: string; size: number }[]; deadline?: string }) {
     return request.post("/vortflow/stories", data);
 }
 
@@ -75,6 +75,7 @@ export function updateVortflowStory(id: string, data: {
     assignee_id?: string | null;
     tags?: string[];
     collaborators?: string[];
+    attachments?: { name: string; url: string; size: number }[];
     deadline?: string;
     pm_id?: string | null;
     project_id?: string | null;
@@ -113,7 +114,7 @@ export function getVortflowTask(id: string) {
     return request.get(`/vortflow/tasks/${id}`);
 }
 
-export function createVortflowTask(data: { project_id?: string; story_id?: string; parent_id?: string; title: string; description?: string; task_type?: string; assignee_id?: string; tags?: string[]; collaborators?: string[]; estimate_hours?: number; deadline?: string }) {
+export function createVortflowTask(data: { project_id?: string; story_id?: string; parent_id?: string; title: string; description?: string; task_type?: string; assignee_id?: string; tags?: string[]; collaborators?: string[]; attachments?: { name: string; url: string; size: number }[]; estimate_hours?: number; deadline?: string }) {
     return request.post("/vortflow/tasks", data);
 }
 
@@ -126,6 +127,7 @@ export function updateVortflowTask(id: string, data: {
     assignee_id?: string;
     tags?: string[];
     collaborators?: string[];
+    attachments?: { name: string; url: string; size: number }[];
     estimate_hours?: number;
     actual_hours?: number;
     deadline?: string;
@@ -164,7 +166,7 @@ export function getVortflowBug(id: string) {
     return request.get(`/vortflow/bugs/${id}`);
 }
 
-export function createVortflowBug(data: { project_id?: string; story_id?: string; task_id?: string; title: string; description?: string; severity?: number; assignee_id?: string; tags?: string[]; collaborators?: string[]; deadline?: string }) {
+export function createVortflowBug(data: { project_id?: string; story_id?: string; task_id?: string; title: string; description?: string; severity?: number; assignee_id?: string; tags?: string[]; collaborators?: string[]; attachments?: { name: string; url: string; size: number }[]; deadline?: string }) {
     return request.post("/vortflow/bugs", data);
 }
 
@@ -177,6 +179,7 @@ export function updateVortflowBug(id: string, data: {
     assignee_id?: string;
     tags?: string[];
     collaborators?: string[];
+    attachments?: { name: string; url: string; size: number }[];
     estimate_hours?: number;
     actual_hours?: number;
     deadline?: string;
@@ -376,6 +379,10 @@ export function getVortflowComments(entityType: string, entityId: string) {
 
 export function createVortflowComment(entityType: string, entityId: string, data: { content: string; mentions?: string[] }) {
     return request.post(`/vortflow/comments/${entityType}/${entityId}`, data);
+}
+
+export function updateVortflowComment(commentId: number | string, data: { content: string; mentions?: string[] }) {
+    return request.patch(`/vortflow/comments/${commentId}`, data);
 }
 
 export function getVortflowActivity(entityType: string, entityId: string, params?: { page?: number; page_size?: number }) {
@@ -637,6 +644,22 @@ export function addVortflowTestPlanExecution(planId: string, planCaseId: string,
 
 export function getVortflowTestPlanExecutions(planId: string, planCaseId: string) {
     return request.get(`/vortflow/test-plans/${planId}/cases/${planCaseId}/executions`);
+}
+
+// ---- Work Item Convert ----
+
+export function convertWorkItem(data: { from_type: string; id: string; to_type: string }) {
+    return request.post("/vortflow/work-items/convert", data);
+}
+
+// ---- File Uploads ----
+
+export function uploadVortflowFile(file: File): Promise<{ url: string; name: string; size: number }> {
+    const formData = new FormData();
+    formData.append("file", file);
+    return request.post("/uploads/vortflow/file", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+    });
 }
 
 // ---- Notify ----

@@ -47,6 +47,7 @@ import {
     getVortflowTags,
     getVortflowIterations,
     getVortflowDescriptionTemplates,
+    convertWorkItem,
 } from "@/api";
 import type {
     WorkItemType,
@@ -633,6 +634,7 @@ const syncRecordUpdateToApi = async (
         repo_id?: string | null;
         branch?: string;
         progress?: number;
+        attachments?: { name: string; url: string; size: number }[];
     }
 ) => {
     if (!props.useApi) return;
@@ -655,6 +657,7 @@ const syncRecordUpdateToApi = async (
             repo_id: patch.repo_id,
             branch: patch.branch,
             progress: patch.progress,
+            attachments: patch.attachments,
         });
         record.updatedAt = formatCnTime(new Date());
         return;
@@ -676,6 +679,7 @@ const syncRecordUpdateToApi = async (
             branch: patch.branch,
             project_id: patch.project_id,
             progress: patch.progress,
+            attachments: patch.attachments,
         });
         record.updatedAt = formatCnTime(new Date());
         return;
@@ -696,6 +700,7 @@ const syncRecordUpdateToApi = async (
         repo_id: patch.repo_id,
         branch: patch.branch,
         project_id: patch.project_id,
+        attachments: patch.attachments,
     });
     record.updatedAt = formatCnTime(new Date());
 };
@@ -1140,9 +1145,29 @@ const handleCopyWorkItem = async () => {
     }
 };
 
+const _TYPE_TO_BACKEND: Record<string, string> = { "需求": "story", "任务": "task", "缺陷": "bug" };
+
 const handleDetailUpdate = async (data: Partial<RowItem>) => {
     if (!detailCurrentRecord.value) return;
     const rec = detailCurrentRecord.value;
+
+    if (data.type && props.useApi && rec.backendId) {
+        const fromBackend = _TYPE_TO_BACKEND[rec.type];
+        const toBackend = _TYPE_TO_BACKEND[data.type];
+        if (fromBackend && toBackend && fromBackend !== toBackend) {
+            try {
+                const res: any = await convertWorkItem({ from_type: fromBackend, id: rec.backendId, to_type: toBackend });
+                if (res?.error) { message.error(res.error); return; }
+                message.success(res?.message || "类型转换成功");
+                handleCancelCreateBug();
+                tableRef.value?.refresh?.();
+            } catch {
+                message.error("类型转换失败");
+            }
+            return;
+        }
+    }
+
     Object.assign(rec, data);
 
     if (!props.useApi || !rec.backendId) return;
@@ -1230,6 +1255,9 @@ const handleDetailUpdate = async (data: Partial<RowItem>) => {
             rec._prevVersion = nextVer;
         }
     }
+    if (data.attachments !== undefined) {
+        await syncRecordUpdateToApi(rec, { attachments: data.attachments });
+    }
 };
 
 const toggleItemExpand = async (record: RowItem) => {
@@ -1296,6 +1324,7 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
                     parent_id: formData.parentId || undefined,
                     tags: [...formData.tags],
                     collaborators: [...formData.collaborators],
+                    attachments: [...(formData.attachments || [])],
                     deadline: formData.planTime?.[1] || undefined,
                 });
                 if (createdItem?.id && ownerId) {
@@ -1316,6 +1345,7 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
                     assignee_id: ownerId,
                     tags: [...formData.tags],
                     collaborators: [...formData.collaborators],
+                    attachments: [...(formData.attachments || [])],
                     deadline: formData.planTime?.[1] || undefined,
                 });
             } else {
@@ -1328,6 +1358,7 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
                     assignee_id: ownerId,
                     tags: [...formData.tags],
                     collaborators: [...formData.collaborators],
+                    attachments: [...(formData.attachments || [])],
                     deadline: formData.planTime?.[1] || undefined,
                 });
             }

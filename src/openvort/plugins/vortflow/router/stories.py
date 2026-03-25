@@ -192,6 +192,7 @@ async def create_story(body: StoryCreate, request: Request):
             assignee_id=body.assignee_id or None,
             tags_json=json.dumps(body.tags or [], ensure_ascii=False),
             collaborators_json=json.dumps(body.collaborators or [], ensure_ascii=False),
+            attachments_json=json.dumps(body.attachments or [], ensure_ascii=False),
             deadline=_parse_dt(body.deadline),
         )
         session.add(s)
@@ -250,6 +251,9 @@ async def update_story(story_id: str, body: StoryUpdate, request: Request):
         if body.collaborators is not None:
             s.collaborators_json = json.dumps(body.collaborators, ensure_ascii=False)
             changes["collaborators"] = body.collaborators
+        if body.attachments is not None:
+            s.attachments_json = json.dumps(body.attachments, ensure_ascii=False)
+            changes["attachments"] = body.attachments
         if body.deadline is not None:
             s.deadline = _parse_dt(body.deadline)
             changes["deadline"] = body.deadline
@@ -389,6 +393,7 @@ async def copy_story(story_id: str, request: Request):
             assignee_id=getattr(src, "assignee_id", None),
             tags_json=src.tags_json,
             collaborators_json=src.collaborators_json,
+            attachments_json=src.attachments_json,
             deadline=src.deadline,
         )
         session.add(new_story)

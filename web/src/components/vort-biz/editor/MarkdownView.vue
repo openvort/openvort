@@ -43,6 +43,15 @@ const collectImages = () => {
         if (img.src) srcs.push(img.src);
         img.style.cursor = "pointer";
         img.onclick = () => openPreview(img.src);
+        img.onerror = () => {
+            img.classList.add("mv-img-broken");
+            img.alt = img.alt || "图片加载失败";
+        };
+        const src = img.getAttribute("src") || "";
+        if (src.startsWith("/uploads/") && !src.startsWith("http")) return;
+        if (src.startsWith("http://") && window.location.protocol === "https:") {
+            img.src = src.replace("http://", "https://");
+        }
     });
     images.value = srcs;
 };
@@ -212,7 +221,12 @@ onUnmounted(() => {
 .markdown-view em { font-style: italic; }
 .markdown-view s { text-decoration: line-through; }
 .markdown-view a { color: #3b82f6; text-decoration: underline; }
-.markdown-view img { max-width: 100%; border-radius: 4px; cursor: pointer; }
+.markdown-view img { max-width: 100%; max-height: 600px; object-fit: contain; border-radius: 4px; cursor: pointer; }
+.markdown-view img.mv-img-broken {
+    display: inline-block; min-height: 40px; min-width: 120px; padding: 8px 12px;
+    background: #f5f5f5; border: 1px dashed #d9d9d9; border-radius: 4px;
+    font-size: 12px; color: #999; text-align: center; cursor: default;
+}
 .markdown-view table { border-collapse: collapse; width: 100%; margin: 0.5em 0; }
 .markdown-view th, .markdown-view td { border: 1px solid #e5e5e5; padding: 6px 12px; text-align: left; }
 .markdown-view th { background: #fafafa; font-weight: 600; }
