@@ -17,6 +17,7 @@ from .statuses import sub_router as statuses_router
 from .test_cases import sub_router as test_cases_router
 from .test_plans import sub_router as test_plans_router
 from .notify import sub_router as notify_router
+from .description_templates import sub_router as description_templates_router
 
 router = APIRouter(prefix="/api/vortflow", tags=["vortflow"])
 
@@ -35,3 +36,4 @@ router.include_router(statuses_router)
 router.include_router(test_cases_router)
 router.include_router(test_plans_router)
 router.include_router(notify_router)
+router.include_router(description_templates_router)

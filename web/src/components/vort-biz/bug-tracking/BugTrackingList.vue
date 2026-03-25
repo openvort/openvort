@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import { ProTable, type ProTableColumn } from "@/components/vort-biz/pro-table";
 import { Pencil } from "lucide-vue-next";
+import StatusIcon from "@/components/vort-biz/work-item/StatusIcon.vue";
 import type { RowItem, Priority, Status, WorkType, DateRange } from "./types";
 import {
     priorityOptions,
@@ -238,7 +239,7 @@ const onReset = () => {
                                 <span class="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center text-[12px] text-gray-500">
                                     <span v-if="props.state.status.value === opt.value">✓</span>
                                 </span>
-                                <span class="text-[14px] leading-none w-4 text-center" :class="opt.iconClass">{{ opt.icon }}</span>
+                                <span class="leading-none w-4 text-center flex items-center justify-center" :class="opt.iconClass"><StatusIcon :name="opt.icon" :size="14" /></span>
                                 <span class="text-sm text-gray-700">{{ opt.label }}</span>
                             </button>
                         </div>
@@ -354,7 +355,7 @@ const onReset = () => {
                     <div class="relative inline-block text-left" @click.stop>
                         <button class="status-edit-trigger" @click.stop="props.state.toggleRowStatusMenu(record.workNo)">
                             <span class="status-badge table-status-badge" :class="statusClassMap[props.state.getRowStatus(record, text as Status)]">
-                                <span class="status-badge-icon">{{ statusIconMap[props.state.getRowStatus(record, text as Status)] }}</span>
+                                <span class="status-badge-icon"><StatusIcon :name="statusIconMap[props.state.getRowStatus(record, text as Status)]" :size="12" /></span>
                                 <span>{{ props.state.getRowStatus(record, text as Status) }}</span>
                             </span>
                         </button>
@@ -373,7 +374,7 @@ const onReset = () => {
                                     <span class="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center text-[12px] text-gray-500">
                                         <span v-if="props.state.getRowStatus(record, text as Status) === opt.value">✓</span>
                                     </span>
-                                    <span class="text-[14px] leading-none w-4 text-center" :class="opt.iconClass">{{ opt.icon }}</span>
+                                    <span class="leading-none w-4 text-center flex items-center justify-center" :class="opt.iconClass"><StatusIcon :name="opt.icon" :size="14" /></span>
                                     <span class="text-sm text-gray-700">{{ opt.label }}</span>
                                 </button>
                             </div>

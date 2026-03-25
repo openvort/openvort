@@ -200,6 +200,11 @@ const toggleCollaborator = (member: string) => {
   emitChange(currentOwner.value, nextCollaborators);
 };
 
+const clearCollaborators = () => {
+  emit("update:collaborators", []);
+  emitChange(currentOwner.value, []);
+};
+
 const toggleGroup = (group: string) => {
   if (!props.collapsible) return;
   groupOpen[group] = !groupOpen[group];
@@ -269,6 +274,40 @@ const visibleMembers = (group: MemberGroup) => {
               :checked="currentOwner === unassignedValue"
               @click.stop
               @update:checked="setOwner(unassignedValue)"
+            />
+            <span class="member-picker-name">{{ unassignedLabel }}</span>
+          </div>
+        </div>
+      </template>
+
+      <template v-if="mode === 'collaborators'">
+        <div
+          v-if="showAllOption"
+          class="member-picker-row"
+          :class="{ 'is-active': !currentCollaborators.length }"
+          @click.stop="clearCollaborators()"
+        >
+          <div class="member-picker-row-left">
+            <vort-checkbox
+              :checked="!currentCollaborators.length"
+              @click.stop
+              @update:checked="clearCollaborators()"
+            />
+            <span class="member-picker-name">{{ allLabel }}</span>
+          </div>
+        </div>
+
+        <div
+          v-if="showUnassigned"
+          class="member-picker-row"
+          :class="{ 'is-active': currentCollaborators.includes(unassignedValue) }"
+          @click.stop="toggleCollaborator(unassignedValue)"
+        >
+          <div class="member-picker-row-left">
+            <vort-checkbox
+              :checked="currentCollaborators.includes(unassignedValue)"
+              @click.stop
+              @update:checked="toggleCollaborator(unassignedValue)"
             />
             <span class="member-picker-name">{{ unassignedLabel }}</span>
           </div>

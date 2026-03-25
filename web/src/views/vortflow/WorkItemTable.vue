@@ -46,6 +46,7 @@ import {
     getVortgitRepos, getVortgitRepoBranches,
     getVortflowTags,
     getVortflowIterations,
+    getVortflowDescriptionTemplates,
 } from "@/api";
 import type {
     WorkItemType,
@@ -138,13 +139,14 @@ const {
     bugStatusFilterOptions,
     demandStatusFilterOptions,
     taskStatusFilterOptions,
+    loadStatusOptions,
 } = useWorkItemCommon();
 
 const { saveDraft, loadDraft, clearDraft } = useWorkItemDraft();
 const createDraftData = ref<NewBugForm | null>(null);
 
 const keyword = ref("");
-const owner = ref("");
+const owner = ref<string[]>([]);
 const type = ref<WorkItemType | "">(props.type ?? "");
 const status = ref<string[]>([]);
 const totalCount = ref(0);
@@ -201,40 +203,20 @@ const currentProjectName = computed(() => {
 });
 
 
-const descriptionTemplates: Record<WorkItemType, string> = {
-    "需求": [
-        "## 需求背景",
-        "<!-- 描述需求的业务背景和目标 -->",
-        "",
-        "## 用户故事",
-        "作为 ___，我希望 ___，以便 ___。",
-        "",
-        "## 验收标准",
-        "1. ",
-        "2. ",
-        "3. ",
-    ].join("\n"),
+const FALLBACK_TEMPLATES: Record<WorkItemType, string> = {
+    "需求": "",
     "任务": "",
-    "缺陷": [
-        "环境：请填写",
-        "",
-        "账号：请填写",
-        "",
-        "密码：请填写",
-        "",
-        "前置条件：请填写",
-        "",
-        "操作步骤：",
-        "步骤1：",
-        "步骤2：",
-        "",
-        "实际结果：请填写",
-        "",
-        "预期结果：请填写",
-    ].join("\n"),
+    "缺陷": "",
 };
 
-const getDescriptionTemplate = (type: WorkItemType): string => descriptionTemplates[type] ?? "";
+const remoteTemplates = ref<Record<string, string>>({});
+
+const getDescriptionTemplate = (type: WorkItemType): string => {
+    if (remoteTemplates.value[type] !== undefined && remoteTemplates.value[type] !== "") {
+        return remoteTemplates.value[type];
+    }
+    return FALLBACK_TEMPLATES[type] ?? "";
+};
 
 const onAvatarError = (e: Event) => {
     const el = e.target as HTMLImageElement | null;
@@ -320,10 +302,12 @@ const STATUS_DOT_COLOR_MAP: Record<string, string> = {
     "待办的": "#64748b",
     "进行中": "#3b82f6",
     "延期处理": "#0284c7",
+    "延期修复": "#3b82f6",
     "设计如此": "#d97706",
     "再次打开": "#ef4444",
     "无法复现": "#d97706",
     "暂时搁置": "#6b7280",
+    "暂搁置": "#64748b",
     "开发完成": "#0891b2",
     "待发布": "#d97706",
     "发布完成": "#059669",
@@ -334,7 +318,7 @@ const statusFilterConfig = computed<ColumnFilterConfig>(() => ({
     options: currentStatusFilterOptions.value.map(o => ({
         label: o.label,
         value: o.value,
-        dotColor: STATUS_DOT_COLOR_MAP[o.label] || "#9ca3af",
+        dotColor: o.iconColor || STATUS_DOT_COLOR_MAP[o.label] || "#9ca3af",
     })),
 }));
 
@@ -987,7 +971,7 @@ const queryParams = computed(() => ({
 
 const onReset = () => {
     keyword.value = "";
-    owner.value = "";
+    owner.value = [];
     type.value = props.type ?? "";
     status.value = [];
 };
@@ -1618,8 +1602,12 @@ onMounted(async () => {
         loadRepoOptions(),
         loadIterationOptions(),
         loadTagDefinitions(),
+        loadStatusOptions(),
         vortFlowStore.loadColumnSettings(props.type || ""),
         vortFlowStore.loadViews(props.type || ""),
+        getVortflowDescriptionTemplates().then((res: any) => {
+            if (res?.items) remoteTemplates.value = res.items;
+        }).catch(() => {}),
     ]);
     columnSettings.value = loadColumnSettingsFromStore();
     resetViewBaseline();
