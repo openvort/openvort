@@ -60,7 +60,6 @@ declare module 'vue' {
     VortTimeline: typeof import('@/components/vort/timeline')['Timeline']
     VortTimelineItem: typeof import('@/components/vort/timeline')['TimelineItem']
     VortTimePicker: typeof import('@/components/vort/time-picker')['TimePicker']
-    VortTip: typeof import('@/components/vort/tooltip')['Tooltip']
     VortTooltip: typeof import('@/components/vort/tooltip')['Tooltip']
     VortUploadDragger: typeof import('@/components/vort/upload')['UploadDragger']
   }
