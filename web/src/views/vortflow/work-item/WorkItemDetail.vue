@@ -400,9 +400,9 @@ const getStructureByType = (type: string): string => {
     switch (type) {
         case "缺陷":
             return `- **问题描述**：清晰描述缺陷的具体现象
-- **复现步骤**：列出重现该缺陷的详细操作步骤（1. 2. 3. ...）
-- **预期结果**：正常情况下应该出现的结果
+- **复现步骤**：列出重现该缺陷的详细操作步骤
 - **实际结果**：当前实际出现的错误现象
+- **预期结果**：正常情况下应该出现的结果
 - **影响范围**：该缺陷影响的功能模块和严重程度`;
         case "任务":
             return `- **任务目标**：明确说明本任务要达成的目标
@@ -986,7 +986,7 @@ watch(() => props.initialData, (value) => {
                 <h2 v-else class="bug-detail-title bug-detail-title-editable" @click="startEditingTitle">{{ record.title }}</h2>
             </template>
             <p class="bug-detail-sub" :style="isHierarchyRecord && parentRecord ? 'margin-top: 8px;' : ''">
-                {{ record.owner || "未指派" }}，创建于 {{ record.createdAt }}，最近更新于 {{ record.updatedAt || record.createdAt }}
+                {{ record.creator || "未知" }} 创建于 {{ record.createdAt }}，指派给 {{ record.owner || "未指派" }}，最近更新于 {{ record.updatedAt || record.createdAt }}
             </p>
             <div class="bug-detail-tabs">
                 <button :class="{ active: detailActiveTab === 'detail' }" @click="detailActiveTab = 'detail'">详情</button>

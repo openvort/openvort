@@ -166,6 +166,8 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
             endAt,
             _prevIteration: iterationId,
             _prevVersion: versionId,
+            _createdAtRaw: item?.created_at ? String(item.created_at) : "",
+            _updatedAtRaw: item?.updated_at ? String(item.updated_at) : "",
         };
     };
 
@@ -321,9 +323,9 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
                     if (vals?.length && !vals.includes(row.type || "")) return false;
                 } else if (field === "createdAt" || field === "planTime" || field === "updatedAt" || field === "startAt" || field === "endAt") {
                     const dateFieldMap: Record<string, string> = {
-                        createdAt: row.createdAt,
+                        createdAt: row._createdAtRaw || row.createdAt,
                         planTime: row.planStartDate || row.planEndDate || "",
-                        updatedAt: row.updatedAt || "",
+                        updatedAt: row._updatedAtRaw || row.updatedAt || "",
                         startAt: row.startAt || "",
                         endAt: row.endAt || "",
                     };

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch, nextTick, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { pinyin } from "pinyin-pro";
 import {
     ArrowLeft, ArrowRight, Bug, Users, Plus,
     Trash2, FolderGit2, TerminalSquare, ExternalLink,
@@ -206,7 +207,10 @@ const filteredAddMembers = computed(() => {
     return memberOptions.value.filter((m) => {
         if (existingMemberIds.value.has(m.id)) return false;
         if (!kw) return true;
-        return m.name.toLowerCase().includes(kw);
+        if (m.name.toLowerCase().includes(kw)) return true;
+        const full = pinyin(m.name, { toneType: "none", type: "array" }).join("").toLowerCase();
+        const first = pinyin(m.name, { pattern: "first", toneType: "none", type: "array" }).join("").toLowerCase();
+        return full.includes(kw) || first.includes(kw);
     });
 });
 

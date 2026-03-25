@@ -112,6 +112,8 @@ export interface RowItem {
     children?: RowItem[];
     _prevIteration?: string;
     _prevVersion?: string;
+    _createdAtRaw?: string;
+    _updatedAtRaw?: string;
 }
 
 export interface DetailComment {

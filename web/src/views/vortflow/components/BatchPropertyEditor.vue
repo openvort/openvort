@@ -150,8 +150,8 @@ const availableProperties = (currentProp: string) => {
 const projectGroups = computed(() => {
     const groups: Record<string, { name: string; items: RowItem[] }> = {};
     for (const row of props.selectedRows) {
-        const pid = row.projectId || "unknown";
-        const pname = row.projectName || pid;
+        const pid = row.projectId || "_no_project";
+        const pname = row.projectName || "未关联项目";
         if (!groups[pid]) groups[pid] = { name: pname, items: [] };
         groups[pid].items.push(row);
     }
@@ -462,6 +462,11 @@ const handleCancel = () => {
     grid-template-columns: 150px 110px 1fr 32px;
     gap: 8px;
     align-items: center;
+    font-size: 13px;
+}
+.change-row :deep(.vort-select-selector) {
+    font-size: 13px !important;
+    min-height: 32px !important;
 }
 .value-editor {
     min-width: 0;
