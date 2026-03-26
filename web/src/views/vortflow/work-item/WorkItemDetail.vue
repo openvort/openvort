@@ -1189,10 +1189,12 @@ watch(() => props.initialData, (value) => {
                         <div v-if="record?.type === '需求' || record?.type === '任务'" class="bug-detail-info-item bug-detail-info-item-row">
                             <label>进度</label>
                             <div
-                                class="detail-field-shell detail-progress-shell"
-                                :class="{ 'is-editing': isEditing('progress') }"
-                                @mousedown.capture="!isProgressReadonly && startEditingProgress()"
+                                class="detail-progress-shell"
+                                @click.stop="!isProgressReadonly && startEditingProgress()"
                             >
+                                <div class="detail-progress-bar">
+                                    <div class="detail-progress-fill" :style="{ width: (detailProgress || 0) + '%' }" />
+                                </div>
                                 <template v-if="!isProgressReadonly && isEditing('progress')">
                                     <vort-input-number
                                         ref="detailProgressRef"
@@ -1200,21 +1202,14 @@ watch(() => props.initialData, (value) => {
                                         :min="0"
                                         :max="100"
                                         :step="5"
-                                        :bordered="true"
-                                        class="detail-field-number"
+                                        size="small"
+                                        style="width:64px"
+                                        @click.stop
                                         @blur="stopEditing"
                                         @keyup.enter="stopEditing"
                                     />
-                                    <span class="ml-1 text-xs text-gray-400">%</span>
                                 </template>
-                                <template v-else>
-                                    <div class="detail-progress-bar-wrapper">
-                                        <div class="detail-progress-bar">
-                                            <div class="detail-progress-fill" :style="{ width: (detailProgress || 0) + '%' }" />
-                                        </div>
-                                        <span class="detail-progress-text">{{ detailProgress || 0 }}%</span>
-                                    </div>
-                                </template>
+                                <span v-else class="detail-progress-text" :class="{ 'cursor-pointer': !isProgressReadonly }">{{ detailProgress || 0 }}%</span>
                             </div>
                         </div>
                         <div class="bug-detail-info-item bug-detail-info-item-row">
@@ -2731,22 +2726,17 @@ watch(() => props.initialData, (value) => {
 }
 
 .detail-progress-shell {
-    flex: 1;
-    display: flex !important;
-    cursor: pointer;
-    padding: 0 4px;
-}
-
-.detail-progress-bar-wrapper {
     display: flex;
     align-items: center;
     gap: 8px;
-    max-width: 200px;
+    width: 160px;
+    cursor: pointer;
     padding: 4px 0;
 }
 .detail-progress-bar {
-    width: 140px;
+    flex: 1;
     height: 8px;
+    min-width: 60px;
     border-radius: 9999px;
     background-color: var(--vort-bg-secondary, #f0f0f0);
     overflow: hidden;
