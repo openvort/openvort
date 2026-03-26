@@ -1,4 +1,5 @@
 import { computed, reactive, ref } from "vue";
+import { formatFileSize } from "@/utils/format";
 import type { ProTableColumn, ProTableRequestParams, ProTableResponse } from "@/components/vort-biz/pro-table";
 import {
     type RowItem,
@@ -182,12 +183,6 @@ export function useBugTrackingState() {
         let hash = 0;
         for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
         return tagColorPalette[Math.abs(hash) % tagColorPalette.length]!;
-    };
-
-    const formatFileSize = (size: number): string => {
-        if (size < 1024) return `${size} B`;
-        if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
-        return `${(size / (1024 * 1024)).toFixed(1)} MB`;
     };
 
     // ==================== 行内编辑方法 ====================

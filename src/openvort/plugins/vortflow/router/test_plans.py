@@ -289,6 +289,15 @@ async def delete_test_plan(plan_id: str):
         await session.execute(
             sa_delete(FlowTestPlanCase).where(FlowTestPlanCase.plan_id == plan_id)
         )
+        review_ids_result = await session.execute(
+            select(FlowTestPlanReview.id).where(FlowTestPlanReview.plan_id == plan_id)
+        )
+        review_ids = [r[0] for r in review_ids_result.all()]
+        if review_ids:
+            await session.execute(
+                sa_delete(FlowTestPlanReviewHistory)
+                .where(FlowTestPlanReviewHistory.review_id.in_(review_ids))
+            )
         await session.execute(
             sa_delete(FlowTestPlanReview).where(FlowTestPlanReview.plan_id == plan_id)
         )
@@ -753,6 +762,10 @@ async def remove_plan_review(plan_id: str, review_id: str):
         review = await session.get(FlowTestPlanReview, review_id)
         if not review or review.plan_id != plan_id:
             return {"error": "评审项不存在"}
+        await session.execute(
+            sa_delete(FlowTestPlanReviewHistory)
+            .where(FlowTestPlanReviewHistory.review_id == review_id)
+        )
         await session.delete(review)
         await session.commit()
     return {"ok": True}
@@ -778,15 +791,7 @@ async def list_available_prs(plan_id: str, repo_id: str = Query(...)):
         )).scalars().all()
         already_set = set(already)
 
-    from openvort.plugins.vortgit.crypto import decrypt_token
-
-    token = decrypt_token(provider.access_token) if provider.access_token else ""
-    if provider.platform == "gitee":
-        from openvort.plugins.vortgit.providers.gitee import GiteeProvider
-        client = GiteeProvider(access_token=token, api_base=provider.api_base)
-    else:
-        raise HTTPException(400, f"暂不支持的平台: {provider.platform}")
-
+    client = _create_git_client(provider)
     try:
         prs = await client.list_pull_requests(repo.full_name, state="open", per_page=50)
     except Exception as e:

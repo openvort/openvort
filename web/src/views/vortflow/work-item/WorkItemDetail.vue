@@ -14,6 +14,7 @@ import TestCaseLinkPanel from "./TestCaseLinkPanel.vue";
 import NotifyDialog from "./NotifyDialog.vue";
 import { getVortflowProjects, getVortflowIterations, getVortflowVersions, getVortgitRepos, getVortgitRepoBranches, getVortflowComments, createVortflowComment, updateVortflowComment, getVortflowActivity, uploadVortflowFile } from "@/api";
 import { useUserStore } from "@/stores";
+import { formatFileSize } from "@/utils/format";
 import type { WorkItemType, Status, DateRange, RowItem, DetailComment, DetailLog, AttachmentItem } from "@/components/vort-biz/work-item/WorkItemTable.types";
 
 interface Props {
@@ -66,12 +67,6 @@ const detailDescDraft = ref(props.initialDescDraft ?? "");
 
 const detailAttachmentInputRef = ref<HTMLInputElement | null>(null);
 const detailAttachmentUploading = ref(false);
-
-const formatFileSize = (bytes: number): string => {
-    if (bytes < 1024) return bytes + " B";
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
-};
 
 const triggerDetailAttachmentInput = () => detailAttachmentInputRef.value?.click();
 
