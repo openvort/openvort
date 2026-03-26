@@ -2741,16 +2741,15 @@ watch(() => props.initialData, (value) => {
     display: flex;
     align-items: center;
     gap: 8px;
-    width: 100%;
+    max-width: 200px;
     padding: 4px 0;
 }
 .detail-progress-bar {
-    flex: 1;
+    width: 140px;
     height: 8px;
     border-radius: 9999px;
     background-color: var(--vort-bg-secondary, #f0f0f0);
     overflow: hidden;
-    min-width: 60px;
 }
 .detail-progress-fill {
     height: 100%;
