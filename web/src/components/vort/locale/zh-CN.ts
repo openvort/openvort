@@ -1,8 +1,5 @@
 import type { Locale } from "./types";
 
-/**
- * 简体中文语言包
- */
 const zhCN: Locale = {
     locale: "zh-CN",
 
@@ -14,7 +11,8 @@ const zhCN: Locale = {
         next_page: "下一页",
         prev_n: "向前 {count} 页",
         next_n: "向后 {count} 页",
-        total: "第 {start}-{end} 条 / 总共 {total} 条"
+        total: "第 {start}-{end} 条 / 总共 {total} 条",
+        pagination: "分页"
     },
 
     Table: {
@@ -30,7 +28,9 @@ const zhCN: Locale = {
 
     Modal: {
         ok_text: "确定",
-        cancel_text: "取消"
+        cancel_text: "取消",
+        got_it: "知道了",
+        close: "关闭"
     },
 
     Drawer: {
@@ -51,7 +51,9 @@ const zhCN: Locale = {
 
     Select: {
         no_data: "暂无数据",
-        search_placeholder: "请输入搜索内容"
+        search_placeholder: "请输入搜索内容",
+        placeholder: "请选择",
+        no_match: "无匹配结果"
     },
 
     DatePicker: {
@@ -65,12 +67,19 @@ const zhCN: Locale = {
         end_time: "结束时间",
         months: ["一月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "十一月", "十二月"],
         weekdays: ["周日", "周一", "周二", "周三", "周四", "周五", "周六"],
-        weekdays_short: ["日", "一", "二", "三", "四", "五", "六"]
+        weekdays_short: ["日", "一", "二", "三", "四", "五", "六"],
+        year_suffix: "年",
+        date_placeholder: "请选择日期",
+        datetime_placeholder: "请选择日期时间",
+        start_datetime: "开始日期时间",
+        end_datetime: "结束日期时间"
     },
 
     TimePicker: {
         placeholder: "请选择时间",
-        range_separator: "至"
+        range_separator: "至",
+        now: "此刻",
+        ok: "确定"
     },
 
     Transfer: {
@@ -81,6 +90,37 @@ const zhCN: Locale = {
 
     Empty: {
         description: "暂无数据"
+    },
+
+    Form: {
+        validation_failed: "验证失败",
+        required: "此项为必填项",
+        number: "请输入数字",
+        min_value: "不能小于 {min}",
+        max_value: "不能大于 {max}",
+        min_length: "长度不能小于 {min}",
+        max_length: "长度不能大于 {max}",
+        pattern: "格式不正确",
+        optional: "（可选）"
+    },
+
+    Cascader: {
+        placeholder: "请选择",
+        no_data: "暂无数据"
+    },
+
+    AutoComplete: {
+        placeholder: "请输入",
+        no_match: "无匹配结果"
+    },
+
+    InputPassword: {
+        show_password: "显示密码",
+        hide_password: "隐藏密码"
+    },
+
+    Alert: {
+        close: "关闭"
     }
 };
 

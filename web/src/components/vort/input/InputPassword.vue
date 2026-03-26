@@ -2,8 +2,11 @@
 import { computed, ref, useAttrs } from "vue";
 import VortInput from "./Input.vue";
 import { EyeOutlined, EyeInvisibleOutlined } from "@/components/vort/icons";
+import { useLocale } from "@/components/vort/locale/useLocale";
 
 defineOptions({ name: "VortInputPassword", inheritAttrs: false });
+
+const { t: ipT } = useLocale("InputPassword");
 
 /** Vort InputPassword - 密码输入框组件 */
 
@@ -114,7 +117,7 @@ defineExpose({
                 :class="{ 'vort-input-password-icon-disabled': disabled }"
                 role="button"
                 tabindex="-1"
-                :aria-label="isVisible ? '隐藏密码' : '显示密码'"
+                :aria-label="isVisible ? ipT('hide_password') : ipT('show_password')"
                 @click="toggleVisibility"
                 @mousedown.prevent
             >

@@ -253,7 +253,7 @@ const getNavItemClasses = (isDisabled: boolean) => {
 </script>
 
 <template>
-    <nav v-if="!shouldHide" :class="containerClasses" role="navigation" aria-label="分页">
+    <nav v-if="!shouldHide" :class="containerClasses" role="navigation" :aria-label="t('pagination')">
         <!-- 总数显示 -->
         <span v-if="totalText" class="vort-pagination-total">
             {{ totalText }}

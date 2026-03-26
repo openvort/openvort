@@ -3,8 +3,11 @@ import { ref, computed, watch, nextTick, onMounted, onUnmounted, useAttrs } from
 import { CalendarOutlined, CloseCircleFilled } from "@/components/vort/icons";
 import { Button as VortButton } from "@/components/vort/button";
 import { getVortPopupContainer, useZIndex } from "@/components/vort/composables";
+import { useLocale } from "@/components/vort/locale/useLocale";
 
 defineOptions({ name: "VortRangePicker", inheritAttrs: false });
+
+const { componentLocale: dpLocale, t: dpT } = useLocale("DatePicker");
 
 // 多根节点（包含 Teleport）时，外部属性不会自动继承到根节点，需要手动透传
 const attrs = useAttrs();
@@ -152,8 +155,8 @@ const showTimeOptions = computed<ShowTimeOptions | null>(() => {
 // 计算实际的 placeholder
 const actualPlaceholder = computed<[string, string]>(() => {
     if (props.placeholder !== undefined) return props.placeholder;
-    if (props.showTime) return ["开始日期时间", "结束日期时间"];
-    return ["开始日期", "结束日期"];
+    if (props.showTime) return [dpLocale.value.start_datetime, dpLocale.value.end_datetime];
+    return [dpT("start_date"), dpT("end_date")];
 });
 
 // 计算实际的 format
@@ -671,7 +674,10 @@ watch(
 
 // ============ 日历数据 ============
 // 从周一开始
-const weekDays = ["一", "二", "三", "四", "五", "六", "日"];
+const weekDays = computed(() => {
+    const ws = dpLocale.value.weekdays_short;
+    return [...ws.slice(1), ws[0]];
+});
 
 // 获取某月的天数
 const getDaysInMonth = (year: number, month: number): number => {
@@ -809,7 +815,7 @@ const leftCalendarDays = computed(() => generateCalendarDays(leftPanelYear.value
 const rightCalendarDays = computed(() => generateCalendarDays(rightPanelYear.value, rightPanelMonth.value));
 
 // 月份数据
-const months = ["一月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "十一月", "十二月"];
+const months = computed(() => dpLocale.value.months);
 
 // 年份范围（当前年份前后10年）
 const leftYearRange = computed(() => {
@@ -1349,10 +1355,10 @@ defineExpose({
 
                                         <div class="vort-datepicker-header-view">
                                             <button type="button" class="vort-datepicker-header-btn" @click="leftPanelMode = 'year'">
-                                                {{ leftPanelYear }}年
+                                                {{ leftPanelYear }}{{ dpLocale.year_suffix }}
                                             </button>
                                             <button type="button" class="vort-datepicker-header-btn" @click="leftPanelMode = 'month'">
-                                                {{ leftPanelMonth + 1 }}月
+                                                {{ months[leftPanelMonth] }}
                                             </button>
                                         </div>
 
@@ -1407,7 +1413,7 @@ defineExpose({
 
                                         <div class="vort-datepicker-header-view">
                                             <button type="button" class="vort-datepicker-header-btn" @click="leftPanelMode = 'year'">
-                                                {{ leftPanelYear }}年
+                                                {{ leftPanelYear }}{{ dpLocale.year_suffix }}
                                             </button>
                                         </div>
 
@@ -1564,10 +1570,10 @@ defineExpose({
 
                                         <div class="vort-datepicker-header-view">
                                             <button type="button" class="vort-datepicker-header-btn" @click="rightPanelMode = 'year'">
-                                                {{ rightPanelYear }}年
+                                                {{ rightPanelYear }}{{ dpLocale.year_suffix }}
                                             </button>
                                             <button type="button" class="vort-datepicker-header-btn" @click="rightPanelMode = 'month'">
-                                                {{ rightPanelMonth + 1 }}月
+                                                {{ months[rightPanelMonth] }}
                                             </button>
                                         </div>
 
@@ -1622,7 +1628,7 @@ defineExpose({
 
                                         <div class="vort-datepicker-header-view">
                                             <button type="button" class="vort-datepicker-header-btn" @click="rightPanelMode = 'year'">
-                                                {{ rightPanelYear }}年
+                                                {{ rightPanelYear }}{{ dpLocale.year_suffix }}
                                             </button>
                                         </div>
 
@@ -1766,8 +1772,8 @@ defineExpose({
 
                 <!-- 底部按钮 -->
                 <div v-if="showTime" class="vort-datepicker-footer vort-datepicker-footer-showtime">
-                    <VortButton v-if="showNow" variant="text" size="small" @click="selectNow"> 此刻 </VortButton>
-                    <VortButton variant="primary" size="small" @click="confirmSelection"> 确定 </VortButton>
+                    <VortButton v-if="showNow" variant="text" size="small" @click="selectNow">{{ dpT('now') }}</VortButton>
+                    <VortButton variant="primary" size="small" @click="confirmSelection">{{ dpT('ok') }}</VortButton>
                 </div>
             </div>
         </Transition>

@@ -3,8 +3,11 @@ import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { InfoCircleFilled, CheckCircleFilled, CloseCircleFilled, ExclamationCircleFilled } from "@/components/vort/icons";
 import { Button } from "@/components/vort/button";
 import { getVortTeleportTo } from "@/components/vort/composables";
+import { useLocale } from "@/components/vort/locale/useLocale";
 
 defineOptions({ name: "VortConfirmDialog" });
+
+const { t: modalT } = useLocale("Modal");
 
 /** Vort ConfirmDialog - 确认对话框组件 */
 
@@ -54,8 +57,8 @@ const props = withDefaults(defineProps<Props>(), {
     closable: false,
     maskClosable: false,
     keyboard: true,
-    okText: "确定",
-    cancelText: "取消",
+    okText: undefined,
+    cancelText: undefined,
     confirmLoading: false,
     okType: "primary",
     zIndex: 1000,
@@ -63,6 +66,9 @@ const props = withDefaults(defineProps<Props>(), {
     mousePosition: null,
     contentBg: "#fff"
 });
+
+const resolvedOkText = computed(() => props.okText ?? modalT("ok_text"));
+const resolvedCancelText = computed(() => props.cancelText ?? modalT("cancel_text"));
 
 const emit = defineEmits<{
     "update:open": [value: boolean];
@@ -235,7 +241,7 @@ onUnmounted(() => {
                     @animationend="handleAnimationEnd"
                 >
                     <!-- 关闭按钮 -->
-                    <button v-if="closable" class="vort-confirm-dialog-close" type="button" aria-label="关闭" @click="close">
+                    <button v-if="closable" class="vort-confirm-dialog-close" type="button" :aria-label="modalT('close')" @click="close">
                         <svg class="vort-confirm-dialog-close-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M18 6L6 18M6 6l12 12" />
                         </svg>
@@ -258,7 +264,7 @@ onUnmounted(() => {
                     <!-- 底部按钮区 -->
                     <div class="vort-confirm-dialog-footer">
                         <Button v-if="!isSingleButton" @click="handleCancel">
-                            {{ cancelText }}
+                            {{ resolvedCancelText }}
                         </Button>
                         <Button
                             :variant="okType === 'danger' ? undefined : 'primary'"
@@ -266,7 +272,7 @@ onUnmounted(() => {
                             :loading="confirmLoading"
                             @click="handleOk"
                         >
-                            {{ isSingleButton ? "知道了" : okText }}
+                            {{ isSingleButton ? modalT("got_it") : resolvedOkText }}
                         </Button>
                     </div>
                 </div>

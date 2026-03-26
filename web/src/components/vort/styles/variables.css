@@ -160,6 +160,7 @@
     /* Table */
     --vort-table-header-bg: #fafafa;
     --vort-table-row-hover-bg: #fafafa;
+    --vort-table-actions-gap: 8px;
 }
 
 /* =====================================================

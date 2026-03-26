@@ -1,6 +1,7 @@
 import { createApp, ref, h, type App } from "vue";
 import ConfirmDialog, { type ConfirmDialogType } from "./ConfirmDialog.vue";
 import { isServer } from "@/components/vort/composables";
+import { localeContextKey, getGlobalLocale } from "@/components/vort/locale/useLocale";
 
 export { default as Dialog } from "./Dialog.vue";
 export { default as ConfirmDialog } from "./ConfirmDialog.vue";
@@ -196,6 +197,7 @@ const createDialog = (type: ConfirmDialogType, config: DialogConfig): DialogInst
         }
     });
 
+    state.app.provide(localeContextKey, getGlobalLocale());
     state.app.mount(container);
 
     // 返回实例
@@ -238,6 +240,7 @@ const createDialog = (type: ConfirmDialogType, config: DialogConfig): DialogInst
                             });
                     }
                 });
+                state.app.provide(localeContextKey, getGlobalLocale());
                 state.app.mount(container);
             }
         }

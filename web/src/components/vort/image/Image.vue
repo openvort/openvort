@@ -499,7 +499,7 @@ onUnmounted(() => {
             ref="imageRef"
             v-show="!loading && !error"
             :class="['vort-image-img', { 'vort-image-img-preview': isPreviewEnabled }]"
-            :style="{ objectFit: fit }"
+            :style="{ objectFit: fit, width: '100%', height: '100%', maxWidth: 'none' }"
             :src="src"
             :alt="alt"
             @load="handleLoad"
@@ -512,7 +512,7 @@ onUnmounted(() => {
             v-if="error && fallback"
             v-show="!fallbackLoading && !fallbackError"
             :class="['vort-image-img', { 'vort-image-img-preview': isPreviewEnabled }]"
-            :style="{ objectFit: fit }"
+            :style="{ objectFit: fit, width: '100%', height: '100%', maxWidth: 'none' }"
             :src="fallback"
             :alt="alt"
             @load="handleFallbackLoad"
@@ -604,6 +604,7 @@ onUnmounted(() => {
     display: block;
     width: 100%;
     height: 100%;
+    max-width: none;
 }
 
 .vort-image-img-preview {

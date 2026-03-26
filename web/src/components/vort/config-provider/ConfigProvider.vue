@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, provide } from "vue";
+import { computed, provide, watchEffect } from "vue";
 import type { ConfigProviderProps, ConfigProviderContext } from "./types";
 import { CONFIG_PROVIDER_KEY } from "./types";
 import { VORT_TELEPORT_CONTAINER_ID } from "../composables/useTeleportContainer";
-import { localeContextKey } from "../locale/useLocale";
+import { localeContextKey, setGlobalLocale } from "../locale/useLocale";
 import zhCN from "../locale/zh-CN";
 
 defineOptions({ name: "VortConfigProvider" });
@@ -315,10 +315,13 @@ const configContext = computed<ConfigProviderContext>(() => ({
 provide(CONFIG_PROVIDER_KEY, configContext);
 
 // 提供国际化上下文给子组件（使用 computed 保持响应式）
-provide(
-    localeContextKey,
-    computed(() => props.locale ?? zhCN)
-);
+const resolvedLocale = computed(() => props.locale ?? zhCN);
+provide(localeContextKey, resolvedLocale);
+
+// 同步到全局 locale（供 dialog.confirm 等独立 app 实例使用）
+watchEffect(() => {
+    setGlobalLocale(resolvedLocale.value);
+});
 </script>
 
 <template>

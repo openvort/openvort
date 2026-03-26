@@ -255,7 +255,7 @@ onUnmounted(() => {
                 >
                     <div class="vort-dialog-content">
                         <!-- 关闭按钮 -->
-                        <Button v-if="closable" type="text" icon class="vort-dialog-close" aria-label="关闭" @click="close">
+                        <Button v-if="closable" type="text" icon class="vort-dialog-close" :aria-label="t('close')" @click="close">
                             <X class="vort-dialog-close-icon" />
                         </Button>
 

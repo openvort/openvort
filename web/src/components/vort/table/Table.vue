@@ -64,6 +64,8 @@ interface Props<T = any> {
     // ==================== 树形表格配置 ====================
     /** 树形结构配置 */
     treeProps?: TableTreeProps;
+    /** 是否启用树形结构；不传时自动根据数据推断 */
+    tree?: boolean;
     /** 懒加载子节点方法 */
     loadChildren?: LoadChildrenFn<T>;
     /** 默认展开的行 keys */
@@ -100,6 +102,7 @@ const props = withDefaults(defineProps<Props>(), {
     stripe: false,
     // 树形表格默认值
     treeProps: () => ({ children: "children", hasChildren: "hasChildren" }),
+    tree: undefined,
     expandRowByClick: false,
     indent: 30,
     showExpandLoading: false,
@@ -367,12 +370,56 @@ const treeConfig = computed(() => ({
     hasChildrenField: props.treeProps?.hasChildren || "hasChildren"
 }));
 
+const isTreeExplicitlyDisabled = computed(() => props.tree === false);
+
+const normalizeHasChildren = (value: unknown): boolean | undefined => {
+    if (value === undefined || value === null || value === "") {
+        return undefined;
+    }
+
+    if (typeof value === "boolean") {
+        return value;
+    }
+
+    if (typeof value === "number") {
+        return value > 0;
+    }
+
+    if (typeof value === "string") {
+        const normalized = value.trim().toLowerCase();
+
+        if (!normalized) {
+            return undefined;
+        }
+
+        if (["0", "false", "no", "n", "off", "null", "undefined"].includes(normalized)) {
+            return false;
+        }
+
+        if (["1", "true", "yes", "y", "on"].includes(normalized)) {
+            return true;
+        }
+
+        const numericValue = Number(normalized);
+        if (!Number.isNaN(numericValue)) {
+            return numericValue > 0;
+        }
+    }
+
+    return Boolean(value);
+};
+
 // 判断行是否有子节点
 const rowHasChildren = (record: any): boolean => {
+    if (isTreeExplicitlyDisabled.value) {
+        return false;
+    }
+
     const { childrenField, hasChildrenField } = treeConfig.value;
-    // 优先检查 hasChildren 字段
-    if (record[hasChildrenField] !== undefined) {
-        return !!record[hasChildrenField];
+    // 优先检查 hasChildren 字段，并兼容 "0"/"1" 等后端字符串值
+    const normalizedHasChildren = normalizeHasChildren(record[hasChildrenField]);
+    if (normalizedHasChildren !== undefined) {
+        return normalizedHasChildren;
     }
     // 其次检查 children 数组
     const children = record[childrenField];
@@ -412,6 +459,10 @@ const getTreeNodeState = (key: string | number): TreeNodeState => {
 
 // 展开/折叠行
 const toggleRowExpand = async (record: any, index: number) => {
+    if (isTreeExplicitlyDisabled.value) {
+        return;
+    }
+
     const key = getRowKey(record, index);
     const isExpanded = internalExpandedKeys.value.has(key);
     const nodeState = getTreeNodeState(key);
@@ -446,6 +497,10 @@ const toggleRowExpand = async (record: any, index: number) => {
 
 // 刷新指定节点的子节点
 const refreshChildren = async (parentKey: string | number) => {
+    if (isTreeExplicitlyDisabled.value) {
+        return;
+    }
+
     // 找到对应的行数据
     const findRecord = (data: any[], key: string | number): any => {
         for (const record of data) {
@@ -490,6 +545,16 @@ interface FlattenedRow {
 }
 
 const flattenTreeData = (data: any[], level: number = 0, parentKey?: string | number): FlattenedRow[] => {
+    if (isTreeExplicitlyDisabled.value) {
+        return data.map((record, index) => ({
+            record,
+            index,
+            level,
+            isLast: index === data.length - 1,
+            parentKey
+        }));
+    }
+
     const result: FlattenedRow[] = [];
 
     data.forEach((record, index) => {
@@ -652,6 +717,9 @@ const paginatedData = computed(() => {
 
 // 判断是否启用树形模式
 const isTreeMode = computed(() => {
+    if (props.tree !== undefined) {
+        return props.tree;
+    }
     return !!props.loadChildren || props.dataSource?.some((row) => rowHasChildren(row));
 });
 
@@ -1007,7 +1075,8 @@ const getFixedColumnStyle = (column: TableColumn, isHeader: boolean = false) => 
             }
         }
 
-        style.right = `${rightOffset}px`;
+        // -1px 补偿浏览器亚像素渲染导致 sticky 定位与容器右边缘的间隙
+        style.right = `${rightOffset - 1}px`;
     }
 
     return style;
@@ -1223,7 +1292,11 @@ defineExpose({
         emit("update:expandedRowKeys", [...internalExpandedKeys.value]);
     },
     /** 获取展开的行 keys */
-    getExpandedRowKeys: () => [...internalExpandedKeys.value]
+    getExpandedRowKeys: () => [...internalExpandedKeys.value],
+    /** 重置排序状态 */
+    resetSort: () => {
+        sortState.value = { field: "", order: null };
+    }
 });
 </script>
 

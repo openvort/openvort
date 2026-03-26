@@ -52,8 +52,11 @@ import {
 import { CloseCircleFilled, CloseOutlined, DownOutlined } from "@/components/vort/icons";
 import { Check } from "lucide-vue-next";
 import { getVortPopupContainer } from "@/components/vort/composables";
+import { useLocale } from "@/components/vort/locale/useLocale";
 
 defineOptions({ name: "VortSelect", inheritAttrs: false });
+
+const { t: selT } = useLocale("Select");
 
 const attrs = useAttrs();
 const attrsStyle = computed<StyleValue | undefined>(() => attrs.style as StyleValue | undefined);
@@ -63,7 +66,7 @@ const attrsStyle = computed<StyleValue | undefined>(() => attrs.style as StyleVa
 const props = withDefaults(defineProps<SelectProps>(), {
     modelValue: undefined,
     options: () => [],
-    placeholder: "请选择",
+    placeholder: undefined,
     size: "middle",
     disabled: false,
     status: undefined,
@@ -73,8 +76,8 @@ const props = withDefaults(defineProps<SelectProps>(), {
     maxTagCount: undefined,
     maxTagPlaceholder: undefined,
     filterOption: true,
-    searchPlaceholder: "请输入搜索内容",
-    notFoundContent: "无匹配结果",
+    searchPlaceholder: undefined,
+    notFoundContent: undefined,
     listHeight: 256,
     autoClearSearchValue: true,
     getPopupContainer: undefined,
@@ -83,6 +86,9 @@ const props = withDefaults(defineProps<SelectProps>(), {
 });
 
 const popupContainer = computed(() => props.getPopupContainer?.() ?? getVortPopupContainer());
+const placeholder = computed(() => props.placeholder ?? selT("placeholder"));
+const searchPlaceholder = computed(() => props.searchPlaceholder ?? selT("search_placeholder"));
+const notFoundContent = computed(() => props.notFoundContent ?? selT("no_match"));
 
 const emit = defineEmits<{
     "update:modelValue": [value: string | number | (string | number)[] | undefined];

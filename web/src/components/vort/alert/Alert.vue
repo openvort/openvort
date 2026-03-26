@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, useSlots, type SlotsType } from "vue";
 import { CheckCircleFilled, InfoCircleFilled, ExclamationCircleFilled, CloseCircleFilled, CloseOutlined } from "@/components/vort/icons";
+import { useLocale } from "@/components/vort/locale/useLocale";
 
 defineOptions({ name: "VortAlert" });
+
+const { t: alertT } = useLocale("Alert");
 
 /** Vort Alert - 警告提示组件 */
 
@@ -153,7 +156,7 @@ const onAfterLeave = () => {
             </div>
 
             <!-- 关闭按钮 -->
-            <button v-if="closable" class="vort-alert-close" @click="handleClose" aria-label="关闭">
+            <button v-if="closable" class="vort-alert-close" @click="handleClose" :aria-label="alertT('close')">
                 <slot name="closeIcon">
                     <template v-if="closeText">
                         <span class="vort-alert-close-text">{{ closeText }}</span>
