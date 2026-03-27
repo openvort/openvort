@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, nextTick } from "vue";
 import type { Component } from "vue";
-import { dialog } from "@/components/vort";
+import { dialog } from "@openvort/vort-ui";
 
 defineOptions({ name: "DialogForm", inheritAttrs: false });
 

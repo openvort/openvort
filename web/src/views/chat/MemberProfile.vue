@@ -8,7 +8,7 @@ import {
     getWorkAssignments, updateWorkAssignment, updateWorkAssignmentStatus, deleteWorkAssignment,
     getRemoteNodes, updateMember, getMember,
 } from "@/api";
-import { message, dialog } from "@/components/vort";
+import { message, dialog } from "@openvort/vort-ui";
 import { Bot, Plus, Trash2, Save, User, Globe, BookOpen, ClipboardList, Clock, Pause, Play, Square, Cpu } from "lucide-vue-next";
 
 const props = defineProps<{

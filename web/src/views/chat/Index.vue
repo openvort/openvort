@@ -24,7 +24,7 @@ import {
     Copy, RefreshCw, Search, Clock, Pause, ChevronUp, Trash2, Paperclip, File,
     Maximize2, PanelLeftOpen, PanelLeftClose
 } from "lucide-vue-next";
-import { Popover as VortPopover, Image as VortImage, ImagePreviewGroup as VortImagePreviewGroup } from "@/components/vort";
+import { Popover as VortPopover, Image as VortImage, ImagePreviewGroup as VortImagePreviewGroup } from "@openvort/vort-ui";
 import {
     getChatSessionInfo, setChatThinking, compactChatSession, resetChatSession,
     getChatContacts, getWorkAssignments, restoreChatContext, startMemberChat,
@@ -32,7 +32,7 @@ import {
 } from "@/api";
 import { usePluginStore } from "@/stores/modules/plugin";
 import { useNotificationStore } from "@/stores/modules/notification";
-import { message } from "@/components/vort";
+import { message } from "@openvort/vort-ui";
 import ContactList from "./ContactList.vue";
 import SessionSwitcher from "./SessionSwitcher.vue";
 import MemberProfile from "./MemberProfile.vue";

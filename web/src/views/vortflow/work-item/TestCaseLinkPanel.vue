@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
 import { Plus, X, Search, ClipboardCheck } from "lucide-vue-next";
-import { message } from "@/components/vort";
+import { message } from "@openvort/vort-ui";
 import {
     getVortflowTestCases,
     getVortflowTestCaseLinks,

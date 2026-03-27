@@ -8,7 +8,7 @@ import {
     testOpenClawNode,
     getOpenClawNodeMembers,
 } from "@/api";
-import { message } from "@/components/vort";
+import { message } from "@openvort/vort-ui";
 import { Plus, CheckCircle, XCircle, HelpCircle, Wifi } from "lucide-vue-next";
 
 interface OpenClawNode {

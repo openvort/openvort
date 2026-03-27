@@ -1,5 +1,5 @@
 import { computed, nextTick, reactive, ref, unref, type Ref } from "vue";
-import { message } from "@/components/vort";
+import { message } from "@openvort/vort-ui";
 import type {
     Priority,
     Status,

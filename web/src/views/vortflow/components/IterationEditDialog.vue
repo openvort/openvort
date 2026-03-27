@@ -2,7 +2,7 @@
 import { ref, watch } from "vue";
 import { z } from "zod";
 import { Info } from "lucide-vue-next";
-import { DownOutlined } from "@/components/vort/icons";
+import { DownOutlined } from "@openvort/vort-ui";
 import { useVortFlowStore } from "@/stores";
 import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMemberPicker.vue";
 import { useWorkItemCommon } from "../work-item/useWorkItemCommon";

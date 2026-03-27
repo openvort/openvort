@@ -22,6 +22,7 @@
   },
   "dependencies": {
     "@babel/runtime": "^7.28.0",
+    "@openvort/vort-ui": "^1.1.1",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/vue-virtual": "^3.13.21",
     "@tiptap/extension-image": "^3.20.0",

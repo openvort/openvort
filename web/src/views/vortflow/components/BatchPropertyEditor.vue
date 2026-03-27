@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
-import { Button, Select, SelectOption, Dialog, Input, Divider, message } from "@/components/vort";
+import { Button, Select, SelectOption, Dialog, Input, Divider, message } from "@openvort/vort-ui";
 import WorkItemPriority from "@/components/vort-biz/work-item/WorkItemPriority.vue";
 import WorkItemStatus from "@/components/vort-biz/work-item/WorkItemStatus.vue";
 import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMemberPicker.vue";

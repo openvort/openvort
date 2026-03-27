@@ -22,7 +22,7 @@
 
 <script setup lang="ts">
 import { ref, watch } from "vue";
-import { Dialog } from "@/components/vort";
+import { Dialog } from "@openvort/vort-ui";
 import { z } from "zod";
 
 const props = defineProps<{

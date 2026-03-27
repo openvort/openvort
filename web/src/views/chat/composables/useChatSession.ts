@@ -3,7 +3,7 @@ import type { ChatMessage, ChatSession, Contact, Draft, PendingImage, PendingFil
 import type { ActiveStream } from "./useChatStream";
 import { startMemberChat, markChatRead, getChatSessions } from "@/api";
 import { useNotificationStore } from "@/stores/modules/notification";
-import { message } from "@/components/vort";
+import { message } from "@openvort/vort-ui";
 
 interface UseChatSessionOptions {
     messages: Ref<ChatMessage[]>;

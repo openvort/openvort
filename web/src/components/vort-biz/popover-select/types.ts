@@ -1,5 +1,5 @@
 import type { PropType, VNodeChild } from "vue";
-import type { PopoverPlacement } from "@/components/vort/popover";
+import type { PopoverPlacement } from "@openvort/vort-ui";
 
 export type PopoverSelectSize = "large" | "middle" | "small";
 

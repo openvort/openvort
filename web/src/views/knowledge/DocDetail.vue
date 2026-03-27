@@ -6,7 +6,7 @@ import {
     ArrowLeft, Pencil, Save, X, RefreshCw, Trash2,
     CheckCircle, AlertCircle, Loader2,
 } from "lucide-vue-next";
-import { message, dialog } from "@/components/vort";
+import { message, dialog } from "@openvort/vort-ui";
 import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
 import { useUserStore } from "@/stores";

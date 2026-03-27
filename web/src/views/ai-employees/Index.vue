@@ -6,7 +6,7 @@ import {
     getVirtualRoles, createVirtualRole, updateVirtualRole, deleteVirtualRole,
     getWebhooks, getRemoteNodes, uploadMemberAvatar,
 } from "@/api";
-import { message } from "@/components/vort";
+import { message } from "@openvort/vort-ui";
 import { MemberWizard } from "@/components/vort-biz/member-wizard";
 import AvatarCropper from "vue-avatar-cropper";
 import "cropperjs/dist/cropper.min.css";

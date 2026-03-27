@@ -2,7 +2,7 @@
 import { ref, computed, watch } from "vue";
 import { ArrowRight } from "lucide-vue-next";
 import { migrateVortflowTag } from "@/api";
-import { message } from "@/components/vort/message";
+import { message } from "@openvort/vort-ui";
 
 interface TagItem {
     id: string;

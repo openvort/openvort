@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from "vue";
-import type { FloatingPlacement } from "@/components/vort";
+import type { PopoverPlacement } from "@openvort/vort-ui";
 import type { PopFormInputType } from "./types";
-import { message, Popconfirm } from "@/components/vort";
+import { message, Popconfirm } from "@openvort/vort-ui";
 
 defineOptions({ name: "PopForm" });
 
@@ -48,7 +48,7 @@ interface Props {
 
     // ========== Popconfirm 属性 ==========
     /** 气泡框位置，默认 bottom */
-    placement?: FloatingPlacement;
+    placement?: PopoverPlacement;
     /** 确认按钮文字 */
     okText?: string;
     /** 取消按钮文字 */

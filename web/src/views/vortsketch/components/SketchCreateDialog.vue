@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, computed } from "vue";
-import { Dialog as VortDialog, Button as VortButton, Input as VortInput, Textarea as VortTextarea } from "@/components/vort";
+import { Dialog as VortDialog, Button as VortButton, Input as VortInput, Textarea as VortTextarea } from "@openvort/vort-ui";
 
 interface SketchEditData {
     id?: string;

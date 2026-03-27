@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, reactive, onMounted, watch, nextTick } from "vue";
-import { message, dialog, Dropdown, DropdownMenuItem, DropdownMenuSeparator } from "@/components/vort";
+import { message, dialog, Dropdown, DropdownMenuItem, DropdownMenuSeparator } from "@openvort/vort-ui";
 import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMemberPicker.vue";
 import WorkItemStatus from "@/components/vort-biz/work-item/WorkItemStatus.vue";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";

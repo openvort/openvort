@@ -91,7 +91,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
-import { Dialog, message } from "@/components/vort";
+import { Dialog, message } from "@openvort/vort-ui";
 import { Bell, AlarmClock } from "lucide-vue-next";
 import { sendVortflowNotify } from "@/api";
 

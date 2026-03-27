@@ -4,7 +4,7 @@ import { z } from "zod";
 import { useCrudPage } from "@/hooks";
 import { getVortgitProviders, createVortgitProvider, updateVortgitProvider, deleteVortgitProvider, getVortgitCodingEnvStatus } from "@/api";
 import { Plus, Eye, EyeOff, RefreshCw, CheckCircle2, XCircle, AlertCircle, Terminal, Container } from "lucide-vue-next";
-import { message } from "@/components/vort";
+import { message } from "@openvort/vort-ui";
 
 interface ProviderItem {
     id: string;

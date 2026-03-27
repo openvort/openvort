@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
 import { getAgentRoutes, createAgentRoute, deleteAgentRoute } from "@/api";
-import { message } from "@/components/vort";
+import { message } from "@openvort/vort-ui";
 import { Plus } from "lucide-vue-next";
 
 interface AgentRoute {

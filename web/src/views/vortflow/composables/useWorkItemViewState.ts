@@ -1,5 +1,5 @@
 import { computed, nextTick, ref, watch } from "vue";
-import { message } from "@/components/vort";
+import { message } from "@openvort/vort-ui";
 import { useVortFlowStore } from "@/stores";
 import { SYSTEM_VIEWS } from "./useVortFlowViews";
 import type { ColumnFilterValue } from "@/components/vort-biz/pro-table/ColumnFilterPopover.vue";

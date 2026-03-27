@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { DownOutlined } from "@/components/vort/icons";
+import { DownOutlined } from "@openvort/vort-ui";
 import PopoverSelect from "@/components/vort-biz/popover-select/PopoverSelect.vue";
 import WorkItemMemberPicker from "./WorkItemMemberPicker.vue";
 import StatusIcon from "./StatusIcon.vue";

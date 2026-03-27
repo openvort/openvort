@@ -2,7 +2,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { marked } from "marked";
 import { X, ZoomIn, ZoomOut, RotateCw, RotateCcw, Maximize, Download, ChevronLeft, ChevronRight } from "lucide-vue-next";
-import { getVortTeleportTo } from "@/components/vort/composables";
+import { getVortTeleportTo } from "@/components/vort-biz/utils/teleport";
 
 const props = defineProps<{
     content: string;

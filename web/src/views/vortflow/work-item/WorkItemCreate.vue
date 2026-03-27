@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, reactive, onMounted, watch } from "vue";
 import { pinyin } from "pinyin-pro";
-import { message } from "@/components/vort";
-import { DownOutlined } from "@/components/vort/icons";
+import { message } from "@openvort/vort-ui";
+import { DownOutlined } from "@openvort/vort-ui";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
 import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMemberPicker.vue";
 import WorkItemPriority from "@/components/vort-biz/work-item/WorkItemPriority.vue";

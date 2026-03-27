@@ -10,7 +10,7 @@ import {
     ChevronDown, FolderTree, Plus, Pencil, UserPlus,
     Download, Calendar, CloudDownload, User, IdCard,
 } from "lucide-vue-next";
-import { message, dialog } from "@/components/vort";
+import { message, dialog } from "@openvort/vort-ui";
 import { DeptTree } from "@/components/vort-biz/dept-tree";
 import { MemberWizard } from "@/components/vort-biz/member-wizard";
 import { useContactMembers } from "./composables/useContactMembers";

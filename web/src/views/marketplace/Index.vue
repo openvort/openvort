@@ -6,8 +6,8 @@ import {
     marketplaceInstallSkill, marketplaceInstallPlugin,
     marketplaceListInstalled, marketplaceUninstall,
 } from "@/api";
-import { message } from "@/components/vort/message";
-import { dialog } from "@/components/vort/dialog";
+import { message } from "@openvort/vort-ui";
+import { dialog } from "@openvort/vort-ui";
 import { usePluginStore } from "@/stores/modules/plugin";
 import {
     Puzzle, BookOpen, Download, Star, Calendar,

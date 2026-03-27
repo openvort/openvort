@@ -4,7 +4,7 @@ import { Bot } from "lucide-vue-next";
 import {
     DropdownButton,
     DropdownMenuItem,
-} from "@/components/vort/dropdown";
+} from "@openvort/vort-ui";
 import { useAiFloat } from "@/composables/useAiFloat";
 
 export interface AiAssistPromptItem {

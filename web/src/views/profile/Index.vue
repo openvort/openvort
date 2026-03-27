@@ -11,7 +11,7 @@ import {
     getPluginPersonalSettings, getPluginPersonalSetting, savePluginPersonalSetting, deletePluginPersonalSetting,
     getAccessTokens, createAccessToken, revokeAccessToken,
 } from "@/api";
-import { message, dialog } from "@/components/vort";
+import { message, dialog } from "@openvort/vort-ui";
 import { Shield, Bell, User, GitBranch, Sparkles, Plus, Trash2, Globe, Bot, Puzzle, Key, Copy, Check } from "lucide-vue-next";
 import AvatarCropper from "vue-avatar-cropper";
 import "cropperjs/dist/cropper.min.css";

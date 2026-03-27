@@ -5,7 +5,7 @@ import {
     updateDepartment, deleteDepartment, addDepartmentMember,
     removeDepartmentMember,
 } from "@/api";
-import { message, dialog } from "@/components/vort";
+import { message, dialog } from "@openvort/vort-ui";
 import type { DeptNode } from "@/components/vort-biz/dept-tree";
 import type { MemberItem, MemberDetail } from "../types";
 
