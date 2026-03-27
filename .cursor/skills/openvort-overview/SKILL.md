@@ -249,8 +249,7 @@ class Settings(BaseSettings):  # env_prefix="OPENVORT_"
 ## CLI 命令
 
 ```
-openvort init                      # 交互式初始化 .env
-openvort start                     # 启动服务 (--web/--no-web)
+openvort start                     # 启动服务（自动创建 DB + 下载前端）
 openvort stop                      # 停止服务
 openvort restart                   # 重启服务（stop + start）
 openvort doctor                    # 诊断系统配置和连接状态

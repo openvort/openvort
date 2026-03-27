@@ -9,6 +9,15 @@ from openvort.web.deps import get_registry, get_session_store
 router = APIRouter()
 
 
+def _is_llm_configured() -> bool:
+    try:
+        from openvort.config.settings import get_settings
+        api_key = get_settings().llm.api_key
+        return bool(api_key and api_key != "your-api-key-here")
+    except Exception:
+        return False
+
+
 @router.get("")
 async def dashboard():
     registry = get_registry()
@@ -56,6 +65,7 @@ async def dashboard():
 
     return {
         "agentStatus": "running",
+        "llmConfigured": _is_llm_configured(),
         "totalMessages": total_messages,
         "totalContacts": 0,
         "totalPlugins": len(plugins),

@@ -290,6 +290,15 @@ async def stream_response(message_id: str, request: Request):
     agent = get_agent()
     member_id = msg["member_id"]
     session_id = msg.get("session_id", "default")
+
+    from openvort.config.settings import get_settings as _get_llm_settings
+    _llm_key = _get_llm_settings().llm.api_key
+    if not _llm_key or _llm_key == "your-api-key-here":
+        async def no_key_stream():
+            yield {"event": "text", "data": "AI 功能尚未配置。请前往 **AI 配置** 页面设置 API Key 后再试。"}
+            yield {"event": "done", "data": ""}
+        return EventSourceResponse(no_key_stream())
+
     log.info(f"开始流式响应: message_id={message_id}, member_id={member_id}, session_id={session_id}")
 
     running = RunningMessage(

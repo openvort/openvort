@@ -344,7 +344,11 @@ def create_app() -> FastAPI:
         static_dir = Path("/app/web/dist")
     else:
         static_dir = Path(__file__).parent.parent.parent.parent / "web" / "dist"
-    if static_dir.exists():
+    if not (static_dir / "index.html").exists():
+        _frontend_fallback = _get_settings().data_dir / "frontend"
+        if (_frontend_fallback / "index.html").exists():
+            static_dir = _frontend_fallback
+    if static_dir.exists() and (static_dir / "index.html").exists():
         from fastapi.responses import FileResponse
 
         # 静态资源（js/css/svg 等）
