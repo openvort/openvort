@@ -3,8 +3,11 @@ import { ref, computed, watch, nextTick, onMounted, onUnmounted, useAttrs } from
 import { ClockCircleOutlined, CloseCircleFilled } from "@/components/vort/icons";
 import { Button as VortButton } from "@/components/vort/button";
 import { getVortPopupContainer, useZIndex } from "@/components/vort/composables";
+import { useLocale } from "@/components/vort/locale/useLocale";
 
 defineOptions({ name: "VortTimePicker", inheritAttrs: false });
+
+const { t: tpT } = useLocale("TimePicker");
 
 // 多根节点（包含 Teleport）时，外部属性不会自动继承到根节点，需要手动透传
 const attrs = useAttrs();
@@ -65,7 +68,7 @@ interface Props {
 const props = withDefaults(defineProps<Props>(), {
     size: "middle",
     disabled: false,
-    placeholder: "请选择时间",
+    placeholder: undefined,
     format: "HH:mm:ss",
     allowClear: true,
     use12Hours: false,
@@ -75,6 +78,8 @@ const props = withDefaults(defineProps<Props>(), {
     showSecond: true,
     showNow: true
 });
+
+const actualPlaceholder = computed(() => props.placeholder ?? tpT("placeholder"));
 
 const emit = defineEmits<{
     "update:modelValue": [value: Date | string | null];
@@ -607,7 +612,7 @@ defineExpose({
 
         <!-- 显示内容 -->
         <span class="vort-timepicker-display" :class="displayText ? 'vort-timepicker-display-filled' : 'vort-timepicker-display-placeholder'">
-            {{ displayText || placeholder }}
+            {{ displayText || actualPlaceholder }}
         </span>
 
         <!-- 后缀图标 -->
@@ -699,8 +704,8 @@ defineExpose({
 
                 <!-- 底部操作区 -->
                 <div class="vort-timepicker-footer">
-                    <VortButton v-if="showNow" variant="text" size="small" @click="selectNow"> 此刻 </VortButton>
-                    <VortButton variant="primary" size="small" @click="confirmSelection"> 确定 </VortButton>
+                    <VortButton v-if="showNow" variant="text" size="small" @click="selectNow">{{ tpT("now") }}</VortButton>
+                    <VortButton variant="primary" size="small" @click="confirmSelection">{{ tpT("ok") }}</VortButton>
                 </div>
             </div>
         </Transition>

@@ -1,7 +1,7 @@
 """Channel Bot 管理路由 — AI 员工独立 IM Bot 凭证 CRUD"""
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -229,7 +229,7 @@ async def test_channel_bot(bot_id: str):
         elif channel_type in ("dingtalk", "feishu") and ch:
             test_result = {"ok": True, "message": "凭证已保存（该通道暂不支持独立 Bot 连接测试）"}
 
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
         bot.last_test_at = now
         bot.last_test_ok = test_result["ok"]
         await session.commit()

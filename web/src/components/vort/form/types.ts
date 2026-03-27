@@ -76,7 +76,6 @@ export interface FormExpose {
     submit: () => Promise<void>;
     /** 重置表单 */
     resetFields: () => void;
-    /** 验证表单（兼容旧版 API） */
     validate: (names?: string | string[]) => Promise<true | never>;
     /** 验证表单字段 */
     validateFields: (names?: string | string[]) => Promise<{ valid: boolean; errors: Record<string, string> }>;

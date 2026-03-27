@@ -2,15 +2,13 @@
 /**
  * Vort DropdownMenuRadioGroup - 单选菜单组组件
  */
-import { computed } from "vue";
-import { DropdownMenuRadioGroup as RekaDropdownMenuRadioGroup } from "reka-ui";
-import type { AcceptableValue } from "reka-ui";
+import { computed, provide } from "vue";
 
 defineOptions({ name: "VortDropdownMenuRadioGroup" });
 
 interface Props {
     /** 选中的值 */
-    modelValue?: AcceptableValue;
+    modelValue?: string;
     /** 自定义类名 */
     class?: string;
 }
@@ -18,12 +16,13 @@ interface Props {
 const props = defineProps<Props>();
 
 const emit = defineEmits<{
-    "update:modelValue": [value: AcceptableValue];
+    "update:modelValue": [value: string];
 }>();
 
-const handleModelValueUpdate = (value: AcceptableValue) => {
-    emit("update:modelValue", value);
-};
+provide("vortDropdownRadioContext", {
+    value: computed(() => props.modelValue),
+    select: (val: string) => emit("update:modelValue", val)
+});
 
 const groupClasses = computed(() => {
     const classes = ["vort-dropdown-menu-radio-group"];
@@ -33,7 +32,7 @@ const groupClasses = computed(() => {
 </script>
 
 <template>
-    <RekaDropdownMenuRadioGroup :model-value="props.modelValue" :class="groupClasses" @update:model-value="handleModelValueUpdate">
+    <div :class="groupClasses" role="group">
         <slot />
-    </RekaDropdownMenuRadioGroup>
+    </div>
 </template>

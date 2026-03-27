@@ -18,6 +18,7 @@ import {
     uploadVortflowFile,
 } from "@/api";
 import { useWorkItemCommon } from "./useWorkItemCommon";
+import { formatFileSize } from "@/utils/format";
 import type { WorkItemType, Priority, DateRange, NewBugForm, RowItem, AttachmentItem } from "@/components/vort-biz/work-item/WorkItemTable.types";
 
 interface Props {
@@ -154,12 +155,6 @@ const handleAttachmentFiles = async (e: Event) => {
 
 const removeAttachment = (index: number) => {
     createBugForm.attachments.splice(index, 1);
-};
-
-const formatFileSize = (bytes: number): string => {
-    if (bytes < 1024) return bytes + " B";
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
 };
 
 const apiProjects = ref<Array<{ id: string; name: string }>>([]);

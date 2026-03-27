@@ -2,8 +2,9 @@
 
 import uuid
 
-from fastapi import APIRouter, UploadFile, File
+from fastapi import APIRouter, Request, UploadFile, File
 
+from openvort.web.app import require_auth
 from openvort.web.upload_utils import get_upload_dir, get_upload_url
 
 router = APIRouter()
@@ -42,8 +43,9 @@ async def upload_editor_image(file: UploadFile = File(...)):
 
 
 @router.post("/vortflow/file")
-async def upload_vortflow_file(file: UploadFile = File(...)):
+async def upload_vortflow_file(request: Request, file: UploadFile = File(...)):
     """Upload a file attachment for VortFlow work items."""
+    require_auth(request)
     original_name = file.filename or "file"
     ext = original_name.rsplit(".", 1)[-1].lower() if "." in original_name else ""
     if ext not in ALLOWED_FILE_EXTENSIONS:

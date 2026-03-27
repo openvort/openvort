@@ -14,8 +14,8 @@ export const Z_INDEX_BASE = {
     drawer: 1000,
     /** 消息提示基础值 */
     message: 1010,
-    /** 通知基础值 */
-    notification: 1010,
+    /** 通知基础值（高于 popup/tooltip，避免被下拉菜单遮挡） */
+    notification: 1090,
     /** Tooltip 基础值 */
     tooltip: 1070,
     /** Popover 基础值 */

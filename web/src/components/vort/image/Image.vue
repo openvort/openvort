@@ -1,8 +1,17 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick, inject } from "vue";
-import { X, ZoomIn, ZoomOut, RotateCw, RotateCcw, Maximize, Download } from "lucide-vue-next";
-import { ImageOutlined, ImageBrokenOutlined } from "@/components/vort/icons";
-import { getVortTeleportTo } from "@/components/vort/composables";
+import {
+    CloseOutlined,
+    ZoomInOutlined,
+    ZoomOutOutlined,
+    RotateCwOutlined,
+    RotateCcwOutlined,
+    MaximizeOutlined,
+    DownloadOutlined,
+    ImageOutlined,
+    ImageBrokenOutlined
+} from "@/components/vort/icons";
+import { getVortTeleportTo, useOverlayStack, useZIndex } from "@/components/vort/composables";
 
 defineOptions({ name: "VortImage" });
 
@@ -72,6 +81,8 @@ const previewRef = ref<HTMLDivElement | null>(null);
 const imageRef = ref<HTMLImageElement | null>(null);
 const transformOriginStyle = ref("");
 const teleportTo = computed(() => getVortTeleportTo());
+const overlay = useOverlayStack();
+const previewZIndex = useZIndex("imagePreview");
 
 // 预览状态
 const scale = ref(1);
@@ -269,10 +280,12 @@ const openPreview = () => {
         return;
     }
 
-    shouldRenderTeleport.value = true; // 先渲染 Teleport
+    shouldRenderTeleport.value = true;
     previewVisible.value = true;
     document.body.style.overflow = "hidden";
     emit("previewVisibleChange", true);
+
+    overlay.push(() => closePreview());
 
     nextTick(() => {
         requestAnimationFrame(() => {
@@ -284,6 +297,7 @@ const openPreview = () => {
 
 // 关闭预览
 const closePreview = () => {
+    overlay.pop();
     animationState.value = "leave";
     emit("previewVisibleChange", false);
 };
@@ -448,12 +462,6 @@ const handleMouseUp = () => {
     startInertia();
 };
 
-// ESC 键关闭
-const handleKeydown = (e: KeyboardEvent) => {
-    if (e.key === "Escape" && previewVisible.value) {
-        closePreview();
-    }
-};
 
 // 点击遮罩关闭
 const handleMaskClick = () => {
@@ -463,7 +471,6 @@ const handleMaskClick = () => {
 };
 
 onMounted(() => {
-    document.addEventListener("keydown", handleKeydown);
     document.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mouseup", handleMouseUp);
 
@@ -474,7 +481,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-    document.removeEventListener("keydown", handleKeydown);
+    overlay.pop();
     document.removeEventListener("mousemove", handleMouseMove);
     document.removeEventListener("mouseup", handleMouseUp);
     document.body.style.overflow = "";
@@ -499,7 +506,7 @@ onUnmounted(() => {
             ref="imageRef"
             v-show="!loading && !error"
             :class="['vort-image-img', { 'vort-image-img-preview': isPreviewEnabled }]"
-            :style="{ objectFit: fit }"
+            :style="{ objectFit: fit, width: '100%', height: '100%', maxWidth: 'none' }"
             :src="src"
             :alt="alt"
             @load="handleLoad"
@@ -512,7 +519,7 @@ onUnmounted(() => {
             v-if="error && fallback"
             v-show="!fallbackLoading && !fallbackError"
             :class="['vort-image-img', { 'vort-image-img-preview': isPreviewEnabled }]"
-            :style="{ objectFit: fit }"
+            :style="{ objectFit: fit, width: '100%', height: '100%', maxWidth: 'none' }"
             :src="fallback"
             :alt="alt"
             @load="handleFallbackLoad"
@@ -527,7 +534,7 @@ onUnmounted(() => {
 
         <!-- 预览弹层 -->
         <Teleport v-if="shouldRenderTeleport" :to="teleportTo">
-            <div v-if="previewVisible" class="vort-image-preview-root">
+            <div v-if="previewVisible" class="vort-image-preview-root" :style="{ zIndex: previewZIndex }">
                 <!-- 遮罩层 -->
                 <Transition name="vort-mask">
                     <div v-show="animationState !== 'leave'" class="vort-image-preview-mask" />
@@ -547,31 +554,31 @@ onUnmounted(() => {
                         <div class="vort-image-preview-operations-wrapper">
                             <!-- 缩小 -->
                             <button class="vort-image-preview-operation" :disabled="scale <= MIN_SCALE" @click="zoomOut">
-                                <ZoomOut class="vort-image-preview-icon" />
+                                <ZoomOutOutlined class="vort-image-preview-icon" />
                             </button>
                             <!-- 放大 -->
                             <button class="vort-image-preview-operation" :disabled="scale >= MAX_SCALE" @click="zoomIn">
-                                <ZoomIn class="vort-image-preview-icon" />
+                                <ZoomInOutlined class="vort-image-preview-icon" />
                             </button>
                             <!-- 1:1 -->
                             <button class="vort-image-preview-operation" @click="resetScale">
-                                <Maximize class="vort-image-preview-icon" />
+                                <MaximizeOutlined class="vort-image-preview-icon" />
                             </button>
                             <!-- 逆时针旋转 -->
                             <button class="vort-image-preview-operation" @click="rotateLeft">
-                                <RotateCcw class="vort-image-preview-icon" />
+                                <RotateCcwOutlined class="vort-image-preview-icon" />
                             </button>
                             <!-- 顺时针旋转 -->
                             <button class="vort-image-preview-operation" @click="rotateRight">
-                                <RotateCw class="vort-image-preview-icon" />
+                                <RotateCwOutlined class="vort-image-preview-icon" />
                             </button>
                             <!-- 下载 -->
                             <button class="vort-image-preview-operation" @click="downloadImage">
-                                <Download class="vort-image-preview-icon" />
+                                <DownloadOutlined class="vort-image-preview-icon" />
                             </button>
                             <!-- 关闭 -->
                             <button class="vort-image-preview-operation" @click="closePreview">
-                                <X class="vort-image-preview-icon" />
+                                <CloseOutlined class="vort-image-preview-icon" />
                             </button>
                         </div>
                     </div>
@@ -604,6 +611,7 @@ onUnmounted(() => {
     display: block;
     width: 100%;
     height: 100%;
+    max-width: none;
 }
 
 .vort-image-img-preview {
@@ -659,7 +667,6 @@ onUnmounted(() => {
 .vort-image-preview-root {
     position: fixed;
     inset: 0;
-    z-index: 1080;
 }
 
 /* 遮罩层 */

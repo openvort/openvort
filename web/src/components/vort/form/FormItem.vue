@@ -3,8 +3,11 @@ import { computed, inject, ref, useSlots, Transition, type ComputedRef, onMounte
 import { useField } from "vee-validate";
 import { CheckCircleFilled, CloseCircleFilled, ExclamationCircleFilled, LoadingOutlined, QuestionOutlined } from "@/components/vort/icons";
 import { Tooltip } from "@/components/vort/tooltip";
+import { useLocale } from "@/components/vort/locale/useLocale";
 
 defineOptions({ name: "VortFormItem" });
+
+const { t: formT } = useLocale("Form");
 
 /** Vort FormItem - 表单项组件 */
 
@@ -171,7 +174,7 @@ const createRulesValidator = (rules: unknown[]) => {
                         });
                     });
                 } catch (e: any) {
-                    return e.message || "验证失败";
+                    return e.message || formT("validation_failed");
                 }
                 continue;
             }
@@ -180,7 +183,7 @@ const createRulesValidator = (rules: unknown[]) => {
             if (r.required) {
                 const isEmpty = value === undefined || value === null || value === "" || (Array.isArray(value) && value.length === 0);
                 if (isEmpty) {
-                    return (r.message as string) || "此项为必填项";
+                    return (r.message as string) || formT("required");
                 }
             }
 
@@ -188,13 +191,13 @@ const createRulesValidator = (rules: unknown[]) => {
             if (r.type === "number" && value !== undefined && value !== null && value !== "") {
                 const numValue = Number(value);
                 if (isNaN(numValue)) {
-                    return (r.message as string) || "请输入数字";
+                    return (r.message as string) || formT("number");
                 }
                 if (typeof r.min === "number" && numValue < r.min) {
-                    return (r.message as string) || `不能小于 ${r.min}`;
+                    return (r.message as string) || formT("min_value", { min: r.min as number });
                 }
                 if (typeof r.max === "number" && numValue > r.max) {
-                    return (r.message as string) || `不能大于 ${r.max}`;
+                    return (r.message as string) || formT("max_value", { max: r.max as number });
                 }
             }
 
@@ -202,10 +205,10 @@ const createRulesValidator = (rules: unknown[]) => {
             if (r.type === "string" || (!r.type && typeof value === "string")) {
                 const strValue = String(value || "");
                 if (typeof r.min === "number" && strValue.length < r.min) {
-                    return (r.message as string) || `长度不能小于 ${r.min}`;
+                    return (r.message as string) || formT("min_length", { min: r.min as number });
                 }
                 if (typeof r.max === "number" && strValue.length > r.max) {
-                    return (r.message as string) || `长度不能大于 ${r.max}`;
+                    return (r.message as string) || formT("max_length", { max: r.max as number });
                 }
             }
 
@@ -213,7 +216,7 @@ const createRulesValidator = (rules: unknown[]) => {
             if (r.pattern && value) {
                 const regex = r.pattern instanceof RegExp ? r.pattern : new RegExp(r.pattern as string);
                 if (!regex.test(String(value))) {
-                    return (r.message as string) || "格式不正确";
+                    return (r.message as string) || formT("pattern");
                 }
             }
         }
@@ -468,7 +471,7 @@ const feedbackIconClass = computed(() => {
                 <!-- Label 文本 -->
                 <slot name="label">{{ label }}</slot>
                 <!-- 可选标记（optional 模式下的非必填项） -->
-                <span v-if="!props.required && isOptionalMode" class="vort-form-item-optional-mark">（可选）</span>
+                <span v-if="!props.required && isOptionalMode" class="vort-form-item-optional-mark">{{ formT("optional") }}</span>
                 <!-- 冒号 -->
                 <span v-if="showColon" class="vort-form-item-colon">:</span>
                 <!-- Tooltip -->

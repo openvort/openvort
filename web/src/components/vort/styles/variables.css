@@ -132,7 +132,6 @@
     --vort-motion-ease-out-back: cubic-bezier(0.12, 0.4, 0.29, 1.46);
     --vort-motion-ease-decelerate: cubic-bezier(0, 0, 0.2, 1);
     --vort-motion-ease-accelerate: cubic-bezier(0.4, 0, 1, 1);
-    /* 兼容旧别名（已废弃，建议使用 --vort-motion-* 新名称） */
     --vort-duration-fast: var(--vort-motion-duration-fast);
     --vort-duration-normal: var(--vort-motion-duration-mid);
     --vort-duration-slow: var(--vort-motion-duration-slow);
@@ -160,6 +159,7 @@
     /* Table */
     --vort-table-header-bg: #fafafa;
     --vort-table-row-hover-bg: #fafafa;
+    --vort-table-actions-gap: 8px;
 }
 
 /* =====================================================

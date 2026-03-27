@@ -194,6 +194,7 @@ export interface TableProps<T = any> {
     rowClassName?: string | ((record: T, index: number) => string);
     class?: string;
     treeProps?: TableTreeProps;
+    tree?: boolean;
     loadChildren?: LoadChildrenFn<T>;
     defaultExpandedRowKeys?: (string | number)[];
     expandedRowKeys?: (string | number)[];

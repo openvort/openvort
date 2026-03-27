@@ -2,39 +2,16 @@
 import { computed, ref, useAttrs } from "vue";
 import VortInput from "./Input.vue";
 import { EyeOutlined, EyeInvisibleOutlined } from "@/components/vort/icons";
+import { useLocale } from "@/components/vort/locale/useLocale";
+import type { InputPasswordProps } from "./types";
 
 defineOptions({ name: "VortInputPassword", inheritAttrs: false });
 
+const { t: ipT } = useLocale("InputPassword");
+
 /** Vort InputPassword - 密码输入框组件 */
 
-type InputSize = "large" | "middle" | "small";
-type InputStatus = "error" | "warning";
-type InputVariant = "outlined" | "filled" | "borderless" | "underlined";
-
-interface Props {
-    /** 输入框内容（v-model） */
-    modelValue?: string;
-    /** 默认值（非受控模式） */
-    defaultValue?: string;
-    /** 尺寸 */
-    size?: InputSize;
-    /** 输入框状态 */
-    status?: InputStatus;
-    /** 输入框形态变体 */
-    variant?: InputVariant;
-    /** 是否禁用 */
-    disabled?: boolean;
-    /** 是否有边框（兼容旧 API） */
-    bordered?: boolean;
-    /** 输入框占位文本 */
-    placeholder?: string;
-    /** 自定义类名 */
-    class?: string;
-    /** 是否显示切换按钮 */
-    visibilityToggle?: boolean;
-}
-
-const props = withDefaults(defineProps<Props>(), {
+const props = withDefaults(defineProps<InputPasswordProps>(), {
     size: "middle",
     disabled: false,
     bordered: true,
@@ -114,7 +91,7 @@ defineExpose({
                 :class="{ 'vort-input-password-icon-disabled': disabled }"
                 role="button"
                 tabindex="-1"
-                :aria-label="isVisible ? '隐藏密码' : '显示密码'"
+                :aria-label="isVisible ? ipT('hide_password') : ipT('show_password')"
                 @click="toggleVisibility"
                 @mousedown.prevent
             >

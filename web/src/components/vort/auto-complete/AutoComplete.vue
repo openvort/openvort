@@ -2,8 +2,11 @@
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
 import { Input } from "@/components/vort/input";
 import { getVortPopupContainer, useZIndex } from "@/components/vort/composables";
+import { useLocale } from "@/components/vort/locale/useLocale";
 
 defineOptions({ name: "VortAutoComplete" });
+
+const { t: acT } = useLocale("AutoComplete");
 
 // 使用 z-index 上下文，在 Dialog/Drawer 内时自动获得更高的层级
 const zIndex = useZIndex("popup");
@@ -69,7 +72,7 @@ const props = withDefaults(defineProps<Props>(), {
     modelValue: undefined,
     defaultValue: "",
     options: () => [],
-    placeholder: "请输入",
+    placeholder: undefined,
     size: "middle",
     disabled: false,
     bordered: true,
@@ -86,6 +89,7 @@ const props = withDefaults(defineProps<Props>(), {
 });
 
 const popupContainer = computed(() => props.getPopupContainer?.() ?? getVortPopupContainer());
+const resolvedPlaceholder = computed(() => props.placeholder ?? acT("placeholder"));
 
 const emit = defineEmits<{
     "update:modelValue": [value: string];
@@ -458,7 +462,7 @@ defineExpose({
         <Input
             ref="inputRef"
             :model-value="innerValue"
-            :placeholder="placeholder"
+            :placeholder="resolvedPlaceholder"
             :size="size"
             :status="status"
             :disabled="disabled"
@@ -513,7 +517,7 @@ defineExpose({
                         <!-- 空状态 -->
                         <div v-else-if="showEmpty" class="vort-auto-complete-empty">
                             <slot name="notFoundContent">
-                                {{ notFoundContent ?? "无匹配结果" }}
+                                {{ notFoundContent ?? acT("no_match") }}
                             </slot>
                         </div>
                     </div>

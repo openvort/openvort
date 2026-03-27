@@ -57,6 +57,9 @@ class VortFlowPlugin(BasePlugin):
         from openvort.plugins.vortflow.tools.link_work_items import LinkWorkItemsTool
         from openvort.plugins.vortflow.tools.manage_iteration import ManageIterationTool
         from openvort.plugins.vortflow.tools.manage_project import ManageProjectTool
+        from openvort.plugins.vortflow.tools.manage_test_case import ManageTestCaseTool
+        from openvort.plugins.vortflow.tools.manage_test_plan import ManageTestPlanTool
+        from openvort.plugins.vortflow.tools.manage_test_report import ManageTestReportTool
         from openvort.plugins.vortflow.tools.manage_version import ManageVersionTool
         from openvort.plugins.vortflow.tools.progress import UpdateProgressTool
         from openvort.plugins.vortflow.tools.project import CreateProjectTool
@@ -77,6 +80,9 @@ class VortFlowPlugin(BasePlugin):
             CommentTool(sf_getter),
             LinkWorkItemsTool(sf_getter),
             ManageIterationTool(sf_getter),
+            ManageTestCaseTool(sf_getter),
+            ManageTestPlanTool(sf_getter),
+            ManageTestReportTool(sf_getter),
             ManageVersionTool(sf_getter),
             QueryTool(),
             GroupBindTool(),

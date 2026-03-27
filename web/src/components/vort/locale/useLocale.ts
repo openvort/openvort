@@ -1,6 +1,20 @@
-import { inject, type InjectionKey, computed, type ComputedRef, type Ref, unref, isRef } from "vue";
+import { inject, type InjectionKey, computed, type ComputedRef, type Ref, ref, unref, isRef } from "vue";
 import type { Locale, LocaleComponentName } from "./types";
 import zhCN from "./zh-CN";
+
+/**
+ * 全局 locale 状态（供 createApp 创建的独立实例使用）
+ * ConfigProvider 负责同步此引用
+ */
+const globalLocaleRef = ref<Locale>(zhCN) as Ref<Locale>;
+
+export function setGlobalLocale(locale: Locale) {
+    globalLocaleRef.value = locale;
+}
+
+export function getGlobalLocale(): Ref<Locale> {
+    return globalLocaleRef;
+}
 
 /**
  * Locale 注入 Key

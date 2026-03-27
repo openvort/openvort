@@ -3,8 +3,7 @@
  * Vort DropdownMenuCheckboxItem - 可选中的菜单项组件
  */
 import { computed } from "vue";
-import { DropdownMenuCheckboxItem as RekaDropdownMenuCheckboxItem, DropdownMenuItemIndicator } from "reka-ui";
-import { Check } from "lucide-vue-next";
+import { CheckOutlined } from "@/components/vort/icons";
 
 defineOptions({ name: "VortDropdownMenuCheckboxItem" });
 
@@ -32,16 +31,34 @@ const itemClasses = computed(() => {
     return classes;
 });
 
-const handleCheckedChange = (checked: boolean) => {
-    emit("update:checked", checked);
+const handleClick = () => {
+    if (props.disabled) return;
+    emit("update:checked", !props.checked);
+};
+
+const handleKeydown = (e: KeyboardEvent) => {
+    if (props.disabled) return;
+    if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        handleClick();
+    }
 };
 </script>
 
 <template>
-    <RekaDropdownMenuCheckboxItem :class="itemClasses" :checked="checked" :disabled="disabled" @update:checked="handleCheckedChange">
-        <DropdownMenuItemIndicator class="vort-dropdown-menu-item-indicator">
-            <Check class="vort-dropdown-check-icon" />
-        </DropdownMenuItemIndicator>
+    <div
+        :class="itemClasses"
+        role="menuitemcheckbox"
+        :tabindex="disabled ? undefined : -1"
+        :data-disabled="disabled ? '' : undefined"
+        :data-state="checked ? 'checked' : 'unchecked'"
+        :aria-checked="checked"
+        @click="handleClick"
+        @keydown="handleKeydown"
+    >
+        <span v-if="checked" class="vort-dropdown-menu-item-indicator">
+            <CheckOutlined class="vort-dropdown-check-icon" />
+        </span>
         <slot />
-    </RekaDropdownMenuCheckboxItem>
+    </div>
 </template>

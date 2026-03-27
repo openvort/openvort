@@ -51,7 +51,7 @@ async def _test_channel(name: str):
         return
 
     if not ch.is_configured():
-        click.echo(f"Channel '{name}' 未配置，请先运行 `openvort init`")
+        click.echo(f"Channel '{name}' 未配置，请在 .env 或环境变量中设置对应的配置项")
         return
 
     click.echo(f"测试 {name} 连通性...")

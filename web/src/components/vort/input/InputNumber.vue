@@ -2,58 +2,13 @@
 import { computed, ref, watch, onMounted, onUnmounted, useSlots, useAttrs } from "vue";
 import type { StyleValue } from "vue";
 import { UpOutlined, DownOutlined } from "@/components/vort/icons";
+import type { InputNumberProps } from "./types";
 
 defineOptions({ name: "VortInputNumber", inheritAttrs: false });
 
 /** Vort InputNumber - 数字输入框组件 */
 
-type InputSize = "large" | "middle" | "small";
-type InputStatus = "error" | "warning";
-
-interface Props {
-    /** 当前值（v-model） */
-    modelValue?: number | null;
-    /** 默认值 */
-    defaultValue?: number;
-    /** 最小值 */
-    min?: number;
-    /** 最大值 */
-    max?: number;
-    /** 每次改变步数，可以为小数 */
-    step?: number | string;
-    /** 数值精度（小数位数） */
-    precision?: number;
-    /** 尺寸 */
-    size?: InputSize;
-    /** 输入框状态 */
-    status?: InputStatus;
-    /** 是否禁用 */
-    disabled?: boolean;
-    /** 是否只读 */
-    readOnly?: boolean;
-    /** 是否有边框 */
-    bordered?: boolean;
-    /** 输入框占位文本 */
-    placeholder?: string;
-    /** 自定义类名 */
-    class?: string;
-    /** 是否隐藏控制按钮 */
-    controls?: boolean;
-    /** 指定输入框展示值的格式 */
-    formatter?: (value: number | string | undefined) => string;
-    /** 指定从 formatter 里转换回数字的方式 */
-    parser?: (value: string | undefined) => number | string;
-    /** 带有前缀图标的 input */
-    prefix?: string;
-    /** 是否启用键盘快捷行为（上下箭头调整值） */
-    keyboard?: boolean;
-    /** 是否严格校验，在失焦时校验并矫正数值 */
-    stringMode?: boolean;
-    /** 紧凑模式，用于 addonBefore/addonAfter 放置 Select 等组件 */
-    compact?: boolean;
-}
-
-const props = withDefaults(defineProps<Props>(), {
+const props = withDefaults(defineProps<InputNumberProps>(), {
     step: 1,
     size: "middle",
     disabled: false,

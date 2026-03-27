@@ -1,8 +1,5 @@
 import type { Locale } from "./types";
 
-/**
- * English (US) language pack
- */
 const enUS: Locale = {
     locale: "en-US",
 
@@ -14,7 +11,8 @@ const enUS: Locale = {
         next_page: "Next page",
         prev_n: "Previous {count} pages",
         next_n: "Next {count} pages",
-        total: "{start}-{end} of {total} items"
+        total: "{start}-{end} of {total} items",
+        pagination: "Pagination"
     },
 
     Table: {
@@ -30,7 +28,9 @@ const enUS: Locale = {
 
     Modal: {
         ok_text: "OK",
-        cancel_text: "Cancel"
+        cancel_text: "Cancel",
+        got_it: "Got it",
+        close: "Close"
     },
 
     Drawer: {
@@ -51,7 +51,9 @@ const enUS: Locale = {
 
     Select: {
         no_data: "No data",
-        search_placeholder: "Search"
+        search_placeholder: "Search",
+        placeholder: "Select",
+        no_match: "No matching results"
     },
 
     DatePicker: {
@@ -65,12 +67,19 @@ const enUS: Locale = {
         end_time: "End time",
         months: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
         weekdays: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
-        weekdays_short: ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"]
+        weekdays_short: ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"],
+        year_suffix: "",
+        date_placeholder: "Select date",
+        datetime_placeholder: "Select date and time",
+        start_datetime: "Start date and time",
+        end_datetime: "End date and time"
     },
 
     TimePicker: {
         placeholder: "Select time",
-        range_separator: "to"
+        range_separator: "to",
+        now: "Now",
+        ok: "OK"
     },
 
     Transfer: {
@@ -81,6 +90,37 @@ const enUS: Locale = {
 
     Empty: {
         description: "No data"
+    },
+
+    Form: {
+        validation_failed: "Validation failed",
+        required: "This field is required",
+        number: "Please enter a number",
+        min_value: "Cannot be less than {min}",
+        max_value: "Cannot be greater than {max}",
+        min_length: "Length cannot be less than {min}",
+        max_length: "Length cannot be greater than {max}",
+        pattern: "Invalid format",
+        optional: "(Optional)"
+    },
+
+    Cascader: {
+        placeholder: "Please select",
+        no_data: "No data"
+    },
+
+    AutoComplete: {
+        placeholder: "Please enter",
+        no_match: "No matching results"
+    },
+
+    InputPassword: {
+        show_password: "Show password",
+        hide_password: "Hide password"
+    },
+
+    Alert: {
+        close: "Close"
     }
 };
 

@@ -453,8 +453,21 @@ class AgentRuntime:
 
         # AI 员工远程节点 prompt + tool gating
         remote_node_prompt = ""
-        if ctx.member and ctx.member.is_virtual:
-            node_info = await self._get_remote_node_info(ctx.member)
+        employee_member = None
+        if ctx.target_member_id:
+            try:
+                from openvort.web.deps import get_db_session_factory
+                from openvort.contacts.models import Member as _Member
+                sf = get_db_session_factory()
+                if sf:
+                    async with sf() as _db:
+                        employee_member = await _db.get(_Member, ctx.target_member_id)
+            except Exception as e:
+                log.warning(f"[im-stream] 加载目标 AI 员工失败: {e}")
+
+        target_virtual = employee_member or (ctx.member if ctx.member and ctx.member.is_virtual else None)
+        if target_virtual:
+            node_info = await self._get_remote_node_info(target_virtual)
             if node_info:
                 remote_node_prompt = self._build_remote_node_prompt_section(node_info)
                 if node_info.get("status") in ("online", "running"):
@@ -480,7 +493,10 @@ class AgentRuntime:
 
         for _ in range(max_rounds):
             try:
-                system = self._system_prompt + sender_context
+                if employee_member:
+                    system = await self._build_member_chat_context(ctx.target_member_id)
+                else:
+                    system = self._system_prompt + sender_context
                 if channel_prompt:
                     system += f"\n\n# 渠道回复规范\n\n{channel_prompt}"
                 if ctx.group_prompt:
@@ -488,7 +504,7 @@ class AgentRuntime:
                 action_hint = self._build_action_hint(content)
                 if action_hint:
                     system += f"\n\n# 当前操作提示\n\n{action_hint}"
-                if ctx.member and ctx.member.is_virtual and ctx.member.virtual_system_prompt:
+                if not employee_member and ctx.member and ctx.member.is_virtual and ctx.member.virtual_system_prompt:
                     system += f"\n\n# AI 员工人设\n\n{ctx.member.virtual_system_prompt}"
                 if remote_node_prompt:
                     system += f"\n\n{remote_node_prompt}"

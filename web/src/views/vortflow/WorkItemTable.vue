@@ -6,6 +6,7 @@ import { message } from "@/components/vort";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
 import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
 import { Pencil } from "lucide-vue-next";
+import { formatFileSize } from "@/utils/format";
 import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMemberPicker.vue";
 import WorkItemPriority from "@/components/vort-biz/work-item/WorkItemPriority.vue";
 import WorkItemStatus from "@/components/vort-biz/work-item/WorkItemStatus.vue";
@@ -568,11 +569,6 @@ const collectEnumOptions = (rows: RowItem[]) => {
 };
 
 const detailCurrentUser = "当前用户";
-const formatFileSize = (size: number): string => {
-    if (size < 1024) return `${size} B`;
-    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
-    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
-};
 
 const {
     columnSettingsOpen,

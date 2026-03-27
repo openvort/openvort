@@ -30,6 +30,8 @@ interface Props {
     mouseLeaveDelay?: number;
     /** 菜单渲染父节点。默认渲染到 body 上，如果你遇到菜单滚动定位问题，试试修改为滚动的区域，并相对其定位 */
     getPopupContainer?: () => HTMLElement;
+    /** 是否自动翻转方向（空间不足时） */
+    autoFlip?: boolean;
     /** 浮层额外类名 */
     overlayClass?: string;
     /** 浮层额外样式 */
@@ -44,6 +46,7 @@ const props = withDefaults(defineProps<Props>(), {
     placement: "top",
     trigger: "hover",
     arrow: true,
+    autoFlip: true,
     disabled: false,
     mouseEnterDelay: 100,
     mouseLeaveDelay: 100
@@ -250,60 +253,62 @@ const updatePosition = async () => {
     left = pos.left;
 
     // 边界检测和自动翻转
-    if (useCustomContainer && containerRect) {
-        const containerWidth = container!.clientWidth;
-        const containerHeight = container!.clientHeight;
+    if (props.autoFlip) {
+        if (useCustomContainer && containerRect) {
+            const containerWidth = container!.clientWidth;
+            const containerHeight = container!.clientHeight;
 
-        if (placement.startsWith("top") && top < scrollTop) {
-            placement = placement.replace("top", "bottom") as FloatingPlacement;
-            const newPos = calcPosition(placement);
-            top = newPos.top;
-            left = newPos.left;
-        } else if (placement.startsWith("bottom") && top + floatingHeight > scrollTop + containerHeight) {
-            placement = placement.replace("bottom", "top") as FloatingPlacement;
-            const newPos = calcPosition(placement);
-            top = newPos.top;
-            left = newPos.left;
-        } else if (placement.startsWith("left") && left < scrollLeft) {
-            placement = placement.replace("left", "right") as FloatingPlacement;
-            const newPos = calcPosition(placement);
-            top = newPos.top;
-            left = newPos.left;
-        } else if (placement.startsWith("right") && left + floatingWidth > scrollLeft + containerWidth) {
-            placement = placement.replace("right", "left") as FloatingPlacement;
-            const newPos = calcPosition(placement);
-            top = newPos.top;
-            left = newPos.left;
+            if (placement.startsWith("top") && top < scrollTop) {
+                placement = placement.replace("top", "bottom") as FloatingPlacement;
+                const newPos = calcPosition(placement);
+                top = newPos.top;
+                left = newPos.left;
+            } else if (placement.startsWith("bottom") && top + floatingHeight > scrollTop + containerHeight) {
+                placement = placement.replace("bottom", "top") as FloatingPlacement;
+                const newPos = calcPosition(placement);
+                top = newPos.top;
+                left = newPos.left;
+            } else if (placement.startsWith("left") && left < scrollLeft) {
+                placement = placement.replace("left", "right") as FloatingPlacement;
+                const newPos = calcPosition(placement);
+                top = newPos.top;
+                left = newPos.left;
+            } else if (placement.startsWith("right") && left + floatingWidth > scrollLeft + containerWidth) {
+                placement = placement.replace("right", "left") as FloatingPlacement;
+                const newPos = calcPosition(placement);
+                top = newPos.top;
+                left = newPos.left;
+            }
+
+            left = Math.max(scrollLeft + 8, Math.min(left, scrollLeft + containerWidth - floatingWidth - 8));
+        } else {
+            const viewportWidth = window.innerWidth;
+            const viewportHeight = window.innerHeight;
+
+            if (placement.startsWith("top") && triggerRect.top - floatingHeight - totalGap < 0) {
+                placement = placement.replace("top", "bottom") as FloatingPlacement;
+                const newPos = calcPosition(placement);
+                top = newPos.top;
+                left = newPos.left;
+            } else if (placement.startsWith("bottom") && triggerRect.bottom + floatingHeight + totalGap > viewportHeight) {
+                placement = placement.replace("bottom", "top") as FloatingPlacement;
+                const newPos = calcPosition(placement);
+                top = newPos.top;
+                left = newPos.left;
+            } else if (placement.startsWith("left") && triggerRect.left - floatingWidth - totalGap < 0) {
+                placement = placement.replace("left", "right") as FloatingPlacement;
+                const newPos = calcPosition(placement);
+                top = newPos.top;
+                left = newPos.left;
+            } else if (placement.startsWith("right") && triggerRect.right + floatingWidth + totalGap > viewportWidth) {
+                placement = placement.replace("right", "left") as FloatingPlacement;
+                const newPos = calcPosition(placement);
+                top = newPos.top;
+                left = newPos.left;
+            }
+
+            left = Math.max(8, Math.min(left, viewportWidth - floatingWidth - 8));
         }
-
-        left = Math.max(scrollLeft + 8, Math.min(left, scrollLeft + containerWidth - floatingWidth - 8));
-    } else {
-        const viewportWidth = window.innerWidth;
-        const viewportHeight = window.innerHeight;
-
-        if (placement.startsWith("top") && triggerRect.top - floatingHeight - totalGap < 0) {
-            placement = placement.replace("top", "bottom") as FloatingPlacement;
-            const newPos = calcPosition(placement);
-            top = newPos.top;
-            left = newPos.left;
-        } else if (placement.startsWith("bottom") && triggerRect.bottom + floatingHeight + totalGap > viewportHeight) {
-            placement = placement.replace("bottom", "top") as FloatingPlacement;
-            const newPos = calcPosition(placement);
-            top = newPos.top;
-            left = newPos.left;
-        } else if (placement.startsWith("left") && triggerRect.left - floatingWidth - totalGap < 0) {
-            placement = placement.replace("left", "right") as FloatingPlacement;
-            const newPos = calcPosition(placement);
-            top = newPos.top;
-            left = newPos.left;
-        } else if (placement.startsWith("right") && triggerRect.right + floatingWidth + totalGap > viewportWidth) {
-            placement = placement.replace("right", "left") as FloatingPlacement;
-            const newPos = calcPosition(placement);
-            top = newPos.top;
-            left = newPos.left;
-        }
-
-        left = Math.max(8, Math.min(left, viewportWidth - floatingWidth - 8));
     }
 
     actualPlacement.value = placement;

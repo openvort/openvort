@@ -3,8 +3,11 @@ import { ref, computed, watch, nextTick, onMounted, onUnmounted, useAttrs } from
 import { CalendarOutlined, CloseCircleFilled } from "@/components/vort/icons";
 import { Button as VortButton } from "@/components/vort/button";
 import { getVortPopupContainer, useZIndex } from "@/components/vort/composables";
+import { useLocale } from "@/components/vort/locale/useLocale";
 
 defineOptions({ name: "VortDatePicker", inheritAttrs: false });
+
+const { componentLocale: dpLocale, t: dpT } = useLocale("DatePicker");
 
 // 多根节点（包含 Teleport）时，外部属性不会自动继承到根节点，需要手动透传
 const attrs = useAttrs();
@@ -123,8 +126,8 @@ const showTimeOptions = computed<ShowTimeOptions | null>(() => {
 // 计算实际的 placeholder
 const actualPlaceholder = computed(() => {
     if (props.placeholder !== undefined) return props.placeholder;
-    if (props.showTime) return "请选择日期时间";
-    return "请选择日期";
+    if (props.showTime) return dpLocale.value.datetime_placeholder;
+    return dpLocale.value.date_placeholder;
 });
 
 // 计算实际的 format
@@ -533,7 +536,10 @@ watch(
 
 // ============ 日历数据 ============
 // 从周一开始
-const weekDays = ["一", "二", "三", "四", "五", "六", "日"];
+const weekDays = computed(() => {
+    const ws = dpLocale.value.weekdays_short;
+    return [...ws.slice(1), ws[0]];
+});
 
 // 获取某月的天数
 const getDaysInMonth = (year: number, month: number): number => {
@@ -601,7 +607,7 @@ const calendarDays = computed(() => {
 });
 
 // 月份数据
-const months = ["一月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "十一月", "十二月"];
+const months = computed(() => dpLocale.value.months);
 
 // 年份范围（当前年份前后10年）
 const yearRange = computed(() => {
@@ -923,8 +929,8 @@ defineExpose({
                                     </button>
 
                                     <div class="vort-datepicker-header-view">
-                                        <button type="button" class="vort-datepicker-header-btn" @click="panelMode = 'year'">{{ panelYear }}年</button>
-                                        <button type="button" class="vort-datepicker-header-btn" @click="panelMode = 'month'">{{ panelMonth + 1 }}月</button>
+                                        <button type="button" class="vort-datepicker-header-btn" @click="panelMode = 'year'">{{ panelYear }}{{ dpLocale.year_suffix }}</button>
+                                        <button type="button" class="vort-datepicker-header-btn" @click="panelMode = 'month'">{{ months[panelMonth] }}</button>
                                     </div>
 
                                     <button type="button" class="vort-datepicker-nav-btn" @click="nextMonth">
@@ -1036,11 +1042,11 @@ defineExpose({
 
                     <!-- 底部 -->
                     <div v-if="showTime" class="vort-datepicker-footer vort-datepicker-footer-showtime">
-                        <VortButton v-if="showNow" variant="text" size="small" @click="selectNow"> 此刻 </VortButton>
-                        <VortButton variant="primary" size="small" @click="confirmSelection"> 确定 </VortButton>
+                        <VortButton v-if="showNow" variant="text" size="small" @click="selectNow">{{ dpT('now') }}</VortButton>
+                        <VortButton variant="primary" size="small" @click="confirmSelection">{{ dpT('ok') }}</VortButton>
                     </div>
                     <div v-else-if="showToday && picker === 'date'" class="vort-datepicker-footer">
-                        <button type="button" class="vort-datepicker-today-btn" @click="selectToday">今天</button>
+                        <button type="button" class="vort-datepicker-today-btn" @click="selectToday">{{ dpT('today') }}</button>
                     </div>
                 </template>
 
@@ -1052,7 +1058,7 @@ defineExpose({
                         </button>
 
                         <div class="vort-datepicker-header-view">
-                            <button type="button" class="vort-datepicker-header-btn" @click="panelMode = 'year'">{{ panelYear }}年</button>
+                            <button type="button" class="vort-datepicker-header-btn" @click="panelMode = 'year'">{{ panelYear }}{{ dpLocale.year_suffix }}</button>
                         </div>
 
                         <button type="button" class="vort-datepicker-nav-btn" @click="nextYear">

@@ -3,41 +3,13 @@ import { computed, ref, useAttrs } from "vue";
 import VortInput from "./Input.vue";
 import VortButton from "@/components/vort/button/Button.vue";
 import { SearchOutlined } from "@/components/vort/icons";
+import type { InputSearchProps } from "./types";
 
 defineOptions({ name: "VortInputSearch", inheritAttrs: false });
 
 /** Vort InputSearch - 搜索输入框组件 */
 
-type InputSize = "large" | "middle" | "small";
-type InputStatus = "error" | "warning";
-type InputVariant = "outlined" | "filled" | "borderless" | "underlined";
-
-interface Props {
-    /** 输入框内容（v-model） */
-    modelValue?: string;
-    /** 默认值（非受控模式） */
-    defaultValue?: string;
-    /** 尺寸 */
-    size?: InputSize;
-    /** 输入框状态 */
-    status?: InputStatus;
-    /** 输入框形态变体 */
-    variant?: InputVariant;
-    /** 是否禁用 */
-    disabled?: boolean;
-    /** 输入框占位文本 */
-    placeholder?: string;
-    /** 自定义类名 */
-    class?: string;
-    /** 是否有确认按钮（可设为按钮文字），true 为蓝色按钮，false 为白色按钮 */
-    enterButton?: boolean | string;
-    /** 搜索按钮加载状态 */
-    loading?: boolean;
-    /** 是否可清除 */
-    allowClear?: boolean;
-}
-
-const props = withDefaults(defineProps<Props>(), {
+const props = withDefaults(defineProps<InputSearchProps>(), {
     size: "middle",
     disabled: false,
     enterButton: false,

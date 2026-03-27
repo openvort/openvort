@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { formatFileSize } from "@/utils/format";
 import type { Priority, WorkType, DateRange, BugAttachment } from "./types";
 import {
     priorityOptions,
@@ -22,12 +23,6 @@ const getAvatarBg = (name: string): string => {
     let hash = 0;
     for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
     return avatarBgPalette[Math.abs(hash) % avatarBgPalette.length]!;
-};
-
-const formatFileSize = (size: number): string => {
-    if (size < 1024) return `${size} B`;
-    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
-    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 };
 
 const closeDrawer = () => {

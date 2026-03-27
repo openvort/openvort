@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:17-alpine
+    image: pgvector/pgvector:pg17
     environment:
       POSTGRES_USER: openvort
       POSTGRES_PASSWORD: openvort
@@ -14,12 +14,15 @@ services:
       retries: 5
 
   openvort:
-    build: .
+    image: openvort/openvort:latest
     ports:
       - "10899:8090"
-    env_file: .env
     environment:
+      OPENVORT_DATABASE_URL: postgresql+asyncpg://openvort:openvort@postgres:5432/openvort
       PYTHONUNBUFFERED: "1"
+    env_file:
+      - path: .env
+        required: false
     depends_on:
       postgres:
         condition: service_healthy

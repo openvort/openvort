@@ -88,8 +88,11 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { CloseCircleFilled, CloseOutlined, DownOutlined, RightOutlined } from "@/components/vort/icons";
 import { Checkbox } from "@/components/vort/checkbox";
 import { getVortPopupContainer, useZIndex } from "@/components/vort/composables";
+import { useLocale } from "@/components/vort/locale/useLocale";
 
 defineOptions({ name: "VortCascader" });
+
+const { t: casT } = useLocale("Cascader");
 
 // 使用 z-index 上下文，在 Dialog/Drawer 内时自动获得更高的层级
 const zIndex = useZIndex("popup");
@@ -99,7 +102,7 @@ const zIndex = useZIndex("popup");
 const props = withDefaults(defineProps<Props>(), {
     modelValue: undefined,
     options: () => [],
-    placeholder: "请选择",
+    placeholder: undefined,
     size: "middle",
     disabled: false,
     status: undefined,
@@ -108,7 +111,7 @@ const props = withDefaults(defineProps<Props>(), {
     allowClear: false,
     expandTrigger: "click",
     autoClearSearchValue: true,
-    notFoundContent: "暂无数据",
+    notFoundContent: undefined,
     listHeight: 180,
     changeOnSelect: false,
     fieldNames: () => ({ label: "label", value: "value", children: "children" }),
@@ -118,6 +121,9 @@ const props = withDefaults(defineProps<Props>(), {
     showCheckedStrategy: "SHOW_CHILD",
     destroyPopupOnHide: false
 });
+
+const placeholder = computed(() => props.placeholder ?? casT("placeholder"));
+const notFoundContent = computed(() => props.notFoundContent ?? casT("no_data"));
 
 const emit = defineEmits<{
     "update:modelValue": [value: CascaderValue | CascaderMultipleValue | undefined];
