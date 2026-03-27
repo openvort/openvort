@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "openvort": {
+      "url": "http://localhost:8090/mcp/"
+    }
+  }
+}
