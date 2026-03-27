@@ -340,6 +340,7 @@ async def _start_service():
     # 配置 Channel
     import asyncio
 
+    _employee_bot_mgr = None
     channels = registry.list_channels()
     for ch in channels:
         if hasattr(ch, "set_inbox_service"):
@@ -417,6 +418,55 @@ async def _start_service():
 
                 _ch.set_stream_handler(bot_stream_handler)
                 await ch.start_bot()
+
+            # ---- AI Employee independent bots ----
+            try:
+                from openvort.channels.wecom.employee_bot import EmployeeBotManager
+
+                _employee_bot_mgr = EmployeeBotManager()
+
+                def _make_employee_stream_handler(emp_member_id: str):
+                    async def handler(msg):
+                        raw = getattr(msg, "raw", None) or {}
+                        chat_type = raw.get("_bot_chat_type", "single")
+                        chat_id = raw.get("_bot_chat_id", "")
+                        is_group = chat_type != "single" and bool(chat_id)
+
+                        if is_group:
+                            session_uid = f"group:emp:{emp_member_id}:{chat_id}"
+                        else:
+                            session_uid = f"emp:{emp_member_id}:{msg.sender_id}"
+
+                        cmd_result = await command_handler.handle(msg.channel, session_uid, msg.content)
+                        if cmd_result.handled:
+                            if cmd_result.reply:
+                                yield {"type": "text", "text": cmd_result.reply}
+                            return
+
+                        ctx = await build_context(msg.channel, msg.sender_id)
+                        ctx.user_id = session_uid
+                        ctx.target_member_id = emp_member_id
+                        ctx.images = getattr(msg, "images", []) or []
+
+                        content = msg.content
+                        if is_group:
+                            ctx.group_id = chat_id
+                            sender_name = ctx.member.name if ctx.member else msg.sender_id
+                            content = f"[{sender_name}]: {content}"
+
+                        async for event in agent.process_stream_im(ctx, content):
+                            yield event
+                    return handler
+
+                count = await _employee_bot_mgr.start_all(
+                    session_factory,
+                    _make_employee_stream_handler,
+                    inbox=inbox_service,
+                )
+                if count:
+                    log.info(f"企微 AI 员工独立 Bot: 已启动 {count} 个")
+            except Exception as e:
+                log.warning(f"启动 AI 员工独立 Bot 失败: {e}")
 
             await ch.start()
 
@@ -804,6 +854,11 @@ async def _start_service():
     except (KeyboardInterrupt, asyncio.CancelledError):
         log.info("正在关闭...")
         _scheduler.stop()
+        try:
+            if _employee_bot_mgr:
+                await _employee_bot_mgr.stop_all()
+        except Exception:
+            pass
         for ch in channels:
             await ch.stop()
         from openvort.db import close_db
