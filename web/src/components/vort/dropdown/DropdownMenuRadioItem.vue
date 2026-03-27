@@ -2,8 +2,8 @@
 /**
  * Vort DropdownMenuRadioItem - 单选菜单项组件
  */
-import { computed } from "vue";
-import { DropdownMenuRadioItem as RekaDropdownMenuRadioItem, DropdownMenuItemIndicator } from "reka-ui";
+import { computed, inject } from "vue";
+import type { ComputedRef } from "vue";
 
 defineOptions({ name: "VortDropdownMenuRadioItem" });
 
@@ -20,20 +20,46 @@ const props = withDefaults(defineProps<Props>(), {
     disabled: false
 });
 
+const radioCtx = inject<{ value: ComputedRef<string | undefined>; select: (val: string) => void }>("vortDropdownRadioContext");
+
+const isChecked = computed(() => radioCtx?.value.value === props.value);
+
 const itemClasses = computed(() => {
     const classes = ["vort-dropdown-menu-radio-item"];
     if (props.class) classes.push(props.class);
     return classes;
 });
+
+const handleClick = () => {
+    if (props.disabled) return;
+    radioCtx?.select(props.value);
+};
+
+const handleKeydown = (e: KeyboardEvent) => {
+    if (props.disabled) return;
+    if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        handleClick();
+    }
+};
 </script>
 
 <template>
-    <RekaDropdownMenuRadioItem :class="itemClasses" :value="value" :disabled="disabled">
-        <DropdownMenuItemIndicator class="vort-dropdown-menu-item-indicator">
+    <div
+        :class="itemClasses"
+        role="menuitemradio"
+        :tabindex="disabled ? undefined : -1"
+        :data-disabled="disabled ? '' : undefined"
+        :data-state="isChecked ? 'checked' : 'unchecked'"
+        :aria-checked="isChecked"
+        @click="handleClick"
+        @keydown="handleKeydown"
+    >
+        <span v-if="isChecked" class="vort-dropdown-menu-item-indicator">
             <svg class="vort-dropdown-radio-icon" width="8" height="8" viewBox="0 0 8 8" fill="currentColor">
                 <circle cx="4" cy="4" r="4" />
             </svg>
-        </DropdownMenuItemIndicator>
+        </span>
         <slot />
-    </RekaDropdownMenuRadioItem>
+    </div>
 </template>

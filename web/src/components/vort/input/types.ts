@@ -31,7 +31,6 @@ export interface InputProps {
     variant?: InputVariant;
     /** 是否禁用 */
     disabled?: boolean;
-    /** 是否有边框（兼容旧 API） */
     bordered?: boolean;
     /** 输入框占位文本 */
     placeholder?: string;
@@ -69,42 +68,66 @@ export interface InputEmits {
 
 /** InputNumber 组件 Props */
 export interface InputNumberProps {
-    /** 输入框内容（v-model） */
+    /** 当前值（v-model） */
     modelValue?: number | null;
-    /** 尺寸 */
-    size?: InputSize;
+    /** 默认值 */
+    defaultValue?: number;
     /** 最小值 */
     min?: number;
     /** 最大值 */
     max?: number;
-    /** 步进值 */
-    step?: number;
-    /** 精度（小数位数） */
+    /** 每次改变步数，可以为小数 */
+    step?: number | string;
+    /** 数值精度（小数位数） */
     precision?: number;
+    /** 尺寸 */
+    size?: InputSize;
+    /** 输入框状态 */
+    status?: InputStatus;
     /** 是否禁用 */
     disabled?: boolean;
-    /** 占位文本 */
+    /** 是否只读 */
+    readOnly?: boolean;
+    /** 是否有边框 */
+    bordered?: boolean;
+    /** 输入框占位文本 */
     placeholder?: string;
-    /** 是否显示增减按钮 */
-    controls?: boolean;
     /** 自定义类名 */
     class?: string;
+    /** 是否隐藏控制按钮 */
+    controls?: boolean;
+    /** 指定输入框展示值的格式 */
+    formatter?: (value: number | string | undefined) => string;
+    /** 指定从 formatter 里转换回数字的方式 */
+    parser?: (value: string | undefined) => number | string;
+    /** 带有前缀图标的 input */
+    prefix?: string;
+    /** 是否启用键盘快捷行为（上下箭头调整值） */
+    keyboard?: boolean;
+    /** 是否严格校验，在失焦时校验并矫正数值 */
+    stringMode?: boolean;
+    /** 紧凑模式，用于 addonBefore/addonAfter 放置 Select 等组件 */
+    compact?: boolean;
 }
 
 /** InputPassword 组件 Props */
-export interface InputPasswordProps extends Omit<InputProps, "modelValue"> {
+export interface InputPasswordProps extends Omit<InputProps, "modelValue" | "defaultValue"> {
     /** 输入框内容（v-model） */
     modelValue?: string;
+    /** 默认值（非受控模式） */
+    defaultValue?: string;
     /** 是否显示切换密码可见按钮 */
     visibilityToggle?: boolean;
 }
 
 /** InputSearch 组件 Props */
-export interface InputSearchProps extends Omit<InputProps, "modelValue"> {
+export interface InputSearchProps extends Omit<InputProps, "modelValue" | "defaultValue"> {
     /** 输入框内容（v-model） */
     modelValue?: string;
-    /** 是否在输入时实时触发搜索 */
-    searchOnInput?: boolean;
-    /** 搜索按钮文字 */
-    enterButton?: string | boolean;
+    /** 默认值（非受控模式） */
+    defaultValue?: string;
+    /** 是否有确认按钮（可设为按钮文字），true 为蓝色按钮，false 为白色按钮 */
+    enterButton?: boolean | string;
+    /** 搜索按钮加载状态 */
+    loading?: boolean;
 }

@@ -2,7 +2,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { InfoCircleFilled, CheckCircleFilled, CloseCircleFilled, ExclamationCircleFilled } from "@/components/vort/icons";
 import { Button } from "@/components/vort/button";
-import { getVortTeleportTo } from "@/components/vort/composables";
+import { getVortTeleportTo, useOverlayStack } from "@/components/vort/composables";
 import { useLocale } from "@/components/vort/locale/useLocale";
 
 defineOptions({ name: "VortConfirmDialog" });
@@ -76,6 +76,8 @@ const emit = defineEmits<{
     cancel: [];
     afterClose: [];
 }>();
+
+const overlay = useOverlayStack();
 
 // 状态
 const visible = ref(false);
@@ -162,13 +164,6 @@ const handleWrapClick = (e: MouseEvent) => {
     }
 };
 
-// ESC 键关闭
-const handleKeydown = (e: KeyboardEvent) => {
-    if (e.key === "Escape" && props.keyboard && props.open) {
-        close();
-    }
-};
-
 // 动画结束回调
 const handleAnimationEnd = () => {
     if (animationState.value === "leave") {
@@ -191,6 +186,10 @@ watch(
             visible.value = true;
             document.body.style.overflow = "hidden";
 
+            overlay.push(() => {
+                if (props.keyboard) close();
+            });
+
             await nextTick();
 
             // 等待浏览器渲染完成后再计算位置和触发动画
@@ -201,18 +200,15 @@ watch(
                 animationState.value = "enter";
             });
         } else if (oldVal && !newVal) {
+            overlay.pop();
             animationState.value = "leave";
         }
     },
     { immediate: true }
 );
 
-onMounted(() => {
-    document.addEventListener("keydown", handleKeydown);
-});
-
 onUnmounted(() => {
-    document.removeEventListener("keydown", handleKeydown);
+    overlay.pop();
     document.body.style.overflow = "";
 });
 </script>

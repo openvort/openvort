@@ -174,7 +174,6 @@ const processFiles = async (files: File[]) => {
     // 限制数量
     let filesToProcess = files;
     if (props.maxCount !== undefined) {
-        // Ant Design 行为：当选择新文件导致超出 maxCount 时，保留最新文件（移除最早的旧文件）
         const totalCount = fileList.value.length + files.length;
         if (totalCount > props.maxCount) {
             const overflow = totalCount - props.maxCount;

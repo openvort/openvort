@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** Vort DropdownMenuItem - 下拉菜单项组件 */
-import { computed } from "vue";
-import { DropdownMenuItem as RekaDropdownMenuItem } from "reka-ui";
+import { computed, inject } from "vue";
+import type { VortDropdownContext } from "./Dropdown.vue";
 
 defineOptions({ name: "VortDropdownMenuItem" });
 
@@ -23,9 +23,10 @@ const props = withDefaults(defineProps<Props>(), {
 });
 
 const emit = defineEmits<{
-    /** 点击菜单项时触发 */
     click: [event: Event];
 }>();
+
+const ctx = inject<VortDropdownContext>("vortDropdownContext");
 
 const itemClasses = computed(() => {
     const classes = ["vort-dropdown-menu-item"];
@@ -34,16 +35,33 @@ const itemClasses = computed(() => {
     return classes;
 });
 
-const handleSelect = (event: Event) => {
+const handleClick = (event: Event) => {
+    if (props.disabled) return;
     emit("click", event);
+    ctx?.close();
+};
+
+const handleKeydown = (e: KeyboardEvent) => {
+    if (props.disabled) return;
+    if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        handleClick(e);
+    }
 };
 </script>
 
 <template>
-    <RekaDropdownMenuItem :class="itemClasses" :disabled="disabled" @select="handleSelect">
+    <div
+        :class="itemClasses"
+        role="menuitem"
+        :tabindex="disabled ? undefined : -1"
+        :data-disabled="disabled ? '' : undefined"
+        @click="handleClick"
+        @keydown="handleKeydown"
+    >
         <span v-if="$slots.icon || icon" class="vort-dropdown-menu-item-icon">
             <slot name="icon">{{ icon }}</slot>
         </span>
         <slot />
-    </RekaDropdownMenuItem>
+    </div>
 </template>

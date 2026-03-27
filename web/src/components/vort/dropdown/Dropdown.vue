@@ -41,8 +41,6 @@ interface Props {
      */
     destroyOnHidden?: boolean;
     /**
-     * 关闭后是否销毁 Dropdown（兼容旧命名）
-     *
      * @deprecated 请使用 destroyOnHidden
      */
     destroyPopupOnHide?: boolean;
@@ -59,11 +57,14 @@ interface Props {
 }
 
 export type { Props as DropdownProps };
+
+export interface VortDropdownContext {
+    close: () => void;
+}
 </script>
 
 <script setup lang="ts">
-import { computed, ref, onBeforeUnmount, watch, nextTick } from "vue";
-import { DropdownMenuRoot, DropdownMenuTrigger, DropdownMenuPortal, DropdownMenuContent, DropdownMenuArrow } from "reka-ui";
+import { computed, ref, onBeforeUnmount, onMounted, watch, nextTick, provide } from "vue";
 import { getVortPopupContainer, useZIndex } from "@/components/vort/composables";
 import "./dropdown.css";
 
@@ -88,9 +89,7 @@ const shouldDestroyOnHidden = computed(() => props.destroyOnHidden ?? props.dest
 const popupContainer = computed(() => props.getPopupContainer?.() ?? getVortPopupContainer());
 
 const emit = defineEmits<{
-    /** 菜单显示状态改变时调用 */
     "update:open": [open: boolean];
-    /** 菜单显示状态改变时调用（兼容 ant-design 事件命名） */
     openChange: [open: boolean];
 }>();
 
@@ -100,27 +99,27 @@ const contentRef = ref<HTMLElement | null>(null);
 const isHovered = ref(false);
 const enterTimeoutId = ref<ReturnType<typeof setTimeout> | null>(null);
 const leaveTimeoutId = ref<ReturnType<typeof setTimeout> | null>(null);
-const shouldRenderPortal = ref(false); // 控制 Portal 是否渲染，避免产生 <!--v-if--> 注释
-const isAfterClosedHidden = ref(false); // destroyOnHidden=false 时，关闭后强制隐藏 wrapper，避免遮挡点击区域
+const shouldRenderPortal = ref(false);
+const isAfterClosedHidden = ref(false);
 const hideTimeoutId = ref<ReturnType<typeof setTimeout> | null>(null);
-const isTriggerClicking = ref(false); // 标记是否正在点击 trigger，用于 hover 模式下阻止点击关闭
+const isTriggerClicking = ref(false);
 
-// 内部打开状态
 const internalOpen = ref(props.defaultOpen);
 
 // ============ 右键菜单位置状态 ============
-// 记录右键点击时的鼠标位置，用于将弹窗定位到鼠标位置
 const contextMenuPosition = ref<{ x: number; y: number } | null>(null);
 
-// 使用 z-index 上下文，在 Dialog/Drawer 内时自动获得更高的层级
 const zIndex = useZIndex("popup");
 
-// 计算实际的 open 状态（支持受控和非受控模式）
+// ============ 定位状态 ============
+const contentPosition = ref({ top: 0, left: 0 });
+const actualSide = ref<"top" | "bottom" | "left" | "right">("bottom");
+
 const isOpen = computed({
     get: () => (props.open !== undefined ? props.open : internalOpen.value),
     set: (val) => {
         if (val) {
-            shouldRenderPortal.value = true; // 打开时先渲染 Portal
+            shouldRenderPortal.value = true;
         }
         if (props.open === undefined) {
             internalOpen.value = val;
@@ -130,7 +129,6 @@ const isOpen = computed({
     }
 });
 
-// 打开时立即取消隐藏；关闭时允许播放关闭动画，动画结束后再隐藏 wrapper
 watch(
     isOpen,
     (open) => {
@@ -140,12 +138,11 @@ watch(
         }
         if (open) {
             isAfterClosedHidden.value = false;
+            nextTick(updatePosition);
             return;
         }
-        // destroyOnHidden=true 时会在动画结束后卸载 Portal，不需要额外隐藏
         if (!shouldDestroyOnHidden.value) {
             isAfterClosedHidden.value = false;
-            // 兜底：极少数情况下 animationend 可能不触发（如用户关闭动画），延迟隐藏避免遮挡
             hideTimeoutId.value = setTimeout(() => {
                 if (!isOpen.value) {
                     isAfterClosedHidden.value = true;
@@ -156,32 +153,14 @@ watch(
     { immediate: true }
 );
 
-// 处理关闭动画完成后移除 Portal 和清理右键菜单状态
-const handleAnimationEnd = () => {
-    if (!isOpen.value) {
-        if (shouldDestroyOnHidden.value) {
-            shouldRenderPortal.value = false;
-        } else {
-            isAfterClosedHidden.value = true;
-        }
-        // 动画结束后再停止 Observer 和清除位置，避免关闭动画期间弹窗跳位
-        stopContextMenuPositionWatch();
-        contextMenuPosition.value = null;
+// ============ 提供上下文给子组件 ============
+provide<VortDropdownContext>("vortDropdownContext", {
+    close: () => {
+        isOpen.value = false;
     }
-};
-
-// 解析触发方式
-const triggers = computed(() => {
-    const t = props.trigger;
-    return Array.isArray(t) ? t : [t];
 });
 
-const hasHoverTrigger = computed(() => triggers.value.includes("hover"));
-const hasClickTrigger = computed(() => triggers.value.includes("click"));
-const hasContextMenuTrigger = computed(() => triggers.value.includes("contextMenu"));
-
-// ============ 位置映射 ============
-// Ant Design placement -> Radix side/align
+// ============ 位置计算 ============
 const placementMap: Record<DropdownPlacement, { side: "top" | "bottom" | "left" | "right"; align: "start" | "center" | "end" }> = {
     bottom: { side: "bottom", align: "center" },
     bottomLeft: { side: "bottom", align: "start" },
@@ -197,12 +176,112 @@ const placementMap: Record<DropdownPlacement, { side: "top" | "bottom" | "left" 
     rightBottom: { side: "right", align: "end" }
 };
 
-const placement = computed(() => placementMap[props.placement]);
+const updatePosition = () => {
+    // 右键菜单模式：使用鼠标位置
+    if (contextMenuPosition.value) {
+        contentPosition.value = { top: contextMenuPosition.value.y, left: contextMenuPosition.value.x };
+        actualSide.value = "bottom";
+        return;
+    }
 
-// ============ 箭头配置 ============
+    if (!triggerRef.value || !contentRef.value) return;
+
+    const triggerRect = triggerRef.value.getBoundingClientRect();
+    const contentEl = contentRef.value;
+    const contentWidth = contentEl.offsetWidth;
+    const contentHeight = contentEl.offsetHeight;
+    const { side, align } = placementMap[props.placement];
+    const gap = props.offset;
+
+    let top = 0;
+    let left = 0;
+    let resolvedSide = side;
+
+    // 根据 side 计算主轴
+    if (side === "bottom") {
+        top = triggerRect.bottom + gap;
+    } else if (side === "top") {
+        top = triggerRect.top - contentHeight - gap;
+    } else if (side === "left") {
+        left = triggerRect.left - contentWidth - gap;
+    } else {
+        left = triggerRect.right + gap;
+    }
+
+    // 根据 align 计算交叉轴
+    if (side === "bottom" || side === "top") {
+        if (align === "start") left = triggerRect.left;
+        else if (align === "center") left = triggerRect.left + (triggerRect.width - contentWidth) / 2;
+        else left = triggerRect.right - contentWidth;
+    } else {
+        if (align === "start") top = triggerRect.top;
+        else if (align === "center") top = triggerRect.top + (triggerRect.height - contentHeight) / 2;
+        else top = triggerRect.bottom - contentHeight;
+    }
+
+    // 碰撞检测 - 翻转
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const padding = 8;
+
+    if (resolvedSide === "bottom" && top + contentHeight > vh - padding) {
+        const flipped = triggerRect.top - contentHeight - gap;
+        if (flipped >= padding) {
+            top = flipped;
+            resolvedSide = "top";
+        }
+    } else if (resolvedSide === "top" && top < padding) {
+        const flipped = triggerRect.bottom + gap;
+        if (flipped + contentHeight <= vh - padding) {
+            top = flipped;
+            resolvedSide = "bottom";
+        }
+    } else if (resolvedSide === "left" && left < padding) {
+        const flipped = triggerRect.right + gap;
+        if (flipped + contentWidth <= vw - padding) {
+            left = flipped;
+            resolvedSide = "right";
+        }
+    } else if (resolvedSide === "right" && left + contentWidth > vw - padding) {
+        const flipped = triggerRect.left - contentWidth - gap;
+        if (flipped >= padding) {
+            left = flipped;
+            resolvedSide = "left";
+        }
+    }
+
+    // 确保不超出左右边界
+    left = Math.max(padding, Math.min(left, vw - contentWidth - padding));
+    top = Math.max(padding, Math.min(top, vh - contentHeight - padding));
+
+    contentPosition.value = { top, left };
+    actualSide.value = resolvedSide;
+};
+
+// ============ 动画结束处理 ============
+const handleAnimationEnd = () => {
+    if (!isOpen.value) {
+        if (shouldDestroyOnHidden.value) {
+            shouldRenderPortal.value = false;
+        } else {
+            isAfterClosedHidden.value = true;
+        }
+        contextMenuPosition.value = null;
+    }
+};
+
+// ============ 触发方式 ============
+const triggers = computed(() => {
+    const t = props.trigger;
+    return Array.isArray(t) ? t : [t];
+});
+
+const hasHoverTrigger = computed(() => triggers.value.includes("hover"));
+const hasClickTrigger = computed(() => triggers.value.includes("click"));
+const hasContextMenuTrigger = computed(() => triggers.value.includes("contextMenu"));
+
 const showArrow = computed(() => !!props.arrow);
 
-// ============ 样式类（简洁的类名切换） ============
 const contentClasses = computed(() => {
     const classes = ["vort-dropdown"];
     if (props.overlayClassName) classes.push(props.overlayClassName);
@@ -216,9 +295,15 @@ const triggerClasses = computed(() => {
     return classes;
 });
 
-// ============ 事件处理 ============
+const contentStyle = computed(() => ({
+    ...props.overlayStyle,
+    position: "fixed" as const,
+    top: `${contentPosition.value.top}px`,
+    left: `${contentPosition.value.left}px`,
+    zIndex: zIndex.value
+}));
 
-// 清除所有延迟定时器
+// ============ 事件处理 ============
 const clearAllTimers = () => {
     if (enterTimeoutId.value) {
         clearTimeout(enterTimeoutId.value);
@@ -230,16 +315,13 @@ const clearAllTimers = () => {
     }
 };
 
-// Hover 触发逻辑
 const handleMouseEnter = () => {
     if (!hasHoverTrigger.value || props.disabled) return;
-    // 清除离开定时器
     if (leaveTimeoutId.value) {
         clearTimeout(leaveTimeoutId.value);
         leaveTimeoutId.value = null;
     }
     isHovered.value = true;
-    // 延迟显示，防止鼠标快速经过时触发
     enterTimeoutId.value = setTimeout(() => {
         if (isHovered.value) {
             isOpen.value = true;
@@ -249,13 +331,11 @@ const handleMouseEnter = () => {
 
 const handleMouseLeave = () => {
     if (!hasHoverTrigger.value || props.disabled) return;
-    // 清除进入定时器
     if (enterTimeoutId.value) {
         clearTimeout(enterTimeoutId.value);
         enterTimeoutId.value = null;
     }
     isHovered.value = false;
-    // 延迟关闭，给用户时间移动到菜单内容上
     leaveTimeoutId.value = setTimeout(() => {
         if (!isHovered.value) {
             isOpen.value = false;
@@ -265,7 +345,6 @@ const handleMouseLeave = () => {
 
 const handleContentMouseEnter = () => {
     if (!hasHoverTrigger.value) return;
-    // 清除离开定时器
     if (leaveTimeoutId.value) {
         clearTimeout(leaveTimeoutId.value);
         leaveTimeoutId.value = null;
@@ -283,154 +362,108 @@ const handleContentMouseLeave = () => {
     }, props.mouseLeaveDelay);
 };
 
-// Click 触发逻辑
 const handleTriggerClick = (e: MouseEvent) => {
     if (props.disabled) return;
 
-    // hover 模式下，点击 trigger 不应该关闭菜单
-    // 设置标志，在 handleOpenChange 中检查
     if (hasHoverTrigger.value && !hasClickTrigger.value) {
         isTriggerClicking.value = true;
-        // 使用 nextTick 重置标志，确保 handleOpenChange 能检测到
         nextTick(() => {
             isTriggerClicking.value = false;
         });
         return;
     }
 
-    // 只有明确设置了 click 触发时才响应左键点击
     if (hasClickTrigger.value) {
         e.preventDefault();
-        // 非右键模式触发时，清除右键位置
         contextMenuPosition.value = null;
         isOpen.value = !isOpen.value;
     }
-    // 如果只有 contextMenu 触发，阻止左键打开
+
     if (hasContextMenuTrigger.value && !hasClickTrigger.value) {
         e.preventDefault();
         e.stopPropagation();
     }
 };
 
-// ============ 右键菜单位置控制 ============
-// 使用 MutationObserver 监听 wrapper 的 style 变化，持续覆盖 popper 的位置计算
-let contextMenuObserver: MutationObserver | null = null;
-
-// 设置右键菜单弹窗位置的辅助函数
-const applyContextMenuPosition = (wrapper: HTMLElement, x: number, y: number) => {
-    // 检查当前位置是否已正确
-    const currentLeft = wrapper.style.left;
-    const currentTop = wrapper.style.top;
-    const currentTransform = wrapper.style.transform;
-
-    if (currentLeft === `${x}px` && currentTop === `${y}px` && currentTransform === "none") {
-        return; // 位置已正确，无需更新
-    }
-
-    wrapper.style.position = "fixed";
-    wrapper.style.left = `${x}px`;
-    wrapper.style.top = `${y}px`;
-    wrapper.style.transform = "none";
-};
-
-// 开始监听 wrapper 的 style 变化
-const startContextMenuPositionWatch = () => {
-    if (!contentRef.value || !contextMenuPosition.value) return;
-
-    const refValue = contentRef.value as unknown as { $el?: HTMLElement };
-    const contentEl = refValue.$el || (contentRef.value as unknown as HTMLElement);
-    const wrapper = contentEl?.closest?.("[data-reka-popper-content-wrapper]") as HTMLElement | null;
-
-    if (!wrapper) return;
-
-    const { x, y } = contextMenuPosition.value;
-
-    // 先立即设置一次位置
-    applyContextMenuPosition(wrapper, x, y);
-
-    // 停止之前的观察器
-    stopContextMenuPositionWatch();
-
-    // 创建 MutationObserver 监听 style 变化
-    contextMenuObserver = new MutationObserver(() => {
-        if (contextMenuPosition.value) {
-            applyContextMenuPosition(wrapper, contextMenuPosition.value.x, contextMenuPosition.value.y);
-        }
-    });
-
-    contextMenuObserver.observe(wrapper, {
-        attributes: true,
-        attributeFilter: ["style"]
-    });
-};
-
-// 停止监听
-const stopContextMenuPositionWatch = () => {
-    if (contextMenuObserver) {
-        contextMenuObserver.disconnect();
-        contextMenuObserver = null;
-    }
-};
-
-// ContextMenu 触发逻辑
 const handleContextMenu = (e: MouseEvent) => {
     if (!hasContextMenuTrigger.value || props.disabled) return;
     e.preventDefault();
-
-    // 记录右键点击的鼠标位置
     contextMenuPosition.value = { x: e.clientX, y: e.clientY };
-
-    // 如果已经打开，直接更新位置
     if (isOpen.value) {
-        nextTick(() => {
-            startContextMenuPositionWatch();
-        });
+        nextTick(updatePosition);
         return;
     }
-
-    // 首次打开
     isOpen.value = true;
 };
 
-// 监听 contentRef 变化，在右键菜单模式下开始位置监听
-watch(contentRef, (newVal) => {
-    if (newVal && contextMenuPosition.value) {
-        // 使用 nextTick 确保 DOM 完成更新
-        nextTick(() => {
-            startContextMenuPositionWatch();
-        });
-    }
-});
-
-// Radix 的 open 变化回调
-const handleOpenChange = (open: boolean) => {
-    // 如果是 hover 模式，只通过 hover 控制打开，但允许通过点击菜单项关闭
-    if (hasHoverTrigger.value && !hasClickTrigger.value) {
-        // hover 模式下，点击 trigger 不应该关闭菜单
-        if (!open && isTriggerClicking.value) {
-            return;
-        }
-        // hover 模式下，允许关闭（如点击菜单项），但不通过此回调打开
-        if (!open) {
-            isOpen.value = false;
-        }
-        return;
-    }
-    // 如果只有 contextMenu 触发，不响应 radix 默认的点击打开行为
-    if (hasContextMenuTrigger.value && !hasClickTrigger.value && !hasHoverTrigger.value) {
-        // 只允许关闭操作，打开操作由 handleContextMenu 控制
-        if (!open) {
-            isOpen.value = false;
-        }
-        return;
-    }
-    isOpen.value = open;
+// ============ 键盘导航 ============
+const getMenuItems = (): HTMLElement[] => {
+    if (!contentRef.value) return [];
+    return Array.from(
+        contentRef.value.querySelectorAll<HTMLElement>('[role="menuitem"]:not([data-disabled]), [role="menuitemcheckbox"]:not([data-disabled]), [role="menuitemradio"]:not([data-disabled])')
+    );
 };
 
-// ============ 清理 ============
+const handleContentKeydown = (e: KeyboardEvent) => {
+    const items = getMenuItems();
+    if (!items.length) return;
+
+    const currentIndex = items.indexOf(document.activeElement as HTMLElement);
+
+    switch (e.key) {
+        case "ArrowDown": {
+            e.preventDefault();
+            const next = currentIndex < items.length - 1 ? currentIndex + 1 : 0;
+            items[next]?.focus();
+            break;
+        }
+        case "ArrowUp": {
+            e.preventDefault();
+            const prev = currentIndex > 0 ? currentIndex - 1 : items.length - 1;
+            items[prev]?.focus();
+            break;
+        }
+        case "Home":
+            e.preventDefault();
+            items[0]?.focus();
+            break;
+        case "End":
+            e.preventDefault();
+            items[items.length - 1]?.focus();
+            break;
+        case "Escape":
+            e.preventDefault();
+            isOpen.value = false;
+            triggerRef.value?.focus();
+            break;
+    }
+};
+
+// ============ 点击外部关闭（不拦截事件，不使用遮罩层） ============
+const handleDocumentMouseDown = (e: MouseEvent) => {
+    if (!isOpen.value) return;
+    const target = e.target as Node;
+    if (triggerRef.value?.contains(target) || contentRef.value?.contains(target)) return;
+    isOpen.value = false;
+};
+
+// ============ 滚动/resize 更新位置 ============
+const handleScrollOrResize = () => {
+    if (isOpen.value) updatePosition();
+};
+
+// ============ 生命周期 ============
+onMounted(() => {
+    document.addEventListener("mousedown", handleDocumentMouseDown);
+    window.addEventListener("scroll", handleScrollOrResize, true);
+    window.addEventListener("resize", handleScrollOrResize);
+});
+
 onBeforeUnmount(() => {
+    document.removeEventListener("mousedown", handleDocumentMouseDown);
+    window.removeEventListener("scroll", handleScrollOrResize, true);
+    window.removeEventListener("resize", handleScrollOrResize);
     clearAllTimers();
-    stopContextMenuPositionWatch();
     if (hideTimeoutId.value) {
         clearTimeout(hideTimeoutId.value);
         hideTimeoutId.value = null;
@@ -439,13 +472,11 @@ onBeforeUnmount(() => {
 
 // ============ 暴露方法 ============
 defineExpose({
-    /** 打开下拉菜单 */
     open: () => {
         if (!props.disabled) {
             isOpen.value = true;
         }
     },
-    /** 关闭下拉菜单 */
     close: () => {
         isOpen.value = false;
     }
@@ -453,50 +484,45 @@ defineExpose({
 </script>
 
 <template>
-    <DropdownMenuRoot :open="isOpen" :modal="false" @update:open="handleOpenChange">
-        <DropdownMenuTrigger
-            ref="triggerRef"
-            as-child
-            :disabled="disabled"
-            @click="handleTriggerClick"
-            @contextmenu="handleContextMenu"
-            @mouseenter="handleMouseEnter"
-            @mouseleave="handleMouseLeave"
+    <span ref="triggerRef" :class="triggerClasses" @click="handleTriggerClick" @contextmenu="handleContextMenu" @mouseenter="handleMouseEnter" @mouseleave="handleMouseLeave">
+        <slot />
+    </span>
+
+    <Teleport v-if="shouldRenderPortal" :to="popupContainer">
+        <div
+            v-show="!isAfterClosedHidden"
+            ref="contentRef"
+            :class="contentClasses"
+            :style="contentStyle"
+            :data-state="isOpen ? 'open' : 'closed'"
+            :data-side="actualSide"
+            data-slot="dropdown-content"
+            role="menu"
+            tabindex="-1"
+            @mouseenter="handleContentMouseEnter"
+            @mouseleave="handleContentMouseLeave"
+            @animationend="handleAnimationEnd"
+            @keydown="handleContentKeydown"
         >
-            <span :class="triggerClasses">
-                <slot />
-            </span>
-        </DropdownMenuTrigger>
+            <slot name="overlay" />
 
-        <DropdownMenuPortal v-if="shouldRenderPortal" :to="popupContainer">
-            <DropdownMenuContent
-                ref="contentRef"
-                data-slot="dropdown-content"
-                :data-vort-hidden="isAfterClosedHidden ? '' : undefined"
-                :class="contentClasses"
-                :style="{ ...overlayStyle, '--vort-dropdown-z-index': zIndex }"
-                :side="placement.side"
-                :align="placement.align"
-                :side-offset="offset"
-                :collision-padding="8"
-                :force-mount="!shouldDestroyOnHidden"
-                @mouseenter="handleContentMouseEnter"
-                @mouseleave="handleContentMouseLeave"
-                @animationend="handleAnimationEnd"
+            <div
+                v-if="showArrow"
+                class="vort-dropdown-arrow"
+                :style="{
+                    position: 'absolute',
+                    [actualSide === 'bottom' ? 'top' : actualSide === 'top' ? 'bottom' : actualSide === 'left' ? 'right' : 'left']: '-6px',
+                    left: actualSide === 'bottom' || actualSide === 'top' ? '50%' : undefined,
+                    top: actualSide === 'left' || actualSide === 'right' ? '50%' : undefined,
+                    transform: 'translate(-50%, 0)'
+                }"
             >
-                <!-- 下拉内容 -->
-                <slot name="overlay" />
-
-                <!-- 箭头 -->
-                <DropdownMenuArrow v-if="showArrow" class="vort-dropdown-arrow" :width="12" :height="6" :style="{ fill: '#fff' }" />
-            </DropdownMenuContent>
-        </DropdownMenuPortal>
-    </DropdownMenuRoot>
+                <svg width="12" height="6" viewBox="0 0 12 6" fill="#fff">
+                    <path
+                        :d="actualSide === 'bottom' ? 'M0 6L6 0L12 6' : actualSide === 'top' ? 'M0 0L6 6L12 0' : actualSide === 'left' ? 'M0 0L6 6L0 12' : 'M6 0L0 6L6 12'"
+                    />
+                </svg>
+            </div>
+        </div>
+    </Teleport>
 </template>
-
-<style>
-/* 覆盖 reka-ui 的 popper wrapper z-index */
-[data-reka-popper-content-wrapper]:has([data-slot="dropdown-content"]) {
-    z-index: var(--vort-dropdown-z-index, 1050) !important;
-}
-</style>

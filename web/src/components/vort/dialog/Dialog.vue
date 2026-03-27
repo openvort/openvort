@@ -1,7 +1,26 @@
+<script lang="ts">
+let mousePosition: { x: number; y: number } | null = null;
+let isClickListenerRegistered = false;
+
+const getClickPosition = (e: MouseEvent) => {
+    mousePosition = { x: e.clientX, y: e.clientY };
+    setTimeout(() => {
+        mousePosition = null;
+    }, 100);
+};
+
+function ensureClickListener() {
+    if (!isClickListenerRegistered && typeof window !== "undefined") {
+        document.documentElement.addEventListener("click", getClickPosition, true);
+        isClickListenerRegistered = true;
+    }
+}
+</script>
+
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
-import { X } from "lucide-vue-next";
-import { getVortTeleportTo, useZIndexProviderValue } from "@/components/vort/composables";
+import { CloseOutlined } from "@/components/vort/icons";
+import { getVortTeleportTo, useZIndexProviderValue, useOverlayStack } from "@/components/vort/composables";
 import { Button } from "@/components/vort/button";
 import { useLocale } from "../locale";
 
@@ -78,6 +97,8 @@ const cancelTextValue = computed(() => props.cancelText ?? t("cancel_text"));
 // 这样子组件的弹出层会自动获得比 Dialog 更高的 z-index
 useZIndexProviderValue(() => props.zIndex);
 
+const overlay = useOverlayStack();
+
 const emit = defineEmits<{
     "update:open": [value: boolean];
     ok: [];
@@ -93,26 +114,6 @@ const dialogRef = ref<HTMLDivElement | null>(null);
 const wrapRef = ref<HTMLDivElement | null>(null);
 const transformOriginStyle = ref("");
 const teleportTo = computed(() => getVortTeleportTo());
-
-// 全局鼠标位置追踪（使用视口坐标 clientX/clientY）
-let mousePosition: { x: number; y: number } | null = null;
-
-// 获取点击位置
-const getClickPosition = (e: MouseEvent) => {
-    mousePosition = {
-        x: e.clientX,
-        y: e.clientY
-    };
-    // 100ms 后清除，避免影响其他弹窗
-    setTimeout(() => {
-        mousePosition = null;
-    }, 100);
-};
-
-// 只在 document 上监听 click 获取位置
-if (typeof window !== "undefined") {
-    document.documentElement.addEventListener("click", getClickPosition, true);
-}
 
 // 计算 transform-origin
 const setTransformOrigin = () => {
@@ -174,13 +175,6 @@ const handleWrapClick = (e: MouseEvent) => {
     }
 };
 
-// ESC 键关闭
-const handleKeydown = (e: KeyboardEvent) => {
-    if (e.key === "Escape" && props.keyboard && props.open) {
-        close();
-    }
-};
-
 // 动画结束回调
 const handleAnimationEnd = () => {
     if (animationState.value === "leave") {
@@ -199,22 +193,22 @@ watch(
     () => props.open,
     async (newVal, oldVal) => {
         if (newVal) {
-            // 打开对话框
-            shouldRenderTeleport.value = true; // 先渲染 Teleport
+            shouldRenderTeleport.value = true;
             visible.value = true;
             document.body.style.overflow = "hidden";
 
+            overlay.push(() => {
+                if (props.keyboard) close();
+            });
+
             await nextTick();
 
-            // 等待浏览器渲染完成后再计算位置和触发动画
             requestAnimationFrame(() => {
-                // 设置 transform-origin
                 setTransformOrigin();
-                // 触发进入动画
                 animationState.value = "enter";
             });
         } else if (oldVal && !newVal) {
-            // 关闭对话框 - 触发离开动画
+            overlay.pop();
             animationState.value = "leave";
         }
     },
@@ -222,11 +216,11 @@ watch(
 );
 
 onMounted(() => {
-    document.addEventListener("keydown", handleKeydown);
+    ensureClickListener();
 });
 
 onUnmounted(() => {
-    document.removeEventListener("keydown", handleKeydown);
+    overlay.pop();
     document.body.style.overflow = "";
 });
 </script>
@@ -256,7 +250,7 @@ onUnmounted(() => {
                     <div class="vort-dialog-content">
                         <!-- 关闭按钮 -->
                         <Button v-if="closable" type="text" icon class="vort-dialog-close" :aria-label="t('close')" @click="close">
-                            <X class="vort-dialog-close-icon" />
+                            <CloseOutlined class="vort-dialog-close-icon" />
                         </Button>
 
                         <!-- 头部 -->

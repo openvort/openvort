@@ -5,7 +5,6 @@
  * 用于菜单分组标题
  */
 import { computed } from "vue";
-import { DropdownMenuLabel as RekaDropdownMenuLabel } from "reka-ui";
 
 defineOptions({ name: "VortDropdownMenuLabel" });
 
@@ -24,7 +23,7 @@ const labelClasses = computed(() => {
 </script>
 
 <template>
-    <RekaDropdownMenuLabel :class="labelClasses">
+    <div :class="labelClasses" role="presentation">
         <slot />
-    </RekaDropdownMenuLabel>
+    </div>
 </template>

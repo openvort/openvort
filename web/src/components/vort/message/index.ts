@@ -1,6 +1,6 @@
 import { createApp, ref, h, type App, type ComponentPublicInstance } from "vue";
 import MessageItem, { type MessageType } from "./MessageItem.vue";
-import { getVortPopupContainer, isServer } from "@/components/vort/composables";
+import { getVortPopupContainer, isServer, Z_INDEX_BASE } from "@/components/vort/composables";
 
 /** Vort Message - 全局提示 */
 
@@ -70,7 +70,7 @@ const createContainer = () => {
         top: ${globalConfig.top}px;
         left: 0;
         right: 0;
-        z-index: 1010;
+        z-index: ${Z_INDEX_BASE.message};
         pointer-events: none;
         display: flex;
         flex-direction: column;

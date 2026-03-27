@@ -2,53 +2,13 @@
 import { computed, ref, useAttrs, useSlots, watch } from "vue";
 import type { StyleValue } from "vue";
 import { CloseCircleFilled } from "@/components/vort/icons";
+import type { InputProps, InputVariant } from "./types";
 
 defineOptions({ name: "VortInput", inheritAttrs: false });
 
 /** Vort Input - 输入框组件 */
 
-type InputSize = "large" | "middle" | "small";
-type InputStatus = "error" | "warning";
-type InputVariant = "outlined" | "filled" | "borderless" | "underlined";
-
-export interface Props {
-    /** 输入框内容（v-model） */
-    modelValue?: string | number;
-    /** 默认值（非受控模式） */
-    defaultValue?: string | number;
-    /** 尺寸 */
-    size?: InputSize;
-    /** 输入框状态 */
-    status?: InputStatus;
-    /**
-     * 输入框形态变体
-     * - outlined: 默认有边框
-     * - filled: 填充背景
-     * - borderless: 无边框
-     * - underlined: 下划线
-     */
-    variant?: InputVariant;
-    /** 是否禁用 */
-    disabled?: boolean;
-    /** 是否有边框（兼容旧 API） */
-    bordered?: boolean;
-    /** 输入框占位文本 */
-    placeholder?: string;
-    /** 自定义类名 */
-    class?: string;
-    /** 可以点击清除图标删除内容 */
-    allowClear?: boolean;
-    /** 最大输入长度 */
-    maxlength?: number;
-    /** 是否展示字数 */
-    showCount?: boolean;
-    /** 紧凑模式，用于 addonBefore/addonAfter 放置 Select 等组件 */
-    compact?: boolean;
-    /** 按钮模式，用于 addonAfter 放置 Button（透明容器，无 padding 和背景） */
-    addonButtonMode?: boolean;
-}
-
-const props = withDefaults(defineProps<Props>(), {
+const props = withDefaults(defineProps<InputProps>(), {
     size: "middle",
     disabled: false,
     bordered: true,
@@ -108,7 +68,6 @@ const countText = computed(() => {
     return props.maxlength !== undefined ? `${len} / ${props.maxlength}` : String(len);
 });
 
-// 兼容旧 bordered 行为
 const resolvedVariant = computed<InputVariant>(() => {
     return props.variant ?? (props.bordered ? "outlined" : "borderless");
 });

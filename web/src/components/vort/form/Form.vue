@@ -327,7 +327,6 @@ const validateFields = async (names?: string | string[]) => {
 };
 
 /**
- * 兼容旧调用方式：validate()
  * - 校验通过：resolve(true)
  * - 校验失败：reject({ errorFields })，不提供 message，避免业务层误弹 toast
  */

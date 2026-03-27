@@ -1,6 +1,6 @@
 import { createApp, ref, h, type App } from "vue";
 import NotificationItem, { type NotificationType, type NotificationPlacement } from "./NotificationItem.vue";
-import { getVortPopupContainer, isServer } from "@/components/vort/composables";
+import { getVortPopupContainer, isServer, Z_INDEX_BASE } from "@/components/vort/composables";
 
 /** Vort Notification - 全局通知提醒 */
 
@@ -63,8 +63,7 @@ let globalConfig: NotificationGlobalConfig = {
     maxCount: undefined
 };
 
-// 通知层级：高于 popup(1050) / tooltip(1070)，避免被下拉菜单遮挡
-const NOTIFICATION_Z_INDEX = 1090;
+const NOTIFICATION_Z_INDEX = Z_INDEX_BASE.notification;
 
 // 各位置的通知列表
 const notificationLists: Record<NotificationPlacement, { value: NotificationData[] }> = {

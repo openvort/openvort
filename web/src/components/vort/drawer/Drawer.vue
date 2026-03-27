@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick, reactive } from "vue";
 import { CloseOutlined } from "@/components/vort/icons";
-import { getVortTeleportTo, useZIndexProviderValue } from "@/components/vort/composables";
+import { getVortTeleportTo, useZIndexProviderValue, useOverlayStack } from "@/components/vort/composables";
 import { useLocale } from "../locale";
 
 defineOptions({ name: "VortDrawer" });
@@ -64,6 +64,8 @@ const props = withDefaults(defineProps<Props>(), {
 // 提供 z-index 上下文给子组件（如 Select、Dropdown 等）
 // 这样子组件的弹出层会自动获得比 Drawer 更高的 z-index
 useZIndexProviderValue(() => props.zIndex);
+
+const overlay = useOverlayStack();
 
 // 国际化
 const { t } = useLocale("Drawer");
@@ -218,19 +220,6 @@ const handleMaskClick = () => {
     }
 };
 
-// ESC 键关闭
-const handleKeydown = (e: KeyboardEvent) => {
-    if (!props.keyboard || !props.open) return;
-
-    if (e.key === "Escape") {
-        // 只关闭最顶层的抽屉
-        const topDrawer = globalDrawerStack[globalDrawerStack.length - 1];
-        if (topDrawer && topDrawer.id === drawerId) {
-            handleClose();
-        }
-    }
-};
-
 // 动画结束回调
 const handleAfterEnter = () => {
     isAnimating.value = false;
@@ -262,10 +251,12 @@ watch(
 
             // 等待 DOM 更新后再显示面板，确保触发进入动画
             await nextTick();
-            // 使用 requestAnimationFrame 确保浏览器已完成渲染
             requestAnimationFrame(() => {
                 showPanel.value = true;
                 registerToStack();
+                overlay.push(() => {
+                    if (props.keyboard) handleClose();
+                });
             });
         } else if (oldVal && !newVal) {
             // 关闭抽屉
@@ -276,28 +267,28 @@ watch(
             // 在关闭父抽屉时强制清理 hasChildOpen，避免右侧空隙（translateX push）残留。
             hasChildOpen.value = false;
             unregisterFromStack();
+            overlay.pop();
         }
     }
 );
 
 onMounted(() => {
-    document.addEventListener("keydown", handleKeydown);
-
-    // 如果初始就是打开状态
     if (props.open) {
         shouldRenderTeleport.value = true;
         isVisible.value = true;
         document.body.style.overflow = "hidden";
-        // 下一帧再显示面板以触发动画
         requestAnimationFrame(() => {
             showPanel.value = true;
             registerToStack();
+            overlay.push(() => {
+                if (props.keyboard) handleClose();
+            });
         });
     }
 });
 
 onUnmounted(() => {
-    document.removeEventListener("keydown", handleKeydown);
+    overlay.pop();
     unregisterFromStack();
 
     // 恢复滚动

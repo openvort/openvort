@@ -43,7 +43,6 @@ export interface DropdownProps {
     /** 关闭后是否销毁 Dropdown 内容（默认：true） */
     destroyOnHidden?: boolean;
     /**
-     * 关闭后是否销毁 Dropdown（兼容旧命名）
      * @deprecated 请使用 destroyOnHidden
      */
     destroyPopupOnHide?: boolean;

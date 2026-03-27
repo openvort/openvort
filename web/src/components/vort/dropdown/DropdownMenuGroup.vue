@@ -1,7 +1,6 @@
 <script setup lang="ts">
 /** Vort DropdownMenuGroup - 下拉菜单分组组件 */
 import { computed } from "vue";
-import { DropdownMenuGroup as RekaDropdownMenuGroup } from "reka-ui";
 
 defineOptions({ name: "VortDropdownMenuGroup" });
 
@@ -20,7 +19,7 @@ const groupClasses = computed(() => {
 </script>
 
 <template>
-    <RekaDropdownMenuGroup :class="groupClasses">
+    <div :class="groupClasses" role="group">
         <slot />
-    </RekaDropdownMenuGroup>
+    </div>
 </template>
