@@ -1,6 +1,7 @@
 """Service commands: init, start, stop, restart."""
 
 import os
+import signal
 from pathlib import Path
 
 import click
@@ -845,6 +846,36 @@ async def _start_service():
         except Exception as e:
             log.warning(f"Web 面板启动失败: {e}")
 
+    # ---- Frontend Dev Server ----
+    _frontend_proc = None
+    web_dir = Path("web")
+    if web_dir.exists() and (web_dir / "package.json").exists() and (web_dir / "node_modules").exists():
+        import shutil
+        import socket
+
+        npm_path = shutil.which("npm")
+
+        def _port_in_use(port: int) -> bool:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                return s.connect_ex(("127.0.0.1", port)) == 0
+
+        if not npm_path:
+            log.debug("未找到 npm，跳过前端开发服务器")
+        elif _port_in_use(9090):
+            log.info("前端开发服务器已在端口 9090 运行")
+        else:
+            try:
+                _frontend_proc = await asyncio.create_subprocess_exec(
+                    npm_path, "run", "dev",
+                    cwd=str(web_dir.resolve()),
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                    preexec_fn=os.setsid,
+                )
+                log.info(f"前端开发服务器已启动 (PID={_frontend_proc.pid})")
+            except Exception as e:
+                log.warning(f"前端开发服务器启动失败: {e}")
+
     _print_ready_banner(settings, settings.web.enabled and web_started, is_first_boot, channels, registry)
 
     # 保持运行
@@ -861,6 +892,11 @@ async def _start_service():
             pass
         for ch in channels:
             await ch.stop()
+        if _frontend_proc and _frontend_proc.returncode is None:
+            try:
+                os.killpg(os.getpgid(_frontend_proc.pid), signal.SIGTERM)
+            except (ProcessLookupError, OSError):
+                pass
         from openvort.db import close_db
         await close_db()
         _cleanup_pid()
