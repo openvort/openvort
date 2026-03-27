@@ -89,12 +89,18 @@ pip install -e ".[dev]"
 openvort start
 ```
 
-前端单独开发（可选）：
+开发模式（推荐开发者使用）：
+
+```bash
+openvort start --dev   # 跳过 IM 通道/ASR/TTS 等重量级初始化，启动更快
+```
+
+前端 HMR 开发（在另一个终端）：
 
 ```bash
 cd web
 npm install
-npm run dev   # Vite dev server，默认 http://localhost:9090，/api 代理到 8090
+npm run dev   # Vite dev server on :9090，/api 代理到后端 :8090
 ```
 
 ### 启动后
@@ -215,6 +221,11 @@ make dev       # openvort start
 make test      # pytest -v
 make lint      # ruff check
 make format    # ruff format
+
+# 开发模式
+openvort start --dev       # 轻量启动（跳过 IM/ASR/TTS），后端 :8090
+openvort restart --dev     # 轻量重启
+cd web && npm run dev      # 前端 HMR :9090，/api 代理到 :8090
 ```
 
 ## 文档
