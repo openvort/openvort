@@ -14,9 +14,9 @@ export type { PopoverSelectProps, PopoverSelectSize } from "./types";
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, watch } from "vue";
-import { Popover } from "@/components/vort/popover";
+import { Popover } from "@openvort/vort-ui";
 import "./popover-select.css";
-import { DownOutlined } from "@/components/vort/icons";
+import { DownOutlined } from "@openvort/vort-ui";
 import { popoverSelectSizeProp } from "./types";
 import type { PopoverSelectProps } from "./types";
 

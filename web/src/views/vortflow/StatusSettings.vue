@@ -4,7 +4,7 @@ import { Pencil, Plus } from "lucide-vue-next";
 import StatusIcon from "@/components/vort-biz/work-item/StatusIcon.vue";
 import { useCrudPage } from "@/hooks";
 import { getVortflowStatuses, deleteVortflowStatus } from "@/api";
-import { message } from "@/components/vort/message";
+import { message } from "@openvort/vort-ui";
 import StatusEditDialog from "./components/StatusEditDialog.vue";
 
 interface StatusItem {

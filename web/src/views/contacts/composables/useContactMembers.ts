@@ -6,7 +6,7 @@ import {
     syncContacts, getSuggestions, acceptSuggestion, rejectSuggestion,
     dedupContacts, getChannels,
 } from "@/api";
-import { message, dialog } from "@/components/vort";
+import { message, dialog } from "@openvort/vort-ui";
 import type { MemberItem, MemberDetail, Suggestion, ChannelItem } from "../types";
 
 export interface UseContactMembersOptions {

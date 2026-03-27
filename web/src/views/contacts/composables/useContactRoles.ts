@@ -4,7 +4,7 @@ import {
     getMembers, getRoles, getPermissions, createRole, updateRole, deleteRole,
     assignMemberRole, removeMemberRole,
 } from "@/api";
-import { message, dialog } from "@/components/vort";
+import { message, dialog } from "@openvort/vort-ui";
 import type { MemberItem, MemberDetail, RoleItem, PermissionItem, PermGroup } from "../types";
 
 export interface UseContactRolesOptions {

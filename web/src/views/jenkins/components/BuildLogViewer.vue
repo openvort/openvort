@@ -69,7 +69,7 @@
 <script setup lang="ts">
 import { ref, watch, nextTick } from "vue";
 import { CheckCircle2, XCircle, CircleDot, Copy, Loader2, StopCircle } from "lucide-vue-next";
-import { Dialog, message } from "@/components/vort";
+import { Dialog, message } from "@openvort/vort-ui";
 
 const props = defineProps<{
     open: boolean;

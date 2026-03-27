@@ -1,4 +1,4 @@
-import { message } from "@/components/vort";
+import { message } from "@openvort/vort-ui";
 import type { RowItem } from "@/components/vort-biz/work-item/WorkItemTable.types";
 import type { Ref } from "vue";
 

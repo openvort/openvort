@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ProTable, TableCell } from "@/components/vort-biz";
-import { message } from "@/components/vort";
+import { message } from "@openvort/vort-ui";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
 import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
 import { Pencil } from "lucide-vue-next";

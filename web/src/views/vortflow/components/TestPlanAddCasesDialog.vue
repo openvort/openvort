@@ -3,8 +3,8 @@ import { ref, computed, watch } from "vue";
 import {
     Search, ChevronRight, ChevronDown, FolderOpen, Folder,
 } from "lucide-vue-next";
-import { Dialog } from "@/components/vort";
-import { message } from "@/components/vort/message";
+import { Dialog } from "@openvort/vort-ui";
+import { message } from "@openvort/vort-ui";
 import {
     getVortflowTestModules,
     getVortflowTestCases,

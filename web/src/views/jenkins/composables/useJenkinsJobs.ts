@@ -1,6 +1,6 @@
 import { ref, computed } from "vue";
 import { getJenkinsJobs, getJenkinsSystemInfo, getJenkinsJobInfo, getJenkinsJobConfigSummary, createJenkinsView, deleteJenkinsView } from "@/api/jenkins";
-import { message } from "@/components/vort";
+import { message } from "@openvort/vort-ui";
 import type { JenkinsJob, JenkinsView, JenkinsJobDetail, JenkinsConfigSummary } from "../types";
 
 export type LoadResult = "ok" | "auth_error" | "error";

@@ -83,7 +83,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { Loader2, Play } from "lucide-vue-next";
-import { Drawer } from "@/components/vort";
+import { Drawer } from "@openvort/vort-ui";
 import StatusIcon from "./StatusIcon.vue";
 import { getColorStatus, formatDuration, formatRelativeTime } from "../types";
 import type { JenkinsJobDetail, JenkinsBuild } from "../types";

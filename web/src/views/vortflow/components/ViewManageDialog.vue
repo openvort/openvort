@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from "vue";
-import { Dialog, Button, Input, Checkbox } from "@/components/vort";
+import { Dialog, Button, Input, Checkbox } from "@openvort/vort-ui";
 import { GripVertical, Pencil, Trash2, Check, X, Search } from "lucide-vue-next";
 import ViewCreateDialog from "./ViewCreateDialog.vue";
 import { useVortFlowStore } from "@/stores";

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { Dialog, Button } from "@/components/vort";
+import { Dialog, Button } from "@openvort/vort-ui";
 
 const open = defineModel<boolean>("open", { default: false });
 

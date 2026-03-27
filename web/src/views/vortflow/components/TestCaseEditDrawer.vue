@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, computed } from "vue";
 import { Plus, Trash2 } from "lucide-vue-next";
-import { message } from "@/components/vort";
+import { message } from "@openvort/vort-ui";
 import {
     getVortflowTestCase, createVortflowTestCase, updateVortflowTestCase,
     getVortflowTestModules,

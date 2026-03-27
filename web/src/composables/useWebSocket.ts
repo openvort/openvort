@@ -1,6 +1,6 @@
 import { ref } from "vue";
 import { useUserStore, useNotificationStore } from "@/stores";
-import { notification } from "@/components/vort/notification";
+import { notification } from "@openvort/vort-ui";
 
 export type WsMessageHandler = (data: any) => void;
 

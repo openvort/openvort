@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { Dialog, Button, message } from "@/components/vort";
+import { Dialog, Button, message } from "@openvort/vort-ui";
 import { UploadCloud, Download } from "lucide-vue-next";
 import {
     createVortflowStory, createVortflowTask, createVortflowBug,

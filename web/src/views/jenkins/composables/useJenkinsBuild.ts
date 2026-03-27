@@ -1,6 +1,6 @@
 import { ref } from "vue";
 import { triggerJenkinsBuild, getJenkinsBuildLog, getJenkinsBuildStatus, abortJenkinsBuild } from "@/api/jenkins";
-import { message } from "@/components/vort";
+import { message } from "@openvort/vort-ui";
 
 export function useJenkinsBuild() {
     const buildTriggering = ref(false);

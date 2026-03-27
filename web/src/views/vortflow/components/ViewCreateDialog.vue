@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
-import { Dialog, Button, Input, Radio, RadioGroup } from "@/components/vort";
+import { Dialog, Button, Input, Radio, RadioGroup } from "@openvort/vort-ui";
 
 const open = defineModel<boolean>("open", { default: false });
 

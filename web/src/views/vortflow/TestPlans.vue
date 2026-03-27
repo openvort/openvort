@@ -4,8 +4,8 @@ import { useRouter } from "vue-router";
 import { Plus, Ellipsis } from "lucide-vue-next";
 import { useCrudPage } from "@/hooks";
 import { useVortFlowStore } from "@/stores";
-import { Dropdown, DropdownMenuItem } from "@/components/vort";
-import { message } from "@/components/vort/message";
+import { Dropdown, DropdownMenuItem } from "@openvort/vort-ui";
+import { message } from "@openvort/vort-ui";
 import { useWorkItemCommon } from "./work-item/useWorkItemCommon";
 import TestPlanEditDialog from "./components/TestPlanEditDialog.vue";
 import {

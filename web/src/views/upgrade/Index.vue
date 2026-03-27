@@ -7,7 +7,7 @@ import {
     getBackupDownloadUrl, getRestoreStreamUrl,
     getSettings, updateSettings,
 } from "@/api";
-import { message } from "@/components/vort";
+import { message } from "@openvort/vort-ui";
 import {
     ArrowUpCircle, Download, Trash2, RotateCcw, Database,
     RefreshCw, Loader2, X, Check, HardDriveDownload, Clock,

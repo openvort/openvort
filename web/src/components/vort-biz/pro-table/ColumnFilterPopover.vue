@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from "vue";
-import { Checkbox, Select, SelectOption, DatePicker, RangePicker, Button, Divider } from "@/components/vort";
+import { Checkbox, Select, SelectOption, DatePicker, RangePicker, Button, Divider } from "@openvort/vort-ui";
 import { Filter } from "lucide-vue-next";
 import StatusIcon from "@/components/vort-biz/work-item/StatusIcon.vue";
 

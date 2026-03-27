@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { Dropdown, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub } from "@/components/vort";
+import { Dropdown, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub } from "@openvort/vort-ui";
 import { MoreHorizontal, Upload, FileText, Download, Layers, Zap } from "lucide-vue-next";
 
 const emit = defineEmits<{

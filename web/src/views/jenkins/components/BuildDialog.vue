@@ -61,7 +61,7 @@
 
 <script setup lang="ts">
 import { ref, watch } from "vue";
-import { Dialog, Input, Select, Switch, Textarea } from "@/components/vort";
+import { Dialog, Input, Select, Switch, Textarea } from "@openvort/vort-ui";
 import type { JenkinsParameterDef } from "../types";
 
 const props = defineProps<{

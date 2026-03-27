@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] - 2026-03-27
+
+### Added
+
+- **One-click Docker deployment** — Pre-built Docker images published to Docker Hub; two commands to deploy the full system
+- **Auto-PostgreSQL** — `openvort start` automatically detects and starts a Docker PostgreSQL container when no local instance is running
+- **Auto-Frontend** — Automatically downloads pre-built frontend assets from GitHub Release for `pip install` users
+- **LLM graceful degradation** — Dashboard shows a configuration banner and chat returns a friendly message when no API Key is configured
+- **Optional .env** — All settings have sensible defaults; AI configuration managed via Web panel
+- AI Employee independent bot management: start and stop individual bots
+- Test case, test plan, and test report management tools
+
+### Improved
+
+- Refactored dropdown menu and dialog components for better accessibility
+- Enhanced internationalization support
+- Optimized work item detail layout and progress bar styles
+- Merged task/bug effort fields with batch name resolution
+
+### Removed
+
+- Deprecated `openvort init` command (all setup now handled by `openvort start`)
+
+### Fixed
+
+- Fixed build failure related to `@babel/runtime` dependency
+- Fixed time handling to use UTC consistently
+- Removed stale `alembic/` reference from Dockerfile
+- Various stability improvements
+
 ## [0.6.0] - 2026-03-25
 
 ### Added

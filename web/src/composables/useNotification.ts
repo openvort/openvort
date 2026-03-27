@@ -1,5 +1,5 @@
 import { ref, watch, onUnmounted } from "vue";
-import { notification } from "@/components/vort/notification";
+import { notification } from "@openvort/vort-ui";
 import { useNotificationStore } from "@/stores/modules/notification";
 import { useRouter } from "vue-router";
 

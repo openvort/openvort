@@ -68,7 +68,7 @@
 
 <script setup lang="ts">
 import { ref, watch } from "vue";
-import { Dialog, message } from "@/components/vort";
+import { Dialog, message } from "@openvort/vort-ui";
 import { getVortgitRepos } from "@/api";
 import {
     getVortflowAvailablePRs,

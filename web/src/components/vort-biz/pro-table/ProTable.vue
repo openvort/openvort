@@ -1,7 +1,7 @@
 <script setup lang="ts" generic="T = any">
 import { ref, computed, watch, onBeforeUnmount, onMounted, nextTick } from "vue";
-import { Checkbox, Spin, Pagination, Popover } from "@/components/vort";
-import { CaretUpFilled, CaretDownFilled, EmptyOutlined } from "@/components/vort/icons";
+import { Checkbox, Spin, Pagination, Popover } from "@openvort/vort-ui";
+import { CaretUpFilled, CaretDownFilled, EmptyOutlined } from "@openvort/vort-ui";
 import type {
   TableColumn,
   TablePagination,

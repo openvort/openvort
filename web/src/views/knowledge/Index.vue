@@ -11,8 +11,8 @@ import {
     CheckCircle, AlertCircle, Loader2, BookOpen, Trash2,
     ChevronRight, Home, MoreHorizontal, Plus,
 } from "lucide-vue-next";
-import { message, dialog } from "@/components/vort";
-import type { UploadRequestOption } from "@/components/vort/upload/types";
+import { message, dialog } from "@openvort/vort-ui";
+import type { UploadRequestOption } from "@openvort/vort-ui";
 import { useUserStore } from "@/stores";
 
 interface KBFolderItem {

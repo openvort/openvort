@@ -3,7 +3,7 @@ import { ref, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { Bell, Clock, Bot, CheckCheck, Settings, BellOff, GitPullRequestArrow } from "lucide-vue-next";
 import { getNotifications, batchReadNotifications } from "@/api";
-import { message } from "@/components/vort";
+import { message } from "@openvort/vort-ui";
 
 const router = useRouter();
 

@@ -9,8 +9,8 @@ import {
     marketplaceInstallSkill, marketplaceInstallPlugin,
     marketplaceListInstalled, marketplaceUninstall,
 } from "@/api";
-import { message } from "@/components/vort/message";
-import { dialog } from "@/components/vort/dialog";
+import { message } from "@openvort/vort-ui";
+import { dialog } from "@openvort/vort-ui";
 import {
     Puzzle, BookOpen, Search, Download, Star, Store,
     Trash2, Tag, Package, ExternalLink, Plus, Save, Bot, X,

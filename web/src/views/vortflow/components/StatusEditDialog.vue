@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
 import { createVortflowStatus, updateVortflowStatus } from "@/api";
-import { message } from "@/components/vort/message";
+import { message } from "@openvort/vort-ui";
 import { HelpCircle } from "lucide-vue-next";
 import StatusIcon from "@/components/vort-biz/work-item/StatusIcon.vue";
 import { STATUS_ICON_KEYS, resolveIconKey } from "@/components/vort-biz/work-item/statusIcons";

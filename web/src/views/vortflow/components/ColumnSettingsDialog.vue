@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
-import { Dialog, Button, Checkbox } from "@/components/vort";
+import { Dialog, Button, Checkbox } from "@openvort/vort-ui";
 import { GripVertical } from "lucide-vue-next";
 
 export interface ColumnSettingItem {

@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, watch } from "vue";
 import { useRouter } from "vue-router";
 import { Plus } from "lucide-vue-next";
-import { DownOutlined } from "@/components/vort/icons";
+import { DownOutlined } from "@openvort/vort-ui";
 import { useCrudPage } from "@/hooks";
 import { useVortFlowStore } from "@/stores";
 import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMemberPicker.vue";

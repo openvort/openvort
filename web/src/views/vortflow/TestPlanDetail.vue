@@ -7,7 +7,7 @@ import {
     ExternalLink, GitPullRequest, Trash2, Bot, MessageSquare, History, Loader2,
     FileText, Copy, MoreHorizontal,
 } from "lucide-vue-next";
-import { message, Dropdown, DropdownMenuItem, Dialog } from "@/components/vort";
+import { message, Dropdown, DropdownMenuItem, Dialog } from "@openvort/vort-ui";
 import { useVortFlowStore } from "@/stores";
 import { useWorkItemCommon } from "./work-item/useWorkItemCommon";
 import WorkItemCreate from "./work-item/WorkItemCreate.vue";

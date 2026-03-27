@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
 import { createVortflowTag, updateVortflowTag } from "@/api";
-import { message } from "@/components/vort/message";
+import { message } from "@openvort/vort-ui";
 
 interface Props {
     open: boolean;

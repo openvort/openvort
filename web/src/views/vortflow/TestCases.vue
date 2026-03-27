@@ -3,7 +3,7 @@ import { ref, computed, watch, onMounted, nextTick } from "vue";
 import { Plus, Search, ChevronRight, ChevronDown, FolderOpen, Folder, MoreHorizontal, FolderPlus, Pencil, Trash2 } from "lucide-vue-next";
 import { useCrudPage } from "@/hooks";
 import { useVortFlowStore } from "@/stores";
-import { message, Dropdown, DropdownMenuItem } from "@/components/vort";
+import { message, Dropdown, DropdownMenuItem } from "@openvort/vort-ui";
 import {
     getVortflowTestCases, deleteVortflowTestCase,
     getVortflowTestModules, createVortflowTestModule, updateVortflowTestModule, deleteVortflowTestModule,

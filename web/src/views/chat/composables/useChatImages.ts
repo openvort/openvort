@@ -1,6 +1,6 @@
 import { ref } from "vue";
 import { uploadChatFile } from "@/api";
-import { message } from "@/components/vort";
+import { message } from "@openvort/vort-ui";
 import type { PendingImage, PendingFile } from "../types";
 
 const IMAGE_TYPES = new Set(["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"]);

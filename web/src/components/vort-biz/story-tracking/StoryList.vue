@@ -2,7 +2,7 @@
 import { ref, reactive, computed } from "vue";
 import { useRouter } from "vue-router";
 import { z } from "zod";
-import { message } from "@/components/vort";
+import { message } from "@openvort/vort-ui";
 import PopoverSelect from "@/components/vort-biz/popover-select/PopoverSelect.vue";
 import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMemberPicker.vue";
 import WorkItemStatus from "@/components/vort-biz/work-item/WorkItemStatus.vue";

@@ -2,7 +2,6 @@
 
 import os
 import shutil
-import signal
 import socket
 from pathlib import Path
 from urllib.parse import urlparse
@@ -157,7 +156,7 @@ async def _ensure_frontend(log) -> None:
         tmp_path = Path(tempfile.mktemp(suffix=".tar.gz"))
         try:
             log.info(f"下载: {frontend_asset['name']}...")
-            await updater._download_asset(frontend_asset["url"], tmp_path)
+            await updater._download_asset(frontend_asset["browser_download_url"], tmp_path)
 
             with tarfile.open(tmp_path, "r:gz") as tar:
                 members = tar.getmembers()
@@ -183,9 +182,10 @@ async def _ensure_frontend(log) -> None:
 
 
 @click.command()
-def start_cmd():
+@click.option("--dev", "-d", is_flag=True, help="开发模式：跳过 IM 通道/ASR/TTS 等重量级初始化，加快启动速度")
+def start_cmd(dev: bool):
     """启动 OpenVort 服务"""
-    _run_async(_start_service())
+    _run_async(_start_service(dev=dev))
 
 
 async def _cleanup_duplicate_admins(session_factory):
@@ -207,7 +207,7 @@ async def _cleanup_duplicate_admins(session_factory):
         get_logger("cli").info(f"已清理 {len(delete_ids)} 条重复 admin 记录")
 
 
-async def _start_service():
+async def _start_service(*, dev: bool = False):
     """启动服务的异步实现"""
     from openvort.auth.service import AuthService
     from openvort.config.settings import get_settings
@@ -227,7 +227,7 @@ async def _start_service():
     from openvort.utils.logging import get_logger
     log = get_logger("cli")
 
-    log.info(f"OpenVort v{__version__} 启动中...")
+    log.info(f"OpenVort v{__version__} 启动中..." + (" [DEV]" if dev else ""))
 
     # 单例保护：杀掉旧进程，写入当前 PID
     _check_and_kill_existing()
@@ -291,13 +291,14 @@ async def _start_service():
         log.warning(f"TaskRunner 初始化失败: {e}")
 
     # Initialize NotificationCenter for delayed IM delivery
-    try:
-        from openvort.core.services.notification import init_notification_center
-        notif_center = init_notification_center(session_factory, registry)
-        await notif_center.recover_on_startup()
-        log.info("NotificationCenter 已初始化")
-    except Exception as e:
-        log.warning(f"NotificationCenter 初始化失败: {e}")
+    if not dev:
+        try:
+            from openvort.core.services.notification import init_notification_center
+            notif_center = init_notification_center(session_factory, registry)
+            await notif_center.recover_on_startup()
+            log.info("NotificationCenter 已初始化")
+        except Exception as e:
+            log.warning(f"NotificationCenter 初始化失败: {e}")
 
     # 加载 Skill（知识注入，DB 驱动）
     from openvort.skill.loader import SkillLoader
@@ -414,53 +415,42 @@ async def _start_service():
     from openvort.core.messaging.dispatcher import MessageDispatcher
     dispatcher = MessageDispatcher()
 
-    # 初始化 ASR 服务（用于语音消息转写）
-    from openvort.services.asr import ASRService
-    asr_service = ASRService(session_factory)
-    await asr_service.load_providers()
-    if asr_service._providers:
-        log.debug(f"已加载 {len(asr_service._providers)} 个 ASR Provider")
-    else:
-        log.debug("未配置 ASR Provider，语音消息将无法识别")
+    # 初始化 ASR / TTS / Embedding 服务（dev 模式下跳过）
+    asr_service = None
+    tts_service = None
+    embedding_service = None
+    if not dev:
+        from openvort.services.asr import ASRService
+        asr_service = ASRService(session_factory)
+        await asr_service.load_providers()
 
-    # 初始化 TTS 服务（用于语音消息发送）
-    from openvort.services.tts import TTSService
-    tts_service = TTSService(session_factory)
-    await tts_service.load_providers()
-    if tts_service.available:
-        log.debug("TTS 服务已就绪")
-    else:
-        log.info("未配置 TTS Provider，语音发送功能不可用")
+        from openvort.services.tts import TTSService
+        tts_service = TTSService(session_factory)
+        await tts_service.load_providers()
 
-    # 初始化 Embedding 服务（用于知识库向量检索）
-    from openvort.services.embedding import EmbeddingService
-    embedding_service = EmbeddingService(session_factory)
-    await embedding_service.load_providers()
-    if embedding_service.available:
-        log.debug("Embedding 服务已就绪")
-    else:
-        log.info("未配置 Embedding Provider，知识库检索功能不可用")
+        from openvort.services.embedding import EmbeddingService
+        embedding_service = EmbeddingService(session_factory)
+        await embedding_service.load_providers()
 
-    # 将 TTS 服务注入到语音发送工具
-    voice_tool = registry.get_tool("wecom_send_voice")
-    if voice_tool and hasattr(voice_tool, "set_tts_service"):
-        voice_tool.set_tts_service(tts_service)
-    feishu_voice_tool = registry.get_tool("feishu_send_voice")
-    if feishu_voice_tool and hasattr(feishu_voice_tool, "set_tts_service"):
-        feishu_voice_tool.set_tts_service(tts_service)
-    dingtalk_voice_tool = registry.get_tool("dingtalk_send_voice")
-    if dingtalk_voice_tool and hasattr(dingtalk_voice_tool, "set_tts_service"):
-        dingtalk_voice_tool.set_tts_service(tts_service)
+        voice_tool = registry.get_tool("wecom_send_voice")
+        if voice_tool and hasattr(voice_tool, "set_tts_service"):
+            voice_tool.set_tts_service(tts_service)
+        feishu_voice_tool = registry.get_tool("feishu_send_voice")
+        if feishu_voice_tool and hasattr(feishu_voice_tool, "set_tts_service"):
+            feishu_voice_tool.set_tts_service(tts_service)
+        dingtalk_voice_tool = registry.get_tool("dingtalk_send_voice")
+        if dingtalk_voice_tool and hasattr(dingtalk_voice_tool, "set_tts_service"):
+            dingtalk_voice_tool.set_tts_service(tts_service)
 
     # 初始化 InboxService（IM 跨实例消息去重）
     from openvort.core.messaging.inbox import InboxService
     inbox_service = InboxService(session_factory)
 
-    # 配置 Channel
+    # 配置 Channel（dev 模式下跳过 IM 通道启动）
     import asyncio
 
     _employee_bot_mgr = None
-    channels = registry.list_channels()
+    channels = registry.list_channels() if not dev else []
     for ch in channels:
         if hasattr(ch, "set_inbox_service"):
             ch.set_inbox_service(inbox_service)
@@ -967,37 +957,7 @@ async def _start_service():
         except Exception as e:
             log.warning(f"Web 面板启动失败: {e}")
 
-    # ---- Frontend Dev Server ----
-    _frontend_proc = None
-    web_dir = Path("web")
-    if web_dir.exists() and (web_dir / "package.json").exists() and (web_dir / "node_modules").exists():
-        import shutil
-        import socket
-
-        npm_path = shutil.which("npm")
-
-        def _port_in_use(port: int) -> bool:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                return s.connect_ex(("127.0.0.1", port)) == 0
-
-        if not npm_path:
-            log.debug("未找到 npm，跳过前端开发服务器")
-        elif _port_in_use(9090):
-            log.info("前端开发服务器已在端口 9090 运行")
-        else:
-            try:
-                _frontend_proc = await asyncio.create_subprocess_exec(
-                    npm_path, "run", "dev",
-                    cwd=str(web_dir.resolve()),
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.DEVNULL,
-                    preexec_fn=os.setsid,
-                )
-                log.info(f"前端开发服务器已启动 (PID={_frontend_proc.pid})")
-            except Exception as e:
-                log.warning(f"前端开发服务器启动失败: {e}")
-
-    _print_ready_banner(settings, settings.web.enabled and web_started, is_first_boot, channels, registry)
+    _print_ready_banner(settings, settings.web.enabled and web_started, is_first_boot, channels, registry, dev=dev)
 
     # 保持运行
     try:
@@ -1013,11 +973,6 @@ async def _start_service():
             pass
         for ch in channels:
             await ch.stop()
-        if _frontend_proc and _frontend_proc.returncode is None:
-            try:
-                os.killpg(os.getpgid(_frontend_proc.pid), signal.SIGTERM)
-            except (ProcessLookupError, OSError):
-                pass
         from openvort.db import close_db
         await close_db()
         _cleanup_pid()
@@ -1053,7 +1008,8 @@ def stop_cmd():
 
 
 @click.command()
-def restart_cmd():
+@click.option("--dev", "-d", is_flag=True, help="开发模式：跳过 IM 通道/ASR/TTS 等重量级初始化，加快启动速度")
+def restart_cmd(dev: bool):
     """重启 OpenVort 服务（stop + start）"""
     if PID_FILE.exists():
         try:
@@ -1070,7 +1026,7 @@ def restart_cmd():
             pass
 
     click.echo("正在启动...")
-    _run_async(_start_service())
+    _run_async(_start_service(dev=dev))
 
 
 async def _auto_create_admin(session_factory, auth_service):
@@ -1099,20 +1055,24 @@ async def _auto_create_admin(session_factory, auth_service):
     await mark_initialized(session_factory, member_id)
 
 
-def _print_ready_banner(settings, web_ok: bool, first_boot: bool, channels, registry):
+def _print_ready_banner(settings, web_ok: bool, first_boot: bool, channels, registry, *, dev: bool = False):
     """Print the startup-complete banner to stdout."""
     from openvort.config.settings import get_settings
     settings = get_settings()
 
-    site_url = settings.web.site_url.rstrip("/") if settings.web.site_url else ""
     host = settings.web.host
     port = settings.web.port
-    if site_url:
-        panel_url = site_url
-    elif host == "0.0.0.0":
-        panel_url = f"http://localhost:{port}"
+    display_host = "localhost" if host == "0.0.0.0" else host
+
+    if dev:
+        backend_url = f"http://{display_host}:{port}"
+        panel_url = backend_url
     else:
-        panel_url = f"http://{host}:{port}"
+        site_url = settings.web.site_url.rstrip("/") if settings.web.site_url else ""
+        if site_url:
+            panel_url = site_url
+        else:
+            panel_url = f"http://{display_host}:{port}"
 
     tool_count = len(registry.list_tools())
     ch_count = len(channels)
@@ -1123,18 +1083,31 @@ def _print_ready_banner(settings, web_ok: bool, first_boot: bool, channels, regi
     lines: list[str] = []
     lines.append("")
     lines.append(border)
-    lines.append(f"  OpenVort v{__version__} started".center(w))
+    title = f"  OpenVort v{__version__} started"
+    if dev:
+        title += " [DEV]"
+    lines.append(title.center(w))
     lines.append(border)
     lines.append("")
 
     if web_ok:
-        lines.append(f"  Panel   {panel_url}")
-        lines.append(f"  API     {panel_url}/api")
+        if dev:
+            lines.append(f"  Backend {panel_url}")
+            lines.append(f"  API     {panel_url}/api")
+        else:
+            lines.append(f"  Panel   {panel_url}")
+            lines.append(f"  API     {panel_url}/api")
     else:
         lines.append("  Panel   (disabled)")
 
     lines.append("")
     lines.append(f"  Channels  {ch_count}      Tools  {tool_count}")
+
+    if dev:
+        lines.append("")
+        lines.append("  Mode    DEV (IM channels / ASR / TTS skipped)")
+        lines.append(f"  Tip     Run 'cd web && npm run dev' for frontend HMR")
+
     lines.append("")
 
     if first_boot:

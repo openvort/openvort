@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { message } from "@/components/vort";
+import { message } from "@openvort/vort-ui";
 import {
     ArrowLeft, Download, Plus, Send, Loader2, ImagePlus,
     FileCode2, Copy, Trash2, Pencil, MoreHorizontal, X, Square,
 } from "lucide-vue-next";
-import { Textarea as VortTextarea } from "@/components/vort";
+import { Textarea as VortTextarea } from "@openvort/vort-ui";
 import {
     getSketch, getSketchPage,
     createSketchPage, updateSketchPage, deleteSketchPage, duplicateSketchPage,

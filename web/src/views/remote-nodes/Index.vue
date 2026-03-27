@@ -16,7 +16,7 @@ import {
     getInstallImageUrl,
 } from "@/api";
 import { useUserStore } from "@/stores/modules/user";
-import { message } from "@/components/vort";
+import { message } from "@openvort/vort-ui";
 import {
     Plus, CheckCircle, XCircle, HelpCircle, Play,
     RotateCw, Container, Cpu, MemoryStick,
