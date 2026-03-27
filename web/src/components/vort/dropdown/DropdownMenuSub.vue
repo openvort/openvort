@@ -2,6 +2,7 @@
 /** Vort DropdownMenuSub - 下拉菜单子菜单组件 */
 import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount } from "vue";
 import { ChevronRightOutlined } from "@/components/vort/icons";
+import { useZIndex } from "@/components/vort/composables";
 
 defineOptions({ name: "VortDropdownMenuSub" });
 
@@ -18,6 +19,8 @@ const props = withDefaults(defineProps<Props>(), {
     title: "",
     disabled: false
 });
+
+const zIndex = useZIndex("popup");
 
 const isOpen = ref(false);
 const shouldRenderPortal = ref(false);
@@ -161,7 +164,7 @@ const triggerClasses = computed(() => {
         <div
             ref="contentRef"
             class="vort-dropdown-menu-sub-content vort-dropdown"
-            :style="{ position: 'fixed', top: `${contentPosition.top}px`, left: `${contentPosition.left}px`, zIndex: 1060 }"
+            :style="{ position: 'fixed', top: `${contentPosition.top}px`, left: `${contentPosition.left}px`, zIndex: zIndex }"
             :data-state="isOpen ? 'open' : 'closed'"
             :data-side="actualSide"
             data-slot="dropdown-content"
