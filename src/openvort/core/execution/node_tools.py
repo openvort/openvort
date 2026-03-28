@@ -610,7 +610,7 @@ class NodeBrowseTool(BaseTool):
             if "playwright" in stderr.lower() or "chromium" in stderr.lower():
                 return (
                     "工作电脑未安装浏览器环境。\n"
-                    "需要使用浏览器镜像（openvort/browser-sandbox）或手动安装: "
+                    "需要使用浏览器镜像（ghcr.io/openvort/browser-sandbox）或手动安装: "
                     "pip install playwright && playwright install chromium"
                 )
             return f"浏览器操作失败: {stderr or output}"

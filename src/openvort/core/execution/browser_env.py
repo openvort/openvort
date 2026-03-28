@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 log = get_logger("core.browser_env")
 
-BROWSER_IMAGE = "openvort/browser-sandbox:latest"
+BROWSER_IMAGE = "ghcr.io/openvort/browser-sandbox:latest"
 NOVNC_BASE_PORT = 6080
 CDP_PORT = 9222
 

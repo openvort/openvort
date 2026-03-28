@@ -13,7 +13,7 @@ class VortGitSettings(BaseSettings):
 
     # Coding environment
     cli_mode: str = "auto"  # auto | local | docker
-    cli_docker_image: str = "openvort/coding-sandbox:latest"
+    cli_docker_image: str = "ghcr.io/openvort/coding-sandbox:latest"
     cli_timeout: int = 300  # seconds
     cli_default_tool: str = "claude-code"
 
