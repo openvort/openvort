@@ -116,11 +116,13 @@ def _repo_to_dict(r: GitRepo) -> dict:
 
 def _get_provider_instance(provider: GitProvider):
     """Create a provider API client from the DB record."""
+    from openvort.plugins.vortgit.providers import create_provider
+
     token = decrypt_token(provider.access_token) if provider.access_token else ""
-    if provider.platform == "gitee":
-        from openvort.plugins.vortgit.providers.gitee import GiteeProvider
-        return GiteeProvider(access_token=token, api_base=provider.api_base)
-    raise HTTPException(400, f"Unsupported platform: {provider.platform}")
+    try:
+        return create_provider(provider.platform, access_token=token, api_base=provider.api_base)
+    except ValueError:
+        raise HTTPException(400, f"Unsupported platform: {provider.platform}")
 
 
 def _require_admin(request: Request) -> dict:
