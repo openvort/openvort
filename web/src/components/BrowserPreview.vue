@@ -26,7 +26,7 @@ const novncUrl = computed(() => {
             </VortButton>
         </div>
         <div class="text-xs text-gray-400 mb-2">
-            需要先为该节点启动浏览器沙箱容器（openvort/browser-sandbox 镜像）。
+            需要先为该节点启动浏览器沙箱容器（ghcr.io/openvort/browser-sandbox 镜像）。
             启动后可在此处实时观看 AI 员工的浏览器操作，也可直接手动操作接管。
         </div>
         <iframe

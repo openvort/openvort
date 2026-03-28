@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.7.1] - 2026-03-27
+
+### Added
+
+- **Developer mode** — `openvort start --dev` / `openvort restart --dev` skips IM channels, ASR/TTS, and heavy initialization for faster startup during development
+- Dev mode banner shows actual backend port instead of `site_url`
+
+### Improved
+
+- Migrated to `@openvort/vort-ui` component library, reducing bundled component code
+
+### Fixed
+
+- Dev mode banner no longer misleads with `site_url` when the backend listens on a different port
+
 ## [0.7.0] - 2026-03-27
 
 ### Added
