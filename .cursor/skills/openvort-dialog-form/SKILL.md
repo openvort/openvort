@@ -151,7 +151,18 @@ Drawer 没有内置 `@ok` 机制，按钮通过 `#footer` 插槽放置：
 | 2-3 字 | `80px` |
 | 4 字 | `100px` |
 | 5-6 字 | `120px` |
-| 7+ 字 | `140px` |
+| 7+ 字 / 含英文缩写 | `140px` |
+
+注意：label 中包含英文缩写（如 "SMTP 服务器"、"回调 AES Key"）时，实际渲染宽度比纯中文更宽，应按 7+ 字标准使用 `140px`。
+
+### 规则 7：Drawer 宽度必须保证表单内容不被截断
+
+| 抽屉内容 | 推荐 width |
+|---------|-----------|
+| 纯表单（短 label） | `520px` |
+| 表单 + 说明文字/配置指南 | `580px` |
+| 复杂表单（长 label / 多列） | `640px` |
+| 列表/详情展示 | `480px` |
 
 ## Dialog 表单完整模板
 
@@ -307,6 +318,7 @@ async function handleSubmit() {
 | 5 | 按钮位置 | Dialog 用 `@ok`/`:confirm-loading` 或 `#footer`；Drawer 用 `#footer`；不在 body 内放按钮 |
 | 6 | 按钮样式 | 确认按钮 `variant="primary"`，取消按钮默认样式 |
 | 7 | form-item name | 每个需校验的 `vort-form-item` 都有 `name` 属性（对应 zod key） |
-| 8 | label-width | 根据最长 label 字数选择合适宽度 |
-| 9 | 表单状态 | 用 `ref({})` 而非 `reactive({})`，与项目约定一致 |
-| 10 | open 监听 | `watch(() => props.open)` 中重置表单和 submitting 状态 |
+| 8 | label-width | 根据最长 label 字数选择合适宽度；含英文缩写时用 `140px` |
+| 9 | Drawer 宽度 | 含说明文字/配置指南的 Drawer 不低于 `580px`，确保内容不被截断 |
+| 10 | 表单状态 | 用 `ref({})` 而非 `reactive({})`，与项目约定一致 |
+| 11 | open 监听 | `watch(() => props.open)` 中重置表单和 submitting 状态 |

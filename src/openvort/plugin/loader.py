@@ -353,11 +353,13 @@ class PluginLoader:
         """注册 Channel 附带的工具（如企微发消息）"""
         if channel.name == "wecom":
             try:
-                from openvort.channels.wecom.tools import SendWeComMessageTool, SendWeComVoiceTool
+                from openvort.channels.wecom.tools import SendWeComEmailTool, SendWeComMessageTool, SendWeComVoiceTool
                 tool = SendWeComMessageTool(channel=channel)
                 self.registry.register_tool(tool)
                 voice_tool = SendWeComVoiceTool(channel=channel)
                 self.registry.register_tool(voice_tool)
+                email_tool = SendWeComEmailTool(channel=channel)
+                self.registry.register_tool(email_tool)
             except Exception as e:
                 log.error(f"注册企微 Channel 工具失败: {e}")
         elif channel.name == "feishu":

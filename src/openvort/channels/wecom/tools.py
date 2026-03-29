@@ -256,3 +256,90 @@ class SendWeComVoiceTool(BaseTool):
         except Exception as e:
             log.error(f"发送企微语音失败: {e}")
             return json.dumps({"ok": False, "message": f"发送语音失败: {e}"}, ensure_ascii=False)
+
+
+class SendWeComEmailTool(BaseTool):
+    """通过企业微信邮件 API 发送邮件"""
+
+    name = "wecom_send_email"
+    description = (
+        "通过企业微信邮件 API 发送邮件。"
+        "可指定收件人邮箱地址或企微 userid。"
+        "不传 to 时默认发送给当前对话者的企微邮箱。"
+    )
+    required_permission = "wecom.send"
+
+    def __init__(self, channel=None):
+        self._channel = channel
+
+    def input_schema(self) -> dict:
+        return {
+            "type": "object",
+            "properties": {
+                "to": {
+                    "type": "string",
+                    "description": "收件人邮箱地址；留空时默认发送给当前对话者（通过企微 userid）",
+                },
+                "subject": {
+                    "type": "string",
+                    "description": "邮件主题",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "邮件正文内容",
+                },
+            },
+            "required": ["subject", "content"],
+        }
+
+    async def execute(self, params: dict) -> str:
+        to = params.get("to", "").strip()
+        subject = params.get("subject", "").strip()
+        content = params.get("content", "").strip()
+        caller_member_id = (params.get("_member_id") or params.get("_caller_member_id") or "").strip()
+
+        if not subject:
+            return json.dumps({"ok": False, "message": "缺少 subject 参数"}, ensure_ascii=False)
+        if not content:
+            return json.dumps({"ok": False, "message": "缺少 content 参数"}, ensure_ascii=False)
+
+        if not self._channel:
+            return json.dumps({"ok": False, "message": "企微通道未初始化"}, ensure_ascii=False)
+        if not self._channel.is_configured():
+            return json.dumps({"ok": False, "message": "企微通道未配置"}, ensure_ascii=False)
+
+        bound_user_id = await _get_bound_wecom_user_id(caller_member_id)
+        is_admin = await _is_admin_member(caller_member_id)
+
+        try:
+            if to:
+                # Specified email address
+                if caller_member_id and not is_admin:
+                    return json.dumps(
+                        {"ok": False, "message": "普通成员不能指定邮箱地址发送邮件，请使用管理员账号。"},
+                        ensure_ascii=False,
+                    )
+                result = await self._channel.api.send_email(
+                    subject=subject, content=content, to_emails=[to],
+                )
+            else:
+                # Send to caller's wecom userid
+                if not bound_user_id:
+                    return json.dumps(
+                        {"ok": False, "message": "当前账号未绑定企微身份，无法发送邮件。请指定收件人邮箱地址。"},
+                        ensure_ascii=False,
+                    )
+                result = await self._channel.api.send_email(
+                    subject=subject, content=content, to_userids=[bound_user_id],
+                )
+
+            if result.get("errcode", 0) != 0:
+                errmsg = result.get("errmsg", "未知错误")
+                return json.dumps({"ok": False, "message": f"企微邮件发送失败: {errmsg}"}, ensure_ascii=False)
+
+            recipient = to or bound_user_id
+            log.info(f"已通过企微发送邮件: {recipient} <- {subject}")
+            return json.dumps({"ok": True, "message": f"已成功发送邮件给 {recipient}"}, ensure_ascii=False)
+        except Exception as e:
+            log.error(f"企微邮件发送失败: {e}")
+            return json.dumps({"ok": False, "message": f"发送邮件失败: {e}"}, ensure_ascii=False)
