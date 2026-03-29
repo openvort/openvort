@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.1] - 2026-03-29
+
+### Fixed
+
+- Fixed `.gitignore` incorrectly ignoring `web/src/views/logs/` directory, which caused Docker image build failure
+
+### Added
+
+- WeChat Work email API integration — AI employees can now send work emails via WeChat Work mail API
+
 ## [0.8.0] - 2026-03-28
 
 ### Added
