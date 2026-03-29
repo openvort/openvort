@@ -12,6 +12,7 @@ import {
     getAccessTokens, createAccessToken, revokeAccessToken,
 } from "@/api";
 import { message, dialog } from "@openvort/vort-ui";
+import { z } from "zod";
 import { Shield, Bell, User, GitBranch, Sparkles, Plus, Trash2, Globe, Bot, Puzzle, Key, Copy, Check } from "lucide-vue-next";
 import AvatarCropper from "vue-avatar-cropper";
 import "cropperjs/dist/cropper.min.css";
@@ -47,8 +48,17 @@ const savingBasic = ref(false);
 
 // 安全设置 — 修改密码
 const passwordDialogOpen = ref(false);
-const passwordForm = reactive({ old_password: "", new_password: "", confirm_password: "" });
+const passwordFormRef = ref();
+const passwordForm = ref({ old_password: "", new_password: "", confirm_password: "" });
 const savingPassword = ref(false);
+const passwordRules = z.object({
+    old_password: z.string().min(1, "请输入原密码"),
+    new_password: z.string().min(6, "新密码长度不能少于 6 位"),
+    confirm_password: z.string().min(1, "请再次输入新密码"),
+}).refine((data) => data.new_password === data.confirm_password, {
+    message: "两次输入的密码不一致",
+    path: ["confirm_password"],
+});
 
 // Page notification prefs (sound + desktop)
 const pageSoundEnabled = ref(true);
@@ -157,10 +167,18 @@ const maskedEmail = computed(() => {
 // 安全设置 — 修改手机/邮箱
 const phoneDialogOpen = ref(false);
 const emailDialogOpen = ref(false);
-const phoneForm = reactive({ phone: "" });
-const emailForm = reactive({ email: "" });
+const phoneFormRef = ref();
+const emailFormRef = ref();
+const phoneForm = ref({ phone: "" });
+const emailForm = ref({ email: "" });
 const savingPhone = ref(false);
 const savingEmail = ref(false);
+const phoneRules = z.object({
+    phone: z.string().min(1, "请输入手机号").regex(/^1\d{10}$/, "请输入正确的手机号"),
+});
+const emailRules = z.object({
+    email: z.string().min(1, "请输入邮箱地址").email("请输入正确的邮箱格式"),
+});
 
 // 安全设置项（动态计算）
 const securityItems = computed(() => [
@@ -178,7 +196,7 @@ const securityItems = computed(() => [
             ? `已绑定：${maskedPhone.value}`
             : "未绑定手机，绑定后可用于安全验证",
         action: profile.value.phone ? "修改" : "绑定",
-        actionFn: () => { phoneForm.phone = profile.value.phone; phoneDialogOpen.value = true; },
+        actionFn: () => { phoneForm.value.phone = profile.value.phone; phoneDialogOpen.value = true; },
     },
     {
         title: "备用邮箱",
@@ -186,7 +204,7 @@ const securityItems = computed(() => [
             ? `已绑定：${maskedEmail.value}`
             : "未绑定邮箱，绑定后可用于找回密码",
         action: profile.value.email ? "修改" : "绑定",
-        actionFn: () => { emailForm.email = profile.value.email; emailDialogOpen.value = true; },
+        actionFn: () => { emailForm.value.email = profile.value.email; emailDialogOpen.value = true; },
     },
 ]);
 
@@ -285,22 +303,13 @@ async function handleAvatarUpload(cropper: any) {
 // ---- 修改密码 ----
 
 async function handleChangePassword() {
-    if (!passwordForm.new_password || passwordForm.new_password.length < 6) {
-        message.error("新密码长度不能少于 6 位");
-        return;
-    }
-    if (passwordForm.new_password !== passwordForm.confirm_password) {
-        message.error("两次输入的密码不一致");
-        return;
-    }
+    try { await passwordFormRef.value?.validate(); } catch { return; }
     savingPassword.value = true;
     try {
-        await changePassword(passwordForm.old_password, passwordForm.new_password);
+        await changePassword(passwordForm.value.old_password, passwordForm.value.new_password);
         message.success("密码修改成功");
         passwordDialogOpen.value = false;
-        passwordForm.old_password = "";
-        passwordForm.new_password = "";
-        passwordForm.confirm_password = "";
+        passwordForm.value = { old_password: "", new_password: "", confirm_password: "" };
     } catch (err: any) {
         message.error(err?.response?.data?.detail || "修改失败");
     } finally {
@@ -311,10 +320,11 @@ async function handleChangePassword() {
 // ---- 修改手机 ----
 
 async function handleSavePhone() {
+    try { await phoneFormRef.value?.validate(); } catch { return; }
     savingPhone.value = true;
     try {
-        await updateProfile({ phone: phoneForm.phone });
-        profile.value.phone = phoneForm.phone;
+        await updateProfile({ phone: phoneForm.value.phone });
+        profile.value.phone = phoneForm.value.phone;
         message.success("手机号已更新");
         phoneDialogOpen.value = false;
     } catch {
@@ -327,11 +337,12 @@ async function handleSavePhone() {
 // ---- 修改邮箱 ----
 
 async function handleSaveEmail() {
+    try { await emailFormRef.value?.validate(); } catch { return; }
     savingEmail.value = true;
     try {
-        await updateProfile({ email: emailForm.email });
-        profile.value.email = emailForm.email;
-        userStore.setUserInfo({ ...userStore.userInfo, email: emailForm.email });
+        await updateProfile({ email: emailForm.value.email });
+        profile.value.email = emailForm.value.email;
+        userStore.setUserInfo({ ...userStore.userInfo, email: emailForm.value.email });
         message.success("邮箱已更新");
         emailDialogOpen.value = false;
     } catch {
@@ -353,8 +364,14 @@ interface GitTokenItem {
 const gitTokens = ref<GitTokenItem[]>([]);
 const gitLoading = ref(false);
 const gitDialogOpen = ref(false);
-const gitForm = reactive({ platform: "gitee", token: "", username: "" });
+const gitFormRef = ref();
+const gitForm = ref({ platform: "gitee", token: "", username: "" });
 const savingGitToken = ref(false);
+const gitRules = z.object({
+    platform: z.string().min(1),
+    token: z.string().min(1, "Token 不能为空"),
+    username: z.string().optional(),
+});
 
 const gitPlatforms = [
     { value: "gitee", label: "Gitee", tokenUrl: "https://gitee.com/personal_access_tokens" },
@@ -375,20 +392,20 @@ async function loadGitTokens() {
 }
 
 function openGitTokenDialog(platform?: string) {
-    gitForm.platform = platform || "gitee";
-    gitForm.token = "";
-    gitForm.username = gitTokens.value.find((t) => t.platform === gitForm.platform)?.username || "";
+    const p = platform || "gitee";
+    gitForm.value = {
+        platform: p,
+        token: "",
+        username: gitTokens.value.find((t) => t.platform === p)?.username || "",
+    };
     gitDialogOpen.value = true;
 }
 
 async function handleSaveGitToken() {
-    if (!gitForm.token.trim()) {
-        message.error("Token 不能为空");
-        return;
-    }
+    try { await gitFormRef.value?.validate(); } catch { return; }
     savingGitToken.value = true;
     try {
-        await saveGitToken(gitForm.platform, gitForm.token, gitForm.username);
+        await saveGitToken(gitForm.value.platform, gitForm.value.token, gitForm.value.username);
         message.success("Git Token 已保存");
         gitDialogOpen.value = false;
         await loadGitTokens();
@@ -639,8 +656,13 @@ const tokensList = ref<TokenItem[]>([]);
 const tokensLoading = ref(false);
 const tokensLoaded = ref(false);
 const tokenDialogOpen = ref(false);
-const tokenForm = reactive({ name: "", expires_days: 0 });
+const tokenFormRef = ref();
+const tokenForm = ref({ name: "", expires_days: 0 });
 const creatingToken = ref(false);
+const tokenRules = z.object({
+    name: z.string().min(1, "请输入令牌名称"),
+    expires_days: z.number(),
+});
 
 const newTokenValue = ref("");
 const newTokenDialogOpen = ref(false);
@@ -657,21 +679,17 @@ async function loadTokens() {
 }
 
 function openCreateTokenDialog() {
-    tokenForm.name = "";
-    tokenForm.expires_days = 0;
+    tokenForm.value = { name: "", expires_days: 0 };
     tokenDialogOpen.value = true;
 }
 
 async function handleCreateToken() {
-    if (!tokenForm.name.trim()) {
-        message.error("请输入令牌名称");
-        return;
-    }
+    try { await tokenFormRef.value?.validate(); } catch { return; }
     creatingToken.value = true;
     try {
         const res: any = await createAccessToken(
-            tokenForm.name.trim(),
-            tokenForm.expires_days > 0 ? tokenForm.expires_days : undefined,
+            tokenForm.value.name.trim(),
+            tokenForm.value.expires_days > 0 ? tokenForm.value.expires_days : undefined,
         );
         tokenDialogOpen.value = false;
         newTokenValue.value = res.token;
@@ -1172,82 +1190,88 @@ function handleMenuClick(key: string) {
     </div>
 
     <!-- 修改密码弹窗 -->
-    <VortDialog :open="passwordDialogOpen" title="修改密码" :footer="false" @update:open="passwordDialogOpen = $event">
-        <VortForm label-width="100px" class="mt-4">
-            <VortFormItem label="原密码" required>
+    <VortDialog
+        :open="passwordDialogOpen"
+        title="修改密码"
+        :confirm-loading="savingPassword"
+        ok-text="确认修改"
+        @ok="handleChangePassword"
+        @update:open="passwordDialogOpen = $event"
+    >
+        <VortForm ref="passwordFormRef" :model="passwordForm" :rules="passwordRules" label-width="100px" class="mt-4">
+            <VortFormItem label="原密码" name="old_password" required>
                 <VortInputPassword v-model="passwordForm.old_password" placeholder="请输入原密码" />
             </VortFormItem>
-            <VortFormItem label="新密码" required>
+            <VortFormItem label="新密码" name="new_password" required>
                 <VortInputPassword v-model="passwordForm.new_password" placeholder="至少 6 位" />
             </VortFormItem>
-            <VortFormItem label="确认新密码" required>
+            <VortFormItem label="确认新密码" name="confirm_password" required>
                 <VortInputPassword v-model="passwordForm.confirm_password" placeholder="再次输入新密码" />
-            </VortFormItem>
-            <VortFormItem>
-                <div class="flex gap-3">
-                    <VortButton variant="primary" :loading="savingPassword" @click="handleChangePassword">确认修改</VortButton>
-                    <VortButton @click="passwordDialogOpen = false">取消</VortButton>
-                </div>
             </VortFormItem>
         </VortForm>
     </VortDialog>
 
     <!-- 修改手机弹窗 -->
-    <VortDialog :open="phoneDialogOpen" title="修改手机号" :footer="false" @update:open="phoneDialogOpen = $event">
-        <VortForm label-width="80px" class="mt-4">
-            <VortFormItem label="手机号" required>
+    <VortDialog
+        :open="phoneDialogOpen"
+        title="修改手机号"
+        :confirm-loading="savingPhone"
+        ok-text="确认"
+        @ok="handleSavePhone"
+        @update:open="phoneDialogOpen = $event"
+    >
+        <VortForm ref="phoneFormRef" :model="phoneForm" :rules="phoneRules" label-width="80px" class="mt-4">
+            <VortFormItem label="手机号" name="phone" required>
                 <VortInput v-model="phoneForm.phone" placeholder="请输入手机号" />
-            </VortFormItem>
-            <VortFormItem>
-                <div class="flex gap-3">
-                    <VortButton variant="primary" :loading="savingPhone" @click="handleSavePhone">确认</VortButton>
-                    <VortButton @click="phoneDialogOpen = false">取消</VortButton>
-                </div>
             </VortFormItem>
         </VortForm>
     </VortDialog>
 
     <!-- 修改邮箱弹窗 -->
-    <VortDialog :open="emailDialogOpen" title="修改邮箱" :footer="false" @update:open="emailDialogOpen = $event">
-        <VortForm label-width="80px" class="mt-4">
-            <VortFormItem label="邮箱" required>
+    <VortDialog
+        :open="emailDialogOpen"
+        title="修改邮箱"
+        :confirm-loading="savingEmail"
+        ok-text="确认"
+        @ok="handleSaveEmail"
+        @update:open="emailDialogOpen = $event"
+    >
+        <VortForm ref="emailFormRef" :model="emailForm" :rules="emailRules" label-width="80px" class="mt-4">
+            <VortFormItem label="邮箱" name="email" required>
                 <VortInput v-model="emailForm.email" placeholder="请输入邮箱地址" />
-            </VortFormItem>
-            <VortFormItem>
-                <div class="flex gap-3">
-                    <VortButton variant="primary" :loading="savingEmail" @click="handleSaveEmail">确认</VortButton>
-                    <VortButton @click="emailDialogOpen = false">取消</VortButton>
-                </div>
             </VortFormItem>
         </VortForm>
     </VortDialog>
 
     <!-- Git Token 配置弹窗 -->
-    <VortDialog :open="gitDialogOpen" title="配置 Git Token" :footer="false" @update:open="gitDialogOpen = $event">
-        <VortForm label-width="100px" class="mt-4">
-            <VortFormItem label="平台">
+    <VortDialog
+        :open="gitDialogOpen"
+        title="配置 Git Token"
+        :confirm-loading="savingGitToken"
+        ok-text="保存"
+        @ok="handleSaveGitToken"
+        @update:open="gitDialogOpen = $event"
+    >
+        <VortForm ref="gitFormRef" :model="gitForm" :rules="gitRules" label-width="100px" class="mt-4">
+            <VortFormItem label="平台" name="platform">
                 <VortSelect v-model="gitForm.platform" :disabled="true">
                     <option v-for="gp in gitPlatforms" :key="gp.value" :value="gp.value">{{ gp.label }}</option>
                 </VortSelect>
             </VortFormItem>
-            <VortFormItem label="用户名">
+            <VortFormItem label="用户名" name="username">
                 <VortInput v-model="gitForm.username" placeholder="平台用户名（用于提交归属）" />
             </VortFormItem>
-            <VortFormItem label="Access Token" required>
+            <VortFormItem label="Access Token" name="token" required>
                 <VortInputPassword v-model="gitForm.token" placeholder="粘贴你的 Personal Access Token" />
             </VortFormItem>
-            <VortFormItem>
-                <div class="flex items-center gap-3">
-                    <VortButton variant="primary" :loading="savingGitToken" @click="handleSaveGitToken">保存</VortButton>
-                    <VortButton @click="gitDialogOpen = false">取消</VortButton>
-                    <a
-                        v-if="gitPlatforms.find(p => p.value === gitForm.platform)?.tokenUrl"
-                        :href="gitPlatforms.find(p => p.value === gitForm.platform)?.tokenUrl"
-                        target="_blank"
-                        class="text-xs text-blue-500 hover:underline ml-auto"
-                    >去生成 Token →</a>
-                </div>
-            </VortFormItem>
+            <div class="flex justify-end">
+                <a
+                    v-if="gitPlatforms.find(p => p.value === gitForm.platform)?.tokenUrl"
+                    :href="gitPlatforms.find(p => p.value === gitForm.platform)?.tokenUrl"
+                    target="_blank"
+                    class="text-xs text-blue-500 hover:underline"
+                >去生成 Token →</a>
+            </div>
         </VortForm>
     </VortDialog>
 
@@ -1286,24 +1310,25 @@ function handleMenuClick(key: string) {
     </VortDialog>
 
     <!-- 创建访问令牌弹窗 -->
-    <VortDialog :open="tokenDialogOpen" title="创建访问令牌" :footer="false" @update:open="tokenDialogOpen = $event">
-        <VortForm label-width="100px" class="mt-4">
-            <VortFormItem label="令牌名称" required>
+    <VortDialog
+        :open="tokenDialogOpen"
+        title="创建访问令牌"
+        :confirm-loading="creatingToken"
+        ok-text="创建"
+        @ok="handleCreateToken"
+        @update:open="tokenDialogOpen = $event"
+    >
+        <VortForm ref="tokenFormRef" :model="tokenForm" :rules="tokenRules" label-width="100px" class="mt-4">
+            <VortFormItem label="令牌名称" name="name" required>
                 <VortInput v-model="tokenForm.name" placeholder="如：Cursor MCP、Claude Desktop" />
             </VortFormItem>
-            <VortFormItem label="有效期">
+            <VortFormItem label="有效期" name="expires_days">
                 <VortSelect v-model="tokenForm.expires_days" :options="[
                     { label: '永不过期', value: 0 },
                     { label: '30 天', value: 30 },
                     { label: '90 天', value: 90 },
                     { label: '365 天', value: 365 },
                 ]" />
-            </VortFormItem>
-            <VortFormItem>
-                <div class="flex gap-3">
-                    <VortButton variant="primary" :loading="creatingToken" @click="handleCreateToken">创建</VortButton>
-                    <VortButton @click="tokenDialogOpen = false">取消</VortButton>
-                </div>
             </VortFormItem>
         </VortForm>
     </VortDialog>

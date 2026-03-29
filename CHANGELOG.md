@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] - 2026-03-28
+
+### Added
+
+- **VortGit GitHub support** — Full GitHub REST API provider: repos, commits, branches, PRs, file tree, and file content
+- **VortGit GitLab support** — Full GitLab REST API v4 provider: projects, commits, branches, merge requests, file tree, and file content
+- **GitHub Actions workflow** — Automatic Docker image builds on tag push to `ghcr.io/openvort/openvort`
+
+### Improved
+
+- Unified provider factory function (`create_provider`), eliminating duplicated platform-switching code across router and tools
+- AI tools (token verification, commit queries, repo info, coding tasks) now work with all three platforms (Gitee, GitHub, GitLab)
+- Docker images migrated from Docker Hub to GitHub Container Registry (`ghcr.io/openvort/openvort`)
+- Dockerfile now includes Node.js runtime for frontend build support
+
 ## [0.7.1] - 2026-03-27
 
 ### Added

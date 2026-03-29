@@ -240,6 +240,31 @@ class WeComAPI:
         self._set_recipients(payload, touser, toparty, totag)
         return await self._request("POST", "/message/send", json=payload)
 
+    # ---- 邮件 ----
+
+    async def send_email(
+        self,
+        subject: str,
+        content: str,
+        to_emails: list[str] | None = None,
+        to_userids: list[str] | None = None,
+        content_type: str = "html",
+    ) -> dict:
+        """通过企微邮件 API 发送邮件
+
+        Docs: https://developer.work.weixin.qq.com/document/path/97445
+        """
+        payload: dict = {
+            "to": {
+                "emails": to_emails or [],
+                "userids": to_userids or [],
+            },
+            "subject": subject,
+            "content": content,
+            "content_type": content_type,
+        }
+        return await self._request("POST", "/exmail/app/compose_send", json=payload)
+
 
     # WeComBotAPI has been removed — Smart Robot long-connection mode
     # uses direct WebSocket auth (aibot_subscribe) with bot_id + secret,

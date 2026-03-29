@@ -268,7 +268,7 @@ onMounted(() => {
                     prompt="我需要配置 IM 通道，请帮我了解可用的通道并引导我完成配置。请先列出所有可用通道和它们的状态，然后根据我的选择逐步引导配置。"
                 />
             </div>
-            <p class="text-sm text-gray-400 mb-4">管理 IM 通道的连接配置，每个通道对应一个消息平台。配置完成后 AI 可通过该通道收发消息。</p>
+            <p class="text-sm text-gray-400 mb-4">管理 IM 通道的连接配置，每个通道对应一个消息平台。配置完成后 AI 可通过该通道收发消息，同时支持邮件发送（需在对应平台配置邮件权限）。</p>
 
             <VortTable :data-source="channels" :loading="loading" row-key="name" :pagination="false">
                 <VortTableColumn label="通道名称" prop="display_name">
@@ -340,7 +340,7 @@ onMounted(() => {
         <VortDrawer
             :open="drawerOpen"
             :title="currentChannel ? currentChannel.display_name + ' 配置' : '通道配置'"
-            :width="520"
+            :width="580"
             @update:open="drawerOpen = $event"
             @close="drawerOpen = false"
             destroy-on-close
@@ -373,7 +373,7 @@ onMounted(() => {
                     <div v-if="currentGuideHtml" class="mb-5 px-3 py-2.5 bg-blue-50 rounded-lg text-sm text-gray-600 leading-relaxed" v-html="currentGuideHtml" />
 
                     <!-- 表单 -->
-                    <VortForm label-width="120px">
+                    <VortForm label-width="140px">
                         <VortFormItem
                             v-for="field in visibleFields"
                             :key="field.key"
@@ -409,7 +409,7 @@ onMounted(() => {
                         </button>
                         <p v-if="showAppOptional" class="text-xs text-gray-400 mt-2 mb-3">填写后可启用通讯录同步等功能</p>
                         <div v-show="showAppOptional" class="mt-1">
-                            <VortForm label-width="120px">
+                            <VortForm label-width="140px">
                                 <VortFormItem
                                     v-for="field in appOptionalFields"
                                     :key="field.key"
@@ -445,7 +445,7 @@ onMounted(() => {
                             高级设置
                         </button>
                         <div v-show="showAdvanced" class="mt-3">
-                            <VortForm label-width="120px">
+                            <VortForm label-width="140px">
                                 <VortFormItem
                                     v-for="field in advancedFields"
                                     :key="field.key"
