@@ -487,6 +487,10 @@ export function deleteVortflowTestModule(id: string) {
     return request.delete(`/vortflow/test-modules/${id}`);
 }
 
+export function reorderVortflowTestModule(data: { module_id: string; parent_id?: string | null; target_index: number }) {
+    return request.post("/vortflow/test-modules/reorder", data);
+}
+
 // ---- Test Cases ----
 
 export function getVortflowTestCases(params?: {

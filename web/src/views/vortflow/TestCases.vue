@@ -7,6 +7,7 @@ import { message, Dropdown, DropdownMenuItem } from "@openvort/vort-ui";
 import {
     getVortflowTestCases, deleteVortflowTestCase,
     getVortflowTestModules, createVortflowTestModule, updateVortflowTestModule, deleteVortflowTestModule,
+    reorderVortflowTestModule,
 } from "@/api";
 import TestCaseEditDrawer from "./components/TestCaseEditDrawer.vue";
 import TestCaseDetailDrawer from "./components/TestCaseDetailDrawer.vue";
@@ -193,6 +194,109 @@ const confirmEditModule = async () => {
 
 const cancelEditModule = () => { editModuleId.value = ""; };
 
+// --- Drag & Drop ---
+interface DragState {
+    draggingId: string;
+    overNodeId: string;
+    dropPosition: "before" | "after" | "inside";
+}
+
+const dragState = ref<DragState | null>(null);
+
+const isDescendantOf = (nodeId: string, ancestorId: string): boolean => {
+    const map = new Map(rawModules.value.map((m) => [m.id, m]));
+    let cur = nodeId;
+    while (cur) {
+        const mod = map.get(cur);
+        if (!mod?.parent_id) return false;
+        if (mod.parent_id === ancestorId) return true;
+        cur = mod.parent_id;
+    }
+    return false;
+};
+
+const onDragStart = (e: DragEvent, node: FlatNode) => {
+    if (!e.dataTransfer) return;
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", node.id);
+    dragState.value = { draggingId: node.id, overNodeId: "", dropPosition: "after" };
+};
+
+const onDragOver = (e: DragEvent, node: FlatNode) => {
+    if (!dragState.value) return;
+    e.preventDefault();
+    const dragId = dragState.value.draggingId;
+    if (dragId === node.id || isDescendantOf(node.id, dragId)) {
+        e.dataTransfer!.dropEffect = "none";
+        return;
+    }
+    e.dataTransfer!.dropEffect = "move";
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const ratio = (e.clientY - rect.top) / rect.height;
+    const position: DragState["dropPosition"] = ratio < 0.25 ? "before" : ratio > 0.75 ? "after" : "inside";
+    dragState.value = { ...dragState.value, overNodeId: node.id, dropPosition: position };
+};
+
+const onDragLeave = (e: DragEvent) => {
+    const related = e.relatedTarget as HTMLElement;
+    if (related && (e.currentTarget as HTMLElement).contains(related)) return;
+    if (dragState.value) dragState.value = { ...dragState.value, overNodeId: "", dropPosition: "after" };
+};
+
+const onDrop = async (e: DragEvent, targetNode: FlatNode) => {
+    e.preventDefault();
+    if (!dragState.value) return;
+    const { draggingId, dropPosition } = dragState.value;
+    dragState.value = null;
+    if (draggingId === targetNode.id || isDescendantOf(targetNode.id, draggingId)) return;
+
+    let newParentId: string | null;
+    let targetIndex: number;
+
+    if (dropPosition === "inside") {
+        newParentId = targetNode.id;
+        targetIndex = rawModules.value.filter((m) => m.parent_id === targetNode.id).length;
+        const next = new Set(expandedIds.value);
+        next.add(targetNode.id);
+        expandedIds.value = next;
+        saveExpandedState();
+    } else {
+        newParentId = targetNode.parent_id;
+        const siblings = rawModules.value.filter((m) => m.parent_id === newParentId && m.id !== draggingId);
+        const idx = siblings.findIndex((m) => m.id === targetNode.id);
+        targetIndex = dropPosition === "before" ? Math.max(0, idx) : idx + 1;
+    }
+
+    try {
+        await reorderVortflowTestModule({ module_id: draggingId, parent_id: newParentId, target_index: targetIndex });
+        await loadModules();
+    } catch {
+        message.error("排序失败");
+    }
+};
+
+const onDragEnd = () => { dragState.value = null; };
+
+const onRootDrop = async (e: DragEvent) => {
+    e.preventDefault();
+    if (!dragState.value) return;
+    const { draggingId } = dragState.value;
+    dragState.value = null;
+    const rootChildren = rawModules.value.filter((m) => !m.parent_id && m.id !== draggingId);
+    try {
+        await reorderVortflowTestModule({ module_id: draggingId, parent_id: null, target_index: rootChildren.length });
+        await loadModules();
+    } catch {
+        message.error("排序失败");
+    }
+};
+
+const onRootDragOver = (e: DragEvent) => {
+    if (!dragState.value) return;
+    e.preventDefault();
+    e.dataTransfer!.dropEffect = "move";
+};
+
 // --- Delete module ---
 const handleDeleteModule = async (node: FlatNode) => {
     moduleMenuOpen.value = {};
@@ -301,7 +405,7 @@ onMounted(() => { loadModules(); loadData(); });
                 <input v-model="moduleSearch" class="tc-sidebar-search-input" placeholder="搜索模块..." autofocus />
             </div>
 
-            <div class="tc-sidebar-body">
+            <div class="tc-sidebar-body" @dragover="onRootDragOver" @drop="onRootDrop">
                 <!-- All Cases root node -->
                 <div class="tc-module-node tc-module-root" :class="{ active: !selectedModuleId }" @click="selectModule('')">
                     <FolderOpen :size="14" class="tc-module-icon" />
@@ -328,9 +432,21 @@ onMounted(() => { loadModules(); loadData(); });
                     <div
                         v-if="editModuleId !== node.id"
                         class="tc-module-node"
-                        :class="{ active: selectedModuleId === node.id }"
+                        :class="{
+                            active: selectedModuleId === node.id,
+                            'tc-drag-self': dragState?.draggingId === node.id,
+                            'tc-drop-before': dragState?.overNodeId === node.id && dragState.dropPosition === 'before',
+                            'tc-drop-after': dragState?.overNodeId === node.id && dragState.dropPosition === 'after',
+                            'tc-drop-inside': dragState?.overNodeId === node.id && dragState.dropPosition === 'inside',
+                        }"
                         :style="{ paddingLeft: `${12 + node.depth * 20}px` }"
+                        draggable="true"
                         @click="selectModule(node.id)"
+                        @dragstart="onDragStart($event, node)"
+                        @dragover="onDragOver($event, node)"
+                        @dragleave="onDragLeave"
+                        @drop.stop="onDrop($event, node)"
+                        @dragend="onDragEnd"
                     >
                         <button v-if="node.hasChildren" class="tc-module-expand" @click.stop="toggleExpand(node.id)">
                             <component :is="node.expanded ? ChevronDown : ChevronRight" :size="12" />
@@ -714,5 +830,25 @@ onMounted(() => { loadModules(); loadData(); });
 .tc-main {
     flex: 1;
     min-width: 0;
+}
+
+/* Drag & Drop */
+.tc-drag-self {
+    opacity: 0.35;
+}
+
+.tc-drop-before {
+    box-shadow: inset 0 2px 0 0 var(--vort-primary);
+}
+
+.tc-drop-after {
+    box-shadow: inset 0 -2px 0 0 var(--vort-primary);
+}
+
+.tc-drop-inside {
+    background: var(--vort-primary-bg) !important;
+    outline: 1.5px dashed var(--vort-primary);
+    outline-offset: -1.5px;
+    border-radius: 6px;
 }
 </style>
