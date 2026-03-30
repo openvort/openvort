@@ -283,11 +283,39 @@ export function useWorkItemInlineEdit(options: UseWorkItemInlineEditOptions) {
         return planTimeModel[record.workNo] || text || record.planTime;
     };
 
+    const DONE_STATUSES = new Set(["已关闭", "已完成", "已修复", "发布完成", "测试完成", "开发完成"]);
+
     const getRowPlanTimeText = (record: RowItem, text?: DateRange): string => {
         const value = getRowPlanTime(record, text);
-        const start = normalizeDateValue(value[0]) || "-";
-        const end = normalizeDateValue(value[1]) || "-";
-        return `${start} ~ ${end}`;
+        const start = normalizeDateValue(value[0]);
+        const end = normalizeDateValue(value[1]);
+        if (!start && !end) return "-";
+        const currentYear = String(new Date().getFullYear());
+        const stripYear = (d: string) => d.slice(5);
+        if (!end) {
+            return (start.startsWith(currentYear) ? stripYear(start) : start) + " 开始";
+        }
+        if (!start) return "~" + (end.startsWith(currentYear) ? stripYear(end) : end);
+        const startYear = start.slice(0, 4);
+        const endYear = end.slice(0, 4);
+        if (startYear === endYear) {
+            const isCurrentYear = startYear === currentYear;
+            return `${isCurrentYear ? stripYear(start) : start}~${stripYear(end)}`;
+        }
+        return `${start}~${end}`;
+    };
+
+    const getRowOverdueInfo = (record: RowItem, text?: DateRange): { days: number; completed: boolean } | null => {
+        const value = getRowPlanTime(record, text);
+        const end = normalizeDateValue(value[1]);
+        if (!end) return null;
+        const endDate = new Date(end + "T00:00:00");
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const diffMs = today.getTime() - endDate.getTime();
+        const diffDays = Math.floor(diffMs / 86400000);
+        if (diffDays <= 0) return null;
+        return { days: diffDays, completed: DONE_STATUSES.has(record.status) };
     };
 
     const togglePlanTimeMenu = (workNo: string, record?: RowItem, text?: DateRange) => {
@@ -335,6 +363,7 @@ export function useWorkItemInlineEdit(options: UseWorkItemInlineEditOptions) {
         setRowTags,
         rowTagOptions,
         getRowPlanTimeText,
+        getRowOverdueInfo,
         onPlanTimeChange,
         onPlanTimeOpenChange,
         getRowPlanTime,

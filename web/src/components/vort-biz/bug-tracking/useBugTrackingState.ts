@@ -294,8 +294,20 @@ export function useBugTrackingState() {
     const getRowPlanTimeText = (record: RowItem, text?: DateRange): string => {
         const pt = getRowPlanTime(record, text);
         if (!pt || !pt[0]) return "设置计划时间";
-        if (!pt[1]) return `${pt[0]} ~ `;
-        return `${pt[0]} ~ ${pt[1]}`;
+        const start = pt[0];
+        const end = pt[1];
+        const currentYear = String(new Date().getFullYear());
+        const stripYear = (d: string) => d.slice(5);
+        if (!end) {
+            return (start.startsWith(currentYear) ? stripYear(start) : start) + " 开始";
+        }
+        const startYear = start.slice(0, 4);
+        const endYear = end.slice(0, 4);
+        if (startYear === endYear) {
+            const isCurrentYear = startYear === currentYear;
+            return `${isCurrentYear ? stripYear(start) : start}~${stripYear(end)}`;
+        }
+        return `${start}~${end}`;
     };
 
     const getCollapsedTags = (tags: string[], resolvedWidth?: string | number): { visible: string[]; hidden: number } => {

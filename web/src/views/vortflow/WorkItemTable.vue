@@ -731,6 +731,7 @@ const {
     setRowTags,
     rowTagOptions,
     getRowPlanTimeText,
+    getRowOverdueInfo,
     onPlanTimeChange,
     onPlanTimeOpenChange,
     getRowPlanTime,
@@ -2074,6 +2075,9 @@ onMounted(async () => {
                                 @click.stop="togglePlanTimeMenu(record.workNo, record, text)"
                             >
                                 {{ getRowPlanTimeText(record, text) }}
+                                <span v-if="getRowOverdueInfo(record, text)" class="plan-time-overdue" :class="getRowOverdueInfo(record, text)!.completed ? 'is-done' : ''">
+                                    {{ getRowOverdueInfo(record, text)!.completed ? `逾期${getRowOverdueInfo(record, text)!.days}天完成` : `逾期${getRowOverdueInfo(record, text)!.days}天` }}
+                                </span>
                             </span>
                             <vort-range-picker
                                 v-else
@@ -2530,6 +2534,17 @@ onMounted(async () => {
     color: #4f46e5;
     font-size: 12px;
     line-height: 20px;
+}
+
+.plan-time-overdue {
+    margin-left: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    color: #dc2626;
+    white-space: nowrap;
+}
+.plan-time-overdue.is-done {
+    color: #d97706;
 }
 
 :deep(.plan-time-picker) {

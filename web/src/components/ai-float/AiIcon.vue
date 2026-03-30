@@ -79,10 +79,6 @@ withDefaults(defineProps<{
     animation: ai-icon-shimmer 5s ease-in-out 1.5s infinite;
 }
 
-.ai-icon:hover .ai-icon-spinner {
-    animation-duration: 3s;
-}
-
 @keyframes ai-icon-spin {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }

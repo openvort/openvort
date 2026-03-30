@@ -38,6 +38,27 @@ const expandedIds = ref<Set<string>>(new Set());
 const selectedModuleId = ref("");
 const moduleLoading = ref(false);
 
+const EXPAND_STORAGE_KEY = "vortflow_test_module_expanded";
+
+const saveExpandedState = () => {
+    if (!currentProjectId.value) return;
+    try {
+        const all = JSON.parse(localStorage.getItem(EXPAND_STORAGE_KEY) || "{}");
+        all[currentProjectId.value] = [...expandedIds.value];
+        localStorage.setItem(EXPAND_STORAGE_KEY, JSON.stringify(all));
+    } catch { /* ignore */ }
+};
+
+const loadExpandedState = (): Set<string> | null => {
+    if (!currentProjectId.value) return null;
+    try {
+        const all = JSON.parse(localStorage.getItem(EXPAND_STORAGE_KEY) || "{}");
+        const ids = all[currentProjectId.value];
+        if (Array.isArray(ids)) return new Set(ids);
+    } catch { /* ignore */ }
+    return null;
+};
+
 const moduleSearch = ref("");
 const showModuleSearch = ref(false);
 
@@ -99,8 +120,13 @@ const loadModules = async () => {
     try {
         const res = await getVortflowTestModules({ project_id: currentProjectId.value });
         rawModules.value = (res as any)?.items || [];
-        const parentIds = new Set(rawModules.value.filter((m) => m.parent_id).map((m) => m.parent_id!));
-        for (const pid of parentIds) expandedIds.value.add(pid);
+        const saved = loadExpandedState();
+        if (saved) {
+            const validIds = new Set(rawModules.value.map((m) => m.id));
+            expandedIds.value = new Set([...saved].filter((id) => validIds.has(id)));
+        } else {
+            expandedIds.value = new Set();
+        }
     } catch { rawModules.value = []; }
     finally { moduleLoading.value = false; }
 };
@@ -109,6 +135,7 @@ const toggleExpand = (id: string) => {
     const next = new Set(expandedIds.value);
     if (next.has(id)) next.delete(id); else next.add(id);
     expandedIds.value = next;
+    saveExpandedState();
 };
 
 const selectModule = (id: string) => {
@@ -131,6 +158,7 @@ const startAddModule = (parentId: string | null = null) => {
         const next = new Set(expandedIds.value);
         next.add(parentId);
         expandedIds.value = next;
+        saveExpandedState();
     }
     nextTick(() => addModuleInputRef.value?.focus());
 };
@@ -408,12 +436,12 @@ onMounted(() => { loadModules(); loadData(); });
                 <div class="bg-white rounded-xl p-6">
                     <div class="text-sm text-gray-500 mb-3">共 {{ total }} 项</div>
                     <vort-table :data-source="listData" :loading="loading" :pagination="false" row-key="id">
-                        <vort-table-column label="用例标题" :min-width="200">
+                        <vort-table-column label="用例标题" :min-width="300">
                             <template #default="{ row }">
                                 <a class="text-sm text-blue-600 cursor-pointer hover:underline" @click="handleView(row)">{{ row.title }}</a>
                             </template>
                         </vort-table-column>
-                        <vort-table-column label="功能模块" prop="module_name" :width="140" />
+                        <vort-table-column label="功能模块" prop="module_name" :width="260" />
                         <vort-table-column label="用例类型" :width="100">
                             <template #default="{ row }">{{ caseTypeLabel(row.case_type) }}</template>
                         </vort-table-column>
@@ -423,7 +451,7 @@ onMounted(() => { loadModules(); loadData(); });
                             </template>
                         </vort-table-column>
                         <vort-table-column label="维护人" prop="maintainer_name" :width="100" />
-                        <vort-table-column label="创建时间" :width="110">
+                        <vort-table-column label="创建时间" :width="160">
                             <template #default="{ row }">
                                 <span class="text-sm text-gray-500">{{ row.created_at?.slice(0, 10) }}</span>
                             </template>
