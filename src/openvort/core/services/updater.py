@@ -310,7 +310,7 @@ class UpdateService:
             yield _sse("progress", f"正在下载后端包 ({whl_asset['name']})...", step="downloading")
             whl_path = tmp_dir / whl_asset["name"]
             try:
-                await self._download_asset(whl_asset["url"], whl_path)
+                await self._download_asset(whl_asset["browser_download_url"], whl_path)
             except Exception as e:
                 yield _sse("error", f"下载后端包失败: {e}")
                 return
@@ -320,7 +320,7 @@ class UpdateService:
                 yield _sse("progress", f"正在下载前端包 ({frontend_asset['name']})...", step="downloading_frontend")
                 frontend_path = tmp_dir / frontend_asset["name"]
                 try:
-                    await self._download_asset(frontend_asset["url"], frontend_path)
+                    await self._download_asset(frontend_asset["browser_download_url"], frontend_path)
                 except Exception as e:
                     log.warning(f"下载前端包失败（跳过）: {e}")
                     frontend_path = None

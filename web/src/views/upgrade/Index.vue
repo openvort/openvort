@@ -299,7 +299,7 @@ function formatDate(iso: string) {
 
 onMounted(() => {
     loadAutoCheckSetting();
-    loadUpdateInfo();
+    loadUpdateInfo(true);
     loadReleases();
     loadBackups();
 });
