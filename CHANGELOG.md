@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.9.1] - 2026-03-30
+
+### Added
+
+- Test case detail drawer and edit drawer with dynamic step management and auto-resize text areas
+
+### Improved
+
+- Dockerfile adds PostgreSQL client tools (`pg_dump`/`pg_restore`) with version compatibility check
+- Binary asset download now uses browser-friendly download links for better stability
+
 ## [0.9.0] - 2026-03-30
 
 ### Added
