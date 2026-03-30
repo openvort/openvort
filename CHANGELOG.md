@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.9.0] - 2026-03-30
+
+### Added
+
+- Test case module drag-and-drop sorting for custom ordering
+- Test case module expand/collapse state persistence across page reloads
+- MCP Server authentication middleware for secure tool invocation
+- Overdue indicator display for work item planned time
+
+### Improved
+
+- Dockerfile supports `--build-arg MIRROR=cn` for Chinese mirror acceleration (apt, Node.js, pip), reducing build time from ~20 min to ~2 min on domestic networks
+
 ## [0.8.1] - 2026-03-29
 
 ### Fixed
