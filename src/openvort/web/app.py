@@ -54,11 +54,11 @@ def _setup_mcp(app: FastAPI) -> None:
     """Mount MCP Server as ASGI sub-app at /mcp for Cursor/Claude Desktop integration."""
     try:
         from openvort.web.deps import get_registry as _get_reg
-        from openvort.web.mcp_server import create_mcp_server
+        from openvort.web.mcp_server import create_mcp_server, McpAuthMiddleware
 
         registry = _get_reg()
         mcp = create_mcp_server(registry)
-        mcp_asgi = mcp.streamable_http_app()
+        mcp_asgi = McpAuthMiddleware(mcp.streamable_http_app())
 
         @asynccontextmanager
         async def _mcp_lifespan_ctx(a):
