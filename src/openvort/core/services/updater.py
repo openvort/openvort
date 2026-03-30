@@ -147,6 +147,7 @@ class UpdateService:
         _require_pg_tool("pg_dump")
 
         db = self._parse_db_url()
+        await _check_pg_dump_compat(db)
         ts = time.strftime("%Y%m%d_%H%M%S")
         filename = f"openvort_{ts}.sql"
         filepath = self._backup_dir() / filename
@@ -309,7 +310,7 @@ class UpdateService:
             yield _sse("progress", f"正在下载后端包 ({whl_asset['name']})...", step="downloading")
             whl_path = tmp_dir / whl_asset["name"]
             try:
-                await self._download_asset(whl_asset["url"], whl_path)
+                await self._download_asset(whl_asset["browser_download_url"], whl_path)
             except Exception as e:
                 yield _sse("error", f"下载后端包失败: {e}")
                 return
@@ -319,7 +320,7 @@ class UpdateService:
                 yield _sse("progress", f"正在下载前端包 ({frontend_asset['name']})...", step="downloading_frontend")
                 frontend_path = tmp_dir / frontend_asset["name"]
                 try:
-                    await self._download_asset(frontend_asset["url"], frontend_path)
+                    await self._download_asset(frontend_asset["browser_download_url"], frontend_path)
                 except Exception as e:
                     log.warning(f"下载前端包失败（跳过）: {e}")
                     frontend_path = None
@@ -461,6 +462,78 @@ def _require_pg_tool(name: str) -> None:
     else:
         hint = f"请安装 PostgreSQL 客户端工具以获取 {name} 命令"
     raise RuntimeError(f"未找到 {name} 命令。{hint}")
+
+
+def _get_pg_tool_major_version(name: str) -> int | None:
+    """Return the major version of a PG client tool (pg_dump / psql), or None."""
+    path = shutil.which(name)
+    if not path:
+        return None
+    try:
+        import subprocess
+        out = subprocess.check_output([path, "--version"], text=True, timeout=5)
+        m = re.search(r"(\d+)\.\d+", out)
+        return int(m.group(1)) if m else None
+    except Exception:
+        return None
+
+
+async def _get_server_major_version(db_params: dict) -> int | None:
+    """Query the PG server major version via psql, or None on failure."""
+    psql = shutil.which("psql")
+    if not psql:
+        return None
+    env = os.environ.copy()
+    env["PGPASSWORD"] = db_params.get("password", "")
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            psql,
+            "-h", db_params["host"],
+            "-p", db_params["port"],
+            "-U", db_params["user"],
+            "-d", db_params["dbname"],
+            "-t", "-A", "-c", "SHOW server_version;",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+        )
+        stdout, _ = await proc.communicate()
+        if proc.returncode != 0:
+            return None
+        m = re.search(r"(\d+)\.\d+", stdout.decode().strip())
+        return int(m.group(1)) if m else None
+    except Exception:
+        return None
+
+
+async def _check_pg_dump_compat(db_params: dict) -> None:
+    """Raise RuntimeError if pg_dump major version < server major version."""
+    dump_ver = _get_pg_tool_major_version("pg_dump")
+    server_ver = await _get_server_major_version(db_params)
+
+    if dump_ver is None or server_ver is None:
+        return
+
+    if dump_ver < server_ver:
+        system = platform.system()
+        if system == "Linux":
+            hint = (
+                f"解决方法：安装与服务器匹配的客户端工具\n"
+                f"  curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc "
+                f"| gpg --dearmor -o /usr/share/keyrings/pgdg.gpg\n"
+                f"  echo 'deb [signed-by=/usr/share/keyrings/pgdg.gpg] "
+                f"http://apt.postgresql.org/pub/repos/apt bookworm-pgdg main' "
+                f"> /etc/apt/sources.list.d/pgdg.list\n"
+                f"  apt-get update && apt-get install -y postgresql-client-{server_ver}"
+            )
+        elif system == "Darwin":
+            hint = f"解决方法: brew install postgresql@{server_ver}"
+        else:
+            hint = f"解决方法: 安装 PostgreSQL {server_ver} 的客户端工具"
+        raise RuntimeError(
+            f"pg_dump 版本 ({dump_ver}) 低于数据库服务器版本 ({server_ver})，"
+            f"无法执行备份。\n{hint}"
+        )
 
 
 def _normalize_version(v: str) -> str:

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, computed } from "vue";
+import { ref, watch, computed, nextTick } from "vue";
 import { Plus, Trash2 } from "lucide-vue-next";
 import { message } from "@openvort/vort-ui";
 import {
@@ -87,7 +87,7 @@ const loadDetail = async () => {
         const rawSteps = res.steps || [];
         steps.value = rawSteps.length > 0 ? rawSteps : [{ order: 1, description: "", expected_result: "" }];
     } catch { message.error("加载用例失败"); }
-    finally { loading.value = false; }
+    finally { loading.value = false; resizeAllTextareas(); }
 };
 
 const loadModules = async () => {
@@ -105,6 +105,23 @@ const addStep = () => {
 const removeStep = (index: number) => {
     steps.value.splice(index, 1);
     steps.value.forEach((s, i) => { s.order = i + 1; });
+};
+
+const stepsTableRef = ref<HTMLElement | null>(null);
+
+const autoResize = (e: Event) => {
+    const el = e.target as HTMLTextAreaElement;
+    el.style.height = "auto";
+    el.style.height = el.scrollHeight + "px";
+};
+
+const resizeAllTextareas = () => {
+    nextTick(() => {
+        stepsTableRef.value?.querySelectorAll<HTMLTextAreaElement>(".tc-step-input").forEach((el) => {
+            el.style.height = "auto";
+            el.style.height = el.scrollHeight + "px";
+        });
+    });
 };
 
 const handleSubmit = async () => {
@@ -175,7 +192,7 @@ watch(() => props.open, (val) => {
                         </vort-form-item>
 
                         <vort-form-item label="用例步骤">
-                            <div class="tc-steps-table">
+                            <div ref="stepsTableRef" class="tc-steps-table">
                                 <div class="tc-steps-header">
                                     <span class="tc-steps-col-order">顺序</span>
                                     <span class="tc-steps-col-desc">步骤描述</span>
@@ -185,10 +202,10 @@ watch(() => props.open, (val) => {
                                 <div v-for="(step, idx) in steps" :key="idx" class="tc-steps-row">
                                     <span class="tc-steps-col-order">{{ step.order }}</span>
                                     <div class="tc-steps-col-desc">
-                                        <input v-model="step.description" class="tc-step-input" placeholder="请输入步骤描述" />
+                                        <textarea v-model="step.description" class="tc-step-input" placeholder="请输入步骤描述" rows="1" @input="autoResize" />
                                     </div>
                                     <div class="tc-steps-col-expect">
-                                        <input v-model="step.expected_result" class="tc-step-input" placeholder="请输入预期结果" />
+                                        <textarea v-model="step.expected_result" class="tc-step-input" placeholder="请输入预期结果" rows="1" @input="autoResize" />
                                     </div>
                                     <div class="tc-steps-col-action">
                                         <button v-if="steps.length > 1" class="tc-step-remove" @click="removeStep(idx)">
@@ -292,7 +309,7 @@ watch(() => props.open, (val) => {
 
 .tc-steps-row {
     display: flex;
-    align-items: center;
+    align-items: stretch;
     gap: 0;
     border-top: 1px solid var(--vort-border-secondary, #f0f0f0);
 }
@@ -302,6 +319,7 @@ watch(() => props.open, (val) => {
     flex-shrink: 0;
     text-align: center;
     padding: 8px 4px;
+    padding-top: 10px;
     font-size: 13px;
     color: var(--vort-text-tertiary);
 }
@@ -324,8 +342,9 @@ watch(() => props.open, (val) => {
     width: 36px;
     flex-shrink: 0;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: center;
+    padding-top: 6px;
 }
 
 .tc-step-input {
@@ -336,6 +355,11 @@ watch(() => props.open, (val) => {
     border: none;
     outline: none;
     background: transparent;
+    resize: none;
+    overflow: hidden;
+    line-height: 1.5;
+    font-family: inherit;
+    min-height: 30px;
 }
 
 .tc-step-input:focus {

@@ -5,7 +5,7 @@ import {
     Plus, Search, ChevronRight, ChevronDown, FolderOpen, Folder,
     Ellipsis, CheckCircle, XCircle, AlertCircle, SkipForward, Bug, ChevronsUpDown,
     ExternalLink, GitPullRequest, Trash2, Bot, MessageSquare, History, Loader2,
-    FileText, Copy, MoreHorizontal,
+    FileText, Copy, MoreHorizontal, ArrowUpDown, Check, Filter,
 } from "lucide-vue-next";
 import { message, Dropdown, DropdownMenuItem, Dialog } from "@openvort/vort-ui";
 import { useVortFlowStore } from "@/stores";
@@ -14,6 +14,7 @@ import WorkItemCreate from "./work-item/WorkItemCreate.vue";
 import TestPlanEditDialog from "./components/TestPlanEditDialog.vue";
 import TestPlanAddCasesDialog from "./components/TestPlanAddCasesDialog.vue";
 import TestPlanAddPRDialog from "./components/TestPlanAddPRDialog.vue";
+import TestCaseDetailDrawer from "./components/TestCaseDetailDrawer.vue";
 import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMemberPicker.vue";
 import {
     getVortflowTestPlan,
@@ -289,7 +290,57 @@ const cases = ref<any[]>([]);
 const casesLoading = ref(false);
 const casesTotal = ref(0);
 const caseKeyword = ref("");
-const caseSortBy = ref("");
+const caseSortOpen = ref(false);
+
+const SORT_STORAGE_KEY = "vortflow_test_plan_case_sort";
+
+const loadSavedSort = (): string => {
+    try {
+        return localStorage.getItem(SORT_STORAGE_KEY) || "priority";
+    } catch { return "priority"; }
+};
+
+const caseSortBy = ref(loadSavedSort());
+
+const sortOptions = [
+    { value: "", label: "默认排序" },
+    { value: "id", label: "编号" },
+    { value: "priority", label: "优先级" },
+    { value: "created_at", label: "创建时间" },
+    { value: "updated_at", label: "更新时间" },
+];
+
+const currentSortLabel = computed(() => sortOptions.find(o => o.value === caseSortBy.value)?.label || "默认排序");
+
+const handleSortChange = (value: string) => {
+    caseSortBy.value = value;
+    caseSortOpen.value = false;
+    try { localStorage.setItem(SORT_STORAGE_KEY, value); } catch { /* ignore */ }
+    loadCases();
+};
+
+const caseFilterOpen = ref(false);
+const caseFilterType = ref("");
+const caseFilterPriority = ref("");
+
+const caseFilterCount = computed(() => {
+    let count = 0;
+    if (caseFilterType.value) count++;
+    if (caseFilterPriority.value) count++;
+    return count;
+});
+
+const handleApplyFilter = () => {
+    caseFilterOpen.value = false;
+    loadCases();
+};
+
+const handleResetFilter = () => {
+    caseFilterType.value = "";
+    caseFilterPriority.value = "";
+    caseFilterOpen.value = false;
+    loadCases();
+};
 
 const loadCases = async () => {
     casesLoading.value = true;
@@ -298,6 +349,8 @@ const loadCases = async () => {
             module_id: selectedModuleId.value || undefined,
             keyword: caseKeyword.value || undefined,
             sort_by: caseSortBy.value || undefined,
+            case_type: caseFilterType.value || undefined,
+            priority: caseFilterPriority.value ? parseInt(caseFilterPriority.value) : undefined,
         });
         cases.value = (res as any).items || [];
         casesTotal.value = (res as any).total || 0;
@@ -382,6 +435,16 @@ const handleFinishPlan = async () => {
     await updateVortflowTestPlan(planId.value, { status: "completed" });
     message.success("已结束计划");
     loadPlan();
+};
+
+// ============ Case Detail Drawer ============
+
+const caseDetailDrawerOpen = ref(false);
+const caseDetailId = ref("");
+
+const handleViewCase = (row: any) => {
+    caseDetailId.value = row.test_case_id;
+    caseDetailDrawerOpen.value = true;
 };
 
 // ============ Add Cases Dialog ============
@@ -987,6 +1050,55 @@ watch(planId, async () => {
                             <span class="text-sm text-gray-400 whitespace-nowrap">共 {{ casesTotal }} 项</span>
                         </div>
                         <div class="flex items-center gap-2">
+                            <Dropdown v-model:open="caseSortOpen" trigger="click" placement="bottomRight">
+                                <vort-button size="small">
+                                    <ArrowUpDown :size="14" class="mr-1" /> {{ currentSortLabel }}
+                                </vort-button>
+                                <template #overlay>
+                                    <DropdownMenuItem
+                                        v-for="opt in sortOptions"
+                                        :key="opt.value"
+                                        @click="handleSortChange(opt.value)"
+                                    >
+                                        <Check v-if="caseSortBy === opt.value" :size="14" class="text-blue-500 mr-1.5" />
+                                        <span v-else class="w-[14px] mr-1.5 inline-block" />
+                                        {{ opt.label }}
+                                    </DropdownMenuItem>
+                                </template>
+                            </Dropdown>
+                            <Dropdown v-model:open="caseFilterOpen" trigger="click" placement="bottomRight">
+                                <vort-button size="small">
+                                    <Filter :size="14" class="mr-1" /> 筛选
+                                    <span v-if="caseFilterCount" class="ml-1 text-blue-500">{{ caseFilterCount }}</span>
+                                </vort-button>
+                                <template #overlay>
+                                    <div class="p-3 w-[220px] space-y-3" @click.stop>
+                                        <div>
+                                            <div class="text-xs text-gray-400 mb-1.5">用例类型</div>
+                                            <vort-select v-model="caseFilterType" placeholder="全部" allow-clear size="small" style="width: 100%">
+                                                <vort-select-option value="functional">功能测试</vort-select-option>
+                                                <vort-select-option value="performance">性能测试</vort-select-option>
+                                                <vort-select-option value="api">接口测试</vort-select-option>
+                                                <vort-select-option value="ui">UI 测试</vort-select-option>
+                                                <vort-select-option value="security">安全测试</vort-select-option>
+                                            </vort-select>
+                                        </div>
+                                        <div>
+                                            <div class="text-xs text-gray-400 mb-1.5">优先级</div>
+                                            <vort-select v-model="caseFilterPriority" placeholder="全部" allow-clear size="small" style="width: 100%">
+                                                <vort-select-option value="0">P0</vort-select-option>
+                                                <vort-select-option value="1">P1</vort-select-option>
+                                                <vort-select-option value="2">P2</vort-select-option>
+                                                <vort-select-option value="3">P3</vort-select-option>
+                                            </vort-select>
+                                        </div>
+                                        <div class="flex justify-end gap-2 pt-1">
+                                            <vort-button size="small" @click="handleResetFilter">重置</vort-button>
+                                            <vort-button variant="primary" size="small" @click="handleApplyFilter">确定</vort-button>
+                                        </div>
+                                    </div>
+                                </template>
+                            </Dropdown>
                             <vort-button variant="primary" size="small" @click="addCasesDialogOpen = true">
                                 <Plus :size="14" class="mr-1" /> 添加用例
                             </vort-button>
@@ -1002,7 +1114,7 @@ watch(planId, async () => {
 
                         <vort-table-column label="标题" :min-width="180">
                             <template #default="{ row }">
-                                <span class="text-sm text-gray-800">{{ row.title }}</span>
+                                <a class="text-sm text-blue-600 cursor-pointer hover:underline" @click="handleViewCase(row)">{{ row.title }}</a>
                             </template>
                         </vort-table-column>
 
@@ -1462,6 +1574,9 @@ watch(planId, async () => {
                 </div>
             </vort-spin>
         </Dialog>
+
+        <!-- Case Detail Drawer -->
+        <TestCaseDetailDrawer v-model:open="caseDetailDrawerOpen" :case-id="caseDetailId" />
 
         <!-- File Bug Drawer -->
         <vort-drawer
