@@ -80,6 +80,14 @@ openvort start
 
 </details>
 
+### 从源码构建 Docker 镜像
+
+国内网络环境可使用 `MIRROR=cn` 参数，自动切换 apt / Node.js / pip 为国内镜像源：
+
+```bash
+docker build --build-arg MIRROR=cn -t openvort .
+```
+
 ### 从源码运行
 
 ```bash

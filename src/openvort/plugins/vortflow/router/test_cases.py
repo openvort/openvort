@@ -32,6 +32,12 @@ class TestModuleUpdate(BaseModel):
     sort_order: int | None = None
 
 
+class TestModuleReorder(BaseModel):
+    module_id: str
+    parent_id: str | None = None
+    target_index: int = 0
+
+
 class TestCaseCreate(BaseModel):
     project_id: str
     module_id: str | None = None
@@ -154,6 +160,48 @@ async def delete_test_module(module_id: str):
         for tc in update_cases.scalars().all():
             tc.module_id = None
         await session.delete(module)
+        await session.commit()
+    return {"ok": True}
+
+
+@sub_router.post("/test-modules/reorder")
+async def reorder_test_module(body: TestModuleReorder):
+    sf = get_session_factory()
+    async with sf() as session:
+        module = await session.get(FlowTestModule, body.module_id)
+        if not module:
+            return {"error": "模块不存在"}
+
+        new_parent_id = body.parent_id if body.parent_id else None
+
+        if new_parent_id:
+            descendant_ids = await _get_descendant_module_ids(session, body.module_id)
+            if new_parent_id in descendant_ids:
+                return {"error": "不能将模块移动到其子模块下"}
+
+        module.parent_id = new_parent_id
+
+        if new_parent_id:
+            siblings_q = select(FlowTestModule).where(
+                FlowTestModule.project_id == module.project_id,
+                FlowTestModule.parent_id == new_parent_id,
+                FlowTestModule.id != body.module_id,
+            )
+        else:
+            siblings_q = select(FlowTestModule).where(
+                FlowTestModule.project_id == module.project_id,
+                FlowTestModule.parent_id.is_(None),
+                FlowTestModule.id != body.module_id,
+            )
+        siblings_q = siblings_q.order_by(FlowTestModule.sort_order, FlowTestModule.created_at)
+        result = await session.execute(siblings_q)
+        siblings = list(result.scalars().all())
+
+        idx = min(body.target_index, len(siblings))
+        siblings.insert(idx, module)
+        for i, s in enumerate(siblings):
+            s.sort_order = i
+
         await session.commit()
     return {"ok": True}
 

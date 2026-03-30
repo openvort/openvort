@@ -1,16 +1,29 @@
 # Base image: Python dependencies only.
 # Rebuild only when pyproject.toml or core dependencies change:
 #   docker build -f Dockerfile.base -t openvort-base:latest .
+#   docker build -f Dockerfile.base --build-arg MIRROR=cn -t openvort-base:latest .  (China)
 FROM python:3.11-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+ARG MIRROR=default
+
+RUN if [ "$MIRROR" = "cn" ]; then \
+      sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources; \
+    fi && \
+    apt-get update && apt-get install -y --no-install-recommends \
     git \
     postgresql-client \
     ca-certificates \
     curl \
-    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
+
+RUN if [ "$MIRROR" = "cn" ]; then \
+      curl -fsSL https://npmmirror.com/mirrors/node/v20.18.0/node-v20.18.0-linux-x64.tar.xz \
+        | tar -xJ -C /usr/local --strip-components=1; \
+    else \
+      curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+        && apt-get install -y --no-install-recommends nodejs \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
 
 WORKDIR /app
 
@@ -19,7 +32,11 @@ COPY src/ src/
 COPY alembic/ alembic/
 
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -e . -i https://pypi.org/simple/ --extra-index-url https://mirrors.aliyun.com/pypi/simple/
+    if [ "$MIRROR" = "cn" ]; then \
+      pip install --no-cache-dir -e . -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com; \
+    else \
+      pip install --no-cache-dir -e .; \
+    fi
 
 ENV PYTHONUNBUFFERED=1
 EXPOSE 8090

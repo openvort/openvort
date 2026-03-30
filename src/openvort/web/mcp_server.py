@@ -7,6 +7,8 @@ as MCP tools. Internal tools (session management, IM channel tools) are excluded
 
 from __future__ import annotations
 
+import contextvars
+
 from mcp.server.fastmcp import FastMCP
 from mcp import types
 
@@ -14,6 +16,10 @@ from openvort.plugin.registry import PluginRegistry
 from openvort.utils.logging import get_logger
 
 log = get_logger("web.mcp")
+
+_mcp_member_info: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+    "_mcp_member_info", default=None
+)
 
 EXCLUDED_TOOL_PREFIXES = (
     "sessions_",
@@ -92,6 +98,11 @@ def create_mcp_server(registry: PluginRegistry) -> FastMCP:
         if not _should_expose(name):
             return [types.TextContent(type="text", text=f"Tool not available via MCP: {name}")]
         _warn_local_paths(name, arguments)
+
+        member_info = _mcp_member_info.get()
+        if member_info:
+            arguments["_member_id"] = member_info["member_id"]
+
         try:
             result = await tool.execute(arguments)
             return [types.TextContent(type="text", text=result)]
@@ -107,3 +118,28 @@ def create_mcp_server(registry: PluginRegistry) -> FastMCP:
 
 def get_mcp_instance() -> FastMCP | None:
     return _mcp_instance
+
+
+class McpAuthMiddleware:
+    """ASGI middleware that resolves MCP caller identity from Authorization header."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            headers = dict(scope.get("headers", []))
+            auth_value = headers.get(b"authorization", b"").decode()
+            client = scope.get("client")
+            client_host = client[0] if client else None
+
+            from openvort.web.mcp_auth import resolve_mcp_identity
+            member_info = await resolve_mcp_identity(auth_value or None, client_host)
+
+            token = _mcp_member_info.set(member_info)
+            try:
+                await self.app(scope, receive, send)
+            finally:
+                _mcp_member_info.reset(token)
+        else:
+            await self.app(scope, receive, send)
