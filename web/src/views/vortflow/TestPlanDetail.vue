@@ -161,6 +161,29 @@ const selectedModuleId = ref("");
 const moduleSearch = ref("");
 const showModuleSearch = ref(false);
 
+const EXPAND_STORAGE_KEY = "vortflow_test_module_expanded";
+
+const saveExpandedState = () => {
+    const projectId = plan.value?.project_id;
+    if (!projectId) return;
+    try {
+        const all = JSON.parse(localStorage.getItem(EXPAND_STORAGE_KEY) || "{}");
+        all[projectId] = [...expandedModuleIds.value];
+        localStorage.setItem(EXPAND_STORAGE_KEY, JSON.stringify(all));
+    } catch { /* ignore */ }
+};
+
+const loadExpandedState = (): Set<string> | null => {
+    const projectId = plan.value?.project_id;
+    if (!projectId) return null;
+    try {
+        const all = JSON.parse(localStorage.getItem(EXPAND_STORAGE_KEY) || "{}");
+        const ids = all[projectId];
+        if (Array.isArray(ids)) return new Set(ids);
+    } catch { /* ignore */ }
+    return null;
+};
+
 const flatNodes = computed<FlatNode[]>(() => {
     const map = new Map<string, RawModule>();
     const childMap = new Map<string, string[]>();
@@ -200,8 +223,13 @@ const loadModules = async () => {
     try {
         const res = await getVortflowTestModules({ project_id: projectId });
         rawModules.value = (res as any)?.items || [];
-        const parentIds = new Set(rawModules.value.filter((m) => m.parent_id).map((m) => m.parent_id!));
-        for (const pid of parentIds) expandedModuleIds.value.add(pid);
+        const saved = loadExpandedState();
+        if (saved) {
+            const validIds = new Set(rawModules.value.map((m) => m.id));
+            expandedModuleIds.value = new Set([...saved].filter((id) => validIds.has(id)));
+        } else {
+            expandedModuleIds.value = new Set();
+        }
     } catch {
         rawModules.value = [];
     }
@@ -211,12 +239,49 @@ const toggleModuleExpand = (id: string) => {
     const next = new Set(expandedModuleIds.value);
     if (next.has(id)) next.delete(id); else next.add(id);
     expandedModuleIds.value = next;
+    saveExpandedState();
 };
 
 const selectModule = (id: string) => {
     selectedModuleId.value = selectedModuleId.value === id ? "" : id;
     loadCases();
 };
+
+// ============ Module Case Counts ============
+
+const moduleCaseCounts = ref<Map<string, number>>(new Map());
+
+const loadModuleCaseCounts = async () => {
+    try {
+        const res = await getVortflowTestPlanCases(planId.value, {});
+        const items: any[] = (res as any).items || [];
+        const counts = new Map<string, number>();
+        for (const c of items) {
+            if (c.module_id) counts.set(c.module_id, (counts.get(c.module_id) || 0) + 1);
+        }
+        moduleCaseCounts.value = counts;
+    } catch { /* ignore */ }
+};
+
+const moduleAggCounts = computed(() => {
+    const direct = moduleCaseCounts.value;
+    const childMap = new Map<string, string[]>();
+    for (const m of rawModules.value) {
+        const pid = m.parent_id || "__root__";
+        if (!childMap.has(pid)) childMap.set(pid, []);
+        childMap.get(pid)!.push(m.id);
+    }
+    const result = new Map<string, number>();
+    const calc = (id: string): number => {
+        if (result.has(id)) return result.get(id)!;
+        let count = direct.get(id) || 0;
+        for (const cid of (childMap.get(id) || [])) count += calc(cid);
+        result.set(id, count);
+        return count;
+    };
+    for (const m of rawModules.value) calc(m.id);
+    return result;
+});
 
 // ============ Plan Cases ============
 
@@ -245,6 +310,7 @@ const handleRemoveCase = async (planCaseId: string) => {
     await removeVortflowTestPlanCase(planId.value, planCaseId);
     message.success("已移除");
     loadCases();
+    loadModuleCaseCounts();
     loadPlan();
 };
 
@@ -324,6 +390,7 @@ const addCasesDialogOpen = ref(false);
 
 const handleAddCasesSaved = () => {
     loadCases();
+    loadModuleCaseCounts();
     loadPlan();
 };
 
@@ -628,12 +695,12 @@ const verStageLabels: Record<string, string> = { dev: "开发环境", staging: "
 onMounted(async () => {
     await loadMemberOptions();
     await loadPlan();
-    await Promise.all([loadModules(), loadCases(), loadReviews(), loadReports(), loadLinkOptions(), loadPlanSwitcherList()]);
+    await Promise.all([loadModules(), loadCases(), loadModuleCaseCounts(), loadReviews(), loadReports(), loadLinkOptions(), loadPlanSwitcherList()]);
 });
 
 watch(planId, async () => {
     await loadPlan();
-    await Promise.all([loadModules(), loadCases(), loadReviews()]);
+    await Promise.all([loadModules(), loadCases(), loadModuleCaseCounts(), loadReviews()]);
 });
 </script>
 
@@ -894,6 +961,13 @@ watch(planId, async () => {
                         <span v-else class="w-3 shrink-0" />
                         <component :is="node.hasChildren && node.expanded ? FolderOpen : Folder" :size="14" class="shrink-0" />
                         <span class="truncate">{{ node.name }}</span>
+                        <vort-badge
+                            v-if="moduleAggCounts.get(node.id)"
+                            :count="moduleAggCounts.get(node.id)"
+                            :overflow-count="999"
+                            size="small"
+                            class="shrink-0 ml-auto"
+                        />
                     </div>
                 </div>
 

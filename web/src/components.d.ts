@@ -21,6 +21,7 @@ declare module 'vue' {
     TableActionsMoreItem: typeof import('@/components/vort-biz/table-actions')['TableActionsMoreItem']
     VortAlert: typeof import('@openvort/vort-ui')['Alert']
     VortAutoComplete: typeof import('@openvort/vort-ui')['AutoComplete']
+    VortBadge: typeof import('@openvort/vort-ui')['Badge']
     VortButton: typeof import('@openvort/vort-ui')['Button']
     VortCard: typeof import('@openvort/vort-ui')['Card']
     VortCheckbox: typeof import('@openvort/vort-ui')['Checkbox']
