@@ -748,3 +748,43 @@ export function sendVortflowNotify(data: {
 }) {
     return request.post("/vortflow/notify", data);
 }
+
+// ---- Document Links ----
+
+export function getVortflowDocLinks(params: { entity_type: string; entity_id: string }) {
+    return request.get("/vortflow/document-links", { params });
+}
+
+export function createVortflowDocLink(data: { document_id: string; entity_type: string; entity_id: string }) {
+    return request.post("/vortflow/document-links", data);
+}
+
+export function createVortflowDocWithLink(data: {
+    title: string;
+    content?: string;
+    entity_type: string;
+    entity_id: string;
+    project_id: string;
+}) {
+    return request.post("/vortflow/document-links/with-doc", data);
+}
+
+export function uploadVortflowDocWithLink(file: File, entityType: string, entityId: string, projectId: string) {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("entity_type", entityType);
+    formData.append("entity_id", entityId);
+    formData.append("project_id", projectId);
+    return request.post("/vortflow/document-links/with-upload", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+        timeout: 60000,
+    });
+}
+
+export function reorderVortflowDocLinks(data: { link_ids: string[] }) {
+    return request.put("/vortflow/document-links/reorder", data);
+}
+
+export function deleteVortflowDocLink(linkId: string) {
+    return request.delete(`/vortflow/document-links/${linkId}`);
+}

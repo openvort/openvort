@@ -11,6 +11,7 @@ import { useInlineAi } from "@/hooks";
 import { useWorkItemCommon } from "./useWorkItemCommon";
 import WorkItemLinkPanel from "./WorkItemLinkPanel.vue";
 import TestCaseLinkPanel from "./TestCaseLinkPanel.vue";
+import DocLinkPanel from "./DocLinkPanel.vue";
 import NotifyDialog from "./NotifyDialog.vue";
 import { getVortflowProjects, getVortflowIterations, getVortflowVersions, getVortgitRepos, getVortgitRepoBranches, getVortflowComments, createVortflowComment, updateVortflowComment, deleteVortflowComment, getVortflowActivity, uploadVortflowFile } from "@/api";
 import { useUserStore } from "@/stores";
@@ -1138,10 +1139,10 @@ watch(() => props.initialData, (value) => {
             </p>
             <div class="bug-detail-tabs">
                 <button :class="{ active: detailActiveTab === 'detail' }" @click="detailActiveTab = 'detail'">详情</button>
+                <button :class="{ active: detailActiveTab === 'docs' }" @click="detailActiveTab = 'docs'">关联文档</button>
                 <button :class="{ active: detailActiveTab === 'worklog' }" @click="detailActiveTab = 'worklog'">工作日志</button>
                 <button :class="{ active: detailActiveTab === 'related' }" @click="detailActiveTab = 'related'">关联工作项</button>
                 <button :class="{ active: detailActiveTab === 'test' }" @click="detailActiveTab = 'test'">关联测试用例</button>
-                <button :class="{ active: detailActiveTab === 'docs' }" @click="detailActiveTab = 'docs'">关联文档</button>
             </div>
 
             <div class="bug-detail-panel" v-if="detailActiveTab === 'detail'">
@@ -1700,11 +1701,14 @@ watch(() => props.initialData, (value) => {
                 />
                 <p v-else class="bug-detail-empty">暂无关联测试用例</p>
             </div>
-            <div class="bug-detail-panel" v-else>
-                <div class="bug-detail-empty">
-                    <FileText :size="32" class="bug-detail-empty-icon" />
-                    <span>暂无关联文档</span>
-                </div>
+            <div class="bug-detail-panel" v-else-if="detailActiveTab === 'docs'">
+                <DocLinkPanel
+                    v-if="record?.backendId"
+                    :entity-type="linkEntityType"
+                    :entity-id="record.backendId"
+                    :project-id="record.projectId || ''"
+                />
+                <p v-else class="bug-detail-empty">暂无关联文档</p>
             </div>
         </main>
         <div v-else class="p-4 text-center text-gray-500">加载中...</div>
