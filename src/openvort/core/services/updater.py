@@ -24,6 +24,13 @@ from openvort.utils.logging import get_logger
 log = get_logger("updater")
 
 
+GITHUB_PROXIES = [
+    "https://ghfast.com/",
+    "https://mirror.ghproxy.com/",
+    "https://gh-proxy.com/",
+]
+
+
 class UpdateService:
     GITHUB_REPO = "openvort/openvort"
     GITHUB_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
@@ -396,8 +403,33 @@ class UpdateService:
         return None
 
     async def _download_asset(self, url: str, dest: Path) -> None:
-        """Download a release asset."""
-        async with httpx.AsyncClient(timeout=300, follow_redirects=True) as client:
+        """Download a release asset, auto-fallback to proxy mirrors if direct fails."""
+        custom_proxy = os.environ.get("OPENVORT_GITHUB_PROXY", "").strip().rstrip("/")
+
+        if custom_proxy:
+            urls = [f"{custom_proxy}/{url}"]
+        else:
+            urls = [url] + [f"{p}{url}" for p in GITHUB_PROXIES]
+
+        last_err: Exception | None = None
+        for i, target_url in enumerate(urls):
+            is_direct = (i == 0 and not custom_proxy)
+            timeout = 5 if is_direct else 300
+            label = "直连" if is_direct else target_url.split("/")[2]
+            try:
+                log.info(f"下载 ({label}): {target_url[:120]}")
+                await self._do_download(target_url, dest, timeout=timeout)
+                return
+            except Exception as e:
+                last_err = e
+                log.warning(f"下载失败 ({label}): {e}")
+                if dest.exists():
+                    dest.unlink()
+        raise RuntimeError(f"所有下载源均失败: {last_err}")
+
+    async def _do_download(self, url: str, dest: Path, timeout: int = 300) -> None:
+        """Execute the actual HTTP download."""
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             async with client.stream("GET", url) as resp:
                 resp.raise_for_status()
                 with open(dest, "wb") as f:
