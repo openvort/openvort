@@ -5,10 +5,12 @@ import { useUserStore } from "@/stores";
 
 const props = withDefaults(defineProps<{
     embedded?: boolean;
+    embeddedExpanded?: boolean;
     initialSessionId?: string;
     embeddedSidebar?: boolean;
 }>(), {
     embedded: false,
+    embeddedExpanded: false,
     initialSessionId: "",
     embeddedSidebar: false,
 });
@@ -22,7 +24,7 @@ import {
     Settings, Check, Brain, PackageMinus, RotateCcw, Zap, StopCircle, Square,
     Hash, Bug, ListTodo, BookOpen, GitBranch, ChevronDown, ChevronRight,
     Copy, RefreshCw, Search, Clock, Pause, ChevronUp, Trash2, Paperclip, File,
-    Maximize2, PanelLeftOpen, PanelLeftClose
+    Maximize2, Minimize2, PanelLeftOpen, PanelLeftClose
 } from "lucide-vue-next";
 import { Popover as VortPopover, Image as VortImage, ImagePreviewGroup as VortImagePreviewGroup } from "@openvort/vort-ui";
 import {
@@ -844,10 +846,11 @@ defineExpose({ currentSessionId, inputText, handleReset, switchSession, handleNe
                         </button>
                     </VortTooltip>
                     <template v-if="embedded">
-                        <VortTooltip title="窗口全屏">
+                        <VortTooltip :title="embeddedExpanded ? '缩小窗口' : '展开半屏'">
                             <button class="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer"
                                 @click="emit('embedded-maximize')">
-                                <Maximize2 :size="14" />
+                                <Minimize2 v-if="embeddedExpanded" :size="14" />
+                                <Maximize2 v-else :size="14" />
                             </button>
                         </VortTooltip>
                         <VortTooltip title="关闭">
