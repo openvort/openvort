@@ -546,6 +546,7 @@ class FlowComment(Base):
     entity_type: Mapped[str] = mapped_column(String(32), index=True)  # story/task/bug
     entity_id: Mapped[str] = mapped_column(String(32), index=True)
     author_id: Mapped[str] = mapped_column(String(32), ForeignKey("members.id"), index=True)
+    parent_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
     content: Mapped[str] = mapped_column(Text, default="")
     mentions_json: Mapped[str] = mapped_column(Text, default="[]")  # member_ids mentioned via @
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

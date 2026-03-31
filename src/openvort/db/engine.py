@@ -389,6 +389,12 @@ async def init_db(database_url: str) -> None:
         await conn.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_flow_comments_author ON flow_comments(author_id)"
         ))
+        await conn.execute(text(
+            "ALTER TABLE IF EXISTS flow_comments ADD COLUMN IF NOT EXISTS parent_id BIGINT"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_flow_comments_parent_id ON flow_comments(parent_id)"
+        ))
 
     # VortFlow: tag definitions table
     async with _engine.begin() as conn:

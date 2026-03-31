@@ -168,7 +168,7 @@ export function useWorkItemViewState(options: UseWorkItemViewStateOptions) {
         resetViewBaseline();
     };
 
-    watch(currentViewId, () => {
+    const applyViewState = () => {
         keyword.value = "";
         owner.value = [];
         status.value = [];
@@ -200,7 +200,9 @@ export function useWorkItemViewState(options: UseWorkItemViewStateOptions) {
             );
         }
         nextTick(() => resetViewBaseline());
-    });
+    };
+
+    watch(currentViewId, applyViewState);
 
     return {
         viewBaseline,
@@ -217,5 +219,6 @@ export function useWorkItemViewState(options: UseWorkItemViewStateOptions) {
         handleUpdateCurrentView,
         handleSaveAsNew,
         handleSaveAsNewView,
+        applyViewState,
     };
 }

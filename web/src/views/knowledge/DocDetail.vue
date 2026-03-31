@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { getKBDocument, updateKBDocument, reindexKBDocument, deleteKBDocument } from "@/api";
+import { getKBDocument, updateKBDocument, reindexKBDocument, deleteKBDocument, createKBTextDocument } from "@/api";
 import {
     ArrowLeft, Pencil, Save, X, RefreshCw, Trash2,
     CheckCircle, AlertCircle, Loader2, Link,
@@ -31,6 +31,7 @@ const route = useRoute();
 const router = useRouter();
 const userStore = useUserStore();
 const isAdmin = computed(() => userStore.isAdmin);
+const isNew = computed(() => route.params.id === "new");
 
 const loading = ref(true);
 const doc = ref<DocData | null>(null);
@@ -60,6 +61,18 @@ const formatTime = (iso: string) => {
 };
 
 const loadDoc = async () => {
+    if (isNew.value) {
+        doc.value = {
+            id: "", title: "", folder_id: (route.query.folder_id as string) || "",
+            file_name: "", file_type: "QA", file_size: 0, content: "",
+            status: "", error_message: "", chunk_count: 0, owner_id: "",
+            created_at: "", updated_at: new Date().toISOString(),
+        };
+        editForm.value = { title: "", content: "" };
+        editing.value = true;
+        loading.value = false;
+        return;
+    }
     loading.value = true;
     try {
         const res = await getKBDocument(route.params.id as string) as any;
@@ -79,6 +92,10 @@ const startEditing = () => {
 };
 
 const cancelEditing = () => {
+    if (isNew.value) {
+        router.push("/knowledge");
+        return;
+    }
     editing.value = false;
 };
 
@@ -91,6 +108,16 @@ const handleSave = async () => {
 
     saving.value = true;
     try {
+        if (isNew.value) {
+            const res = await createKBTextDocument({
+                title: editForm.value.title,
+                content: editForm.value.content,
+                folder_id: doc.value.folder_id || undefined,
+            }) as any;
+            message.success("文档创建成功");
+            router.replace(`/knowledge/doc/${res.id}`);
+            return;
+        }
         const res = await updateKBDocument(doc.value.id, {
             title: editForm.value.title,
             content: editForm.value.content,
@@ -175,7 +202,7 @@ onMounted(loadDoc);
                             <ArrowLeft :size="18" />
                         </button>
                         <template v-if="editing">
-                            <VortInput v-model="editForm.title" class="text-lg font-semibold w-[400px]" placeholder="文档标题" />
+                            <VortInput v-model="editForm.title" class="text-lg font-semibold flex-1 min-w-0" :placeholder="isNew ? '请输入文档标题' : '文档标题'" />
                         </template>
                         <template v-else>
                             <h2 class="text-lg font-semibold text-gray-800 truncate">{{ doc.title }}</h2>
@@ -206,8 +233,8 @@ onMounted(loadDoc);
                     </div>
                 </div>
 
-                <!-- Meta -->
-                <div class="flex items-center gap-3 px-6 pb-4 text-sm text-gray-400">
+                <!-- Meta (hidden in new mode) -->
+                <div v-if="!isNew" class="flex items-center gap-3 px-6 pb-4 text-sm text-gray-400">
                     <VortTag size="small">{{ (doc.file_type || '').toUpperCase() }}</VortTag>
                     <span>{{ formatFileSize(doc.file_size) }}</span>
                     <span>{{ doc.chunk_count }} 个分块</span>

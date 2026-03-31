@@ -12,7 +12,7 @@ import { useWorkItemCommon } from "./useWorkItemCommon";
 import WorkItemLinkPanel from "./WorkItemLinkPanel.vue";
 import TestCaseLinkPanel from "./TestCaseLinkPanel.vue";
 import NotifyDialog from "./NotifyDialog.vue";
-import { getVortflowProjects, getVortflowIterations, getVortflowVersions, getVortgitRepos, getVortgitRepoBranches, getVortflowComments, createVortflowComment, updateVortflowComment, getVortflowActivity, uploadVortflowFile } from "@/api";
+import { getVortflowProjects, getVortflowIterations, getVortflowVersions, getVortgitRepos, getVortgitRepoBranches, getVortflowComments, createVortflowComment, updateVortflowComment, deleteVortflowComment, getVortflowActivity, uploadVortflowFile } from "@/api";
 import { useUserStore } from "@/stores";
 import { formatFileSize } from "@/utils/format";
 import type { WorkItemType, Status, DateRange, RowItem, DetailComment, DetailLog, AttachmentItem } from "@/components/vort-biz/work-item/WorkItemTable.types";
@@ -120,10 +120,12 @@ const notifyDialogOpen = ref(false);
 const detailCommentDraft = ref("");
 const editingCommentId = ref<string | null>(null);
 const editingCommentContent = ref("");
+const replyingToComment = ref<DetailComment | null>(null);
 
 const currentMemberId = computed(() => userStore.userInfo.member_id);
 
 const startEditComment = (item: DetailComment) => {
+    replyingToComment.value = null;
     editingCommentId.value = item.id;
     editingCommentContent.value = item.content;
 };
@@ -144,6 +146,58 @@ const saveEditComment = async (item: DetailComment) => {
         editingCommentContent.value = "";
     } catch {
         message.error("更新评论失败");
+    }
+};
+
+const handleDeleteComment = (item: DetailComment) => {
+    dialog.confirm({
+        title: "确认删除",
+        content: "确定要删除这条评论吗？删除后不可恢复。",
+        okType: "danger",
+        okText: "删除",
+        onOk: async () => {
+            try {
+                await deleteVortflowComment(item.id);
+                const comments = detailCommentsMap[props.workNo];
+                if (comments) {
+                    const idx = comments.findIndex(c => c.id === item.id);
+                    if (idx >= 0) comments.splice(idx, 1);
+                }
+                message.success("评论已删除");
+            } catch {
+                message.error("删除评论失败");
+            }
+        },
+    });
+};
+
+const startReplyComment = (item: DetailComment) => {
+    editingCommentId.value = null;
+    replyingToComment.value = item;
+    detailCommentDraft.value = "";
+};
+
+const cancelReply = () => {
+    replyingToComment.value = null;
+    detailCommentDraft.value = "";
+};
+
+const copyCommentLink = async (item: DetailComment) => {
+    const link = `${window.location.href}#comment-${item.id}`;
+    try {
+        if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(link);
+        } else {
+            const input = document.createElement("input");
+            input.value = link;
+            document.body.appendChild(input);
+            input.select();
+            document.execCommand("copy");
+            document.body.removeChild(input);
+        }
+        message.success("评论链接已复制");
+    } catch {
+        message.error("复制链接失败");
     }
 };
 const detailCommentsMap = reactive<Record<string, DetailComment[]>>({});
@@ -332,6 +386,9 @@ const ensureDetailPanelsData = async () => {
             authorId: c.author_id || "",
             createdAt: formatTimeAgo(c.created_at),
             content: c.content || "",
+            parentId: c.parent_id || null,
+            parentAuthor: c.parent_author_id ? (getMemberNameById(c.parent_author_id) || c.parent_author_id) : undefined,
+            parentContent: c.parent_content || undefined,
         }));
     } else {
         if (!detailCommentsMap[props.workNo]) detailCommentsMap[props.workNo] = [];
@@ -584,16 +641,27 @@ const submitDetailComment = async () => {
     }
     const entityId = record.value?.backendId;
     if (!entityId) return;
+    const parentComment = replyingToComment.value;
+    const parentId = parentComment ? Number(parentComment.id) : undefined;
     try {
-        const res: any = await createVortflowComment(getEntityTypeKey(), entityId, { content });
-        if (!detailCommentsMap[props.workNo]) detailCommentsMap[props.workNo] = [];
-        detailCommentsMap[props.workNo].unshift({
+        const res: any = await createVortflowComment(getEntityTypeKey(), entityId, {
+            content,
+            parent_id: parentId || null,
+        });
+        const comments = detailCommentsMap[props.workNo] || (detailCommentsMap[props.workNo] = []);
+        const newComment: DetailComment = {
             id: String(res?.id || `${props.workNo}-c-${Date.now()}`),
             author: detailCurrentUser.value,
+            authorId: currentMemberId.value,
             createdAt: "刚刚",
             content,
-        });
+            parentId: parentId || null,
+            parentAuthor: parentComment?.author,
+            parentContent: parentComment?.content?.slice(0, 200),
+        };
+        comments.push(newComment);
         detailCommentDraft.value = "";
+        replyingToComment.value = null;
         message.success("评论已发布");
     } catch (error: any) {
         message.error(error?.message || "评论发布失败");
@@ -1547,15 +1615,19 @@ watch(() => props.initialData, (value) => {
                     <div v-if="detailBottomTab === 'comments'" class="bug-detail-comments">
                         <div v-if="detailComments.length === 0" class="bug-detail-empty">暂无评论</div>
                         <div v-else class="bug-detail-comment-list">
-                            <div v-for="item in detailComments" :key="item.id" class="bug-detail-comment-item">
+                            <div v-for="item in detailComments" :key="item.id" :id="'comment-' + item.id" class="bug-detail-comment-item">
                                 <span class="bug-detail-comment-avatar">{{ item.author.slice(0, 1) }}</span>
                                 <div class="bug-detail-comment-main">
                                     <div class="bug-detail-comment-meta">
                                         <span class="author">{{ item.author }}</span>
                                         <span class="time">{{ item.createdAt }}</span>
-                                        <span v-if="item.authorId && item.authorId === currentMemberId && editingCommentId !== item.id"
-                                              class="edit-btn" @click="startEditComment(item)">编辑</span>
                                     </div>
+
+                                    <div v-if="item.parentId && item.parentContent" class="comment-reply-quote">
+                                        <span class="comment-reply-author">@{{ item.parentAuthor || '未知' }}</span>
+                                        {{ item.parentContent.length > 80 ? item.parentContent.slice(0, 80) + '...' : item.parentContent }}
+                                    </div>
+
                                     <template v-if="editingCommentId === item.id">
                                         <VortEditor v-model="editingCommentContent" min-height="80px" />
                                         <div class="bug-detail-desc-actions" style="margin-top: 8px;">
@@ -1564,14 +1636,32 @@ watch(() => props.initialData, (value) => {
                                         </div>
                                     </template>
                                     <div v-else class="bug-detail-comment-content"><MarkdownView :content="item.content" /></div>
+
+                                    <div v-if="editingCommentId !== item.id" class="comment-actions">
+                                        <span class="comment-action-btn" @click="startReplyComment(item)">回复</span>
+                                        <span v-if="item.authorId && item.authorId === currentMemberId"
+                                              class="comment-action-btn" @click="startEditComment(item)">编辑</span>
+                                        <span v-if="item.authorId && item.authorId === currentMemberId"
+                                              class="comment-action-btn comment-action-danger" @click="handleDeleteComment(item)">删除</span>
+                                        <span class="comment-action-btn" @click="copyCommentLink(item)">复制链接</span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
 
                         <div class="bug-detail-comment-editor">
-                            <VortEditor v-model="detailCommentDraft" placeholder="发表您的看法（Ctrl/Command+Enter发送）" min-height="120px" />
+                            <div v-if="replyingToComment" class="comment-reply-bar">
+                                <span class="comment-reply-bar-text">
+                                    回复 <strong>@{{ replyingToComment.author }}</strong>
+                                </span>
+                                <button class="comment-reply-bar-close" @click="cancelReply">
+                                    <X :size="14" />
+                                </button>
+                            </div>
+                            <VortEditor v-model="detailCommentDraft" :placeholder="replyingToComment ? '输入回复内容...' : '发表您的看法（Ctrl/Command+Enter发送）'" min-height="120px" />
                             <div class="bug-detail-desc-actions">
-                                <vort-button variant="primary" @click="submitDetailComment">评论</vort-button>
+                                <vort-button v-if="replyingToComment" size="small" @click="cancelReply">取消</vort-button>
+                                <vort-button variant="primary" @click="submitDetailComment">{{ replyingToComment ? '回复' : '评论' }}</vort-button>
                             </div>
                         </div>
                     </div>
@@ -2558,31 +2648,38 @@ watch(() => props.initialData, (value) => {
 .bug-detail-comment-list {
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 0;
     margin-bottom: 20px;
 }
 
 .bug-detail-comment-item {
     display: flex;
     gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--vort-border-secondary, #f0f0f0);
+}
+
+.bug-detail-comment-item:last-child {
+    border-bottom: none;
 }
 
 .bug-detail-comment-avatar {
-    width: 32px;
-    height: 32px;
+    width: 36px;
+    height: 36px;
     border-radius: 50%;
-    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    background: linear-gradient(135deg, #f59e0b, #f97316);
     color: white;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 13px;
-    font-weight: 500;
+    font-size: 14px;
+    font-weight: 600;
     flex-shrink: 0;
 }
 
 .bug-detail-comment-main {
     flex: 1;
+    min-width: 0;
 }
 
 .bug-detail-comment-meta {
@@ -2594,7 +2691,7 @@ watch(() => props.initialData, (value) => {
 
 .bug-detail-comment-meta .author {
     font-size: 13px;
-    font-weight: 500;
+    font-weight: 600;
     color: var(--vort-text);
 }
 
@@ -2602,27 +2699,104 @@ watch(() => props.initialData, (value) => {
     font-size: 12px;
     color: var(--vort-text-tertiary);
 }
-.bug-detail-comment-meta .edit-btn {
-    font-size: 12px;
-    color: var(--vort-primary, #3b82f6);
-    cursor: pointer;
-    margin-left: 8px;
-    opacity: 0;
-    transition: opacity 0.15s;
+
+.comment-reply-quote {
+    background: #f7f8fa;
+    border-left: 3px solid var(--vort-primary, #1456f0);
+    padding: 6px 10px;
+    margin-bottom: 6px;
+    border-radius: 0 4px 4px 0;
+    font-size: 13px;
+    color: var(--vort-text-tertiary);
+    line-height: 1.5;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
-.bug-detail-comment-item:hover .edit-btn {
-    opacity: 1;
+
+.comment-reply-author {
+    color: var(--vort-primary, #1456f0);
+    font-weight: 500;
+    margin-right: 4px;
 }
 
 .bug-detail-comment-content {
     font-size: 14px;
     color: var(--vort-text-secondary);
-    line-height: 1.5;
+    line-height: 1.6;
+}
+
+.comment-actions {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-top: 6px;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.bug-detail-comment-item:hover .comment-actions {
+    opacity: 1;
+}
+
+.comment-action-btn {
+    font-size: 12px;
+    color: var(--vort-text-tertiary, #999);
+    cursor: pointer;
+    transition: color 0.15s;
+    user-select: none;
+}
+
+.comment-action-btn:hover {
+    color: var(--vort-primary, #1456f0);
+}
+
+.comment-action-danger:hover {
+    color: #ef4444;
 }
 
 .bug-detail-comment-editor {
     border-top: 1px solid var(--vort-border-secondary);
     padding-top: 16px;
+}
+
+.comment-reply-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+    background: #f7f8fa;
+    border-radius: 6px;
+    border: 1px solid var(--vort-border-secondary, #f0f0f0);
+}
+
+.comment-reply-bar-text {
+    font-size: 13px;
+    color: var(--vort-text-secondary);
+}
+
+.comment-reply-bar-text strong {
+    color: var(--vort-primary, #1456f0);
+}
+
+.comment-reply-bar-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border: none;
+    background: transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    color: var(--vort-text-tertiary);
+    transition: all 0.15s;
+}
+
+.comment-reply-bar-close:hover {
+    background: #e5e7eb;
+    color: var(--vort-text);
 }
 
 .bug-detail-log-list {

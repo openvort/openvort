@@ -377,12 +377,16 @@ export function getVortflowComments(entityType: string, entityId: string) {
     return request.get(`/vortflow/comments/${entityType}/${entityId}`);
 }
 
-export function createVortflowComment(entityType: string, entityId: string, data: { content: string; mentions?: string[] }) {
+export function createVortflowComment(entityType: string, entityId: string, data: { content: string; mentions?: string[]; parent_id?: number | null }) {
     return request.post(`/vortflow/comments/${entityType}/${entityId}`, data);
 }
 
 export function updateVortflowComment(commentId: number | string, data: { content: string; mentions?: string[] }) {
     return request.patch(`/vortflow/comments/${commentId}`, data);
+}
+
+export function deleteVortflowComment(commentId: number | string) {
+    return request.delete(`/vortflow/comments/${commentId}`);
 }
 
 export function getVortflowActivity(entityType: string, entityId: string, params?: { page?: number; page_size?: number }) {

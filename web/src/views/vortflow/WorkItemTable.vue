@@ -594,6 +594,7 @@ const {
     handleUpdateCurrentView,
     handleSaveAsNew,
     handleSaveAsNewView,
+    applyViewState,
 } = useWorkItemViewState({
     workItemType: props.type || "",
     currentViewId,
@@ -1702,7 +1703,7 @@ onMounted(async () => {
         }).catch(() => {}),
     ]);
     columnSettings.value = loadColumnSettingsFromStore();
-    resetViewBaseline();
+    applyViewState();
     tableRef.value?.refresh?.();
 
     const action = route.query.action as string;
