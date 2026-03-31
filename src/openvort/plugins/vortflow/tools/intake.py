@@ -7,6 +7,7 @@ import json
 from sqlalchemy import select
 
 from openvort.plugin.base import BaseTool
+from openvort.plugins.vortflow.notifier import schedule_notification
 from openvort.utils.logging import get_logger
 
 log = get_logger("plugins.vortflow.tools.intake")
@@ -253,6 +254,16 @@ class IntakeStoryTool(BaseTool):
                 child_story_ids.append(child_id)
                 child_story_titles.append(child_title)
             await session.commit()
+
+        schedule_notification(self._notifier.notify_item_created(
+            "story", story_id, title, project_id, member_id,
+            assignee_id=assignee_id,
+        ))
+        for cid, ct in zip(child_story_ids, child_story_titles):
+            schedule_notification(self._notifier.notify_item_created(
+                "story", cid, ct, project_id, member_id,
+                assignee_id=assignee_id,
+            ))
 
         result_data = {
             "ok": True,
