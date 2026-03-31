@@ -41,6 +41,7 @@
     "echarts": "^6.0.0",
     "lucide-vue-next": "^0.563.0",
     "marked": "^15.0.0",
+    "mermaid": "^11.13.0",
     "pinia": "^3.0.4",
     "pinia-plugin-persistedstate": "^4.7.1",
     "pinyin-pro": "^3.28.0",

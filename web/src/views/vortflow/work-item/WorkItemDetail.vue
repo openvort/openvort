@@ -1362,23 +1362,20 @@ watch(() => props.initialData, (value) => {
                         <div class="flex items-center gap-2">
                             <h4>{{ childItemLabel }}</h4>
                             <span class="count">{{ childRecords.length }}</span>
+                            <VortButton
+                                class="add-sub-item-btn"
+                                variant="text"
+                                size="small"
+                                :disabled="!canCreateChild"
+                                @click="record && emit('createChild', record)"
+                            >
+                                <span class="icon">+</span> {{ addChildLabel }}
+                            </VortButton>
                         </div>
-                        <VortButton
-                            class="add-sub-item-btn"
-                            variant="text"
-                            size="small"
-                            :disabled="!canCreateChild"
-                            @click="record && emit('createChild', record)"
-                        >
-                            <span class="icon">+</span> {{ addChildLabel }}
-                        </VortButton>
                     </div>
                     
-                    <div class="bug-detail-sub-items-content">
-                        <div v-if="childRecords.length === 0" class="bug-detail-sub-items-empty">
-                            <span class="empty-text">{{ emptyChildText }}</span>
-                        </div>
-                        <div v-else class="bug-detail-sub-items-list">
+                    <div v-if="childRecords.length > 0" class="bug-detail-sub-items-content">
+                        <div class="bug-detail-sub-items-list">
                             <div 
                                 v-for="child in childRecords" 
                                 :key="child.backendId || child.workNo"
@@ -1948,7 +1945,6 @@ watch(() => props.initialData, (value) => {
 .bug-detail-sub-items-head {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     margin-bottom: 12px;
 }
 

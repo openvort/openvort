@@ -4,7 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { getKBDocument, updateKBDocument, reindexKBDocument, deleteKBDocument } from "@/api";
 import {
     ArrowLeft, Pencil, Save, X, RefreshCw, Trash2,
-    CheckCircle, AlertCircle, Loader2,
+    CheckCircle, AlertCircle, Loader2, Link,
 } from "lucide-vue-next";
 import { message, dialog } from "@openvort/vort-ui";
 import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
@@ -139,6 +139,22 @@ const goBack = () => {
     router.push("/knowledge");
 };
 
+const copyShareLink = () => {
+    const url = window.location.origin + route.fullPath;
+    const textarea = document.createElement("textarea");
+    textarea.value = url;
+    textarea.style.cssText = "position:fixed;opacity:0";
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+        document.execCommand("copy");
+        message.success("链接已复制");
+    } catch {
+        message.error("复制失败");
+    }
+    document.body.removeChild(textarea);
+};
+
 onMounted(loadDoc);
 </script>
 
@@ -163,6 +179,9 @@ onMounted(loadDoc);
                         </template>
                         <template v-else>
                             <h2 class="text-lg font-semibold text-gray-800 truncate">{{ doc.title }}</h2>
+                            <button class="p-1 rounded-lg hover:bg-gray-100 text-gray-300 hover:text-gray-500 transition-colors" title="复制分享链接" @click="copyShareLink">
+                                <Link :size="16" />
+                            </button>
                         </template>
                     </div>
 
