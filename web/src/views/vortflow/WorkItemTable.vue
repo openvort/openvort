@@ -1105,6 +1105,24 @@ const handleCancelCreateBug = () => {
     createProjectId.value = "";
 };
 
+const handleUnlinkChild = async (child: RowItem) => {
+    if (!child.backendId) return;
+    try {
+        const id = String(child.backendId);
+        if (child.type === "需求") {
+            await updateVortflowStory(id, { parent_id: null });
+        } else if (child.type === "任务") {
+            await updateVortflowTask(id, { parent_id: null });
+        }
+        message.success("已取消关联");
+        const current = detailCurrentRecord.value;
+        if (current) await syncDetailRelations(current);
+        tableRef.value?.refresh?.();
+    } catch {
+        message.error("取消关联失败");
+    }
+};
+
 const handleDetailDelete = async () => {
     const rec = detailCurrentRecord.value;
     if (!rec) return;
@@ -2325,6 +2343,7 @@ onMounted(async () => {
                     @copy="handleCopyWorkItem"
                     @open-related="handleOpenRelated"
                     @create-child="handleCreateChild"
+                    @unlink-child="handleUnlinkChild"
                 />
             </template>
             <template v-else>

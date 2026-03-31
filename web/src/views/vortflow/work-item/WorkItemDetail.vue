@@ -35,6 +35,7 @@ const emit = defineEmits<{
     copy: [];
     openRelated: [record: RowItem];
     createChild: [record: RowItem];
+    unlinkChild: [child: RowItem];
 }>();
 
 const {
@@ -1401,6 +1402,16 @@ watch(() => props.initialData, (value) => {
                                         <span class="status-icon" :class="getStatusOption(child.status, child.type).iconClass"><StatusIcon :name="getStatusOption(child.status, child.type).icon" :size="12" /></span>
                                         <span class="status-text">{{ child.status }}</span>
                                     </div>
+                                    <div @click.stop>
+                                        <Dropdown trigger="click" placement="bottomRight">
+                                            <button class="sub-item-more">
+                                                <MoreHorizontal :size="14" />
+                                            </button>
+                                            <template #overlay>
+                                                <DropdownMenuItem class="text-red-500" @click="emit('unlinkChild', child)">取消关联</DropdownMenuItem>
+                                            </template>
+                                        </Dropdown>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -2059,6 +2070,25 @@ watch(() => props.initialData, (value) => {
 .sub-item-owner .owner-name {
     font-size: 12px;
     color: var(--vort-text-secondary);
+}
+
+.sub-item-more {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border: none;
+    background: none;
+    border-radius: 4px;
+    color: var(--vort-text-tertiary);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.sub-item-more:hover {
+    background: var(--vort-border-secondary);
+    color: var(--vort-text);
 }
 
 .sub-item-status {
