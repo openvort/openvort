@@ -2,24 +2,36 @@
     <div class="dlp">
         <!-- State: Add Options -->
         <template v-if="showAddOptions">
-            <div class="dlp-add-options">
-                <div class="dlp-add-card" @click="openSelectDialog">
-                    <FileSearch :size="28" class="dlp-add-icon text-blue-500" />
-                    <span class="dlp-add-label">选择文档</span>
-                    <span class="dlp-add-desc">从知识库选择</span>
-                    <ChevronRight :size="16" class="dlp-add-arrow" />
+            <div class="dlp-add-grid">
+                <div class="dlp-add-item" @click="openSelectDialog">
+                    <div class="dlp-add-item-icon dlp-add-item-icon--blue">
+                        <FileSearch :size="20" />
+                    </div>
+                    <div class="dlp-add-item-text">
+                        <span class="dlp-add-item-label">选择文档</span>
+                        <span class="dlp-add-item-desc">从知识库选择</span>
+                    </div>
+                    <ChevronRight :size="16" class="dlp-add-item-arrow" />
                 </div>
-                <div class="dlp-add-card" @click="triggerUpload">
-                    <Upload :size="28" class="dlp-add-icon text-green-500" />
-                    <span class="dlp-add-label">上传文档</span>
-                    <span class="dlp-add-desc">PDF / Word / Markdown / TXT</span>
-                    <ChevronRight :size="16" class="dlp-add-arrow" />
+                <div class="dlp-add-item" @click="triggerUpload">
+                    <div class="dlp-add-item-icon dlp-add-item-icon--green">
+                        <Upload :size="20" />
+                    </div>
+                    <div class="dlp-add-item-text">
+                        <span class="dlp-add-item-label">上传文档</span>
+                        <span class="dlp-add-item-desc">PDF / Word / Markdown / TXT</span>
+                    </div>
+                    <ChevronRight :size="16" class="dlp-add-item-arrow" />
                 </div>
-                <div class="dlp-add-card" @click="handleCreateNew">
-                    <FilePlus :size="28" class="dlp-add-icon text-purple-500" />
-                    <span class="dlp-add-label">新建文档</span>
-                    <span class="dlp-add-desc">创建空白文档</span>
-                    <ChevronRight :size="16" class="dlp-add-arrow" />
+                <div class="dlp-add-item" @click="handleCreateNew">
+                    <div class="dlp-add-item-icon dlp-add-item-icon--purple">
+                        <FilePlus :size="20" />
+                    </div>
+                    <div class="dlp-add-item-text">
+                        <span class="dlp-add-item-label">新建文档</span>
+                        <span class="dlp-add-item-desc">创建空白文档</span>
+                    </div>
+                    <ChevronRight :size="16" class="dlp-add-item-arrow" />
                 </div>
             </div>
             <div v-if="linkedDocs.length > 0" class="dlp-add-back">
@@ -42,58 +54,46 @@
                             class="dlp-tab"
                             :class="{ 'dlp-tab-active': activeDocId === doc.document_id }"
                             @click="activateDoc(doc.document_id)"
-                            @contextmenu.prevent="openContextMenu($event, doc)"
                         >
-                            <FileText :size="14" class="dlp-tab-icon" />
+                            <svg class="dlp-tab-icon" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg"><path d="M284.417081 0a166.911207 166.911207 0 0 0-166.911207 166.655208v691.196717A166.655208 166.655208 0 0 0 284.417081 1023.995136h520.445528A166.655208 166.655208 0 0 0 972.797811 856.82793V343.294369a63.2317 63.2317 0 0 0-18.431912-44.799787L673.279234 18.431912A64.511694 64.511694 0 0 0 628.479447 0z" fill="#3F70FF"/><path d="M953.341904 298.494582L673.279234 18.431912A63.743697 63.743697 0 0 0 639.999392 1.279994a6.143971 6.143971 0 0 0-7.167966 6.39997v135.423356a195.071073 195.071073 0 0 0 195.071073 195.071074h135.423357a6.143971 6.143971 0 0 0 6.143971-7.167966 61.439708 61.439708 0 0 0-16.127923-32.511846z" fill="#2A58D8"/><path d="M835.582463 307.198541h124.671408a55.295737 55.295737 0 0 0-6.911967-8.44796L673.279234 18.431912a71.167662 71.167662 0 0 0-7.679964-6.911967v124.415409A171.007188 171.007188 0 0 0 835.582463 307.198541z" fill="#C6E1FF"/><path d="M253.185229 273.918699m33.79184 0l274.942694 0q33.791839 0 33.791839 33.791839l0 0.255999q0 33.791839-33.791839 33.79184l-274.942694 0q-33.791839 0-33.79184-33.79184l0-0.255999q0-33.791839 33.79184-33.791839Z" fill="#FFF"/><path d="M253.185229 478.461727m33.79184 0l482.04571 0q33.791839 0 33.79184 33.79184l0 0.255999q0 33.791839-33.79184 33.791839l-482.04571 0q-33.791839 0-33.79184-33.791839l0-0.255999q0-33.791839 33.79184-33.79184Z" fill="#FFF"/><path d="M253.185229 683.004756m33.79184 0l482.04571 0q33.791839 0 33.79184 33.791839l0 0.255999q0 33.791839-33.79184 33.791839l-482.04571 0q-33.791839 0-33.79184-33.791839l0-0.255999q0-33.791839 33.79184-33.791839Z" fill="#FFF"/></svg>
                             <span class="dlp-tab-title">{{ doc.title }}</span>
+                            <span class="dlp-tab-more-wrap" @click.stop>
+                                <Dropdown trigger="click" placement="bottomRight">
+                                    <button type="button" class="dlp-tab-more-btn">
+                                        <MoreVertical :size="14" />
+                                    </button>
+                                    <template #overlay>
+                                        <DropdownMenuItem @click="handleMoveToFirst(doc)">
+                                            <ArrowLeftToLine :size="14" />
+                                            移到最前
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem @click="handleCopyLink(doc)">
+                                            <Link :size="14" />
+                                            复制链接
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem @click="handleRenameTab(doc)">
+                                            <Pencil :size="14" />
+                                            修改页面名称
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem @click="handleUnlinkDoc(doc)">
+                                            <Unlink :size="14" />
+                                            取消关联
+                                        </DropdownMenuItem>
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuItem @click="handleDeleteDoc(doc)" class="dlp-menu-danger">
+                                            <Trash2 :size="14" />
+                                            删除
+                                        </DropdownMenuItem>
+                                    </template>
+                                </Dropdown>
+                            </span>
                         </div>
                     </div>
                 </div>
-                <div class="dlp-tab-actions">
-                    <Dropdown v-if="linkedDocs.length > 3" trigger="click" placement="bottomRight">
-                        <button type="button" class="dlp-tab-more" title="更多文档">
-                            <MoreHorizontal :size="16" />
-                        </button>
-                        <template #overlay>
-                            <DropdownMenuItem
-                                v-for="doc in linkedDocs"
-                                :key="doc.link_id"
-                                @click="activateDoc(doc.document_id)"
-                            >
-                                <FileText :size="14" class="mr-1.5 text-gray-400" />
-                                {{ doc.title }}
-                            </DropdownMenuItem>
-                        </template>
-                    </Dropdown>
-                    <button type="button" class="dlp-tab-add" title="添加文档" @click="showAddOptions = true">
-                        <Plus :size="16" />
-                    </button>
-                </div>
+                <button type="button" class="dlp-tab-add" title="添加文档" @click="showAddOptions = true">
+                    <Plus :size="16" />
+                </button>
             </div>
-
-            <!-- Context Menu (teleported) -->
-            <Teleport to="body">
-                <div
-                    v-if="ctxMenu.visible"
-                    class="dlp-ctx-menu"
-                    :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }"
-                    @click="ctxMenu.visible = false"
-                >
-                    <button type="button" class="dlp-ctx-item" @click="handleCopyLink">
-                        <Link :size="14" />
-                        复制链接
-                    </button>
-                    <button type="button" class="dlp-ctx-item" @click="handleRenameTab">
-                        <Pencil :size="14" />
-                        修改页面名称
-                    </button>
-                    <div class="dlp-ctx-sep"></div>
-                    <button type="button" class="dlp-ctx-item dlp-ctx-danger" @click="handleUnlinkDoc">
-                        <Trash2 :size="14" />
-                        取消关联
-                    </button>
-                </div>
-            </Teleport>
 
             <!-- Document Content -->
             <div class="dlp-content">
@@ -106,17 +106,13 @@
                 <template v-else-if="activeDocData">
                     <!-- Title & Toolbar -->
                     <div class="dlp-content-header">
-                        <template v-if="renaming">
-                            <input
-                                ref="renameInputRef"
-                                v-model="renameDraft"
-                                class="dlp-rename-input"
-                                @blur="saveRename"
-                                @keydown.enter="saveRename"
-                                @keydown.escape="renaming = false"
-                            />
-                        </template>
-                        <h3 v-else class="dlp-content-title" @dblclick="startRename(activeDocData!)">{{ activeDocData.title }}</h3>
+                        <input
+                            v-if="editing"
+                            v-model="editTitle"
+                            class="dlp-rename-input"
+                            placeholder="请输入标题"
+                        />
+                        <h3 v-else class="dlp-content-title">{{ activeDocData.title }}</h3>
                         <div class="dlp-content-actions">
                             <template v-if="editing">
                                 <button type="button" class="dlp-action-btn" @click="cancelEdit">
@@ -177,12 +173,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
-import { message } from "@openvort/vort-ui";
-import { Dropdown, DropdownMenuItem } from "@openvort/vort-ui";
+import { ref, computed, watch, nextTick } from "vue";
+import { message, dialog } from "@openvort/vort-ui";
+import { Dropdown, DropdownMenuItem, DropdownMenuSeparator } from "@openvort/vort-ui";
 import {
     FileText, FileSearch, Upload, FilePlus, Plus, ChevronRight,
-    MoreHorizontal, Pencil, Save, X, Trash2, Link, Loader2, ArrowLeft,
+    MoreVertical, Pencil, Save, X, Trash2, Link, Loader2, ArrowLeft,
+    ArrowLeftToLine, Unlink,
 } from "lucide-vue-next";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
 import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
@@ -193,8 +190,9 @@ import {
     createVortflowDocWithLink,
     uploadVortflowDocWithLink,
     deleteVortflowDocLink,
+    reorderVortflowDocLinks,
 } from "@/api";
-import { getKBDocument, updateKBDocument } from "@/api";
+import { getKBDocument, updateKBDocument, deleteKBDocument } from "@/api";
 
 interface Props {
     entityType: string;
@@ -227,6 +225,7 @@ const docLoading = ref(false);
 const showAddOptions = ref(false);
 const selectDialogOpen = ref(false);
 const editing = ref(false);
+const editTitle = ref("");
 const editContent = ref("");
 const saving = ref(false);
 const renaming = ref(false);
@@ -237,17 +236,6 @@ const tabsScrollRef = ref<HTMLDivElement | null>(null);
 
 const linkedDocIds = computed(() => linkedDocs.value.map((d) => d.document_id));
 
-const ctxMenu = ref({
-    visible: false,
-    x: 0,
-    y: 0,
-    doc: null as LinkedDoc | null,
-});
-
-const closeCtxMenu = () => { ctxMenu.value.visible = false; };
-
-onMounted(() => { document.addEventListener("click", closeCtxMenu); });
-onUnmounted(() => { document.removeEventListener("click", closeCtxMenu); });
 
 // ---- Data Loading ----
 
@@ -384,6 +372,7 @@ const handleCreateNew = async () => {
 
 const startEdit = () => {
     if (!activeDocData.value) return;
+    editTitle.value = activeDocData.value.title;
     editContent.value = activeDocData.value.content;
     editing.value = true;
 };
@@ -393,9 +382,13 @@ const cancelEdit = () => { editing.value = false; };
 const saveEdit = async () => {
     if (!activeDocData.value) return;
     saving.value = true;
+    const newTitle = editTitle.value.trim() || activeDocData.value.title;
     try {
-        await updateKBDocument(activeDocData.value.id, { content: editContent.value });
+        await updateKBDocument(activeDocData.value.id, { title: newTitle, content: editContent.value });
+        activeDocData.value.title = newTitle;
         activeDocData.value.content = editContent.value;
+        const linked = linkedDocs.value.find((d) => d.document_id === activeDocData.value!.id);
+        if (linked) linked.title = newTitle;
         editing.value = false;
         message.success("保存成功");
     } catch {
@@ -436,31 +429,35 @@ const saveRename = async () => {
     }
 };
 
-// ---- Context Menu ----
+// ---- Tab Actions ----
 
-const openContextMenu = (e: MouseEvent, doc: LinkedDoc) => {
-    ctxMenu.value = { visible: true, x: e.clientX, y: e.clientY, doc };
+const handleMoveToFirst = async (doc: LinkedDoc) => {
+    const idx = linkedDocs.value.findIndex((d) => d.link_id === doc.link_id);
+    if (idx <= 0) return;
+    const removed = linkedDocs.value.splice(idx, 1);
+    if (removed[0]) linkedDocs.value.unshift(removed[0]);
+    activateDoc(doc.document_id);
+    try {
+        await reorderVortflowDocLinks({ link_ids: linkedDocs.value.map((d) => d.link_id) });
+    } catch {
+        message.error("排序失败");
+        await loadLinks();
+    }
 };
 
-const handleCopyLink = () => {
-    const doc = ctxMenu.value.doc;
-    if (!doc) return;
+const handleCopyLink = (doc: LinkedDoc) => {
     const url = `${window.location.origin}/knowledge/doc/${doc.document_id}`;
     navigator.clipboard.writeText(url).then(() => message.success("链接已复制")).catch(() => message.error("复制失败"));
 };
 
-const handleRenameTab = () => {
-    const doc = ctxMenu.value.doc;
-    if (!doc) return;
+const handleRenameTab = (doc: LinkedDoc) => {
     activateDoc(doc.document_id);
     nextTick(() => {
         if (activeDocData.value) startRename(activeDocData.value);
     });
 };
 
-const handleUnlinkDoc = async () => {
-    const doc = ctxMenu.value.doc;
-    if (!doc) return;
+const handleUnlinkDoc = async (doc: LinkedDoc) => {
     try {
         await deleteVortflowDocLink(doc.link_id);
         message.success("已取消关联");
@@ -472,6 +469,28 @@ const handleUnlinkDoc = async () => {
     } catch {
         message.error("操作失败");
     }
+};
+
+const handleDeleteDoc = (doc: LinkedDoc) => {
+    dialog.confirm({
+        title: "确认删除",
+        content: `确定要删除文档「${doc.title}」吗？删除后不可恢复。`,
+        okType: "danger",
+        okText: "删除",
+        onOk: async () => {
+            try {
+                await deleteKBDocument(doc.document_id);
+                message.success("文档已删除");
+                if (activeDocId.value === doc.document_id) {
+                    activeDocId.value = "";
+                    activeDocData.value = null;
+                }
+                await loadLinks();
+            } catch {
+                message.error("删除失败");
+            }
+        },
+    });
 };
 
 // ---- Init ----
@@ -489,26 +508,42 @@ watch(() => props.entityId, () => {
 .dlp { display: flex; flex-direction: column; min-height: 200px; }
 
 /* ---- Add Options ---- */
-.dlp-add-options {
-    display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
-    padding: 24px 0;
+.dlp-add-grid {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;
+    padding: 16px 0;
 }
-.dlp-add-card {
-    display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
-    padding: 20px 16px; border: 1px solid var(--vort-border-secondary);
-    border-radius: 10px; cursor: pointer; position: relative; transition: all 0.15s;
+.dlp-add-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 16px;
+    background: var(--vort-bg-subtle, #f7f8fa);
+    border-radius: 8px; cursor: pointer;
+    transition: background 0.15s;
+    position: relative;
 }
-.dlp-add-card:hover {
-    border-color: var(--vort-primary); background: var(--vort-primary-bg, #eff6ff);
+.dlp-add-item:hover { background: var(--vort-bg-hover, #eef0f3); }
+.dlp-add-item-icon {
+    display: flex; align-items: center; justify-content: center;
+    width: 36px; height: 36px; border-radius: 8px; flex-shrink: 0;
+    color: #fff;
 }
-.dlp-add-icon { margin-bottom: 4px; }
-.dlp-add-label { font-size: 14px; font-weight: 500; color: var(--vort-text); }
-.dlp-add-desc { font-size: 12px; color: var(--vort-text-tertiary); }
-.dlp-add-arrow {
-    position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
-    color: var(--vort-text-quaternary); transition: color 0.15s;
+.dlp-add-item-icon--blue { background: #4e83fd; }
+.dlp-add-item-icon--green { background: #36b37e; }
+.dlp-add-item-icon--purple { background: #8b5cf6; }
+.dlp-add-item-text {
+    display: flex; flex-direction: column; gap: 2px;
+    flex: 1; min-width: 0;
 }
-.dlp-add-card:hover .dlp-add-arrow { color: var(--vort-primary); }
+.dlp-add-item-label {
+    font-size: 14px; font-weight: 500; color: var(--vort-text);
+}
+.dlp-add-item-desc {
+    font-size: 12px; color: var(--vort-text-tertiary);
+}
+.dlp-add-item-arrow {
+    color: var(--vort-text-quaternary, #c0c4cc); flex-shrink: 0;
+    transition: color 0.15s;
+}
+.dlp-add-item:hover .dlp-add-item-arrow { color: var(--vort-text-tertiary); }
 
 .dlp-add-back { display: flex; justify-content: center; margin-top: 4px; }
 .dlp-back-btn {
@@ -520,57 +555,63 @@ watch(() => props.entityId, () => {
 
 /* ---- Tab Bar ---- */
 .dlp-tab-bar {
-    display: flex; align-items: center; gap: 0;
-    border-bottom: 1px solid var(--vort-border-secondary);
+    display: flex; align-items: stretch;
+    min-height: 36px;
 }
 .dlp-tabs-scroll {
     flex: 1; overflow-x: auto; overflow-y: hidden; min-width: 0;
     scrollbar-width: none;
 }
 .dlp-tabs-scroll::-webkit-scrollbar { display: none; }
-.dlp-tabs-inner { display: flex; }
+.dlp-tabs-inner { display: flex; height: 100%;gap: 6px; }
 
 .dlp-tab {
     display: inline-flex; align-items: center; gap: 6px;
-    padding: 8px 14px; font-size: 13px; color: var(--vort-text-secondary);
-    white-space: nowrap; cursor: pointer; border-bottom: 2px solid transparent;
-    transition: all 0.15s; flex-shrink: 0;
+    max-width: 160px; padding: 0 10px; font-size: 13px; color: var(--vort-text-secondary);
+    white-space: nowrap; cursor: pointer;
+    transition: background 0.15s; flex-shrink: 0;
+    position: relative; overflow: hidden;
+    border-radius: 4px;
 }
-.dlp-tab:hover { color: var(--vort-text); background: var(--vort-bg-hover, #f5f5f5); }
+.dlp-tab:hover { background: var(--vort-bg-hover, #f0f0f0); }
 .dlp-tab-active {
-    color: var(--vort-primary); border-bottom-color: var(--vort-primary);
-    font-weight: 500;
+    color: var(--vort-text); background: var(--vort-bg-hover, #f0f0f0);
 }
-.dlp-tab-icon { flex-shrink: 0; }
-.dlp-tab-title { max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
+.dlp-tab-icon { flex-shrink: 0; width: 16px; height: 16px; }
+.dlp-tab-title { overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
 
-.dlp-tab-actions { display: flex; align-items: center; gap: 2px; padding: 0 4px; flex-shrink: 0; }
-.dlp-tab-more, .dlp-tab-add {
+.dlp-tab-more-wrap {
+    position: absolute; right: 0; top: 0; bottom: 0;
+    display: flex; align-items: center; padding-right: 4px; padding-left: 16px;
+    opacity: 0; transition: opacity 0.15s; pointer-events: none;
+    background: linear-gradient(to right, transparent, var(--vort-bg-hover, #f0f0f0) 40%);
+}
+.dlp-tab:hover .dlp-tab-more-wrap { opacity: 1; pointer-events: auto; }
+.dlp-tab-more-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; padding: 0;
+    color: var(--vort-text-tertiary); background: none; border: none;
+    border-radius: 4px; cursor: pointer;
+}
+.dlp-tab-more-btn:hover { color: var(--vort-text); background: rgba(0,0,0,0.08); }
+
+.dlp-menu-danger { color: #dc2626 !important; }
+
+.dlp-tab-add {
     display: flex; align-items: center; justify-content: center;
-    width: 28px; height: 28px; padding: 0; color: var(--vort-text-tertiary);
-    background: none; border: none; border-radius: 6px; cursor: pointer;
+    width: 36px; flex-shrink: 0; padding: 0;
+    color: var(--vort-text-tertiary); background: none; border: none;
+    cursor: pointer; transition: color 0.15s;
 }
-.dlp-tab-more:hover, .dlp-tab-add:hover { color: var(--vort-primary); background: var(--vort-primary-bg, #eff6ff); }
-
-/* ---- Context Menu ---- */
-.dlp-ctx-menu {
-    position: fixed; z-index: 9999; min-width: 160px;
-    background: var(--vort-bg, #fff); border: 1px solid var(--vort-border);
-    border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.12);
-    padding: 4px;
-}
-.dlp-ctx-item {
-    display: flex; align-items: center; gap: 8px; width: 100%;
-    padding: 8px 12px; font-size: 13px; color: var(--vort-text);
-    background: none; border: none; border-radius: 6px; cursor: pointer; text-align: left;
-}
-.dlp-ctx-item:hover { background: var(--vort-bg-hover, #f5f5f5); }
-.dlp-ctx-danger { color: #dc2626; }
-.dlp-ctx-danger:hover { background: #fef2f2; }
-.dlp-ctx-sep { height: 1px; margin: 4px 8px; background: var(--vort-border-secondary); }
+.dlp-tab-add:hover { color: var(--vort-primary); }
 
 /* ---- Content ---- */
-.dlp-content { flex: 1; padding-top: 12px; }
+.dlp-content { flex: 1; 
+    border: 1px solid #eee;
+    padding-top: 12px;
+    padding: 20px;
+    border-radius: 6px;
+    margin-top: 10px;}
 .dlp-content-loading {
     display: flex; align-items: center; justify-content: center; gap: 8px;
     min-height: 200px;
@@ -605,8 +646,7 @@ watch(() => props.entityId, () => {
 }
 
 .dlp-content-body {
-    border: 1px solid var(--vort-border-secondary); border-radius: 8px;
-    padding: 16px; min-height: 200px; background: var(--vort-bg);
+    min-height: 200px; background: var(--vort-bg);
 }
 
 /* ---- Empty ---- */

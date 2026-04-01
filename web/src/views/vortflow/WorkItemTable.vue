@@ -332,6 +332,7 @@ const dateFilterConfig: ColumnFilterConfig = { type: "date" };
 
 const tagsFilterConfig = computed<ColumnFilterConfig>(() => ({
     type: "enum",
+    searchable: true,
     options: (dynamicTagOptions.value.length ? dynamicTagOptions.value : baseTagOptions.value).map(t => ({
         label: t,
         value: t,
@@ -341,6 +342,7 @@ const tagsFilterConfig = computed<ColumnFilterConfig>(() => ({
 
 const ownerFilterConfig = computed<ColumnFilterConfig>(() => ({
     type: "enum",
+    searchable: true,
     options: [
         { label: "未指派", value: "__unassigned__" },
         ...memberOptions.value.map(m => ({
@@ -356,6 +358,7 @@ const ownerFilterConfig = computed<ColumnFilterConfig>(() => ({
 
 const collaboratorsFilterConfig = computed<ColumnFilterConfig>(() => ({
     type: "enum",
+    searchable: true,
     options: memberOptions.value.map(m => ({
         label: m.name || m.id,
         value: m.name || m.id,
@@ -368,11 +371,13 @@ const collaboratorsFilterConfig = computed<ColumnFilterConfig>(() => ({
 
 const iterationFilterConfig = computed<ColumnFilterConfig>(() => ({
     type: "enum",
+    searchable: true,
     options: dynamicIterationOptions.value.map(o => ({ label: o.name, value: o.name })),
 }));
 
 const versionFilterConfig = computed<ColumnFilterConfig>(() => ({
     type: "enum",
+    searchable: true,
     options: dynamicVersionOptions.value.map(o => ({ label: o.name, value: o.name })),
 }));
 
@@ -391,11 +396,12 @@ const priorityFilterConfig = computed<ColumnFilterConfig>(() => ({
         value: o.value,
         dotColor: PRIORITY_DOT_COLOR_MAP[o.label] || "#9ca3af",
     })),
-    sortLabels: ["低 → 紧急", "紧急 → 低"] as [string, string],
+    sortLabels: ["紧急 → 低", "低 → 紧急"] as [string, string],
 }));
 
 const creatorFilterConfig = computed<ColumnFilterConfig>(() => ({
     type: "enum",
+    searchable: true,
     options: memberOptions.value.map(m => ({
         label: m.name || m.id,
         value: m.name || m.id,
@@ -424,12 +430,14 @@ const typeFilterConfig = computed<ColumnFilterConfig>(() => ({
 const handleColumnSort = (field: string, order: "ascend" | "descend" | null) => {
     columnSortField.value = order ? field : "";
     columnSortOrder.value = order;
+    if (tableRef.value) tableRef.value.current = 1;
     tableRef.value?.refresh?.();
 };
 
 const handleColumnFilter = (field: string, value: ColumnFilterValue | null) => {
     if (value) columnFilters[field] = value;
     else delete columnFilters[field];
+    if (tableRef.value) tableRef.value.current = 1;
     tableRef.value?.refresh?.();
 };
 
