@@ -8,11 +8,13 @@ const props = withDefaults(defineProps<{
     embeddedExpanded?: boolean;
     initialSessionId?: string;
     embeddedSidebar?: boolean;
+    visible?: boolean;
 }>(), {
     embedded: false,
     embeddedExpanded: false,
     initialSessionId: "",
     embeddedSidebar: false,
+    visible: true,
 });
 const emit = defineEmits<{
     'embedded-maximize': [];
@@ -517,10 +519,22 @@ watch(() => route.query.prompt, (val) => {
     if (!props.embedded && val) applyPromptFromQuery();
 });
 
+watch(() => props.visible, (isVisible) => {
+    if (isVisible) {
+        document.addEventListener("paste", handlePaste);
+        document.addEventListener("click", handleClickOutsidePanel);
+    } else {
+        document.removeEventListener("paste", handlePaste);
+        document.removeEventListener("click", handleClickOutsidePanel);
+    }
+});
+
 // ---- Lifecycle ----
 onMounted(async () => {
-    document.addEventListener("paste", handlePaste);
-    document.addEventListener("click", handleClickOutsidePanel);
+    if (props.visible) {
+        document.addEventListener("paste", handlePaste);
+        document.addEventListener("click", handleClickOutsidePanel);
+    }
 
     if (!props.embedded) {
         try {

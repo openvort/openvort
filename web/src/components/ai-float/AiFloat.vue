@@ -10,6 +10,7 @@ const route = useRoute();
 const { pendingPrompt, consumePrompt } = useAiFloat();
 
 const panelOpen = ref(false);
+const everOpened = ref(false);
 const expanded = ref(false);
 const showContacts = ref(false);
 const sessionId = ref(localStorage.getItem("ai-float-session-id") || "");
@@ -167,7 +168,18 @@ watch(() => (chatRef.value?.currentSessionId as unknown as string), (val) => {
 });
 
 watch(panelOpen, (open) => {
-    if (open) nextTick(() => chatRef.value);
+    if (open) {
+        everOpened.value = true;
+        nextTick(() => chatRef.value);
+    }
+});
+
+watch(isOnChatPage, (onChat) => {
+    if (onChat) {
+        panelOpen.value = false;
+        expanded.value = false;
+        everOpened.value = false;
+    }
 });
 
 watch(pendingPrompt, (prompt) => {
@@ -184,11 +196,12 @@ watch(pendingPrompt, (prompt) => {
     <Teleport to="body">
     <div v-if="!isOnChatPage" class="ai-float-container" :class="{ 'ai-float-snapping': snapping }" :style="containerStyle">
         <transition name="ai-float-panel" type="animation">
-            <div v-if="panelOpen" class="ai-float-panel" :class="{ 'ai-float-panel-top': isTopCorner && !expanded, 'ai-float-panel-expanded': expanded }" :style="panelStyle">
+            <div v-if="everOpened" v-show="panelOpen" class="ai-float-panel" :class="{ 'ai-float-panel-top': isTopCorner && !expanded, 'ai-float-panel-expanded': expanded }" :style="panelStyle">
                 <div class="ai-float-body">
                     <ChatView
                         ref="chatRef"
                         embedded
+                        :visible="panelOpen"
                         :embedded-expanded="expanded"
                         :initial-session-id="sessionId"
                         :embedded-sidebar="showContacts"
