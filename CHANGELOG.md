@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.10.1] - 2026-04-01
+
+### Improved
+
+- Upgrade service now shows download and installation step progress feedback for better visibility
+- VortFlow work item module restructured with extracted composables and components for better maintainability
+
 ## [0.10.0] - 2026-04-01
 
 ### Added
