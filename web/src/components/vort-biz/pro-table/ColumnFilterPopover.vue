@@ -158,7 +158,7 @@ const isInsideChildPopup = (target: Node): boolean => {
     const el = target as HTMLElement;
     if (!el.closest) return false;
     return !!el.closest(
-        "[data-radix-popper-content-wrapper], [data-reka-popper-content-wrapper], .vort-datepicker-panel, .vort-range-picker-panel"
+        "[data-radix-popper-content-wrapper], [data-reka-popper-content-wrapper], .vort-datepicker-panel, .vort-range-picker-panel, .vort-select-dropdown"
     );
 };
 

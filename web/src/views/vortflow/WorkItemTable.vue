@@ -1390,6 +1390,8 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
                         } else if (type === "缺陷") {
                             await addVortflowIterationBug(formData.iteration, { bug_id: createdId });
                         }
+                        createdItem.iteration_id = formData.iteration;
+                        createdItem.iteration_name = apiIterations.value.find((i: any) => i.id === formData.iteration)?.name || "";
                     } catch { /* iteration link failed silently */ }
                 }
                 if (createdId && formData.version) {
@@ -1399,6 +1401,8 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
                         } else if (type === "缺陷") {
                             await addVortflowVersionBug(formData.version, { bug_id: createdId });
                         }
+                        createdItem.version_id = formData.version;
+                        createdItem.version_name = dynamicVersionOptions.value.find((v: any) => v.id === formData.version)?.name || "";
                     } catch { /* version link failed silently */ }
                 }
                 const pinnedRow = mapBackendItemToRow(createdItem, type, 0);
