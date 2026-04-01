@@ -190,7 +190,7 @@ Drawer 没有内置 `@ok` 机制，按钮通过 `#footer` 插槽放置：
 
 <script setup lang="ts">
 import { ref, watch } from "vue";
-import { Dialog } from "@/components/vort";
+import { Dialog } from "@openvort/vort-ui";
 import { z } from "zod";
 
 const props = defineProps<{

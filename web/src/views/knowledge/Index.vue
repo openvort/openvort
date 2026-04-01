@@ -9,11 +9,12 @@ import {
 import {
     Upload, Search, RefreshCw, FileText,
     CheckCircle, AlertCircle, Loader2, BookOpen, Trash2,
-    ChevronRight, Home, MoreHorizontal, Plus,
+    ChevronRight, Home, MoreHorizontal, Plus, GitBranch,
 } from "lucide-vue-next";
 import { message, dialog } from "@openvort/vort-ui";
 import type { UploadRequestOption } from "@openvort/vort-ui";
 import { useUserStore } from "@/stores";
+import GitDocCreateDialog from "./GitDocCreateDialog.vue";
 
 interface KBFolderItem {
     id: string;
@@ -89,6 +90,7 @@ const uploadDialogOpen = ref(false);
 const searchDialogOpen = ref(false);
 const folderDialogOpen = ref(false);
 const moveDialogOpen = ref(false);
+const gitDocDialogOpen = ref(false);
 const saving = ref(false);
 
 const folderForm = ref({ name: "" });
@@ -509,6 +511,9 @@ onUnmounted(() => {
                             <VortDropdownMenuItem @click="goToNewDoc">
                                 <FileText :size="14" class="mr-2 text-gray-400" />新建文档
                             </VortDropdownMenuItem>
+                            <VortDropdownMenuItem @click="gitDocDialogOpen = true">
+                                <GitBranch :size="14" class="mr-2 text-gray-400" />Git 文档
+                            </VortDropdownMenuItem>
                         </template>
                     </VortDropdown>
                 </div>
@@ -740,5 +745,12 @@ onUnmounted(() => {
                 </VortScrollbar>
             </div>
         </VortDialog>
+
+        <!-- Git Doc Dialog -->
+        <GitDocCreateDialog
+            v-model:open="gitDocDialogOpen"
+            :folder-id="currentFolderId"
+            @saved="loadContent(); loadStats()"
+        />
     </div>
 </template>

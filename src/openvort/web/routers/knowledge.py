@@ -50,6 +50,14 @@ class MoveItemsRequest(BaseModel):
     target_folder_id: str = ""
 
 
+class CreateGitDocRequest(BaseModel):
+    repo_id: str
+    branch: str
+    path: str
+    title: str = ""
+    folder_id: str = ""
+
+
 class SearchRequest(BaseModel):
     query: str
     top_k: int = 5
@@ -483,6 +491,68 @@ async def create_text_document(request: Request, body: CreateTextDocRequest):
     return {"id": doc_id, "title": body.title, "status": "pending"}
 
 
+@router.post("/documents/git")
+async def create_git_document(request: Request, body: CreateGitDocRequest):
+    """Create a document linked to a Git repo file (read-only)."""
+    from openvort.plugins.knowledge.models import KBDocument
+    from openvort.plugins.vortgit.models import GitProvider, GitRepo
+
+    member_id = _get_member_id(request)
+    sf = _get_session_factory()
+
+    async with sf() as session:
+        repo = await session.get(GitRepo, body.repo_id)
+        if not repo:
+            raise HTTPException(status_code=400, detail="仓库不存在")
+        provider = await session.get(GitProvider, repo.provider_id)
+        if not provider:
+            raise HTTPException(status_code=400, detail="Git Provider 不存在")
+        repo_full_name = repo.full_name
+        repo_name = repo.name
+        default_branch = repo.default_branch
+        provider_obj = provider
+
+    # Fetch file content from remote
+    from openvort.plugins.vortgit.router import _get_provider_instance
+
+    client = _get_provider_instance(provider_obj)
+    try:
+        content = await client.get_file_content(
+            repo_full_name, body.path, ref=body.branch or default_branch,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"无法读取文件: {exc}")
+    finally:
+        await client.close()
+
+    if not content or not content.strip():
+        raise HTTPException(status_code=400, detail="文件内容为空")
+
+    doc_title = body.title or body.path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+
+    async with sf() as session:
+        doc = KBDocument(
+            title=doc_title,
+            folder_id=body.folder_id or "",
+            file_name=body.path.rsplit("/", 1)[-1],
+            file_type="git",
+            file_size=len(content.encode("utf-8")),
+            content=content,
+            status="pending",
+            owner_id=member_id,
+            git_repo_id=body.repo_id,
+            git_branch=body.branch or default_branch,
+            git_path=body.path,
+        )
+        session.add(doc)
+        await session.commit()
+        doc_id = doc.id
+
+    asyncio.create_task(_process_document(doc_id))
+
+    return {"id": doc_id, "title": doc_title, "status": "pending"}
+
+
 @router.get("/documents/{doc_id}")
 async def get_document(doc_id: str):
     """Get document detail."""
@@ -494,7 +564,7 @@ async def get_document(doc_id: str):
         if not doc:
             raise HTTPException(status_code=404, detail="文档不存在")
 
-        return {
+        result = {
             "id": doc.id,
             "title": doc.title,
             "folder_id": doc.folder_id,
@@ -508,7 +578,63 @@ async def get_document(doc_id: str):
             "owner_id": doc.owner_id,
             "created_at": doc.created_at.isoformat() if doc.created_at else "",
             "updated_at": doc.updated_at.isoformat() if doc.updated_at else "",
+            "git_repo_id": doc.git_repo_id or "",
+            "git_branch": doc.git_branch or "",
+            "git_path": doc.git_path or "",
         }
+
+        if doc.file_type == "git" and doc.git_repo_id:
+            from openvort.plugins.vortgit.models import GitRepo
+            repo = await session.get(GitRepo, doc.git_repo_id)
+            result["git_repo_name"] = repo.name if repo else ""
+        else:
+            result["git_repo_name"] = ""
+
+        return result
+
+
+@router.get("/documents/{doc_id}/git-content")
+async def get_git_document_content(doc_id: str, branch: str = ""):
+    """Fetch content of a git-linked document from a different branch."""
+    from openvort.plugins.knowledge.models import KBDocument
+    from openvort.plugins.vortgit.models import GitProvider, GitRepo
+
+    sf = _get_session_factory()
+    async with sf() as session:
+        doc = await session.get(KBDocument, doc_id)
+        if not doc:
+            raise HTTPException(status_code=404, detail="文档不存在")
+        if doc.file_type != "git" or not doc.git_repo_id:
+            raise HTTPException(status_code=400, detail="该文档非 Git 文档")
+
+        repo = await session.get(GitRepo, doc.git_repo_id)
+        if not repo:
+            raise HTTPException(status_code=400, detail="关联仓库不存在")
+        provider = await session.get(GitProvider, repo.provider_id)
+        if not provider:
+            raise HTTPException(status_code=400, detail="Git Provider 不存在")
+
+        repo_full_name = repo.full_name
+        git_path = doc.git_path
+        provider_obj = provider
+
+    from openvort.plugins.vortgit.router import _get_provider_instance
+
+    target_branch = branch or doc.git_branch
+    client = _get_provider_instance(provider_obj)
+    try:
+        content = await client.get_file_content(
+            repo_full_name, git_path, ref=target_branch,
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=404,
+            detail=f"该分支下不存在该文档（{target_branch}: {git_path}）",
+        )
+    finally:
+        await client.close()
+
+    return {"content": content, "branch": target_branch}
 
 
 @router.put("/documents/{doc_id}")

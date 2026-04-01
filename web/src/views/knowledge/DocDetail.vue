@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { getKBDocument, updateKBDocument, reindexKBDocument, deleteKBDocument, createKBTextDocument } from "@/api";
+import {
+    getKBDocument, updateKBDocument, reindexKBDocument,
+    deleteKBDocument, createKBTextDocument, getKBDocGitContent,
+} from "@/api";
+import { getVortgitRepoBranches } from "@/api";
 import {
     ArrowLeft, Pencil, Save, X, RefreshCw, Trash2,
-    CheckCircle, AlertCircle, Loader2, Link,
+    CheckCircle, AlertCircle, Loader2, Link, GitBranch, FileCode,
 } from "lucide-vue-next";
 import { message, dialog } from "@openvort/vort-ui";
 import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
@@ -25,6 +29,10 @@ interface DocData {
     owner_id: string;
     created_at: string;
     updated_at: string;
+    git_repo_id?: string;
+    git_branch?: string;
+    git_path?: string;
+    git_repo_name?: string;
 }
 
 const route = useRoute();
@@ -32,12 +40,20 @@ const router = useRouter();
 const userStore = useUserStore();
 const isAdmin = computed(() => userStore.isAdmin);
 const isNew = computed(() => route.params.id === "new");
+const isGitDoc = computed(() => doc.value?.file_type === "git");
 
 const loading = ref(true);
 const doc = ref<DocData | null>(null);
 const editing = ref(false);
 const saving = ref(false);
 const editForm = ref({ title: "", content: "" });
+
+// Git branch switching
+const gitBranches = ref<{ name: string; is_default: boolean }[]>([]);
+const currentBranch = ref("");
+const branchLoading = ref(false);
+const displayContent = ref("");
+const branchNotFound = ref(false);
 
 const statusConfig: Record<string, { text: string; color: string }> = {
     pending: { text: "等待处理", color: "warning" },
@@ -77,11 +93,49 @@ const loadDoc = async () => {
     try {
         const res = await getKBDocument(route.params.id as string) as any;
         doc.value = res;
+        displayContent.value = res.content || "";
+        branchNotFound.value = false;
+
+        if (res.file_type === "git" && res.git_repo_id) {
+            currentBranch.value = res.git_branch || "";
+            loadGitBranches(res.git_repo_id);
+        }
     } catch (e: any) {
         message.error(e?.response?.data?.detail || "文档不存在或加载失败");
         router.push("/knowledge");
     } finally {
         loading.value = false;
+    }
+};
+
+const loadGitBranches = async (repoId: string) => {
+    try {
+        const res = await getVortgitRepoBranches(repoId) as any;
+        gitBranches.value = res.items || [];
+    } catch {
+        gitBranches.value = [];
+    }
+};
+
+const handleBranchSwitch = async (branch: any) => {
+    if (!doc.value || branch === currentBranch.value) return;
+    currentBranch.value = branch;
+    branchLoading.value = true;
+    branchNotFound.value = false;
+    try {
+        const res = await getKBDocGitContent(doc.value.id, branch) as any;
+        displayContent.value = res.content || "";
+        branchNotFound.value = false;
+    } catch (e: any) {
+        const status = e?.response?.status;
+        if (status === 404) {
+            branchNotFound.value = true;
+            displayContent.value = "";
+        } else {
+            message.error(e?.response?.data?.detail || "获取内容失败");
+        }
+    } finally {
+        branchLoading.value = false;
     }
 };
 
@@ -219,7 +273,7 @@ onMounted(loadDoc);
                                 <Save :size="14" class="mr-1" /> 保存
                             </VortButton>
                         </template>
-                        <template v-else-if="isAdmin">
+                        <template v-else-if="isAdmin && !isGitDoc">
                             <VortButton size="small" @click="handleReindex">
                                 <RefreshCw :size="14" class="mr-1" /> 重新索引
                             </VortButton>
@@ -230,6 +284,35 @@ onMounted(loadDoc);
                                 <Trash2 :size="14" class="mr-1" /> 删除
                             </VortButton>
                         </template>
+                        <template v-else-if="isAdmin && isGitDoc">
+                            <VortButton size="small" danger @click="handleDelete">
+                                <Trash2 :size="14" class="mr-1" /> 删除
+                            </VortButton>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- Git branch selector -->
+                <div v-if="isGitDoc && !isNew" class="flex items-center gap-3 px-6 pb-3">
+                    <div class="flex items-center gap-2 text-sm text-gray-500">
+                        <GitBranch :size="14" class="text-gray-400" />
+                        <vort-select
+                            :model-value="currentBranch"
+                            placeholder="选择分支"
+                            show-search
+                            class="w-[200px]"
+                            @change="handleBranchSwitch"
+                        >
+                            <vort-select-option v-for="b in gitBranches" :key="b.name" :value="b.name">
+                                {{ b.name }}
+                            </vort-select-option>
+                        </vort-select>
+                    </div>
+                    <div v-if="doc.git_repo_name" class="flex items-center gap-1.5 text-sm text-gray-400">
+                        <FileCode :size="14" />
+                        <span>{{ doc.git_repo_name }}</span>
+                        <span class="text-gray-300">/</span>
+                        <span class="text-gray-500">{{ doc.git_path }}</span>
                     </div>
                 </div>
 
@@ -254,6 +337,16 @@ onMounted(loadDoc);
                 <div class="px-6 py-5">
                     <template v-if="editing">
                         <VortEditor v-model="editForm.content" placeholder="请输入文档内容..." min-height="500px" />
+                    </template>
+                    <template v-else-if="isGitDoc">
+                        <vort-spin :spinning="branchLoading">
+                            <div v-if="branchNotFound" class="flex flex-col items-center justify-center py-16 text-gray-400">
+                                <AlertCircle :size="40" class="mb-3 text-gray-300" />
+                                <p class="text-base font-medium text-gray-500 mb-1">该分支下不存在该文档</p>
+                                <p class="text-sm">分支 <span class="font-mono text-gray-600">{{ currentBranch }}</span> 中找不到文件 <span class="font-mono text-gray-600">{{ doc.git_path }}</span></p>
+                            </div>
+                            <MarkdownView v-else :content="displayContent" />
+                        </vort-spin>
                     </template>
                     <template v-else>
                         <MarkdownView :content="doc.content" />

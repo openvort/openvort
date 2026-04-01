@@ -459,6 +459,52 @@ async def list_repo_branches(repo_id: str):
         await client.close()
 
 
+@router.get("/repos/{repo_id}/tree")
+async def get_repo_tree(repo_id: str, path: str = "", ref: str = ""):
+    """List directory entries at *path* on *ref* (branch/tag/sha)."""
+    sf = get_session_factory()
+    async with sf() as session:
+        repo = await session.get(GitRepo, repo_id)
+        if not repo:
+            raise HTTPException(404, "Repo not found")
+        provider = await session.get(GitProvider, repo.provider_id)
+        if not provider:
+            raise HTTPException(404, "Provider not found")
+
+    client = _get_provider_instance(provider)
+    try:
+        entries = await client.get_file_tree(
+            repo.full_name, path=path, ref=ref or repo.default_branch
+        )
+        return {"items": entries}
+    finally:
+        await client.close()
+
+
+@router.get("/repos/{repo_id}/file-content")
+async def get_repo_file_content(repo_id: str, path: str, ref: str = ""):
+    """Get decoded file content at *path* on *ref*."""
+    sf = get_session_factory()
+    async with sf() as session:
+        repo = await session.get(GitRepo, repo_id)
+        if not repo:
+            raise HTTPException(404, "Repo not found")
+        provider = await session.get(GitProvider, repo.provider_id)
+        if not provider:
+            raise HTTPException(404, "Provider not found")
+
+    client = _get_provider_instance(provider)
+    try:
+        content = await client.get_file_content(
+            repo.full_name, path, ref=ref or repo.default_branch
+        )
+        return {"content": content}
+    except Exception as exc:
+        raise HTTPException(404, f"File not found: {exc}")
+    finally:
+        await client.close()
+
+
 # ============ Repo members ============
 
 @router.get("/repos/{repo_id}/members")

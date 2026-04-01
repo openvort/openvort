@@ -124,7 +124,7 @@
                                     {{ saving ? "保存中..." : "保存" }}
                                 </button>
                             </template>
-                            <button v-else type="button" class="dlp-action-btn" @click="startEdit">
+                            <button v-else-if="activeDocData?.file_type !== 'git'" type="button" class="dlp-action-btn" @click="startEdit">
                                 <Pencil :size="14" />
                                 编辑
                             </button>
@@ -371,7 +371,7 @@ const handleCreateNew = async () => {
 // ---- Edit Document Content ----
 
 const startEdit = () => {
-    if (!activeDocData.value) return;
+    if (!activeDocData.value || activeDocData.value.file_type === "git") return;
     editTitle.value = activeDocData.value.title;
     editContent.value = activeDocData.value.content;
     editing.value = true;
