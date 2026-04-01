@@ -3,6 +3,7 @@ import { ref, computed, reactive, onMounted, watch, nextTick } from "vue";
 import { message, dialog, Dropdown, DropdownMenuItem, DropdownMenuSeparator } from "@openvort/vort-ui";
 import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMemberPicker.vue";
 import WorkItemStatus from "@/components/vort-biz/work-item/WorkItemStatus.vue";
+import WorkItemPriority from "@/components/vort-biz/work-item/WorkItemPriority.vue";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
 import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
 import { Copy, CopyPlus, SquarePen, FileText, Bot, Loader2, MoreHorizontal, Send, Trash2, Paperclip, Download, X } from "lucide-vue-next";
@@ -16,7 +17,7 @@ import NotifyDialog from "./NotifyDialog.vue";
 import { getVortflowProjects, getVortflowIterations, getVortflowVersions, getVortgitRepos, getVortgitRepoBranches, getVortflowComments, createVortflowComment, updateVortflowComment, deleteVortflowComment, getVortflowActivity, uploadVortflowFile } from "@/api";
 import { useUserStore } from "@/stores";
 import { formatFileSize } from "@/utils/format";
-import type { WorkItemType, Status, DateRange, RowItem, DetailComment, DetailLog, AttachmentItem } from "@/components/vort-biz/work-item/WorkItemTable.types";
+import type { WorkItemType, Status, DateRange, RowItem, DetailComment, DetailLog, AttachmentItem, Priority } from "@/components/vort-biz/work-item/WorkItemTable.types";
 
 interface Props {
     workNo: string;
@@ -64,6 +65,7 @@ const detailStatusKeyword = ref("");
 const detailAssigneeDropdownOpen = ref(false);
 const detailAssigneeKeyword = ref("");
 const detailAssigneeGroupOpen = reactive<Record<string, boolean>>({});
+const detailPriorityOpen = ref(false);
 const detailDescEditing = ref(props.initialDescEditing || false);
 const detailDescDraft = ref(props.initialDescDraft ?? "");
 
@@ -443,6 +445,14 @@ const selectDetailStatus = async (value: Status) => {
     emit("update", { status: value });
 };
 
+const selectDetailPriority = (value: Priority) => {
+    if (!record.value) return;
+    record.value.priority = value;
+    detailPriorityOpen.value = false;
+    appendDetailLog(`将优先级修改为"${value}"`);
+    emit("update", { priority: value });
+};
+
 const isDetailOwner = (member: string): boolean => {
     return record.value?.owner === member;
 };
@@ -613,7 +623,9 @@ const buildSupplementPrompt = () => {
         `预估工时：${r.estimateHours != null ? r.estimateHours + " 小时" : "未设置"}`,
     ].join("\n");
 
+    const entityType = getEntityTypeKey();
     return `请帮我补充${r.type}「${r.title}」(${r.workNo}) 的详细信息。
+实体类型：${entityType}，实体 ID：${r.backendId}
 
 所属项目：${r.projectName || "未设置"}
 当前字段：
@@ -1080,7 +1092,7 @@ watch(() => props.initialData, (value) => {
                 </div>
                 <div class="bug-detail-meta-right">
                     <AiAssistButton
-                        :prompt="`我要对${record.type}「${record.title}」(${record.workNo}) 进一步操作，请告诉我可以做什么。`"
+                        :prompt="`我要对${record.type}「${record.title}」(${record.workNo}) 进一步操作，请告诉我可以做什么。\n实体类型：${getEntityTypeKey()}，实体 ID：${record.backendId}`"
                         label="AI 助手"
                     />
                     <Dropdown trigger="click" placement="bottomRight">
@@ -1342,6 +1354,14 @@ watch(() => props.initialData, (value) => {
                                     <vort-select-option value="缺陷">缺陷</vort-select-option>
                                 </vort-select>
                             </div>
+                        </div>
+                        <div class="bug-detail-info-item bug-detail-info-item-row" @click.stop>
+                            <label>优先级</label>
+                            <WorkItemPriority
+                                v-model:open="detailPriorityOpen"
+                                :model-value="record.priority || 'none'"
+                                @change="selectDetailPriority"
+                            />
                         </div>
                         <div class="bug-detail-info-item bug-detail-info-item-row">
                             <label>项目</label>
