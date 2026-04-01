@@ -2,7 +2,7 @@
 # Rebuild only when pyproject.toml or core dependencies change:
 #   docker build -f Dockerfile.base -t openvort-base:latest .
 #   docker build -f Dockerfile.base --build-arg MIRROR=cn -t openvort-base:latest .  (China)
-FROM python:3.11-slim
+FROM python:3.11-slim-bookworm
 
 ARG MIRROR=default
 
