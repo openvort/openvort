@@ -682,7 +682,7 @@ export function useBugTrackingState() {
         // 展开状态
         ownerGroups, isGroupOpen, typeGroupOpen, ownerGroupOpen, ownerEditGroupOpen, collaboratorGroupOpen, detailAssigneeGroupOpen, createAssigneeGroupOpen, collaboratorsModel,
         // 辅助函数
-        toWorkNo, getAvatarBg, getAvatarLabel, getTagColor, formatFileSize, getWorkTypeIconClass, getWorkTypeIconSymbol,
+        toWorkNo, getAvatarBg, getAvatarLabel, getTagColor, formatFileSize, getWorkTypeIconClass,
         // 行内编辑方法
         getRowPriority, getRowStatus, getRowOwner, getRowCollaborators, getRowTags, getRowPlanTime, togglePriorityMenu, selectPriority, toggleRowStatusMenu, selectRowStatus, toggleRowOwnerMenu, selectRowOwner, toggleCollaboratorMenu, toggleRowCollaborator, toggleTagMenu, toggleTagOption, finishTagEdit, togglePlanTimeMenu, onPlanTimeChange, getRowPlanTimeText, getCollapsedTags, getTagRenderInfo,
         // 筛选方法
@@ -707,8 +707,3 @@ function getWorkTypeIconClass(type: WorkType): string {
     return "work-type-icon-bug";
 }
 
-function getWorkTypeIconSymbol(type: WorkType): string {
-    if (type === "需求") return "≡";
-    if (type === "任务") return "☑";
-    return "✹";
-}

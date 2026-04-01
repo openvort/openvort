@@ -25,7 +25,7 @@ const emit = defineEmits<{
 
 const {
     getWorkItemTypeIconClass,
-    getWorkItemTypeIconSymbol,
+    getWorkItemTypeIcon,
     mapBackendStateToStatus,
     getMemberNameById,
 } = useWorkItemCommon();
@@ -279,7 +279,7 @@ watch(
                     <button type="button" class="wi-link-type-btn" @click="toggleTypeDropdown">
                         <template v-if="searchType !== TYPE_OPTIONS_ALL">
                             <span :class="['wi-link-type-badge', getWorkItemTypeIconClass(searchType as WorkItemType)]">
-                                {{ getWorkItemTypeIconSymbol(searchType as WorkItemType) }}
+                                <component :is="getWorkItemTypeIcon(searchType as WorkItemType)" :size="12" />
                             </span>
                         </template>
                         <span class="wi-link-type-label">{{ searchType }}</span>
@@ -296,7 +296,7 @@ watch(
                         >
                             <template v-if="t !== TYPE_OPTIONS_ALL">
                                 <span :class="['wi-link-type-badge', getWorkItemTypeIconClass(t as WorkItemType)]">
-                                    {{ getWorkItemTypeIconSymbol(t as WorkItemType) }}
+                                    <component :is="getWorkItemTypeIcon(t as WorkItemType)" :size="12" />
                                 </span>
                             </template>
                             <span class="wi-link-type-option-label">{{ t }}</span>
@@ -364,7 +364,7 @@ watch(
             >
                 <button type="button" class="wi-link-item-main" @click="openLinkedItem(item)">
                     <span :class="['wi-link-type-badge', getWorkItemTypeIconClass(item.displayType)]">
-                        {{ getWorkItemTypeIconSymbol(item.displayType) }}
+                        <component :is="getWorkItemTypeIcon(item.displayType)" :size="12" />
                     </span>
                     <span class="wi-link-item-no">{{ item.workNo }}</span>
                     <span class="wi-link-item-title">{{ item.title }}</span>

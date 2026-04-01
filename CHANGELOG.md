@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.10.0] - 2026-04-01
+
+### Added
+
+- **Document links** — Work items can now attach, upload, and manage document links with full CRUD API
+- **Git document management** — Create documents and retrieve file content directly from Git repositories
+- **Comment replies** — Comment system supports parent comments (nested replies) and comment deletion
+- **AI floating panel** — Visibility control, expand/collapse state management for the AI assistant panel
+- **Iteration & version association** — Work item table displays and links iteration and version info
+- **Unlink child items** — Ability to remove parent-child associations between work items
+- **Mermaid support** — Document editor now renders Mermaid diagrams
+- **Share link** — Copy shareable work item links with one click
+- **Planned time formatting** — Time range formatting and overdue information display
+- **AI notifications** — AI-created tasks and defects now trigger notifications automatically
+
+### Improved
+
+- MCP middleware injects member identity directly into tool call parameters
+- Image upload tool supports local file paths and base64 encoded data
+- Docker base image updated to `python:3.11-slim-bookworm`
+- Table sorting/filtering resets to page 1 on filter change; filter options are now searchable
+- Document link panel layout and action dropdown menu redesigned
+- GitHub proxy support for improved download reliability in restricted networks
+- Chat interface layout and dependency optimizations
+
 ## [0.9.1] - 2026-03-30
 
 ### Added

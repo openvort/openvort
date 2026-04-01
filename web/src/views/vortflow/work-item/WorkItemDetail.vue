@@ -51,7 +51,7 @@ const {
     getMemberIdByName,
     getMemberNameById,
     getWorkItemTypeIconClass,
-    getWorkItemTypeIconSymbol,
+    getWorkItemTypeIcon,
 } = useWorkItemCommon();
 
 const userStore = useUserStore();
@@ -1051,14 +1051,7 @@ watch(() => props.initialData, (value) => {
             <div class="bug-detail-meta-top">
                 <div class="bug-detail-meta-left">
                     <span class="work-type-icon" :class="getWorkItemTypeIconClass(record.type)">
-                        <svg v-if="record.type === '缺陷'" class="work-type-icon-svg" viewBox="0 0 24 24" aria-hidden="true">
-                            <circle cx="12" cy="7.5" r="3.2" fill="white" />
-                            <rect x="8" y="10.5" width="8" height="9" rx="3.8" fill="white" />
-                            <rect x="11.2" y="10.8" width="1.6" height="8.6" rx="0.8" fill="#ef4444" />
-                            <path d="M8.3 12.3H5.2M8.1 15.1H4.8M15.9 12.3H18.8M16.1 15.1H19.2" stroke="white" stroke-width="1.5" stroke-linecap="round" />
-                            <path d="M10.2 4.8 8.7 3.3M13.8 4.8 15.3 3.3" stroke="white" stroke-width="1.5" stroke-linecap="round" />
-                        </svg>
-                        <template v-else>{{ getWorkItemTypeIconSymbol(record.type) }}</template>
+                        <component :is="getWorkItemTypeIcon(record.type)" :size="18" />
                     </span>
                     <span class="bug-detail-no">{{ record.workNo }}</span>
                     <button type="button" class="detail-copy-link-btn" @click="handleCopyDetailLink">
@@ -1117,7 +1110,7 @@ watch(() => props.initialData, (value) => {
             <div v-if="isHierarchyRecord && parentRecord" class="story-tree-header">
                 <div class="story-parent-node" @click="emit('openRelated', parentRecord)">
                     <span class="work-type-icon-small" :class="getWorkItemTypeIconClass(parentRecord.type)">
-                        {{ getWorkItemTypeIconSymbol(parentRecord.type) }}
+                        <component :is="getWorkItemTypeIcon(parentRecord.type)" :size="12" />
                     </span>
                     <span class="parent-title">{{ parentRecord.title }}</span>
                 </div>
@@ -1474,7 +1467,7 @@ watch(() => props.initialData, (value) => {
                             >
                                 <div class="sub-item-left">
                                     <span class="work-type-icon-small" :class="getWorkItemTypeIconClass(child.type)">
-                                        {{ getWorkItemTypeIconSymbol(child.type) }}
+                                        <component :is="getWorkItemTypeIcon(child.type)" :size="12" />
                                     </span>
                                     <span class="sub-item-no">{{ child.workNo }}</span>
                                     <span class="sub-item-title group-hover:text-blue-600">{{ child.title }}</span>
@@ -1821,11 +1814,6 @@ watch(() => props.initialData, (value) => {
 .work-type-icon-bug {
     background: linear-gradient(135deg, #ef4444 0%, #f97316 100%);
     color: white;
-}
-
-.work-type-icon-svg {
-    width: 20px;
-    height: 20px;
 }
 
 .bug-detail-no {
