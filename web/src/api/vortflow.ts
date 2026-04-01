@@ -377,12 +377,16 @@ export function getVortflowComments(entityType: string, entityId: string) {
     return request.get(`/vortflow/comments/${entityType}/${entityId}`);
 }
 
-export function createVortflowComment(entityType: string, entityId: string, data: { content: string; mentions?: string[] }) {
+export function createVortflowComment(entityType: string, entityId: string, data: { content: string; mentions?: string[]; parent_id?: number | null }) {
     return request.post(`/vortflow/comments/${entityType}/${entityId}`, data);
 }
 
 export function updateVortflowComment(commentId: number | string, data: { content: string; mentions?: string[] }) {
     return request.patch(`/vortflow/comments/${commentId}`, data);
+}
+
+export function deleteVortflowComment(commentId: number | string) {
+    return request.delete(`/vortflow/comments/${commentId}`);
 }
 
 export function getVortflowActivity(entityType: string, entityId: string, params?: { page?: number; page_size?: number }) {
@@ -743,4 +747,44 @@ export function sendVortflowNotify(data: {
     message?: string;
 }) {
     return request.post("/vortflow/notify", data);
+}
+
+// ---- Document Links ----
+
+export function getVortflowDocLinks(params: { entity_type: string; entity_id: string }) {
+    return request.get("/vortflow/document-links", { params });
+}
+
+export function createVortflowDocLink(data: { document_id: string; entity_type: string; entity_id: string }) {
+    return request.post("/vortflow/document-links", data);
+}
+
+export function createVortflowDocWithLink(data: {
+    title: string;
+    content?: string;
+    entity_type: string;
+    entity_id: string;
+    project_id: string;
+}) {
+    return request.post("/vortflow/document-links/with-doc", data);
+}
+
+export function uploadVortflowDocWithLink(file: File, entityType: string, entityId: string, projectId: string) {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("entity_type", entityType);
+    formData.append("entity_id", entityId);
+    formData.append("project_id", projectId);
+    return request.post("/vortflow/document-links/with-upload", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+        timeout: 60000,
+    });
+}
+
+export function reorderVortflowDocLinks(data: { link_ids: string[] }) {
+    return request.put("/vortflow/document-links/reorder", data);
+}
+
+export function deleteVortflowDocLink(linkId: string) {
+    return request.delete(`/vortflow/document-links/${linkId}`);
 }

@@ -1,19 +1,20 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from "vue";
-import { useRouter } from "vue-router";
+import { useRouter, useRoute } from "vue-router";
 import {
-    getKBDocuments, uploadKBDocument, createKBTextDocument,
+    getKBDocuments, uploadKBDocument,
     deleteKBDocument, reindexKBDocument, searchKB, getKBStats,
     getKBFolders, getKBFolder, createKBFolder, updateKBFolder, deleteKBFolder, moveKBItems,
 } from "@/api";
 import {
     Upload, Search, RefreshCw, FileText,
     CheckCircle, AlertCircle, Loader2, BookOpen, Trash2,
-    ChevronRight, Home, MoreHorizontal, Plus,
+    ChevronRight, Home, MoreHorizontal, Plus, GitBranch,
 } from "lucide-vue-next";
 import { message, dialog } from "@openvort/vort-ui";
 import type { UploadRequestOption } from "@openvort/vort-ui";
 import { useUserStore } from "@/stores";
+import GitDocCreateDialog from "./GitDocCreateDialog.vue";
 
 interface KBFolderItem {
     id: string;
@@ -69,6 +70,7 @@ interface KBStatsData {
 }
 
 const router = useRouter();
+const route = useRoute();
 const userStore = useUserStore();
 const isAdmin = computed(() => userStore.isAdmin);
 
@@ -85,13 +87,12 @@ const keyword = ref("");
 const stats = ref<KBStatsData>({ document_count: 0, ready_count: 0, chunk_count: 0, embedding_available: false });
 
 const uploadDialogOpen = ref(false);
-const textDialogOpen = ref(false);
 const searchDialogOpen = ref(false);
 const folderDialogOpen = ref(false);
 const moveDialogOpen = ref(false);
+const gitDocDialogOpen = ref(false);
 const saving = ref(false);
 
-const textForm = ref({ title: "", content: "" });
 const folderForm = ref({ name: "" });
 const searchQuery = ref("");
 
@@ -142,6 +143,9 @@ const navigateToFolder = async (folderId: string) => {
     currentFolderId.value = folderId;
     page.value = 1;
     keyword.value = "";
+
+    const query = folderId ? { folder: folderId } : {};
+    router.replace({ path: route.path, query });
 
     if (!folderId) {
         breadcrumbs.value = [];
@@ -278,33 +282,10 @@ const handleCustomUpload = ref(async (options: UploadRequestOption) => {
     }
 });
 
-const handleCreateText = async () => {
-    if (!textForm.value.title.trim()) {
-        message.warning("请输入文档标题");
-        return;
-    }
-    if (!textForm.value.content.trim()) {
-        message.warning("请输入文档内容");
-        return;
-    }
-
-    saving.value = true;
-    try {
-        await createKBTextDocument({
-            title: textForm.value.title,
-            content: textForm.value.content,
-            folder_id: currentFolderId.value || undefined,
-        });
-        message.success("文档创建成功");
-        textDialogOpen.value = false;
-        textForm.value = { title: "", content: "" };
-        loadContent();
-        loadStats();
-    } catch (e: any) {
-        message.error(e?.response?.data?.detail || "创建失败");
-    } finally {
-        saving.value = false;
-    }
+const goToNewDoc = () => {
+    const query: Record<string, string> = {};
+    if (currentFolderId.value) query.folder_id = currentFolderId.value;
+    router.push({ path: "/knowledge/doc/new", query });
 };
 
 const handleDelete = (doc: KBDocument) => {
@@ -414,7 +395,12 @@ const handlePaginationChange = () => {
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
 onMounted(() => {
-    loadContent();
+    const folderId = (route.query.folder as string) || "";
+    if (folderId) {
+        navigateToFolder(folderId);
+    } else {
+        loadContent();
+    }
     loadStats();
     pollTimer = setInterval(() => {
         const hasPending = documents.value.some(d => d.status === "pending" || d.status === "processing");
@@ -442,7 +428,7 @@ onUnmounted(() => {
                 <VortButton @click="searchDialogOpen = true">
                     <Search :size="14" class="mr-1" /> 搜索测试
                 </VortButton>
-                <VortButton v-if="isAdmin" @click="textDialogOpen = true">
+                <VortButton v-if="isAdmin" @click="goToNewDoc">
                     <FileText :size="14" class="mr-1" /> 手动添加
                 </VortButton>
                 <VortButton v-if="isAdmin" variant="primary" @click="uploadDialogOpen = true">
@@ -522,8 +508,11 @@ onUnmounted(() => {
                             <VortDropdownMenuItem @click="uploadDialogOpen = true">
                                 <Upload :size="14" class="mr-2 text-gray-400" />上传文档
                             </VortDropdownMenuItem>
-                            <VortDropdownMenuItem @click="textDialogOpen = true">
-                                <FileText :size="14" class="mr-2 text-gray-400" />手动添加
+                            <VortDropdownMenuItem @click="goToNewDoc">
+                                <FileText :size="14" class="mr-2 text-gray-400" />新建文档
+                            </VortDropdownMenuItem>
+                            <VortDropdownMenuItem @click="gitDocDialogOpen = true">
+                                <GitBranch :size="14" class="mr-2 text-gray-400" />Git 文档
                             </VortDropdownMenuItem>
                         </template>
                     </VortDropdown>
@@ -687,24 +676,6 @@ onUnmounted(() => {
             </VortUploadDragger>
         </VortDialog>
 
-        <!-- Text/QA Dialog -->
-        <VortDialog :open="textDialogOpen" title="手动添加文档" width="large" @update:open="textDialogOpen = $event">
-            <VortForm label-width="80px" class="mt-2">
-                <VortFormItem label="标题" required>
-                    <VortInput v-model="textForm.title" placeholder="文档标题" />
-                </VortFormItem>
-                <VortFormItem label="内容" required>
-                    <VortTextarea v-model="textForm.content" :rows="12" placeholder="输入文档内容（支持 Markdown）" />
-                </VortFormItem>
-            </VortForm>
-            <template #footer>
-                <div class="flex justify-end gap-2">
-                    <VortButton @click="textDialogOpen = false">取消</VortButton>
-                    <VortButton variant="primary" :loading="saving" @click="handleCreateText">保存</VortButton>
-                </div>
-            </template>
-        </VortDialog>
-
         <!-- Move Dialog -->
         <VortDialog
             :open="moveDialogOpen"
@@ -774,5 +745,12 @@ onUnmounted(() => {
                 </VortScrollbar>
             </div>
         </VortDialog>
+
+        <!-- Git Doc Dialog -->
+        <GitDocCreateDialog
+            v-model:open="gitDocDialogOpen"
+            :folder-id="currentFolderId"
+            @saved="loadContent(); loadStats()"
+        />
     </div>
 </template>

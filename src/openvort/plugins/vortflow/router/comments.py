@@ -25,6 +25,7 @@ sub_router = APIRouter()
 class CommentCreate(BaseModel):
     content: str
     mentions: list[str] = []
+    parent_id: int | None = None
 
 
 class CommentUpdate(BaseModel):
@@ -42,16 +43,24 @@ async def list_comments(entity_type: str, entity_id: str):
             .order_by(FlowComment.created_at.asc())
         )
         rows = (await session.execute(stmt)).scalars().all()
-    return {"items": [
-        {
+
+    by_id = {r.id: r for r in rows}
+    items = []
+    for r in rows:
+        item: dict = {
             "id": r.id, "entity_type": r.entity_type, "entity_id": r.entity_id,
             "author_id": r.author_id, "content": r.content,
+            "parent_id": r.parent_id,
             "mentions": _parse_json_list(r.mentions_json),
             "created_at": r.created_at.isoformat() if r.created_at else None,
             "updated_at": r.updated_at.isoformat() if r.updated_at else None,
         }
-        for r in rows
-    ]}
+        if r.parent_id and r.parent_id in by_id:
+            p = by_id[r.parent_id]
+            item["parent_author_id"] = p.author_id
+            item["parent_content"] = p.content[:200] if p.content else ""
+        items.append(item)
+    return {"items": items}
 
 
 @sub_router.post("/comments/{entity_type}/{entity_id}")
@@ -78,6 +87,7 @@ async def create_comment(entity_type: str, entity_id: str, body: CommentCreate, 
             entity_type=entity_type,
             entity_id=entity_id,
             author_id=member_id,
+            parent_id=body.parent_id,
             content=body.content,
             mentions_json=json.dumps(body.mentions or [], ensure_ascii=False),
         )
@@ -97,7 +107,7 @@ async def create_comment(entity_type: str, entity_id: str, body: CommentCreate, 
     ))
     return {
         "id": c.id, "entity_type": c.entity_type, "entity_id": c.entity_id,
-        "author_id": c.author_id, "content": c.content,
+        "author_id": c.author_id, "content": c.content, "parent_id": c.parent_id,
         "mentions": _parse_json_list(c.mentions_json),
         "created_at": c.created_at.isoformat() if c.created_at else None,
         "updated_at": c.updated_at.isoformat() if c.updated_at else None,
@@ -124,11 +134,32 @@ async def update_comment(comment_id: int, body: CommentUpdate, request: Request)
         await session.refresh(c)
     return {
         "id": c.id, "entity_type": c.entity_type, "entity_id": c.entity_id,
-        "author_id": c.author_id, "content": c.content,
+        "author_id": c.author_id, "content": c.content, "parent_id": c.parent_id,
         "mentions": _parse_json_list(c.mentions_json),
         "created_at": c.created_at.isoformat() if c.created_at else None,
         "updated_at": c.updated_at.isoformat() if c.updated_at else None,
     }
+
+
+@sub_router.delete("/comments/{comment_id}")
+async def delete_comment(comment_id: int, request: Request):
+    payload = require_auth(request)
+    member_id = payload.get("sub", "")
+    sf = get_session_factory()
+    async with sf() as session:
+        c = await session.get(FlowComment, comment_id)
+        if not c:
+            return {"error": "评论不存在"}
+        if c.author_id != member_id:
+            return {"error": "只能删除自己的评论"}
+        entity_type = c.entity_type
+        entity_id = c.entity_id
+        await _log_event(session, entity_type, entity_id, "comment_deleted",
+                         {"author_id": member_id, "comment_id": comment_id},
+                         actor_id=member_id)
+        await session.delete(c)
+        await session.commit()
+    return {"ok": True}
 
 
 @sub_router.get("/activity/{entity_type}/{entity_id}")

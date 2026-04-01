@@ -38,13 +38,16 @@ class KBDocument(Base):
     title: Mapped[str] = mapped_column(String(200))
     folder_id: Mapped[str] = mapped_column(String(32), default="", index=True)
     file_name: Mapped[str] = mapped_column(String(500), default="")
-    file_type: Mapped[str] = mapped_column(String(20), index=True)  # pdf / docx / md / txt / qa
+    file_type: Mapped[str] = mapped_column(String(20), index=True)  # pdf / docx / md / txt / qa / git
     file_size: Mapped[int] = mapped_column(Integer, default=0)
     content: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True)  # pending / processing / ready / error
     error_message: Mapped[str] = mapped_column(Text, default="")
     chunk_count: Mapped[int] = mapped_column(Integer, default=0)
     owner_id: Mapped[str] = mapped_column(String(32), default="", index=True)
+    git_repo_id: Mapped[str] = mapped_column(String(32), default="")
+    git_branch: Mapped[str] = mapped_column(String(200), default="")
+    git_path: Mapped[str] = mapped_column(String(500), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 

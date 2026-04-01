@@ -1,16 +1,17 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { useRoute } from "vue-router";
 import { X } from "lucide-vue-next";
 import AiIcon from "./AiIcon.vue";
 import ChatView from "@/views/chat/Index.vue";
 import { useAiFloat } from "@/composables/useAiFloat";
 
 const route = useRoute();
-const router = useRouter();
 const { pendingPrompt, consumePrompt } = useAiFloat();
 
 const panelOpen = ref(false);
+const everOpened = ref(false);
+const expanded = ref(false);
 const showContacts = ref(false);
 const sessionId = ref(localStorage.getItem("ai-float-session-id") || "");
 const chatRef = ref<InstanceType<typeof ChatView> | null>(null);
@@ -107,6 +108,18 @@ const containerStyle = computed(() => ({
 const isTopCorner = computed(() => currentCorner.value === "tr" || currentCorner.value === "tl");
 
 const panelStyle = computed(() => {
+    if (expanded.value) {
+        return {
+            position: "fixed" as const,
+            right: "0",
+            top: "0",
+            bottom: "0",
+            left: "auto",
+            width: "50vw",
+            height: "100vh",
+            borderRadius: "0",
+        };
+    }
     const style: Record<string, string> = {
         width: showContacts.value ? "660px" : "420px",
     };
@@ -143,13 +156,8 @@ function handleBtnClick() {
     togglePanel();
 }
 
-function goToFullChat() {
-    const draft = (chatRef.value?.inputText as unknown as string) ?? "";
-    const sid = (chatRef.value?.currentSessionId as unknown as string) || sessionId.value;
-    panelOpen.value = false;
-    if (sid) localStorage.setItem("chat-last-session-id", sid);
-    if (draft) localStorage.setItem("ai-float-draft", draft);
-    router.push("/chat");
+function toggleExpand() {
+    expanded.value = !expanded.value;
 }
 
 watch(() => (chatRef.value?.currentSessionId as unknown as string), (val) => {
@@ -160,7 +168,18 @@ watch(() => (chatRef.value?.currentSessionId as unknown as string), (val) => {
 });
 
 watch(panelOpen, (open) => {
-    if (open) nextTick(() => chatRef.value);
+    if (open) {
+        everOpened.value = true;
+        nextTick(() => chatRef.value);
+    }
+});
+
+watch(isOnChatPage, (onChat) => {
+    if (onChat) {
+        panelOpen.value = false;
+        expanded.value = false;
+        everOpened.value = false;
+    }
 });
 
 watch(pendingPrompt, (prompt) => {
@@ -177,15 +196,17 @@ watch(pendingPrompt, (prompt) => {
     <Teleport to="body">
     <div v-if="!isOnChatPage" class="ai-float-container" :class="{ 'ai-float-snapping': snapping }" :style="containerStyle">
         <transition name="ai-float-panel" type="animation">
-            <div v-if="panelOpen" class="ai-float-panel" :class="{ 'ai-float-panel-top': isTopCorner }" :style="panelStyle">
+            <div v-if="everOpened" v-show="panelOpen" class="ai-float-panel" :class="{ 'ai-float-panel-top': isTopCorner && !expanded, 'ai-float-panel-expanded': expanded }" :style="panelStyle">
                 <div class="ai-float-body">
                     <ChatView
                         ref="chatRef"
                         embedded
+                        :visible="panelOpen"
+                        :embedded-expanded="expanded"
                         :initial-session-id="sessionId"
                         :embedded-sidebar="showContacts"
-                        @embedded-maximize="goToFullChat"
-                        @embedded-close="panelOpen = false"
+                        @embedded-maximize="toggleExpand"
+                        @embedded-close="panelOpen = false; expanded = false"
                         @embedded-toggle-sidebar="showContacts = !showContacts"
                     />
                 </div>
@@ -194,6 +215,7 @@ watch(pendingPrompt, (prompt) => {
 
         <!-- Floating Button -->
         <button
+            v-if="!expanded"
             class="ai-float-btn"
             :class="{ 'ai-float-btn-active': panelOpen, 'ai-float-btn-dragging': dragging }"
             @pointerdown="onDragStart"
@@ -299,11 +321,16 @@ watch(pendingPrompt, (prompt) => {
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    transition: width 0.25s ease;
+    transition: width 0.3s ease, height 0.3s ease, border-radius 0.3s ease;
 }
 .ai-float-panel-top {
     bottom: auto;
     top: 56px;
+}
+.ai-float-panel-expanded {
+    bottom: 0 !important;
+    top: 0 !important;
+    box-shadow: -4px 0 24px rgba(0, 0, 0, 0.1);
 }
 
 .ai-float-body {

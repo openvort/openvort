@@ -12,7 +12,7 @@ COPY web/ ./
 RUN npm run build
 
 # Stage 2: Python backend
-FROM python:3.11-slim
+FROM python:3.11-slim-bookworm
 ARG MIRROR=default
 
 RUN if [ "$MIRROR" = "cn" ]; then \

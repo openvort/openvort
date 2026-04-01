@@ -389,6 +389,12 @@ async def init_db(database_url: str) -> None:
         await conn.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_flow_comments_author ON flow_comments(author_id)"
         ))
+        await conn.execute(text(
+            "ALTER TABLE IF EXISTS flow_comments ADD COLUMN IF NOT EXISTS parent_id BIGINT"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_flow_comments_parent_id ON flow_comments(parent_id)"
+        ))
 
     # VortFlow: tag definitions table
     async with _engine.begin() as conn:
@@ -637,6 +643,18 @@ async def init_db(database_url: str) -> None:
             await conn.execute(text(
                 "CREATE INDEX IF NOT EXISTS ix_kb_documents_folder_id ON kb_documents(folder_id)"
             ))
+            # migrate: add git source columns for git-linked documents
+            for col, coltype in [
+                ("git_repo_id", "VARCHAR(32) DEFAULT ''"),
+                ("git_branch", "VARCHAR(200) DEFAULT ''"),
+                ("git_path", "VARCHAR(500) DEFAULT ''"),
+            ]:
+                await conn.execute(text(f"""
+                    DO $$ BEGIN
+                        ALTER TABLE kb_documents ADD COLUMN {col} {coltype};
+                    EXCEPTION WHEN duplicate_column THEN NULL;
+                    END $$
+                """))
 
             if _pgvector_available:
                 await conn.execute(text("""

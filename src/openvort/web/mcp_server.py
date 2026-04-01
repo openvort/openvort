@@ -7,7 +7,7 @@ as MCP tools. Internal tools (session management, IM channel tools) are excluded
 
 from __future__ import annotations
 
-import contextvars
+import json as _json
 
 from mcp.server.fastmcp import FastMCP
 from mcp import types
@@ -16,10 +16,6 @@ from openvort.plugin.registry import PluginRegistry
 from openvort.utils.logging import get_logger
 
 log = get_logger("web.mcp")
-
-_mcp_member_info: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
-    "_mcp_member_info", default=None
-)
 
 EXCLUDED_TOOL_PREFIXES = (
     "sessions_",
@@ -99,10 +95,6 @@ def create_mcp_server(registry: PluginRegistry) -> FastMCP:
             return [types.TextContent(type="text", text=f"Tool not available via MCP: {name}")]
         _warn_local_paths(name, arguments)
 
-        member_info = _mcp_member_info.get()
-        if member_info:
-            arguments["_member_id"] = member_info["member_id"]
-
         try:
             result = await tool.execute(arguments)
             return [types.TextContent(type="text", text=result)]
@@ -121,25 +113,64 @@ def get_mcp_instance() -> FastMCP | None:
 
 
 class McpAuthMiddleware:
-    """ASGI middleware that resolves MCP caller identity from Authorization header."""
+    """ASGI middleware that resolves MCP caller identity and injects _member_id
+    directly into tools/call arguments.
+
+    The MCP library processes tool calls in a background anyio task (via memory
+    streams), so contextvars set here are NOT visible to the call_tool handler.
+    We therefore patch the JSON-RPC request body before it reaches the MCP app.
+    """
 
     def __init__(self, app):
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] == "http":
-            headers = dict(scope.get("headers", []))
-            auth_value = headers.get(b"authorization", b"").decode()
-            client = scope.get("client")
-            client_host = client[0] if client else None
-
-            from openvort.web.mcp_auth import resolve_mcp_identity
-            member_info = await resolve_mcp_identity(auth_value or None, client_host)
-
-            token = _mcp_member_info.set(member_info)
-            try:
-                await self.app(scope, receive, send)
-            finally:
-                _mcp_member_info.reset(token)
-        else:
+        if scope["type"] != "http":
             await self.app(scope, receive, send)
+            return
+
+        headers = dict(scope.get("headers", []))
+        auth_value = headers.get(b"authorization", b"").decode()
+        client = scope.get("client")
+        client_host = client[0] if client else None
+
+        from openvort.web.mcp_auth import resolve_mcp_identity
+        member_info = await resolve_mcp_identity(auth_value or None, client_host)
+
+        if not member_info:
+            await self.app(scope, receive, send)
+            return
+
+        member_id = member_info["member_id"]
+
+        body_chunks: list[bytes] = []
+        body_complete = False
+
+        async def patched_receive():
+            nonlocal body_complete
+            message = await receive()
+            if message["type"] != "http.request" or body_complete:
+                return message
+
+            body_chunks.append(message.get("body", b""))
+
+            if message.get("more_body", False):
+                return message
+
+            body_complete = True
+            raw = b"".join(body_chunks)
+            try:
+                data = _json.loads(raw)
+                if isinstance(data, dict) and data.get("method") == "tools/call":
+                    params = data.get("params")
+                    if isinstance(params, dict):
+                        if "arguments" not in params:
+                            params["arguments"] = {}
+                        params["arguments"]["_member_id"] = member_id
+                        raw = _json.dumps(data).encode()
+            except Exception:
+                pass
+
+            return {**message, "body": raw}
+
+        await self.app(scope, patched_receive, send)

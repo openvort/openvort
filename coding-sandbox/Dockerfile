@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.11-slim-bookworm
 
 # Install Node.js and npm (for Claude Code and Codex CLI)
 RUN apt-get update && apt-get install -y curl && \

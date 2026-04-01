@@ -5,12 +5,16 @@ import { useUserStore } from "@/stores";
 
 const props = withDefaults(defineProps<{
     embedded?: boolean;
+    embeddedExpanded?: boolean;
     initialSessionId?: string;
     embeddedSidebar?: boolean;
+    visible?: boolean;
 }>(), {
     embedded: false,
+    embeddedExpanded: false,
     initialSessionId: "",
     embeddedSidebar: false,
+    visible: true,
 });
 const emit = defineEmits<{
     'embedded-maximize': [];
@@ -22,7 +26,7 @@ import {
     Settings, Check, Brain, PackageMinus, RotateCcw, Zap, StopCircle, Square,
     Hash, Bug, ListTodo, BookOpen, GitBranch, ChevronDown, ChevronRight,
     Copy, RefreshCw, Search, Clock, Pause, ChevronUp, Trash2, Paperclip, File,
-    Maximize2, PanelLeftOpen, PanelLeftClose
+    Maximize2, Minimize2, PanelLeftOpen, PanelLeftClose
 } from "lucide-vue-next";
 import { Popover as VortPopover, Image as VortImage, ImagePreviewGroup as VortImagePreviewGroup } from "@openvort/vort-ui";
 import {
@@ -515,10 +519,22 @@ watch(() => route.query.prompt, (val) => {
     if (!props.embedded && val) applyPromptFromQuery();
 });
 
+watch(() => props.visible, (isVisible) => {
+    if (isVisible) {
+        document.addEventListener("paste", handlePaste);
+        document.addEventListener("click", handleClickOutsidePanel);
+    } else {
+        document.removeEventListener("paste", handlePaste);
+        document.removeEventListener("click", handleClickOutsidePanel);
+    }
+});
+
 // ---- Lifecycle ----
 onMounted(async () => {
-    document.addEventListener("paste", handlePaste);
-    document.addEventListener("click", handleClickOutsidePanel);
+    if (props.visible) {
+        document.addEventListener("paste", handlePaste);
+        document.addEventListener("click", handleClickOutsidePanel);
+    }
 
     if (!props.embedded) {
         try {
@@ -729,34 +745,36 @@ defineExpose({ currentSessionId, inputText, handleReset, switchSession, handleNe
         <div class="flex-1 flex flex-col min-w-0">
             <!-- 头部 -->
             <div :class="embedded ? 'flex items-center justify-between px-3 h-11 border-b border-gray-100 bg-white' : 'flex items-center justify-between px-6 h-14 border-b border-gray-100 bg-white'">
-                <div class="flex items-center">
+                <div class="flex min-w-0 flex-1 items-center pr-3">
                     <button v-if="embedded" @click="emit('embedded-toggle-sidebar')"
-                        class="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer mr-1">
+                        class="mr-1 flex-shrink-0 rounded-md p-1 text-gray-400 transition-colors cursor-pointer hover:text-gray-600 hover:bg-gray-50">
                         <PanelLeftOpen v-if="embeddedSidebar" :size="14" />
                         <PanelLeftClose v-else :size="14" />
                     </button>
                     <!-- AI mode: session switcher -->
                     <template v-if="isAiMode">
-                        <img :src="aiAvatarUrl" :class="embedded ? 'w-4 h-4 mr-1.5' : 'w-5 h-5 mr-2'" class="rounded-full object-cover" />
-                        <SessionSwitcher
-                            ref="sessionSwitcherRef"
-                            :current-session-id="currentSessionId"
-                            :current-title="currentSessionTitle"
-                            :compact="embedded"
-                            @switch="switchSession"
-                            @new-session="handleNewSession"
-                            @sessions-loaded="handleSessionsLoaded"
-                        />
+                        <img :src="aiAvatarUrl" :class="embedded ? 'w-4 h-4 mr-1.5' : 'w-5 h-5 mr-2'" class="flex-shrink-0 rounded-full object-cover" />
+                        <div class="min-w-0">
+                            <SessionSwitcher
+                                ref="sessionSwitcherRef"
+                                :current-session-id="currentSessionId"
+                                :current-title="currentSessionTitle"
+                                :compact="embedded"
+                                @switch="switchSession"
+                                @new-session="handleNewSession"
+                                @sessions-loaded="handleSessionsLoaded"
+                            />
+                        </div>
                     </template>
                     <!-- Member mode: show member info (click to open profile) -->
                     <template v-else>
-                        <div class="flex items-center cursor-pointer hover:opacity-80 transition-opacity" @click="memberProfileOpen = true">
-                            <div :class="[embedded ? 'w-6 h-6 mr-1.5' : 'w-8 h-8 mr-2', 'rounded-full flex items-center justify-center overflow-hidden', activeContact?.avatar_url ? '' : 'bg-gray-100']">
+                        <div class="flex min-w-0 items-center cursor-pointer transition-opacity hover:opacity-80" @click="memberProfileOpen = true">
+                            <div :class="[embedded ? 'w-6 h-6 mr-1.5' : 'w-8 h-8 mr-2', 'rounded-full flex items-center justify-center overflow-hidden flex-shrink-0', activeContact?.avatar_url ? '' : 'bg-gray-100']">
                                 <img v-if="activeContact?.avatar_url" :src="activeContact.avatar_url" class="w-full h-full object-cover" />
                                 <span v-else :class="[embedded ? 'text-xs' : 'text-sm', 'font-medium text-gray-500']">{{ (activeContact?.name || '?')[0] }}</span>
                             </div>
-                            <h2 :class="[embedded ? 'text-xs' : 'text-base', 'font-medium text-gray-800']">{{ activeContact?.name }}</h2>
-                            <span v-if="activeContact?.position" :class="[embedded ? 'ml-1.5 text-[10px]' : 'ml-2 text-xs', 'text-gray-400']">{{ activeContact.position }}</span>
+                            <h2 :class="[embedded ? 'text-xs' : 'text-base', 'min-w-0 truncate font-medium text-gray-800']">{{ activeContact?.name }}</h2>
+                            <span v-if="activeContact?.position" :class="[embedded ? 'ml-1.5 text-[10px]' : 'ml-2 text-xs', 'min-w-0 truncate text-gray-400']">{{ activeContact.position }}</span>
                             <AiEmployeeBadge v-if="activeContact?.is_virtual" :class="[embedded ? 'ml-1 scale-90' : 'ml-1.5', 'flex-shrink-0']" />
                             <VortTooltip v-if="activeContact?.remote_node_id" :title="['online', 'running'].includes(activeContact.remote_node_status) ? '工作节点在线' : ['offline', 'stopped', 'error'].includes(activeContact.remote_node_status) ? '工作节点离线' : '工作节点状态未知'">
                                 <span class="inline-block w-2 h-2 rounded-full ml-1.5 flex-shrink-0"
@@ -764,11 +782,11 @@ defineExpose({ currentSessionId, inputText, handleReset, switchSession, handleNe
                             </VortTooltip>
                         </div>
                     </template>
-                    <span v-if="loading" class="ml-3 flex items-center text-xs text-gray-400">
+                    <span v-if="loading" class="ml-3 flex flex-shrink-0 items-center whitespace-nowrap text-xs text-gray-400">
                         <Loader2 :size="14" class="animate-spin mr-1" /> 思考中...
                     </span>
                 </div>
-                <div class="flex items-center gap-2">
+                <div class="flex flex-shrink-0 items-center gap-2">
                     <template v-if="!embedded">
                         <VortTooltip :overlay-style="{ maxWidth: 'none' }">
                             <template #title>
@@ -844,10 +862,11 @@ defineExpose({ currentSessionId, inputText, handleReset, switchSession, handleNe
                         </button>
                     </VortTooltip>
                     <template v-if="embedded">
-                        <VortTooltip title="窗口全屏">
+                        <VortTooltip :title="embeddedExpanded ? '缩小窗口' : '展开半屏'">
                             <button class="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer"
                                 @click="emit('embedded-maximize')">
-                                <Maximize2 :size="14" />
+                                <Minimize2 v-if="embeddedExpanded" :size="14" />
+                                <Maximize2 v-else :size="14" />
                             </button>
                         </VortTooltip>
                         <VortTooltip title="关闭">

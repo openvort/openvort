@@ -22,6 +22,7 @@ export interface ColumnFilterConfig {
     type: FilterType;
     options?: ColumnFilterOption[];
     sortLabels?: [string, string];
+    searchable?: boolean;
 }
 
 export interface ColumnFilterValue {
@@ -53,6 +54,7 @@ const operator = ref<FilterOperator>(props.config.type === "enum" ? "contains" :
 const selectedValues = ref<string[]>([]);
 const dateValue = ref<string>("");
 const dateRange = ref<[string, string]>(["", ""]);
+const enumSearchKeyword = ref("");
 
 const formatDateStr = (d: Date | null): string => {
     if (!d || isNaN(d.getTime())) return "";
@@ -95,6 +97,13 @@ const sortLabels = computed(() => {
         return [`${last} → ${first}`, `${first} → ${last}`];
     }
     return ["升序", "降序"];
+});
+
+const filteredEnumOptions = computed(() => {
+    const opts = props.config.options || [];
+    if (!props.config.searchable || !enumSearchKeyword.value.trim()) return opts;
+    const kw = enumSearchKeyword.value.trim().toLowerCase();
+    return opts.filter(opt => opt.label.toLowerCase().includes(kw));
 });
 
 const hasActiveFilter = computed(() => {
@@ -148,6 +157,7 @@ const updatePosition = () => {
 const toggleOpen = () => {
     if (open.value) {
         open.value = false;
+        enumSearchKeyword.value = "";
     } else {
         open.value = true;
         nextTick(updatePosition);
@@ -158,7 +168,7 @@ const isInsideChildPopup = (target: Node): boolean => {
     const el = target as HTMLElement;
     if (!el.closest) return false;
     return !!el.closest(
-        "[data-radix-popper-content-wrapper], [data-reka-popper-content-wrapper], .vort-datepicker-panel, .vort-range-picker-panel"
+        "[data-radix-popper-content-wrapper], [data-reka-popper-content-wrapper], .vort-datepicker-panel, .vort-range-picker-panel, .vort-select-dropdown"
     );
 };
 
@@ -168,6 +178,7 @@ const handleMouseDown = (e: MouseEvent) => {
     if (triggerRef.value?.contains(target)) return;
     if (panelRef.value?.contains(target)) return;
     if (isInsideChildPopup(target)) return;
+    enumSearchKeyword.value = "";
     open.value = false;
 };
 
@@ -209,6 +220,7 @@ const handleConfirm = () => {
             emit("filter", dateValue.value ? { operator: operator.value, value: dateValue.value } : null);
         }
     }
+    enumSearchKeyword.value = "";
     open.value = false;
 };
 
@@ -216,6 +228,7 @@ const handleClear = () => {
     selectedValues.value = [];
     dateValue.value = "";
     dateRange.value = ["", ""];
+    enumSearchKeyword.value = "";
     if (props.sortOrder) emit("sort", null);
     emit("filter", null);
     open.value = false;
@@ -263,9 +276,16 @@ const handleClear = () => {
                     </Select>
 
                     <template v-if="config.type === 'enum'">
+                        <VortInput
+                            v-if="config.searchable"
+                            v-model="enumSearchKeyword"
+                            placeholder="搜索..."
+                            class="w-full mb-2"
+                            allow-clear
+                        />
                         <div class="enum-options">
                             <div
-                                v-for="opt in config.options"
+                                v-for="opt in filteredEnumOptions"
                                 :key="opt.value"
                                 class="enum-option"
                                 @click="toggleEnumValue(opt.value)"
@@ -282,6 +302,9 @@ const handleClear = () => {
                                 </span>
                                 <span v-else-if="opt.icon" class="enum-icon" :class="opt.iconClass"><StatusIcon :name="opt.icon" :size="14" /></span>
                                 <span class="enum-label">{{ opt.label }}</span>
+                            </div>
+                            <div v-if="config.searchable && enumSearchKeyword.trim() && !filteredEnumOptions.length" class="enum-empty">
+                                无匹配项
                             </div>
                         </div>
                     </template>
@@ -456,6 +479,12 @@ const handleClear = () => {
 .enum-label {
     flex: 1;
     min-width: 0;
+}
+.enum-empty {
+    padding: 16px 4px;
+    text-align: center;
+    color: #999;
+    font-size: 13px;
 }
 .filter-actions {
     display: flex;

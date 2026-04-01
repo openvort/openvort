@@ -546,7 +546,25 @@ class FlowComment(Base):
     entity_type: Mapped[str] = mapped_column(String(32), index=True)  # story/task/bug
     entity_id: Mapped[str] = mapped_column(String(32), index=True)
     author_id: Mapped[str] = mapped_column(String(32), ForeignKey("members.id"), index=True)
+    parent_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
     content: Mapped[str] = mapped_column(Text, default="")
     mentions_json: Mapped[str] = mapped_column(Text, default="[]")  # member_ids mentioned via @
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class FlowDocumentLink(Base):
+    """Work item - knowledge base document association"""
+
+    __tablename__ = "flow_document_links"
+    __table_args__ = (
+        UniqueConstraint("document_id", "entity_type", "entity_id", name="uq_document_workitem"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    document_id: Mapped[str] = mapped_column(String(32), index=True)
+    entity_type: Mapped[str] = mapped_column(String(16), index=True)  # story/task/bug
+    entity_id: Mapped[str] = mapped_column(String(32), index=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_by: Mapped[str | None] = mapped_column(String(32), ForeignKey("members.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

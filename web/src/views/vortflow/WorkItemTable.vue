@@ -332,6 +332,7 @@ const dateFilterConfig: ColumnFilterConfig = { type: "date" };
 
 const tagsFilterConfig = computed<ColumnFilterConfig>(() => ({
     type: "enum",
+    searchable: true,
     options: (dynamicTagOptions.value.length ? dynamicTagOptions.value : baseTagOptions.value).map(t => ({
         label: t,
         value: t,
@@ -341,6 +342,7 @@ const tagsFilterConfig = computed<ColumnFilterConfig>(() => ({
 
 const ownerFilterConfig = computed<ColumnFilterConfig>(() => ({
     type: "enum",
+    searchable: true,
     options: [
         { label: "未指派", value: "__unassigned__" },
         ...memberOptions.value.map(m => ({
@@ -356,6 +358,7 @@ const ownerFilterConfig = computed<ColumnFilterConfig>(() => ({
 
 const collaboratorsFilterConfig = computed<ColumnFilterConfig>(() => ({
     type: "enum",
+    searchable: true,
     options: memberOptions.value.map(m => ({
         label: m.name || m.id,
         value: m.name || m.id,
@@ -368,11 +371,13 @@ const collaboratorsFilterConfig = computed<ColumnFilterConfig>(() => ({
 
 const iterationFilterConfig = computed<ColumnFilterConfig>(() => ({
     type: "enum",
+    searchable: true,
     options: dynamicIterationOptions.value.map(o => ({ label: o.name, value: o.name })),
 }));
 
 const versionFilterConfig = computed<ColumnFilterConfig>(() => ({
     type: "enum",
+    searchable: true,
     options: dynamicVersionOptions.value.map(o => ({ label: o.name, value: o.name })),
 }));
 
@@ -391,11 +396,12 @@ const priorityFilterConfig = computed<ColumnFilterConfig>(() => ({
         value: o.value,
         dotColor: PRIORITY_DOT_COLOR_MAP[o.label] || "#9ca3af",
     })),
-    sortLabels: ["低 → 紧急", "紧急 → 低"] as [string, string],
+    sortLabels: ["紧急 → 低", "低 → 紧急"] as [string, string],
 }));
 
 const creatorFilterConfig = computed<ColumnFilterConfig>(() => ({
     type: "enum",
+    searchable: true,
     options: memberOptions.value.map(m => ({
         label: m.name || m.id,
         value: m.name || m.id,
@@ -424,12 +430,14 @@ const typeFilterConfig = computed<ColumnFilterConfig>(() => ({
 const handleColumnSort = (field: string, order: "ascend" | "descend" | null) => {
     columnSortField.value = order ? field : "";
     columnSortOrder.value = order;
+    if (tableRef.value) tableRef.value.current = 1;
     tableRef.value?.refresh?.();
 };
 
 const handleColumnFilter = (field: string, value: ColumnFilterValue | null) => {
     if (value) columnFilters[field] = value;
     else delete columnFilters[field];
+    if (tableRef.value) tableRef.value.current = 1;
     tableRef.value?.refresh?.();
 };
 
@@ -594,6 +602,7 @@ const {
     handleUpdateCurrentView,
     handleSaveAsNew,
     handleSaveAsNewView,
+    applyViewState,
 } = useWorkItemViewState({
     workItemType: props.type || "",
     currentViewId,
@@ -1105,6 +1114,24 @@ const handleCancelCreateBug = () => {
     createProjectId.value = "";
 };
 
+const handleUnlinkChild = async (child: RowItem) => {
+    if (!child.backendId) return;
+    try {
+        const id = String(child.backendId);
+        if (child.type === "需求") {
+            await updateVortflowStory(id, { parent_id: null });
+        } else if (child.type === "任务") {
+            await updateVortflowTask(id, { parent_id: null });
+        }
+        message.success("已取消关联");
+        const current = detailCurrentRecord.value;
+        if (current) await syncDetailRelations(current);
+        tableRef.value?.refresh?.();
+    } catch {
+        message.error("取消关联失败");
+    }
+};
+
 const handleDetailDelete = async () => {
     const rec = detailCurrentRecord.value;
     if (!rec) return;
@@ -1371,6 +1398,8 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
                         } else if (type === "缺陷") {
                             await addVortflowIterationBug(formData.iteration, { bug_id: createdId });
                         }
+                        createdItem.iteration_id = formData.iteration;
+                        createdItem.iteration_name = apiIterations.value.find((i: any) => i.id === formData.iteration)?.name || "";
                     } catch { /* iteration link failed silently */ }
                 }
                 if (createdId && formData.version) {
@@ -1380,6 +1409,8 @@ const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) =
                         } else if (type === "缺陷") {
                             await addVortflowVersionBug(formData.version, { bug_id: createdId });
                         }
+                        createdItem.version_id = formData.version;
+                        createdItem.version_name = dynamicVersionOptions.value.find((v: any) => v.id === formData.version)?.name || "";
                     } catch { /* version link failed silently */ }
                 }
                 const pinnedRow = mapBackendItemToRow(createdItem, type, 0);
@@ -1684,7 +1715,7 @@ onMounted(async () => {
         }).catch(() => {}),
     ]);
     columnSettings.value = loadColumnSettingsFromStore();
-    resetViewBaseline();
+    applyViewState();
     tableRef.value?.refresh?.();
 
     const action = route.query.action as string;
@@ -2325,6 +2356,7 @@ onMounted(async () => {
                     @copy="handleCopyWorkItem"
                     @open-related="handleOpenRelated"
                     @create-child="handleCreateChild"
+                    @unlink-child="handleUnlinkChild"
                 />
             </template>
             <template v-else>
