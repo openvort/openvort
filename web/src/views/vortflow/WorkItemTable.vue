@@ -430,12 +430,14 @@ const typeFilterConfig = computed<ColumnFilterConfig>(() => ({
 const handleColumnSort = (field: string, order: "ascend" | "descend" | null) => {
     columnSortField.value = order ? field : "";
     columnSortOrder.value = order;
+    if (tableRef.value) tableRef.value.current = 1;
     tableRef.value?.refresh?.();
 };
 
 const handleColumnFilter = (field: string, value: ColumnFilterValue | null) => {
     if (value) columnFilters[field] = value;
     else delete columnFilters[field];
+    if (tableRef.value) tableRef.value.current = 1;
     tableRef.value?.refresh?.();
 };
 
