@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { ProTable, type ProTableColumn } from "@/components/vort-biz/pro-table";
-import { Pencil } from "lucide-vue-next";
+import { Pencil, Bookmark, SquareCheck, Bug } from "lucide-vue-next";
+import type { Component } from "vue";
 import StatusIcon from "@/components/vort-biz/work-item/StatusIcon.vue";
 import type { RowItem, Priority, Status, WorkType, DateRange } from "./types";
 import {
@@ -34,10 +35,10 @@ const getWorkTypeIconClass = (type: WorkType): string => {
     return "work-type-icon-bug";
 };
 
-const getWorkTypeIconSymbol = (type: WorkType): string => {
-    if (type === "需求") return "≡";
-    if (type === "任务") return "☑";
-    return "✹";
+const getWorkTypeIcon = (type: WorkType): Component => {
+    if (type === "需求") return Bookmark;
+    if (type === "任务") return SquareCheck;
+    return Bug;
 };
 
 const avatarBgPalette = ["#2f80ed", "#5b8ff9", "#9b59b6", "#27ae60", "#f39c12", "#e67e22", "#16a085", "#8e44ad"];
@@ -267,16 +268,7 @@ const onReset = () => {
                 <template #title="{ text, record }">
                     <button class="title-link-cell" :title="text" @click.stop="props.state.handleOpenBugDetail(record)">
                         <span class="work-type-icon" :class="getWorkTypeIconClass(record.type)">
-                            <svg v-if="record.type === '缺陷'" class="work-type-icon-svg" viewBox="0 0 24 24" aria-hidden="true">
-                                <circle cx="12" cy="7.5" r="3.2" fill="white" />
-                                <rect x="8" y="10.5" width="8" height="9" rx="3.8" fill="white" />
-                                <rect x="11.2" y="10.8" width="1.6" height="8.6" rx="0.8" fill="#ef4444" />
-                                <path d="M8.3 12.3H5.2M8.1 15.1H4.8M15.9 12.3H18.8M16.1 15.1H19.2" stroke="white" stroke-width="1.5" stroke-linecap="round" />
-                                <path d="M10.2 4.8 8.7 3.3M13.8 4.8 15.3 3.3" stroke="white" stroke-width="1.5" stroke-linecap="round" />
-                            </svg>
-                            <template v-else>
-                                {{ getWorkTypeIconSymbol(record.type) }}
-                            </template>
+                            <component :is="getWorkTypeIcon(record.type)" :size="12" />
                         </span>
                         <span class="title-link-text">{{ text }}</span>
                     </button>
@@ -543,11 +535,6 @@ const onReset = () => {
 
 .work-type-icon-task {
     @apply bg-green-500;
-}
-
-.work-type-icon-svg {
-    width: 16px;
-    height: 16px;
 }
 
 .status-arrow-simple {

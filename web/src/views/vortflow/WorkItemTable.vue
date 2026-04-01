@@ -130,7 +130,7 @@ const {
     getMemberIdByName,
     getMemberNameById,
     getWorkItemTypeIconClass,
-    getWorkItemTypeIconSymbol,
+    getWorkItemTypeIcon,
     mapBackendStateToStatus,
     mapBackendPriority,
     formatCnTime,
@@ -1009,6 +1009,8 @@ const {
 
 const tableRef = ref<any>(null);
 const refreshKey = ref(0);
+const mountedReady = ref(false);
+const initialLoading = ref(true);
 
 const queryParams = computed(() => ({
     keyword: keyword.value,
@@ -1035,10 +1037,12 @@ watch(() => props.projectId, () => {
 });
 
 watch(() => props.viewFilters, () => {
+    if (!mountedReady.value) return;
     tableRef.value?.refresh?.();
 }, { deep: true });
 
 watch(builtInViewFilters, () => {
+    if (!mountedReady.value) return;
     tableRef.value?.refresh?.();
 }, { deep: true });
 
@@ -1709,14 +1713,16 @@ onMounted(async () => {
         loadTagDefinitions(),
         loadStatusOptions(),
         vortFlowStore.loadColumnSettings(props.type || ""),
-        vortFlowStore.loadViews(props.type || ""),
+        vortFlowStore.loadViews(),
         getVortflowDescriptionTemplates().then((res: any) => {
             if (res?.items) remoteTemplates.value = res.items;
         }).catch(() => {}),
     ]);
     columnSettings.value = loadColumnSettingsFromStore();
     applyViewState();
-    tableRef.value?.refresh?.();
+    mountedReady.value = true;
+    initialLoading.value = false;
+    refreshTable();
 
     const action = route.query.action as string;
     const id = route.query.id as string;
@@ -1855,6 +1861,7 @@ onMounted(async () => {
                 :columns="columns"
                 :request="request"
                 :immediate="false"
+                :loading="initialLoading"
                 :post-process-data="postProcessTableRows"
                 :params="queryParams"
                 :row-key="rowKeyGetter"
@@ -1945,7 +1952,7 @@ onMounted(async () => {
                             <span v-else class="story-expand-placeholder"></span>
                             
                             <span class="work-type-icon" :class="getWorkItemTypeIconClass(record.type)">
-                                {{ getWorkItemTypeIconSymbol(record.type) }}
+                                <component :is="getWorkItemTypeIcon(record.type)" :size="12" />
                             </span>
 
                             <span class="title-link-text" :class="{ 'story-child-text': record.isChild }">{{ text }}</span>

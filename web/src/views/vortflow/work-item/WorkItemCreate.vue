@@ -57,7 +57,7 @@ const {
     loadMemberOptions,
     ownerGroups,
     getWorkItemTypeIconClass,
-    getWorkItemTypeIconSymbol,
+    getWorkItemTypeIcon,
 } = useWorkItemCommon();
 
 const FALLBACK_TEMPLATES: Record<WorkItemType, string> = {
@@ -836,7 +836,7 @@ watch(() => createBugForm.repo, async (value, oldValue) => {
                     <div class="create-readonly-field">
                         <div class="create-readonly-title">
                             <span class="work-type-icon-small create-parent-icon" :class="getWorkItemTypeIconClass('任务')">
-                                {{ getWorkItemTypeIconSymbol("任务") }}
+                                <component :is="getWorkItemTypeIcon('任务')" :size="12" />
                             </span>
                             <span class="create-readonly-no">{{ taskParentRecord?.workNo || createBugForm.parentId }}</span>
                             <span class="create-readonly-main">{{ taskParentRecord?.title || "已选择父任务" }}</span>

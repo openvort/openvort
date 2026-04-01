@@ -1,6 +1,7 @@
-import { ref } from "vue";
+import { ref, type Component } from "vue";
 import { getMembersSimple, getVortflowStatuses } from "@/api";
 import { resolveIconKey } from "@/components/vort-biz/work-item/statusIcons";
+import { Bookmark, SquareCheck, Bug } from "lucide-vue-next";
 import type {
     WorkItemType,
     Priority,
@@ -267,10 +268,10 @@ export function useWorkItemCommon() {
         return "work-type-icon-bug";
     };
 
-    const getWorkItemTypeIconSymbol = (type: WorkItemType): string => {
-        if (type === "需求") return "≡";
-        if (type === "任务") return "☑";
-        return "✹";
+    const getWorkItemTypeIcon = (type: WorkItemType): Component => {
+        if (type === "需求") return Bookmark;
+        if (type === "任务") return SquareCheck;
+        return Bug;
     };
 
     const FALLBACK_STATE_MAP: Record<WorkItemType, Record<string, Status>> = {
@@ -372,7 +373,7 @@ export function useWorkItemCommon() {
         getMemberIdByName,
         getMemberNameById,
         getWorkItemTypeIconClass,
-        getWorkItemTypeIconSymbol,
+        getWorkItemTypeIcon,
         mapBackendStateToStatus,
         mapBackendPriority,
         formatCnTime,

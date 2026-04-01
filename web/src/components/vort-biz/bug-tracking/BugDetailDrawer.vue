@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { Pencil } from "lucide-vue-next";
+import { Pencil, Bookmark, SquareCheck, Bug } from "lucide-vue-next";
+import type { Component } from "vue";
 import StatusIcon from "@/components/vort-biz/work-item/StatusIcon.vue";
 import type { RowItem, Priority, Status, WorkType, DateRange, DetailComment, DetailLog } from "./types";
 import {
@@ -33,6 +34,17 @@ const getTagColor = (name: string): string => {
     return tagColorPalette[Math.abs(hash) % tagColorPalette.length]!;
 };
 
+const getWorkTypeIconClass = (type: WorkType): string => {
+    if (type === "需求") return "bg-blue-500";
+    if (type === "任务") return "bg-green-500";
+    return "bg-red-500";
+};
+const getWorkTypeIcon = (type: WorkType): Component => {
+    if (type === "需求") return Bookmark;
+    if (type === "任务") return SquareCheck;
+    return Bug;
+};
+
 const hasDetailRecord = computed(() => !!props.state.detailCurrentRecord.value);
 
 const closeDrawer = () => {
@@ -53,9 +65,9 @@ const closeDrawer = () => {
                 <div class="flex items-start gap-3 mb-3">
                     <span
                         class="w-8 h-8 rounded flex items-center justify-center text-white text-sm flex-shrink-0"
-                        :class="props.state.detailCurrentRecord.value?.type === '缺陷' ? 'bg-red-500' : props.state.detailCurrentRecord.value?.type === '需求' ? 'bg-blue-500' : 'bg-green-500'"
+                        :class="getWorkTypeIconClass(props.state.detailCurrentRecord.value?.type as WorkType)"
                     >
-                        {{ props.state.detailCurrentRecord.value?.type === '缺陷' ? '✹' : props.state.detailCurrentRecord.value?.type === '需求' ? '≡' : '☑' }}
+                        <component :is="getWorkTypeIcon(props.state.detailCurrentRecord.value?.type as WorkType)" :size="16" />
                     </span>
                     <div class="flex-1 min-w-0">
                         <h3 class="text-lg font-medium text-gray-900 break-words">{{ props.state.detailCurrentRecord.value?.title }}</h3>

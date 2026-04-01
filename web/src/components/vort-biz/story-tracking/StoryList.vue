@@ -14,7 +14,7 @@ import {
     getVortflowStoryTransitions, generateVortflowDescriptionPrompt,
     getMembersSimple,
 } from "@/api";
-import { Plus, ArrowRight, Bot, Pencil } from "lucide-vue-next";
+import { Plus, ArrowRight, Bot, Pencil, Bookmark } from "lucide-vue-next";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
 import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
 import AiAssistButton from "@/components/vort-biz/ai-assist-button/AiAssistButton.vue";
@@ -727,7 +727,7 @@ loadData();
             <div v-if="drawerMode === 'view'">
                 <!-- Header -->
                 <div class="flex items-center gap-3 mb-4">
-                    <span class="work-type-icon-demand text-2xl">≡</span>
+                    <span class="work-type-icon-demand"><Bookmark :size="20" /></span>
                     <span class="work-no-display">{{ currentRow.workNo }}</span>
                     <vort-tag :color="stateColorMap[currentRow.state!] || 'default'">{{ getRowDisplayStatus(currentRow) }}</vort-tag>
                 </div>
@@ -881,8 +881,14 @@ loadData();
 
 <style scoped>
 .work-type-icon-demand {
-    font-size: 20px;
-    color: #3b82f6;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    color: white;
 }
 .work-no-display {
     font-family: monospace;

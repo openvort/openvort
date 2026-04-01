@@ -91,6 +91,9 @@ const upgradeMessage = ref("");
 const upgradeError = ref("");
 const upgradeRunning = ref(false);
 const upgradeDone = ref(false);
+const upgradePercent = ref<number | null>(null);
+const upgradeCurrentStep = ref(0);
+const upgradeTotalSteps = ref(0);
 
 const openUpgradeDialog = () => {
     showUpgradeDialog.value = true;
@@ -99,6 +102,9 @@ const openUpgradeDialog = () => {
     upgradeError.value = "";
     upgradeRunning.value = false;
     upgradeDone.value = false;
+    upgradePercent.value = null;
+    upgradeCurrentStep.value = 0;
+    upgradeTotalSteps.value = 0;
 };
 
 const startUpgrade = () => {
@@ -138,6 +144,9 @@ const startUpgrade = () => {
                     if (ev.type === "progress") {
                         upgradeStep.value = ev.step || "";
                         upgradeMessage.value = ev.message || "";
+                        upgradePercent.value = ev.percent ?? null;
+                        upgradeCurrentStep.value = ev.current_step ?? 0;
+                        upgradeTotalSteps.value = ev.total_steps ?? 0;
                     } else if (ev.type === "done") {
                         upgradeDone.value = true;
                         upgradeRunning.value = false;
@@ -294,11 +303,16 @@ const stepLabel = computed(() => {
                             <div class="flex flex-col items-center gap-4 py-6">
                                 <Loader2 :size="32" class="text-blue-500 animate-spin" />
                                 <div class="text-center">
-                                    <div class="text-sm font-medium text-gray-800">{{ stepLabel || '准备中...' }}</div>
+                                    <div class="text-sm font-medium text-gray-800">
+                                        {{ stepLabel || '准备中...' }}
+                                        <span v-if="upgradeTotalSteps" class="text-gray-400 font-normal text-xs ml-1">({{ upgradeCurrentStep }}/{{ upgradeTotalSteps }})</span>
+                                    </div>
                                     <div class="text-xs text-gray-500 mt-1">{{ upgradeMessage }}</div>
                                 </div>
                                 <div class="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
-                                    <div class="bg-blue-500 h-full rounded-full transition-all duration-500 animate-pulse" style="width: 70%"></div>
+                                    <div class="bg-blue-500 h-full rounded-full transition-all duration-300"
+                                         :class="{ 'animate-pulse': upgradePercent == null }"
+                                         :style="{ width: (upgradePercent ?? 15) + '%' }"></div>
                                 </div>
                                 <p class="text-[11px] text-gray-400">请勿关闭页面或刷新浏览器</p>
                             </div>
