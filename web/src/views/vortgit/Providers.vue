@@ -3,7 +3,7 @@ import { ref, onMounted, onActivated, computed, watch } from "vue";
 import { z } from "zod";
 import { useCrudPage } from "@/hooks";
 import { getVortgitProviders, createVortgitProvider, updateVortgitProvider, deleteVortgitProvider, getVortgitCodingEnvStatus } from "@/api";
-import { Plus, Eye, EyeOff, RefreshCw, CheckCircle2, XCircle, AlertCircle, Terminal, Container } from "lucide-vue-next";
+import { Plus, Eye, EyeOff, Pencil, X, RefreshCw, CheckCircle2, XCircle, AlertCircle, Terminal, Container } from "lucide-vue-next";
 import { message } from "@openvort/vort-ui";
 
 interface ProviderItem {
@@ -67,6 +67,7 @@ const currentRow = ref<Partial<ProviderItem & { access_token: string }>>({});
 const formRef = ref();
 const saving = ref(false);
 const showToken = ref(false);
+const editingToken = ref(false);
 
 const providerValidationSchema = z.object({
     name: z.string().min(1, '平台名称不能为空'),
@@ -87,6 +88,7 @@ const handleAdd = () => {
         access_token: ""
     };
     showToken.value = false;
+    editingToken.value = true;
     drawerVisible.value = true;
 };
 const handleEdit = (row: ProviderItem) => {
@@ -94,6 +96,7 @@ const handleEdit = (row: ProviderItem) => {
     drawerTitle.value = "编辑平台";
     currentRow.value = { ...row, access_token: "" };
     showToken.value = false;
+    editingToken.value = false;
     drawerVisible.value = true;
 };
 const handleView = (row: ProviderItem) => {
@@ -119,7 +122,7 @@ const handleSave = async () => {
             message.success("添加成功");
         } else {
             const update: any = { name: data.name, platform: data.platform, api_base: data.api_base, is_default: data.is_default };
-            if (data.access_token) update.access_token = data.access_token;
+            if (editingToken.value && data.access_token) update.access_token = data.access_token;
             await updateVortgitProvider(data.id!, update);
             message.success("更新成功");
         }
@@ -375,17 +378,32 @@ watch(() => currentRow.value.platform, (newPlatform) => {
                         </div>
                     </vort-form-item>
                     <vort-form-item label="Access Token" name="access_token">
-                        <div class="flex items-center gap-2 w-full">
-                            <vort-input
-                                v-model="currentRow.access_token"
-                                :type="showToken ? 'text' : 'password'"
-                                :placeholder="drawerMode === 'edit' ? '留空不修改' : '输入平台 Token'"
-                                class="flex-1"
-                            />
-                            <vort-button size="small" @click="showToken = !showToken">
-                                <component :is="showToken ? EyeOff : Eye" :size="14" />
-                            </vort-button>
-                        </div>
+                        <template v-if="drawerMode === 'edit' && !editingToken">
+                            <div class="flex items-center gap-2 w-full">
+                                <span v-if="currentRow.has_token" class="text-sm text-gray-700 tracking-widest">••••••••••••</span>
+                                <span v-else class="text-sm text-gray-400">未配置</span>
+                                <vort-tag v-if="currentRow.has_token" color="green" size="small">已配置</vort-tag>
+                                <vort-button size="small" @click="editingToken = true">
+                                    <Pencil :size="12" class="mr-1" />{{ currentRow.has_token ? '修改' : '配置' }}
+                                </vort-button>
+                            </div>
+                        </template>
+                        <template v-else>
+                            <div class="flex items-center gap-2 w-full">
+                                <vort-input
+                                    v-model="currentRow.access_token"
+                                    :type="showToken ? 'text' : 'password'"
+                                    placeholder="输入平台 Token"
+                                    class="flex-1"
+                                />
+                                <vort-button size="small" @click="showToken = !showToken">
+                                    <component :is="showToken ? EyeOff : Eye" :size="14" />
+                                </vort-button>
+                                <vort-button v-if="drawerMode === 'edit'" size="small" @click="editingToken = false; currentRow.access_token = ''">
+                                    <X :size="14" />
+                                </vort-button>
+                            </div>
+                        </template>
                         <div v-if="currentPlatformInfo" class="text-xs text-blue-500 mt-1 leading-relaxed">
                             💡 {{ currentPlatformInfo.tokenGuide }}
                         </div>
