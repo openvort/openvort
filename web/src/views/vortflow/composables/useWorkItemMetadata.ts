@@ -80,8 +80,12 @@ export function useWorkItemMetadata(options: UseWorkItemMetadataOptions) {
 
     const loadIterationOptions = async () => {
         if (!unref(useApi)) return;
+        const projectId = getActiveProjectId();
         try {
-            const res: any = await getVortflowIterations({ page_size: 200 });
+            const res: any = await getVortflowIterations({
+                ...(projectId ? { project_id: projectId } : {}),
+                page_size: 200,
+            });
             apiIterations.value = ((res?.items || []) as any[])
                 .map((i: any) => ({ id: String(i.id || ""), name: String(i.name || "") }))
                 .filter((i) => i.id && i.name);
