@@ -57,13 +57,15 @@ onUnmounted(() => {
     if (popupCloseTimer) window.clearTimeout(popupCloseTimer);
 });
 
+const DEFAULT_EXPANDED_MENUS = ["VortFlow"];
+
 const loadExpandedMenus = () => {
     if (typeof window === "undefined") return;
     try {
         const raw = window.localStorage.getItem(SUBMENU_STATE_KEY);
-        expandedMenus.value = raw ? JSON.parse(raw) : [];
+        expandedMenus.value = raw ? JSON.parse(raw) : [...DEFAULT_EXPANDED_MENUS];
     } catch {
-        expandedMenus.value = [];
+        expandedMenus.value = [...DEFAULT_EXPANDED_MENUS];
     }
 };
 

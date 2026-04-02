@@ -6,7 +6,9 @@
 [![Vue 3](https://img.shields.io/badge/Vue-3.5-brightgreen.svg)](https://vuejs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115%2B-009688.svg)](https://fastapi.tiangolo.com/)
 
-[官网](https://openvort.com) | [文档](https://openvort.com/docs) | [扩展市场](https://openvort.com/extensions) | [社区](https://openvort.com/community)
+[官网](https://openvort.com) | [在线演示](http://demo.openvort.com/login?isDemo=1) | [文档](https://openvort.com/docs) | [扩展市场](https://openvort.com/extensions) | [社区](https://openvort.com/community)
+
+> **[>>> 在线 Demo 演示 <<<](http://demo.openvort.com/login?isDemo=1)** — 无需安装，立即体验
 
 开源 AI 员工平台 — 创建 AI 员工，让他们与真人一起在企业微信、钉钉、飞书里协作，就像多招了几个同事。
 
