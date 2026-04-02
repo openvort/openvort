@@ -92,7 +92,6 @@ function handleSaveWidgets(updated: WidgetConfig[]) {
             v-if="!llmConfigured"
             type="warning"
             show-icon
-            closable
             message="AI 功能未配置"
             description="尚未设置 LLM API Key，AI 对话等功能暂不可用。"
         >

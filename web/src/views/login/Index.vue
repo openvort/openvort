@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive } from "vue";
 import { z } from "zod";
-import { useRouter } from "vue-router";
+import { useRouter, useRoute } from "vue-router";
 import { useUserStore } from "@/stores";
 import openvortLogo from "@/assets/brand/openvort-logo.png";
 import { User, Lock } from "lucide-vue-next";
@@ -9,13 +9,16 @@ import { message } from "@openvort/vort-ui";
 import { login } from "@/api";
 
 const router = useRouter();
+const route = useRoute();
 const userStore = useUserStore();
+
+const isDemo = route.query.isDemo === "1";
 
 const loading = ref(false);
 const formRef = ref();
 const formData = reactive({
-    userId: "",
-    password: "",
+    userId: isDemo ? "demo" : "",
+    password: isDemo ? "openvort" : "",
 });
 
 const loginValidationSchema = z.object({

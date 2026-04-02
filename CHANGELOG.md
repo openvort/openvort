@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.10.2] - 2026-04-02
+
+### Improved
+
+- AI provider editor conditionally renders Access Token input field based on provider type
+- Chat session switcher component layout and spacing improvements
+- Work item metadata loading filters iterations by project ID for better accuracy
+- Unified field change record format across work item modules
+- Docker base image optimized with Alibaba Cloud PostgreSQL mirrors and added xz-utils dependency
+
 ## [0.10.1] - 2026-04-01
 
 ### Improved

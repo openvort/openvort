@@ -389,7 +389,7 @@ onMounted(() => { loadModules(); loadData(); });
         <div class="tc-sidebar">
             <div class="tc-sidebar-header">
                 <span class="tc-sidebar-title">功能模块</span>
-                <div class="tc-sidebar-actions">
+                <div v-if="currentProjectId" class="tc-sidebar-actions">
                     <button class="tc-sidebar-icon-btn" @click="toggleSearch" title="搜索模块">
                         <Search :size="14" />
                     </button>
@@ -406,6 +406,13 @@ onMounted(() => { loadModules(); loadData(); });
             </div>
 
             <div class="tc-sidebar-body" @dragover="onRootDragOver" @drop="onRootDrop">
+                <!-- Empty state when no project selected -->
+                <div v-if="!currentProjectId" class="tc-sidebar-empty">
+                    <Folder :size="28" class="tc-sidebar-empty-icon" />
+                    <p class="tc-sidebar-empty-text">请先切换到具体项目后<br/>查看功能模块目录</p>
+                </div>
+
+                <template v-else>
                 <!-- All Cases root node -->
                 <div class="tc-module-node tc-module-root" :class="{ active: !selectedModuleId }" @click="selectModule('')">
                     <FolderOpen :size="14" class="tc-module-icon" />
@@ -511,6 +518,7 @@ onMounted(() => { loadModules(); loadData(); });
                             @blur="cancelAddModule"
                         />
                     </div>
+                </template>
                 </template>
             </div>
         </div>
@@ -825,6 +833,27 @@ onMounted(() => { loadModules(); loadData(); });
     border-radius: 4px;
     outline: none;
     background: var(--vort-bg);
+}
+
+.tc-sidebar-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 16px;
+    gap: 12px;
+}
+
+.tc-sidebar-empty-icon {
+    color: var(--vort-text-quaternary, #d0d0d0);
+}
+
+.tc-sidebar-empty-text {
+    font-size: 13px;
+    color: var(--vort-text-tertiary, #999);
+    text-align: center;
+    line-height: 1.6;
+    margin: 0;
 }
 
 .tc-main {
