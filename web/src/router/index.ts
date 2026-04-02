@@ -124,7 +124,7 @@ router.beforeEach(async (to, _from, next) => {
     }
 
     const requiredRole = to.meta.requiredRole as string | undefined;
-    if (requiredRole && !userStore.userInfo.roles.includes(requiredRole)) {
+    if (requiredRole && !userStore.hasRole(requiredRole)) {
         next("/chat");
         return;
     }

@@ -28,6 +28,14 @@ BUILTIN_ROLES = [
         "dashboard.view", "schedules.use",
     ]},
     {"name": "guest", "display_name": "访客", "permissions": []},
+    {"name": "demo", "display_name": "演示账号", "permissions": [
+        "contacts.search",
+        "members.view", "departments.view",
+        "plugins.view", "skills.view", "channels.view",
+        "logs.view", "dashboard.view",
+        "schedules.use", "webhooks.view", "agents.view",
+        "settings.view",
+    ]},
 ]
 
 # 内置权限定义

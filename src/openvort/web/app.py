@@ -17,35 +17,40 @@ from openvort.utils.logging import get_logger
 
 _log_app = get_logger("web.app")
 
+DEMO_READONLY_ERROR = "演示账号无操作权限"
+
+
+def _extract_payload(conn: HTTPConnection) -> dict | None:
+    """Extract and verify JWT payload from request headers or query params."""
+    auth = conn.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        token = conn.query_params.get("token", "")
+    else:
+        token = auth[7:]
+    if not token:
+        return None
+    return verify_token(token)
+
 
 def require_auth(conn: HTTPConnection) -> dict:
     """JWT 认证依赖 — 所有登录用户。WebSocket 端点自行鉴权，此处跳过。"""
     if conn.scope.get("type") == "websocket":
         return {}
 
-    auth = conn.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
-        token = conn.query_params.get("token", "")
-    else:
-        token = auth[7:]
-
-    if not token:
-        raise HTTPException(status_code=401, detail="未登录")
-
-    payload = verify_token(token)
+    payload = _extract_payload(conn)
     if not payload:
-        raise HTTPException(status_code=401, detail="Token 无效或已过期")
+        raise HTTPException(status_code=401, detail="未登录")
     return payload
 
 
 def require_admin(conn: HTTPConnection) -> dict:
-    """管理员权限依赖 — 仅 admin 角色。WebSocket 端点自行鉴权，此处跳过。"""
+    """管理员权限依赖 — admin 或 demo（只读）角色。WebSocket 端点自行鉴权，此处跳过。"""
     if conn.scope.get("type") == "websocket":
         return {}
 
     payload = require_auth(conn)
     roles = payload.get("roles", [])
-    if "admin" not in roles:
+    if "admin" not in roles and "demo" not in roles:
         raise HTTPException(status_code=403, detail="需要管理员权限")
     return payload
 
@@ -122,6 +127,28 @@ def create_app() -> FastAPI:
             return response
 
     app.add_middleware(NoCacheAPIMiddleware)
+
+    _DEMO_WRITE_WHITELIST = {"/api/auth/login"}
+
+    class DemoReadonlyMiddleware(BaseHTTPMiddleware):
+        """Block non-GET API requests for demo users."""
+
+        async def dispatch(self, request: Request, call_next):
+            if (
+                request.method not in ("GET", "HEAD", "OPTIONS")
+                and request.url.path.startswith("/api/")
+                and request.url.path not in _DEMO_WRITE_WHITELIST
+            ):
+                payload = _extract_payload(request)
+                if payload and "demo" in payload.get("roles", []):
+                    from starlette.responses import JSONResponse
+                    return JSONResponse(
+                        status_code=403,
+                        content={"detail": DEMO_READONLY_ERROR},
+                    )
+            return await call_next(request)
+
+    app.add_middleware(DemoReadonlyMiddleware)
 
     # 注册路由
     from openvort.web.routers import (
