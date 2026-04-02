@@ -754,7 +754,7 @@ defineExpose({ currentSessionId, inputText, handleReset, switchSession, handleNe
                     <!-- AI mode: session switcher -->
                     <template v-if="isAiMode">
                         <img :src="aiAvatarUrl" :class="embedded ? 'w-4 h-4 mr-1.5' : 'w-5 h-5 mr-2'" class="flex-shrink-0 rounded-full object-cover" />
-                        <div class="min-w-0">
+                        <div class="min-w-0 flex-1 overflow-hidden">
                             <SessionSwitcher
                                 ref="sessionSwitcherRef"
                                 :current-session-id="currentSessionId"
