@@ -435,7 +435,7 @@ async def get_virtual_member_stats():
         result = await db.execute(stmt)
         session_stats = {row.target_id: row for row in result.all()}
 
-        today_start = datetime.utcnow().replace(
+        today_start = datetime.now().replace(
             hour=0, minute=0, second=0, microsecond=0
         )
         today_stmt = (

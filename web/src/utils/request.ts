@@ -27,6 +27,7 @@ request.interceptors.response.use(
         return response.data;
     },
     (error) => {
+        const detail = error.response?.data?.detail || "";
         if (error.response?.status === 401) {
             const isLoginRequest = error.config?.url?.includes("/auth/login");
             if (!isLoginRequest) {
@@ -34,8 +35,10 @@ request.interceptors.response.use(
                 userStore.logout();
                 window.location.href = "/login";
             }
+        } else if (error.response?.status === 403 && detail === "演示账号无操作权限") {
+            message.warning("演示账号无操作权限");
         } else if (!error.config?.skipErrorMessage) {
-            message.error(error.response?.data?.detail || error.response?.data?.message || "请求失败");
+            message.error(detail || error.response?.data?.message || "请求失败");
         }
         return Promise.reject(error);
     }

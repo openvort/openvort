@@ -90,10 +90,9 @@ const iconMap: Record<string, any> = {
 };
 
 const filterByRole = (items: MenuConfig[]) => {
-    const roles = userStore.userInfo.roles || [];
     return items.filter(item => {
         if (!item.requiredRole) return true;
-        return roles.includes(item.requiredRole);
+        return userStore.hasRole(item.requiredRole);
     });
 };
 

@@ -22,7 +22,7 @@ const updateAvailable = ref(false);
 const latestVersion = ref("");
 const releaseNotes = ref("");
 
-const isAdmin = computed(() => userStore.userInfo.roles.includes("admin"));
+const isAdmin = computed(() => userStore.isAdmin);
 
 const checkVersionUpdate = (serverVersion: string) => {
     if (!serverVersion) return;

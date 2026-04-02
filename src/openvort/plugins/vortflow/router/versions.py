@@ -95,18 +95,21 @@ async def update_version(version_id: str, body: VersionUpdate):
         for field in ["name", "description", "status", "owner_id", "progress"]:
             val = getattr(body, field)
             if val is not None:
+                old_val = getattr(v, field)
                 if field == "progress":
                     val = max(0, min(100, int(val)))
-                changes[field] = val
+                changes[field] = {"from": old_val, "to": val}
                 setattr(v, field, val)
         if body.planned_release_at is not None or body.release_date is not None:
+            old_val = str(v.planned_release_at) if v.planned_release_at else None
             planned = _parse_dt(body.planned_release_at) if body.planned_release_at is not None else _parse_dt(body.release_date)
             v.planned_release_at = planned
             v.release_date = planned
-            changes["planned_release_at"] = body.planned_release_at or body.release_date
+            changes["planned_release_at"] = {"from": old_val, "to": body.planned_release_at or body.release_date}
         if body.actual_release_at is not None:
+            old_val = str(v.actual_release_at) if v.actual_release_at else None
             v.actual_release_at = _parse_dt(body.actual_release_at)
-            changes["actual_release_at"] = body.actual_release_at
+            changes["actual_release_at"] = {"from": old_val, "to": body.actual_release_at}
         if changes:
             await _log_event(session, "version", version_id, "updated", changes)
         await session.commit()

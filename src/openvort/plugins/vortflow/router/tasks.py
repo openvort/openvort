@@ -216,40 +216,48 @@ async def update_task(task_id: str, body: TaskUpdate, request: Request):
         old_deadline = str(t.deadline) if t.deadline else None
         changes = {}
         if body.project_id is not None:
+            old_val = t.project_id
             t.project_id = body.project_id or None
-            changes["project_id"] = body.project_id
+            changes["project_id"] = {"from": old_val, "to": body.project_id}
         for field in ["title", "description", "task_type", "state", "assignee_id", "estimate_hours", "actual_hours"]:
             val = getattr(body, field)
             if val is not None:
-                changes[field] = val
+                old_val = getattr(t, field)
+                changes[field] = {"from": old_val, "to": val}
                 setattr(t, field, val)
         if body.tags is not None:
+            old_tags = _parse_json_list(t.tags_json)
             t.tags_json = json.dumps(body.tags, ensure_ascii=False)
-            changes["tags"] = body.tags
+            changes["tags"] = {"from": old_tags, "to": body.tags}
         if body.collaborators is not None:
             t.collaborators_json = json.dumps(body.collaborators, ensure_ascii=False)
-            changes["collaborators"] = body.collaborators
+            changes["collaborators"] = {"from": old_collaborators, "to": body.collaborators}
         if body.attachments is not None:
             t.attachments_json = json.dumps(body.attachments, ensure_ascii=False)
             changes["attachments"] = body.attachments
         if body.deadline is not None:
             t.deadline = _parse_dt(body.deadline)
-            changes["deadline"] = body.deadline
+            changes["deadline"] = {"from": old_deadline, "to": body.deadline}
         if body.start_at is not None:
+            old_val = str(t.start_at) if t.start_at else None
             t.start_at = _parse_dt(body.start_at)
-            changes["start_at"] = body.start_at
+            changes["start_at"] = {"from": old_val, "to": body.start_at}
         if body.end_at is not None:
+            old_val = str(t.end_at) if t.end_at else None
             t.end_at = _parse_dt(body.end_at)
-            changes["end_at"] = body.end_at
+            changes["end_at"] = {"from": old_val, "to": body.end_at}
         if body.repo_id is not None:
+            old_val = t.repo_id
             t.repo_id = body.repo_id or None
-            changes["repo_id"] = body.repo_id
+            changes["repo_id"] = {"from": old_val, "to": body.repo_id}
         if body.branch is not None:
+            old_val = t.branch
             t.branch = body.branch
-            changes["branch"] = body.branch
+            changes["branch"] = {"from": old_val, "to": body.branch}
         if body.progress is not None:
+            old_val = t.progress
             t.progress = max(0, min(100, body.progress))
-            changes["progress"] = t.progress
+            changes["progress"] = {"from": old_val, "to": t.progress}
         if changes:
             await _log_event(session, "task", task_id, "updated", changes, actor_id=actor_id)
         await session.commit()

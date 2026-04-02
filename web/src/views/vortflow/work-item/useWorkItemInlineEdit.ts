@@ -310,12 +310,15 @@ export function useWorkItemInlineEdit(options: UseWorkItemInlineEditOptions) {
         const end = normalizeDateValue(value[1]);
         if (!end) return null;
         const endDate = new Date(end + "T00:00:00");
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const diffMs = today.getTime() - endDate.getTime();
-        const diffDays = Math.floor(diffMs / 86400000);
+        const isDone = DONE_STATUSES.has(record.status);
+        const refDate = new Date();
+        if (isDone && record._updatedAtRaw) {
+            refDate.setTime(new Date(record._updatedAtRaw).getTime());
+        }
+        refDate.setHours(0, 0, 0, 0);
+        const diffDays = Math.floor((refDate.getTime() - endDate.getTime()) / 86400000);
         if (diffDays <= 0) return null;
-        return { days: diffDays, completed: DONE_STATUSES.has(record.status) };
+        return { days: diffDays, completed: isDone };
     };
 
     const togglePlanTimeMenu = (workNo: string, record?: RowItem, text?: DateRange) => {

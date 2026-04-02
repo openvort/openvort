@@ -149,14 +149,17 @@ async def update_iteration(iteration_id: str, body: IterationUpdate):
         for field in ["name", "goal", "status", "owner_id", "estimate_hours"]:
             val = getattr(body, field)
             if val is not None:
-                changes[field] = val
+                old_val = getattr(i, field)
+                changes[field] = {"from": old_val, "to": val}
                 setattr(i, field, val)
         if body.start_date is not None:
+            old_val = str(i.start_date) if i.start_date else None
             i.start_date = _parse_dt(body.start_date)
-            changes["start_date"] = body.start_date
+            changes["start_date"] = {"from": old_val, "to": body.start_date}
         if body.end_date is not None:
+            old_val = str(i.end_date) if i.end_date else None
             i.end_date = _parse_dt(body.end_date)
-            changes["end_date"] = body.end_date
+            changes["end_date"] = {"from": old_val, "to": body.end_date}
         if changes:
             await _log_event(session, "iteration", iteration_id, "updated", changes)
         await session.commit()

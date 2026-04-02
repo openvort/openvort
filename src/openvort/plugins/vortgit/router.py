@@ -197,8 +197,8 @@ async def update_provider(provider_id: str, body: ProviderUpdate):
             provider.platform = body.platform
         if body.api_base is not None:
             provider.api_base = body.api_base
-        if body.access_token is not None:
-            provider.access_token = encrypt_token(body.access_token) if body.access_token else ""
+        if body.access_token:
+            provider.access_token = encrypt_token(body.access_token)
         if body.is_default is not None:
             provider.is_default = body.is_default
         await session.commit()

@@ -316,6 +316,8 @@ const STATE_LABEL_MAP: Record<string, string> = {
     todo: "待办的", closed: "已关闭",
     open: "待确认", confirmed: "已确认",
     fixing: "修复中", resolved: "已修复", verified: "已验证",
+    reopened: "重新打开", not_reproducible: "无法复现",
+    by_design: "设计如此", deferred: "延期处理", suspended: "已挂起",
 };
 
 const formatFieldValue = (key: string, value: any): string => {
@@ -357,15 +359,37 @@ const formatActivityAction = (action: string, detailRaw: any): string => {
         if (!keys.length) return "更新了工作项";
         const parts = keys.map(k => {
             const label = FIELD_LABEL_MAP[k] || k;
-            const val = formatFieldValue(k, detail[k]);
+            const entry = detail[k];
+            if (entry && typeof entry === "object" && "to" in entry) {
+                const fromVal = formatFieldValue(k, entry.from);
+                const toVal = formatFieldValue(k, entry.to);
+                return `${label} 从"${fromVal}"为"${toVal}"`;
+            }
+            const val = formatFieldValue(k, entry);
             return `${label}→"${val}"`;
         });
         return `修改了${parts.join("、")}`;
     }
     if (action === "deleted") return `删除了工作项${detail.title ? `「${detail.title}」` : ""}`;
-    if (action === "comment_added") return `添加了评论`;
-    if (action === "link_added") return `添加了关联工作项`;
-    if (action === "link_removed") return `移除了关联工作项`;
+    if (action === "comment_added") return "添加了评论";
+    if (action === "comment_updated") return "修改了评论";
+    if (action === "comment_deleted") return "删除了评论";
+    if (action === "link_added") return "添加了关联工作项";
+    if (action === "link_removed") return "移除了关联工作项";
+    if (action === "doc_linked") return "关联了文档";
+    if (action === "doc_created") return "创建了文档";
+    if (action === "doc_uploaded") return "上传了文档";
+    if (action === "doc_unlinked") return "取消关联文档";
+    if (action === "member_added") return `添加了成员`;
+    if (action === "member_removed") return `移除了成员`;
+    if (action === "member_role_changed") return `修改了成员角色`;
+    if (action === "story_added") return "添加了需求";
+    if (action === "story_removed") return "移除了需求";
+    if (action === "task_added") return "添加了任务";
+    if (action === "task_removed") return "移除了任务";
+    if (action === "bug_added") return "添加了缺陷";
+    if (action === "bug_removed") return "移除了缺陷";
+    if (action === "released") return "已发布";
     return action;
 };
 

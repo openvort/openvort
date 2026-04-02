@@ -21,6 +21,7 @@ interface IterationItem {
     end_date: string | null;
     status: string;
     created_at: string | null;
+    updated_at?: string | null;
     owner_id?: string;
     assignee_id?: string;
     pm_id?: string;
@@ -112,11 +113,15 @@ const getIterOverdueInfo = (row: IterationItem): { days: number; completed: bool
     const end = row.end_date ? row.end_date.split("T")[0] : "";
     if (!end) return null;
     const endDate = new Date(end + "T00:00:00");
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const diffDays = Math.floor((today.getTime() - endDate.getTime()) / 86400000);
+    const isDone = row.status === "completed";
+    const refDate = new Date();
+    if (isDone && row.updated_at) {
+        refDate.setTime(new Date(row.updated_at).getTime());
+    }
+    refDate.setHours(0, 0, 0, 0);
+    const diffDays = Math.floor((refDate.getTime() - endDate.getTime()) / 86400000);
     if (diffDays <= 0) return null;
-    return { days: diffDays, completed: row.status === "completed" };
+    return { days: diffDays, completed: isDone };
 };
 
 const effortText = (i: IterationItem) => {

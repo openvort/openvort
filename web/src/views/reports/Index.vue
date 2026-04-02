@@ -69,7 +69,7 @@ interface MemberItem {
 const userStore = useUserStore();
 const router = useRouter();
 const activeTab = ref("my");
-const isAdmin = computed(() => userStore.userInfo.roles.includes("admin") || userStore.userInfo.roles.includes("manager"));
+const isAdmin = computed(() => userStore.isAdmin || userStore.userInfo.roles.includes("manager"));
 
 // My reports
 const myReports = ref<ReportItem[]>([]);
