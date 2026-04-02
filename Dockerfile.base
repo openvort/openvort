@@ -14,6 +14,7 @@ RUN if [ "$MIRROR" = "cn" ]; then \
     ca-certificates \
     curl \
     gpg \
+    xz-utils \
     && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
        | gpg --dearmor -o /usr/share/keyrings/pgdg.gpg \
     && PGDG_MIRROR="http://apt.postgresql.org/pub/repos/apt" \
