@@ -132,4 +132,19 @@ router.beforeEach(async (to, _from, next) => {
     next();
 });
 
+// 路由懒加载失败兜底（chunk 404 等场景，作为 vite:preloadError 的补充）
+router.onError((error, to) => {
+    if (
+        error.message?.includes("Failed to fetch dynamically imported module") ||
+        error.message?.includes("Importing a module script failed") ||
+        error.message?.includes("error loading dynamically imported module")
+    ) {
+        const reloadedKey = "vite_chunk_reload";
+        if (!sessionStorage.getItem(reloadedKey)) {
+            sessionStorage.setItem(reloadedKey, "1");
+            window.location.assign(to.fullPath);
+        }
+    }
+});
+
 export default router;
