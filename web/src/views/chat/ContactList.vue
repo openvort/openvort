@@ -97,7 +97,6 @@ function formatTime(ts: number): string {
     if (!ts) return "";
     const d = new Date(ts * 1000);
     const now = new Date();
-    console.log('[ContactList/formatTime]', { ts, date: d.toString(), now: now.toString(), diffHours: (now.getTime() - d.getTime()) / 3600000 });
     const isToday = d.toDateString() === now.toDateString();
     if (isToday) return d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
     const yesterday = new Date(now);

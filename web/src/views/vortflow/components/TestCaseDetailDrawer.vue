@@ -64,6 +64,14 @@ const loadComments = async () => {
     } catch { comments.value = []; }
 };
 
+const ACTION_LABEL_MAP: Record<string, string> = {
+    created: "创建了测试用例", updated: "更新了测试用例", deleted: "删除了测试用例",
+    comment_added: "添加了评论", comment_updated: "修改了评论", comment_deleted: "删除了评论",
+    link_added: "添加了关联工作项", link_removed: "移除了关联工作项",
+};
+
+const formatAction = (action: string) => ACTION_LABEL_MAP[action] || action;
+
 const loadActivities = async () => {
     if (!props.caseId) return;
     try {
@@ -154,7 +162,7 @@ watch(() => props.open, (val) => {
                         <p v-if="activities.length === 0" class="tc-detail-empty">暂无操作日志</p>
                         <div v-else v-for="a in activities" :key="a.id" class="tc-activity-item">
                             <span class="tc-activity-actor">{{ a.actor_name || "系统" }}</span>
-                            <span class="tc-activity-action">{{ a.action }}</span>
+                            <span class="tc-activity-action">{{ formatAction(a.action) }}</span>
                             <span class="tc-activity-time">{{ a.created_at?.slice(0, 16) }}</span>
                         </div>
                     </div>

@@ -238,40 +238,48 @@ async def update_story(story_id: str, body: StoryUpdate, request: Request):
             )
             if parent_error:
                 return {"error": parent_error}
-            changes["parent_id"] = normalized_parent_id
+            old_val = s.parent_id
+            changes["parent_id"] = {"from": old_val, "to": normalized_parent_id}
             s.parent_id = normalized_parent_id
         for field in ["title", "description", "state", "priority", "assignee_id", "pm_id", "project_id"]:
             val = getattr(body, field)
             if val is not None:
-                changes[field] = val
+                old_val = getattr(s, field)
+                changes[field] = {"from": old_val, "to": val}
                 setattr(s, field, val)
         if body.tags is not None:
+            old_tags = _parse_json_list(s.tags_json)
             s.tags_json = json.dumps(body.tags, ensure_ascii=False)
-            changes["tags"] = body.tags
+            changes["tags"] = {"from": old_tags, "to": body.tags}
         if body.collaborators is not None:
             s.collaborators_json = json.dumps(body.collaborators, ensure_ascii=False)
-            changes["collaborators"] = body.collaborators
+            changes["collaborators"] = {"from": old_collaborators, "to": body.collaborators}
         if body.attachments is not None:
             s.attachments_json = json.dumps(body.attachments, ensure_ascii=False)
             changes["attachments"] = body.attachments
         if body.deadline is not None:
             s.deadline = _parse_dt(body.deadline)
-            changes["deadline"] = body.deadline
+            changes["deadline"] = {"from": old_deadline, "to": body.deadline}
         if body.start_at is not None:
+            old_val = str(s.start_at) if s.start_at else None
             s.start_at = _parse_dt(body.start_at)
-            changes["start_at"] = body.start_at
+            changes["start_at"] = {"from": old_val, "to": body.start_at}
         if body.end_at is not None:
+            old_val = str(s.end_at) if s.end_at else None
             s.end_at = _parse_dt(body.end_at)
-            changes["end_at"] = body.end_at
+            changes["end_at"] = {"from": old_val, "to": body.end_at}
         if body.repo_id is not None:
+            old_val = s.repo_id
             s.repo_id = body.repo_id or None
-            changes["repo_id"] = body.repo_id
+            changes["repo_id"] = {"from": old_val, "to": body.repo_id}
         if body.branch is not None:
+            old_val = s.branch
             s.branch = body.branch
-            changes["branch"] = body.branch
+            changes["branch"] = {"from": old_val, "to": body.branch}
         if body.progress is not None:
+            old_val = s.progress
             s.progress = max(0, min(100, body.progress))
-            changes["progress"] = s.progress
+            changes["progress"] = {"from": old_val, "to": s.progress}
         if changes:
             await _log_event(session, "story", story_id, "updated", changes, actor_id=actor_id)
         await session.commit()
