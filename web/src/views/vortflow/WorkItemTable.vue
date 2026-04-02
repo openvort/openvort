@@ -312,7 +312,7 @@ const queryParams = computed(() => ({
 const refreshTable = () => { refreshKey.value++; };
 const onReset = () => { keyword.value = ""; owner.value = []; type.value = props.type ?? ""; status.value = []; };
 
-watch(() => props.projectId, () => { loadRepoOptions(); tableRef.value?.refresh?.(); });
+watch(() => props.projectId, () => { loadRepoOptions(); loadIterationOptions(); tableRef.value?.refresh?.(); });
 watch(() => props.viewFilters, () => { if (mountedReady.value) tableRef.value?.refresh?.(); }, { deep: true });
 watch(builtInViewFilters, () => { if (mountedReady.value) tableRef.value?.refresh?.(); }, { deep: true });
 
