@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.10.5] - 2026-04-03
+
+### Added
+
+- Feishu message permission configuration with read-only message type support
+- DingTalk and Feishu configuration guide with permission settings
+- Markdown link rendering with external links opening in new tabs
+- Login page redirect with demo parameter passthrough
+
+### Improved
+
+- Remote repository request failure exception handling for better robustness
+
 ## [0.10.3] - 2026-04-02
 
 ### Added
