@@ -101,9 +101,7 @@ router.beforeEach(async (to, _from, next) => {
     }
 
     if (!isLoginPage && !userStore.token) {
-        const loginRoute: { path: string; query?: Record<string, string> } = { path: "/login" };
-        if (to.query.isDemo) loginRoute.query = { isDemo: to.query.isDemo as string };
-        next(loginRoute);
+        next("/login");
         return;
     }
 

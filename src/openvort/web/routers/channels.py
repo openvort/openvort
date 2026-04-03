@@ -76,6 +76,7 @@ async def get_channel_detail(name: str):
         "config_modes": ch.get_config_modes(),
         "connection": ch.get_connection_info(),
         "setup_guide": ch.get_setup_guide(),
+        "setup_permissions": ch.get_setup_permissions(),
     }
 
 

@@ -139,13 +139,15 @@ const formatTime = (iso: string) => {
     return d.toLocaleString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 };
 
-const navigateToFolder = async (folderId: string) => {
+const navigateToFolder = async (folderId: string, pushHistory = true) => {
     currentFolderId.value = folderId;
     page.value = 1;
     keyword.value = "";
 
-    const query = folderId ? { folder: folderId } : {};
-    router.replace({ path: route.path, query });
+    if (pushHistory) {
+        const query = folderId ? { folder: folderId } : {};
+        router.push({ path: route.path, query });
+    }
 
     if (!folderId) {
         breadcrumbs.value = [];
@@ -397,7 +399,7 @@ let pollTimer: ReturnType<typeof setInterval> | null = null;
 onMounted(() => {
     const folderId = (route.query.folder as string) || "";
     if (folderId) {
-        navigateToFolder(folderId);
+        navigateToFolder(folderId, false);
     } else {
         loadContent();
     }
@@ -667,6 +669,7 @@ onUnmounted(() => {
                 accept=".pdf,.docx,.doc,.md,.markdown,.txt,.text"
                 :multiple="true"
                 placeholder="点击或拖拽文件到此区域上传"
+                class="upload-dragger-full"
             >
                 <div class="flex flex-col items-center gap-2 py-2">
                     <Upload :size="36" class="text-gray-300" />
@@ -754,3 +757,9 @@ onUnmounted(() => {
         />
     </div>
 </template>
+
+<style scoped>
+.upload-dragger-full :deep(.vort-upload-select) {
+    display: flex;
+}
+</style>

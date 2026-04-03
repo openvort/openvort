@@ -147,7 +147,7 @@ const startEditing = () => {
 
 const cancelEditing = () => {
     if (isNew.value) {
-        router.push("/knowledge");
+        goBackToList();
         return;
     }
     editing.value = false;
@@ -208,7 +208,7 @@ const handleDelete = () => {
             try {
                 await deleteKBDocument(doc.value!.id);
                 message.success("删除成功");
-                router.push("/knowledge");
+                goBackToList();
             } catch (e: any) {
                 message.error(e?.response?.data?.detail || "删除失败");
             }
@@ -216,8 +216,17 @@ const handleDelete = () => {
     });
 };
 
+const goBackToList = () => {
+    const folderId = doc.value?.folder_id;
+    if (folderId) {
+        router.push({ path: "/knowledge", query: { folder: folderId } });
+    } else {
+        router.push("/knowledge");
+    }
+};
+
 const goBack = () => {
-    router.push("/knowledge");
+    goBackToList();
 };
 
 const copyShareLink = () => {

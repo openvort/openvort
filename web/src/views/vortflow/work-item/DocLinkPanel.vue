@@ -33,6 +33,16 @@
                     </div>
                     <ChevronRight :size="16" class="dlp-add-item-arrow" />
                 </div>
+                <div class="dlp-add-item" @click="gitDocDialogOpen = true">
+                    <div class="dlp-add-item-icon dlp-add-item-icon--orange">
+                        <GitBranch :size="20" />
+                    </div>
+                    <div class="dlp-add-item-text">
+                        <span class="dlp-add-item-label">Git 文档</span>
+                        <span class="dlp-add-item-desc">从 Git 仓库选择</span>
+                    </div>
+                    <ChevronRight :size="16" class="dlp-add-item-arrow" />
+                </div>
             </div>
             <div v-if="linkedDocs.length > 0" class="dlp-add-back">
                 <button type="button" class="dlp-back-btn" @click="showAddOptions = false">
@@ -169,6 +179,12 @@
             :linked-doc-ids="linkedDocIds"
             @select="handleDocSelected"
         />
+
+        <!-- Git Doc Dialog -->
+        <GitDocCreateDialog
+            v-model:open="gitDocDialogOpen"
+            @saved="handleGitDocSaved"
+        />
     </div>
 </template>
 
@@ -179,11 +195,12 @@ import { Dropdown, DropdownMenuItem, DropdownMenuSeparator } from "@openvort/vor
 import {
     FileText, FileSearch, Upload, FilePlus, Plus, ChevronRight,
     MoreVertical, Pencil, Save, X, Trash2, Link, Loader2, ArrowLeft,
-    ArrowLeftToLine, Unlink,
+    ArrowLeftToLine, Unlink, GitBranch,
 } from "lucide-vue-next";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
 import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
 import SelectKBDocDialog from "./SelectKBDocDialog.vue";
+import GitDocCreateDialog from "@/views/knowledge/GitDocCreateDialog.vue";
 import {
     getVortflowDocLinks,
     createVortflowDocLink,
@@ -224,6 +241,7 @@ const activeDocData = ref<DocData | null>(null);
 const docLoading = ref(false);
 const showAddOptions = ref(false);
 const selectDialogOpen = ref(false);
+const gitDocDialogOpen = ref(false);
 const editing = ref(false);
 const editTitle = ref("");
 const editContent = ref("");
@@ -365,6 +383,30 @@ const handleCreateNew = async () => {
         }
     } catch {
         message.error("创建失败");
+    }
+};
+
+// ---- Add: Git Doc ----
+
+const handleGitDocSaved = async (doc?: { id: string; title: string }) => {
+    if (!doc?.id) {
+        showAddOptions.value = false;
+        await loadLinks();
+        return;
+    }
+    try {
+        const res = await createVortflowDocLink({
+            document_id: doc.id,
+            entity_type: props.entityType,
+            entity_id: props.entityId,
+        }) as any;
+        if (res?.error) { message.error(res.error); return; }
+        message.success("关联成功");
+        showAddOptions.value = false;
+        await loadLinks();
+        activateDoc(doc.id);
+    } catch {
+        message.error("关联失败");
     }
 };
 
@@ -529,6 +571,7 @@ watch(() => props.entityId, () => {
 .dlp-add-item-icon--blue { background: #4e83fd; }
 .dlp-add-item-icon--green { background: #36b37e; }
 .dlp-add-item-icon--purple { background: #8b5cf6; }
+.dlp-add-item-icon--orange { background: #f97316; }
 .dlp-add-item-text {
     display: flex; flex-direction: column; gap: 2px;
     flex: 1; min-width: 0;
