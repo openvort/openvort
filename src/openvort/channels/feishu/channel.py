@@ -345,6 +345,8 @@ class FeishuChannel(BaseChannel):
                 "tenant": [
                     "im:message",
                     "im:message:send_as_bot",
+                    "im:message.p2p_msg:readonly",
+                    "im:message.group_at_msg:readonly",
                     "im:resource",
                     "cardkit:card:write",
                     "contact:contact.base:readonly",
