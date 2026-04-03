@@ -2,6 +2,7 @@
 
 import uuid
 
+import httpx
 from fastapi import APIRouter, Body, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import select, func, delete as sa_delete
@@ -436,6 +437,9 @@ async def list_repo_commits(
             per_page=per_page,
         )
         return {"items": commits}
+    except httpx.HTTPStatusError as exc:
+        log.warning("list_commits failed for %s: %s", repo.full_name, exc)
+        raise HTTPException(502, f"远程仓库请求失败: {exc.response.status_code}")
     finally:
         await client.close()
 
@@ -455,6 +459,9 @@ async def list_repo_branches(repo_id: str):
     try:
         branches = await client.list_branches(repo.full_name)
         return {"items": branches}
+    except httpx.HTTPStatusError as exc:
+        log.warning("list_branches failed for %s: %s", repo.full_name, exc)
+        raise HTTPException(502, f"远程仓库请求失败: {exc.response.status_code}")
     finally:
         await client.close()
 
@@ -477,6 +484,9 @@ async def get_repo_tree(repo_id: str, path: str = "", ref: str = ""):
             repo.full_name, path=path, ref=ref or repo.default_branch
         )
         return {"items": entries}
+    except httpx.HTTPStatusError as exc:
+        log.warning("get_file_tree failed for %s: %s", repo.full_name, exc)
+        raise HTTPException(502, f"远程仓库请求失败: {exc.response.status_code}")
     finally:
         await client.close()
 
@@ -589,6 +599,9 @@ async def sync_repo(repo_id: str):
     client = _get_provider_instance(provider)
     try:
         remote = await client.get_repo(repo.full_name)
+    except httpx.HTTPStatusError as exc:
+        log.warning("sync_repo failed for %s: %s", repo.full_name, exc)
+        raise HTTPException(502, f"远程仓库请求失败: {exc.response.status_code}")
     finally:
         await client.close()
 
