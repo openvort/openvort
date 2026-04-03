@@ -30,8 +30,8 @@ class FeishuAPI:
         app_secret: str,
         api_base: str = "https://open.feishu.cn/open-apis",
     ):
-        self._app_id = app_id
-        self._app_secret = app_secret
+        self._app_id = app_id.strip()
+        self._app_secret = app_secret.strip()
         self._api_base = api_base.rstrip("/")
         self._http = httpx.AsyncClient(timeout=30)
         self._tenant_access_token = ""
@@ -56,15 +56,21 @@ class FeishuAPI:
             if self._tenant_access_token and time.time() < self._token_expires_at - 300:
                 return self._tenant_access_token
 
+            payload = json.dumps(
+                {"app_id": self._app_id, "app_secret": self._app_secret},
+                ensure_ascii=False,
+            )
             resp = await self._http.post(
                 f"{self._api_base}/auth/v3/tenant_access_token/internal",
-                json={
-                    "app_id": self._app_id,
-                    "app_secret": self._app_secret,
-                },
+                content=payload.encode("utf-8"),
+                headers={"Content-Type": "application/json; charset=utf-8"},
             )
             data = resp.json()
             if data.get("code", -1) != 0:
+                log.error(
+                    "获取 tenant_access_token 失败: code=%s msg=%s app_id_len=%d",
+                    data.get("code"), data.get("msg"), len(self._app_id),
+                )
                 raise RuntimeError(f"获取 tenant_access_token 失败: {data}")
 
             self._tenant_access_token = data.get("tenant_access_token", "")

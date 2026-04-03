@@ -332,14 +332,12 @@ class DingTalkChannel(BaseChannel):
     def get_setup_guide(self) -> str:
         return (
             "### 钉钉配置指南\n\n"
-            "1. 登录 [钉钉开放平台](https://open-dev.dingtalk.com/)\n"
-            "2. 进入“应用开发” -> “企业内部应用”，创建或打开你的应用\n"
-            "3. 在“凭证与基础信息”中获取 **AppKey** 和 **AppSecret**\n"
-            "4. 在“机器人与消息推送”中开启机器人能力，并记录 **robotCode**\n"
-            "5. 本期推荐使用 **Stream 模式**，无需配置公网回调地址\n"
-            "6. 若要启用流式输出，请在钉钉后台先创建 **AI Card 模板**，并配置 `message_type=card`、`card_template_id` 与 `card_template_key`\n"
-            "7. 群聊场景建议先通过 @ 机器人触发；若未显式 @，消息会被忽略\n\n"
-            "> 说明：Webhook 回调接口目前仅保留为预留能力，不作为本期主流程。"
+            "1. 登录 [钉钉开放平台](https://open-dev.dingtalk.com/)，创建企业内部应用\n"
+            "2. 在「凭证与基础信息」中获取 **AppKey** 和 **AppSecret**\n"
+            "3. 在「机器人与消息推送」中开启机器人能力，记录 **robotCode**，选择 **Stream 模式**\n"
+            "4. 如需流式输出，在「卡片平台」创建 AI Card 模板，记录模板 ID\n"
+            "5. 群聊中需 @ 机器人触发回复\n\n"
+            "[查看详细配置文档 →](https://openvort.com/docs/guide/channels-dingtalk)\n"
         )
 
     def get_current_config(self) -> dict:

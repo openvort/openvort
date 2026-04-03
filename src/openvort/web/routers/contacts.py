@@ -46,6 +46,7 @@ async def list_contacts():
 async def sync_contacts(channel: str | None = None):
     try:
         from openvort.web.deps import get_registry
+        from openvort.web.routers.channels import _get_channel_config
 
         service = _get_service(with_settings=True)
         registry = get_registry()
@@ -54,18 +55,21 @@ async def sync_contacts(channel: str | None = None):
         for ch in registry.list_channels():
             if channel and ch.name != channel:
                 continue
+            if not channel:
+                db_cfg = await _get_channel_config(ch.name)
+                if db_cfg and not db_cfg.enabled:
+                    continue
             p = ch.get_sync_provider()
             if p:
                 providers.append(p)
-        if not channel:
-            for plugin in registry.list_plugins():
-                p = plugin.get_sync_provider()
-                if p:
-                    providers.append(p)
 
         results = []
         for provider in providers:
-            stats = await service.sync_from_provider(provider)
+            try:
+                stats = await service.sync_from_provider(provider)
+            except Exception as e:
+                stats = {"created": 0, "updated": 0, "matched": 0, "pending": 0,
+                         "errors": [str(e)]}
             results.append({"platform": provider.platform, **stats})
 
         return {"success": True, "results": results}

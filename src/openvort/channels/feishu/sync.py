@@ -34,6 +34,7 @@ class FeishuContactSyncProvider(ContactSyncProvider):
                 users = await self._api.get_department_users(dept.dept_id)
             except Exception as e:
                 log.warning(f"拉取飞书部门成员失败: dept={dept.dept_id}, err={e}")
+                self.add_error(self._friendly_error("拉取部门成员", e))
                 continue
 
             for user in users:
@@ -84,6 +85,18 @@ class FeishuContactSyncProvider(ContactSyncProvider):
         merged.setdefault("open_id", open_id)
         return merged
 
+    @staticmethod
+    def _friendly_error(action: str, exc: Exception) -> str:
+        msg = str(exc)
+        if "99991672" in msg or "Access denied" in msg:
+            return f"{action}失败: 飞书应用缺少通讯录权限，请在开放平台开通 contact:contact.base:readonly 等权限"
+        if "no dept authority" in msg.lower() or "60119" in msg:
+            return (
+                f"{action}失败: 飞书应用的通讯录授权范围不足，"
+                "请在开放平台「应用详情 - 通讯录权限 - 权限范围」中设置为「全部成员」"
+            )
+        return f"{action}失败: {msg[:200]}"
+
     async def fetch_departments(self) -> list[PlatformDepartment]:
         departments: list[PlatformDepartment] = [
             PlatformDepartment(
@@ -102,6 +115,7 @@ class FeishuContactSyncProvider(ContactSyncProvider):
                 items = await self._api.get_departments(parent_id)
             except Exception as e:
                 log.warning(f"拉取飞书部门失败: parent={parent_id}, err={e}")
+                self.add_error(self._friendly_error("拉取部门列表", e))
                 continue
 
             for item in items:

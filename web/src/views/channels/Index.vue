@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from "vue";
 import { getChannels, getChannelDetail, updateChannel, toggleChannel, testChannel, getChannelBots, getChannelBotSummary, type ChannelBotItem } from "@/api";
 import { message } from "@openvort/vort-ui";
-import { CheckCircle, XCircle, Settings, Zap, ChevronRight, Bot, Users } from "lucide-vue-next";
+import { CheckCircle, XCircle, Settings, Zap, ChevronRight, Bot, Users, Copy, Check } from "lucide-vue-next";
 import AiAssistButton from "@/components/vort-biz/ai-assist-button/AiAssistButton.vue";
 
 interface ConfigField {
@@ -44,6 +44,7 @@ interface ChannelDetail extends ChannelInfo {
     config_modes?: ConfigMode[];
     connection?: ConnectionInfo;
     setup_guide?: string;
+    setup_permissions?: Record<string, any>;
 }
 
 const channels = ref<ChannelInfo[]>([]);
@@ -203,21 +204,32 @@ function getChannelIconUrl(name: string): string | null {
     return CHANNEL_ICON_PATHS[name?.toLowerCase()] ?? null;
 }
 
-const setupGuides: Record<string, Record<string, string>> = {
-    wecom: {
-        bot: '1. 登录<a href="https://work.weixin.qq.com/wework_admin/frame" target="_blank" class="text-blue-600 underline">企业微信管理后台</a>，复制<strong>企业 ID</strong><br>2. 进入「智能机器人」→ 创建 AI 同事，获取 <strong>Bot ID</strong> 和 <strong>Secret</strong><br>3. 保存后自动使用 WebSocket 长连接（无需公网 IP）',
-        app: '1. 登录<a href="https://work.weixin.qq.com/wework_admin/frame" target="_blank" class="text-blue-600 underline">企业微信管理后台</a>，复制<strong>企业 ID</strong><br>2. 进入「应用管理」→「自建」→ 创建应用，获取 <strong>AgentId</strong> 和 <strong>Secret</strong><br>3. 如需 Webhook：设置接收服务器，获取 <strong>Token</strong> 和 <strong>AES Key</strong>',
-    },
-};
-
 const currentGuideHtml = computed(() => {
     const ch = currentChannel.value;
     if (!ch) return "";
-    const channelGuides = setupGuides[ch.name];
-    if (channelGuides?.[selectedMode.value]) return channelGuides[selectedMode.value];
     if (ch.setup_guide) return renderGuide(ch.setup_guide);
     return "";
 });
+
+const permissionsJson = computed(() => {
+    const perms = currentChannel.value?.setup_permissions;
+    if (!perms) return "";
+    return JSON.stringify(perms, null, 2);
+});
+
+const showPermissions = ref(false);
+const permsCopied = ref(false);
+
+async function copyPermissions() {
+    if (!permissionsJson.value) return;
+    try {
+        await navigator.clipboard.writeText(permissionsJson.value);
+        permsCopied.value = true;
+        setTimeout(() => { permsCopied.value = false; }, 2000);
+    } catch {
+        message.error("复制失败");
+    }
+}
 
 // ---- Bot summary ----
 
@@ -372,8 +384,40 @@ onMounted(() => {
                     <!-- 精简引导 -->
                     <div v-if="currentGuideHtml" class="mb-5 px-3 py-2.5 bg-blue-50 rounded-lg text-sm text-gray-600 leading-relaxed" v-html="currentGuideHtml" />
 
+                    <!-- 权限导入 -->
+                    <div v-if="permissionsJson" class="mb-5">
+                        <button
+                            class="flex items-center text-sm text-gray-400 hover:text-gray-600 transition-colors"
+                            @click="showPermissions = !showPermissions"
+                        >
+                            <ChevronRight
+                                :size="14"
+                                class="mr-1 transition-transform duration-200"
+                                :class="showPermissions ? 'rotate-90' : ''"
+                            />
+                            所需权限（可批量导入到飞书开放平台）
+                        </button>
+                        <div v-show="showPermissions" class="mt-2">
+                            <p class="text-xs text-gray-400 mb-2">在飞书开放平台「权限管理」→「批量导入」中粘贴以下 JSON：</p>
+                            <div class="relative group">
+                                <pre class="bg-gray-50 border border-gray-200 rounded-lg p-3 text-xs text-gray-700 overflow-x-auto leading-relaxed">{{ permissionsJson }}</pre>
+                                <button
+                                    class="absolute top-2 right-2 flex items-center gap-1 px-2 py-1 text-xs rounded-md transition-colors"
+                                    :class="permsCopied
+                                        ? 'bg-green-100 text-green-700'
+                                        : 'bg-white/80 text-gray-500 hover:bg-gray-100 opacity-0 group-hover:opacity-100'"
+                                    @click="copyPermissions"
+                                >
+                                    <Check v-if="permsCopied" :size="12" />
+                                    <Copy v-else :size="12" />
+                                    {{ permsCopied ? '已复制' : '复制' }}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- 表单 -->
-                    <VortForm label-width="140px">
+                    <VortForm label-width="180px">
                         <VortFormItem
                             v-for="field in visibleFields"
                             :key="field.key"
@@ -409,7 +453,7 @@ onMounted(() => {
                         </button>
                         <p v-if="showAppOptional" class="text-xs text-gray-400 mt-2 mb-3">填写后可启用通讯录同步等功能</p>
                         <div v-show="showAppOptional" class="mt-1">
-                            <VortForm label-width="140px">
+                            <VortForm label-width="160px">
                                 <VortFormItem
                                     v-for="field in appOptionalFields"
                                     :key="field.key"
@@ -445,7 +489,7 @@ onMounted(() => {
                             高级设置
                         </button>
                         <div v-show="showAdvanced" class="mt-3">
-                            <VortForm label-width="140px">
+                            <VortForm label-width="160px">
                                 <VortFormItem
                                     v-for="field in advancedFields"
                                     :key="field.key"

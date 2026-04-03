@@ -44,6 +44,18 @@ class ContactSyncProvider(ABC):
 
     platform: str = ""  # 平台标识，如 "wecom", "zentao"
 
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+
+    @property
+    def errors(self) -> list[str]:
+        if not hasattr(self, "_errors"):
+            self._errors: list[str] = []
+        return self._errors
+
+    def add_error(self, msg: str) -> None:
+        self.errors.append(msg)
+
     @abstractmethod
     async def fetch_members(self) -> list[PlatformContact]:
         """拉取平台全量成员列表"""

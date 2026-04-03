@@ -118,7 +118,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
     (e: "update:open", val: boolean): void;
-    (e: "saved"): void;
+    (e: "saved", doc?: { id: string; title: string }): void;
 }>();
 
 const formRef = ref();
@@ -236,14 +236,14 @@ async function handleSubmit() {
     try { await formRef.value?.validate(); } catch { return; }
     submitting.value = true;
     try {
-        await createKBGitDocument({
+        const res = await createKBGitDocument({
             repo_id: form.value.repo_id,
             branch: form.value.branch,
             path: form.value.path,
             folder_id: props.folderId || undefined,
-        });
+        }) as any;
         message.success("Git 文档添加成功");
-        emit("saved");
+        emit("saved", res?.id ? { id: res.id, title: res.title || form.value.path } : undefined);
         emit("update:open", false);
     } catch (e: any) {
         message.error(e?.response?.data?.detail || "添加失败");

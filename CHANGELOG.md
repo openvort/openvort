@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.10.3] - 2026-04-02
+
+### Added
+
+- Demo account auto-fill on login page for quicker onboarding
+- Online demo link added to README
+
+### Improved
+
+- Sidebar feature module display optimized
+- Removed closable button from AI feature unconfigured notice to prevent accidental dismissal
+
 ## [0.10.2] - 2026-04-02
 
 ### Improved
