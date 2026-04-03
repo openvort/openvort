@@ -55,6 +55,14 @@ renderer.heading = function (token: Tokens.Heading) {
     const slug = slugify(token.text);
     return rawHtml.replace(/^<h(\d)/, `<h$1 id="${slug}"`);
 };
+const originalLinkRenderer = renderer.link;
+renderer.link = function (token: Tokens.Link) {
+    const html = originalLinkRenderer.call(this, token);
+    if (/^https?:\/\//.test(token.href || "")) {
+        return html.replace(/^<a /, '<a target="_blank" rel="noopener noreferrer" ');
+    }
+    return html;
+};
 
 const props = defineProps<{
     content: string;
