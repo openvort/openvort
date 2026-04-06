@@ -517,7 +517,7 @@ def _render_morning(
         lines.append("")
         lines.append("**\u4eca\u65e5\u91cd\u70b9**")
         for i, (etype, item) in enumerate(top_items, 1):
-            label = _item_label(etype, item)
+            label = _item_label(etype, item, site_url, project_id)
             suffix = _deadline_suffix(item, now)
             lines.append(f"{i}. {label}{suffix}")
 
@@ -531,7 +531,7 @@ def _render_morning(
         lines.append(f"{_E_RED} **\u5df2\u903e\u671f** ({len(overdue)} \u6761)")
         for etype, item in overdue[:5]:
             days = (now - item.deadline).days
-            lines.append(f"- {_item_label(etype, item)} \u2014 **\u903e\u671f {days} \u5929**")
+            lines.append(f"- {_item_label(etype, item, site_url, project_id)} \u2014 **\u903e\u671f {days} \u5929**")
         if len(overdue) > 5:
             lines.append(f"- *...\u8fd8\u6709 {len(overdue) - 5} \u6761*")
 
@@ -540,7 +540,7 @@ def _render_morning(
         lines.append(f"{_E_YELLOW} **\u5373\u5c06\u903e\u671f**\uff08{near_days} \u5929\u5185\uff0c{len(near_deadline)} \u6761\uff09")
         for etype, item in near_deadline[:5]:
             days = (item.deadline - now).days
-            lines.append(f"- {_item_label(etype, item)} \u2014 \u5269\u4f59 {days} \u5929")
+            lines.append(f"- {_item_label(etype, item, site_url, project_id)} \u2014 \u5269\u4f59 {days} \u5929")
         if len(near_deadline) > 5:
             lines.append(f"- *...\u8fd8\u6709 {len(near_deadline) - 5} \u6761*")
 
@@ -548,7 +548,7 @@ def _render_morning(
         lines.append("")
         lines.append(f"{_E_FIRE} **\u7d27\u6025/\u9ad8\u4f18\u672a\u5904\u7406** ({len(urgent)} \u6761)")
         for etype, item in urgent[:5]:
-            lines.append(f"- {_item_label(etype, item)}")
+            lines.append(f"- {_item_label(etype, item, site_url, project_id)}")
 
     if iter_progress:
         lines.append("")
@@ -605,7 +605,7 @@ def _render_afternoon(
     if today_due:
         lines.append(f"- {_E_WARN} \u4eca\u65e5\u5230\u671f: **{len(today_due)}** \u6761")
         for t, i in today_due[:5]:
-            lines.append(f"  - {_item_label(t, i)}")
+            lines.append(f"  - {_item_label(t, i, site_url, project_id)}")
 
     if iter_progress:
         lines.append("")
@@ -665,7 +665,7 @@ def _render_weekly(
         lines.append("")
         for etype, item in overdue[:5]:
             days = (now - item.deadline).days
-            lines.append(f"- {_item_label(etype, item)} \u2014 **\u903e\u671f {days} \u5929**")
+            lines.append(f"- {_item_label(etype, item, site_url, project_id)} \u2014 **\u903e\u671f {days} \u5929**")
         if len(overdue) > 5:
             lines.append(f"- *...\u8fd8\u6709 {len(overdue) - 5} \u6761*")
 

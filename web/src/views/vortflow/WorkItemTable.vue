@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ProTable, TableCell } from "@/components/vort-biz";
 import { message } from "@openvort/vort-ui";
@@ -480,9 +480,9 @@ const getTagRenderInfo = (record: RowItem, text: string[] | undefined, resolvedW
 // --- Lifecycle ---
 
 onMounted(async () => {
-    const queryProject = route.query.project as string;
-    if (queryProject && queryProject !== vortFlowStore.selectedProjectId) {
-        vortFlowStore.setProjectId(queryProject);
+    const urlProjectId = (route.query.project_id || route.query.project) as string;
+    if (urlProjectId && urlProjectId !== vortFlowStore.selectedProjectId) {
+        vortFlowStore.setProjectId(urlProjectId);
     }
     const hasCachedColumns = !!vortFlowStore.getColumnSettings(props.type || "");
     if (hasCachedColumns) { columnSettings.value = loadColumnSettingsFromStore(); resetViewBaseline(); }
@@ -495,6 +495,20 @@ onMounted(async () => {
     ]);
     columnSettings.value = loadColumnSettingsFromStore();
     applyViewState();
+
+    const urlAssignee = route.query.assignee_id as string;
+    const urlStatus = route.query.status as string;
+    if (urlStatus === "incomplete" && currentWorkItemType.value) {
+        onViewChange("incomplete");
+        await nextTick();
+    }
+    if (urlAssignee) {
+        const assigneeName = getMemberNameById(urlAssignee);
+        if (assigneeName) {
+            owner.value = [assigneeName];
+        }
+    }
+
     mountedReady.value = true;
     initialLoading.value = false;
     refreshTable();
@@ -515,7 +529,7 @@ onMounted(async () => {
         const urlType = tabTypeMap[urlTab];
         if (urlType && urlType !== props.type) {
             const targetPath = tabRouteMap[urlTab];
-            if (targetPath) { router.replace({ path: targetPath, query: { action: "detail", id, tab: urlTab } }); }
+            if (targetPath) { router.replace({ path: targetPath, query: { project_id: urlProjectId || undefined, action: "detail", id, tab: urlTab } }); }
             return;
         }
         let record = findItemRowByIdentifier(id) || await loadItemById(id, props.type);
@@ -525,6 +539,15 @@ onMounted(async () => {
         }
         if (record) { handleOpenBugDetail(record); }
         else { router.replace({ query: { ...route.query, action: undefined, id: undefined, parentId: undefined, tab: undefined } }); }
+    }
+
+    if (urlProjectId || urlAssignee || urlStatus) {
+        const cleaned = { ...route.query };
+        delete cleaned.project_id;
+        delete cleaned.project;
+        delete cleaned.assignee_id;
+        delete cleaned.status;
+        router.replace({ query: cleaned });
     }
 });
 </script>
