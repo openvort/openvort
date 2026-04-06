@@ -13,6 +13,7 @@ from openvort.plugin.base import BasePlugin, BaseTool
 from openvort.plugins.vortflow.aggregator import im_aggregator, send_im_to_member
 from openvort.plugins.vortflow.engine import FlowEngine
 from openvort.plugins.vortflow.notifier import notifier as _notifier_singleton
+from openvort.plugins.vortflow.reminder import reminder_service
 from openvort.utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -35,10 +36,26 @@ class VortFlowPlugin(BasePlugin):
         try:
             from openvort.web.ws import manager as ws_manager
             self._notifier.set_ws_manager(ws_manager)
+            reminder_service.set_ws_manager(ws_manager)
         except ImportError:
             pass
         im_aggregator.set_channel_sender(send_im_to_member)
         asyncio.create_task(im_aggregator.start())
+        asyncio.create_task(self._init_reminder())
+
+    @staticmethod
+    async def _init_reminder():
+        """Delayed init: give DB time to be fully ready, then sync reminder jobs."""
+        await asyncio.sleep(3)
+        try:
+            from openvort.core.services.scheduler import Scheduler
+            scheduler = Scheduler()
+            scheduler.start()
+            reminder_service.set_scheduler(scheduler)
+            await reminder_service.sync_all()
+            log.info("VortFlow reminder service initialized")
+        except Exception as exc:
+            log.warning("Failed to initialize reminder service: %s", exc)
 
     def activate(self, api: "PluginAPI") -> None:
         super().activate(api)

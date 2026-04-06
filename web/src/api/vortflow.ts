@@ -788,3 +788,36 @@ export function reorderVortflowDocLinks(data: { link_ids: string[] }) {
 export function deleteVortflowDocLink(linkId: string) {
     return request.delete(`/vortflow/document-links/${linkId}`);
 }
+
+// ---- Reminder Settings ----
+
+export function listVortflowReminderSettings() {
+    return request.get("/vortflow/reminder-settings");
+}
+
+export function getVortflowReminderSettings(projectId: string) {
+    return request.get(`/vortflow/reminder-settings/${projectId}`);
+}
+
+export function bulkUpdateVortflowReminderSettings(data: {
+    project_ids: string[];
+    enabled: boolean;
+    scenes: Record<string, any>;
+    work_days: string;
+    near_deadline_days: number;
+    ai_suggestion: boolean;
+    skip_empty: boolean;
+    min_threshold: number;
+}) {
+    return request.put("/vortflow/reminder-settings/bulk", data);
+}
+
+export function updateVortflowReminderSettings(projectId: string, data: any) {
+    return request.put(`/vortflow/reminder-settings/${projectId}`, data);
+}
+
+export function testVortflowReminder(projectId: string, scene: string = "morning") {
+    return request.post(`/vortflow/reminder-settings/${projectId}/test`, null, {
+        params: { scene },
+    });
+}
