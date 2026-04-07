@@ -75,8 +75,8 @@ export function useWorkItemFieldEditors(options: UseWorkItemFieldEditorsOptions)
     const progressInputRef = ref<any>(null);
 
     const isProgressReadonly = (record: RowItem) => {
+        if (record.type === "需求") return false;
         if ((record.childrenCount || 0) > 0) return true;
-        if (record.type === "需求" && (record.taskCount || 0) > 0) return true;
         return false;
     };
 

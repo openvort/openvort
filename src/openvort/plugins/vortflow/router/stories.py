@@ -14,8 +14,6 @@ from openvort.plugins.vortflow.router.helpers import (
     _validate_story_parent,
     _collect_story_descendant_ids,
     _attach_story_links,
-    _attach_story_progress,
-    _calc_story_progress,
 )
 from openvort.plugins.vortflow.router.schemas import (
     StoryCreate,
@@ -137,7 +135,6 @@ async def list_stories(
             "task_count": task_count_map.get(r.id, 0),
         } for r in rows]
         await _attach_story_links(session, items)
-        await _attach_story_progress(session, items)
     return {
         "total": total,
         "items": items,
@@ -165,9 +162,6 @@ async def get_story(story_id: str):
             "bug_count": bug_count,
             "children_count": children_count,
         }
-        computed = await _calc_story_progress(session, story_id)
-        if computed is not None:
-            item["progress"] = computed
         items = await _attach_story_links(session, [item])
     return items[0]
 

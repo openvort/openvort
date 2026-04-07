@@ -1026,8 +1026,8 @@ const canEditEstimateHours = computed(() => !!record.value);
 
 const isProgressReadonly = computed(() => {
     if (!record.value) return true;
+    if (record.value.type === "需求") return false;
     if ((record.value.childrenCount || 0) > 0) return true;
-    if (record.value.type === "需求" && (record.value.taskCount || 0) > 0) return true;
     return false;
 });
 

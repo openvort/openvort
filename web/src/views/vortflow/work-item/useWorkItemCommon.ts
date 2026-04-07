@@ -85,7 +85,7 @@ const toLucideIcon = (raw: string): string => resolveIconKey(raw) || "circle";
 
 const buildOptionsForType = (type: string): StatusOption[] =>
     sharedApiStatuses.value
-        .filter((s) => s.work_item_types.includes(type) && s.command)
+        .filter((s) => s.work_item_types.includes(type))
         .map((s) => ({
             label: s.name,
             value: s.name,
