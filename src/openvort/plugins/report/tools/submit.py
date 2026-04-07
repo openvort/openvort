@@ -88,8 +88,28 @@ class ReportSubmitTool(BaseTool):
             title=title, content=content, status="draft",
             auto_generated=True, publication_id=kwargs.get("publication_id"),
         )
-        return {"ok": True, "report": report, "collected_data": collected_data,
-                "message": "汇报草稿已生成，请确认或修改后提交"}
+
+        vf = collected_data.get("vortflow")
+        git = collected_data.get("git")
+        has_system_data = bool(
+            (vf and vf.get("has_data"))
+            or (git and git.get("total_commits", 0) > 0)
+        )
+
+        if has_system_data:
+            message = "已根据工作记录生成日报草稿，请确认或告诉我需要修改的地方。确认后我会帮你提交。"
+        else:
+            message = (
+                "暂未找到今天的系统工作记录。"
+                "请告诉我你今天主要做了哪些工作，我来帮你整理成日报。"
+            )
+
+        return {
+            "ok": True, "report": report,
+            "collected_data": collected_data,
+            "has_system_data": has_system_data,
+            "message": message,
+        }
 
     async def _submit(self, service, kwargs: dict) -> dict:
         report_id = kwargs.get("report_id", "")
@@ -154,25 +174,35 @@ class ReportSubmitTool(BaseTool):
             member = result.scalar_one_or_none()
             return member.id if member else ""
 
-    async def _collect_data(self, member_id: str, member_name: str, report_type: str, report_date: date) -> dict:
-        data: dict = {"git": None, "vortflow": None}
-
+    @staticmethod
+    def _resolve_date_range(report_type: str, report_date: date) -> tuple[str, str]:
         if report_type == "daily":
-            since = until = report_date.isoformat()
+            return report_date.isoformat(), report_date.isoformat()
         elif report_type == "weekly":
             start = report_date - timedelta(days=report_date.weekday())
-            since, until = start.isoformat(), report_date.isoformat()
+            return start.isoformat(), report_date.isoformat()
         elif report_type == "quarterly":
             qm = ((report_date.month - 1) // 3) * 3 + 1
-            since, until = report_date.replace(month=qm, day=1).isoformat(), report_date.isoformat()
+            return report_date.replace(month=qm, day=1).isoformat(), report_date.isoformat()
         else:
-            since, until = report_date.replace(day=1).isoformat(), report_date.isoformat()
+            return report_date.replace(day=1).isoformat(), report_date.isoformat()
+
+    async def _collect_data(self, member_id: str, member_name: str, report_type: str, report_date: date) -> dict:
+        import json as _json
+
+        data: dict = {"git": None, "vortflow": None}
+        since, until = self._resolve_date_range(report_type, report_date)
 
         try:
             from openvort.plugins.vortgit.tools.commits import WorkSummaryTool
             tool = WorkSummaryTool.__new__(WorkSummaryTool)
-            tool._sf_getter = self._sf_getter
-            result = await tool.execute(member_name=member_name or None, period="custom", since=since, until=until)
+            result_str = await tool.execute({
+                "member_name": member_name or "",
+                "period": "custom",
+                "since": since,
+                "until": until,
+            })
+            result = _json.loads(result_str) if isinstance(result_str, str) else result_str
             if result.get("ok"):
                 data["git"] = {
                     "total_commits": result.get("git", {}).get("total_commits", 0),
@@ -184,11 +214,30 @@ class ReportSubmitTool(BaseTool):
 
         try:
             provider = self._slot_getter("project_provider") if self._slot_getter else None
-            if provider:
+            if provider and member_id:
                 since_dt = datetime.combine(date.fromisoformat(since), datetime.min.time())
                 until_dt = datetime.combine(date.fromisoformat(until), datetime.max.time())
-                summary = await provider.get_tasks_summary(project_id="", member_id=member_id, since=since_dt, until=until_dt)
-                data["vortflow"] = {"tasks_completed": summary.tasks_done, "bugs_fixed": summary.bugs_fixed}
+                if hasattr(provider, "get_member_daily_details"):
+                    data["vortflow"] = await provider.get_member_daily_details(
+                        member_id, since_dt, until_dt,
+                    )
+                else:
+                    summary = await provider.get_tasks_summary(
+                        project_id="", member_id=member_id,
+                        since=since_dt, until=until_dt,
+                    )
+                    data["vortflow"] = {
+                        "has_data": (summary.tasks_done + summary.bugs_fixed) > 0,
+                        "tasks_completed": [],
+                        "bugs_fixed": [],
+                        "tasks_in_progress": [],
+                        "stories_in_progress": [],
+                        "events": [],
+                        "summary": {
+                            "tasks_completed_count": summary.tasks_done,
+                            "bugs_fixed_count": summary.bugs_fixed,
+                        },
+                    }
         except Exception as e:
             log.debug(f"采集 VortFlow 数据失败: {e}")
 
@@ -202,27 +251,71 @@ class ReportSubmitTool(BaseTool):
 
     @staticmethod
     def _build_content(report_type: str, collected_data: dict) -> str:
-        lines = []
+        lines: list[str] = []
         label = {"daily": "日报", "weekly": "周报", "monthly": "月报", "quarterly": "季报"}.get(report_type, "汇报")
-        lines.append(f"## {label}\n")
 
+        vf = collected_data.get("vortflow")
+        has_vf_details = vf and vf.get("has_data") and vf.get("tasks_completed")
         git = collected_data.get("git")
-        if git:
+        has_git = git and git.get("total_commits", 0) > 0
+
+        if has_vf_details:
+            tasks = vf.get("tasks_completed", [])
+            if tasks:
+                lines.append("### 完成的任务")
+                for t in tasks:
+                    proj = f"[{t['project_name']}] " if t.get("project_name") else ""
+                    lines.append(f"- {proj}{t['title']}")
+                lines.append("")
+
+            bugs = vf.get("bugs_fixed", [])
+            if bugs:
+                lines.append("### 修复的缺陷")
+                for b in bugs:
+                    proj = f"[{b['project_name']}] " if b.get("project_name") else ""
+                    sev = f"（{b['severity']}）" if b.get("severity") else ""
+                    lines.append(f"- {proj}{b['title']}{sev}")
+                lines.append("")
+
+            doing = vf.get("tasks_in_progress", [])
+            if doing:
+                lines.append("### 进行中的任务")
+                for t in doing:
+                    proj = f"[{t['project_name']}] " if t.get("project_name") else ""
+                    progress = f"（进度 {t['progress']}%）" if t.get("progress") else ""
+                    lines.append(f"- {proj}{t['title']}{progress}")
+                lines.append("")
+
+            stories = vf.get("stories_in_progress", [])
+            if stories:
+                lines.append("### 进行中的需求")
+                for s in stories:
+                    proj = f"[{s['project_name']}] " if s.get("project_name") else ""
+                    lines.append(f"- {proj}{s['title']}")
+                lines.append("")
+
+        elif vf and vf.get("has_data"):
+            summary = vf.get("summary", {})
+            if summary.get("tasks_completed_count") or summary.get("bugs_fixed_count"):
+                lines.append("### 任务进度")
+                lines.append(f"- 完成任务：{summary.get('tasks_completed_count', 0)}")
+                lines.append(f"- 修复缺陷：{summary.get('bugs_fixed_count', 0)}")
+                lines.append("")
+
+        if has_git:
             lines.append("### 代码提交")
-            lines.append(f"- 总提交数：{git.get('total_commits', 0)}")
-            lines.append(f"- 活跃仓库：{git.get('active_repos', 0)}")
+            lines.append(f"- 共 {git['total_commits']} 次提交，涉及 {git['active_repos']} 个仓库")
             for repo in git.get("repo_breakdown", [])[:5]:
                 lines.append(f"  - {repo.get('repo', 'N/A')}: {repo.get('commits', 0)} 次提交")
             lines.append("")
 
-        vf = collected_data.get("vortflow")
-        if vf:
-            lines.append("### 任务进度")
-            lines.append(f"- 完成任务：{vf.get('tasks_completed', 0)}")
-            lines.append(f"- 修复 Bug：{vf.get('bugs_fixed', 0)}")
-            lines.append("")
+        if not has_vf_details and not has_git:
+            lines.append("### 今日工作")
+            lines.append("（暂未采集到系统工作数据，请手动补充具体工作内容）\n")
 
-        lines.extend(["### 今日工作", "（请补充具体工作内容）\n",
-                       "### 遇到的问题", "（如有阻塞项请说明）\n",
-                       "### 明日计划", "（请补充明日工作计划）"])
+        lines.append("### 遇到的问题")
+        lines.append("（如有阻塞项请说明）\n")
+        lines.append("### 明日计划")
+        lines.append("（请补充明日工作计划）")
+
         return "\n".join(lines)

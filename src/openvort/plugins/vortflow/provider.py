@@ -10,6 +10,9 @@ from typing import Callable
 from sqlalchemy import select, func as sa_func
 
 from openvort.plugin.slots import ProjectInfo, TasksSummary, WorkItemInfo
+from openvort.utils.logging import get_logger
+
+log = get_logger("plugins.vortflow.provider")
 
 
 class VortFlowProjectProvider:
@@ -97,9 +100,14 @@ class VortFlowProjectProvider:
 
         sf = self._sf()
         async with sf() as session:
-            task_q = select(sa_func.count()).select_from(FlowTask).where(FlowTask.project_id == project_id)
+            task_q = select(sa_func.count()).select_from(FlowTask)
+            bug_q = select(sa_func.count()).select_from(FlowBug)
+
+            if project_id:
+                task_q = task_q.where(FlowTask.project_id == project_id)
+                bug_q = bug_q.where(FlowBug.project_id == project_id)
+
             task_done_q = task_q.where(FlowTask.state == "done")
-            bug_q = select(sa_func.count()).select_from(FlowBug).where(FlowBug.project_id == project_id)
             bug_fixed_q = bug_q.where(FlowBug.state == "closed")
 
             if member_id:
@@ -131,3 +139,140 @@ class VortFlowProjectProvider:
             bugs_fixed=bugs_fixed,
             bugs_total=bugs_total,
         )
+
+    async def get_member_daily_details(
+        self,
+        member_id: str,
+        since: datetime,
+        until: datetime,
+    ) -> dict:
+        """Get detailed work items and activity events for a member in a time range.
+
+        Returns structured dict with tasks_completed, bugs_fixed, tasks_in_progress,
+        stories_in_progress, events timeline, and summary counts.
+        """
+        from openvort.plugins.vortflow.models import (
+            FlowBug, FlowEvent, FlowProject, FlowStory, FlowTask,
+        )
+
+        sf = self._sf()
+        async with sf() as session:
+            tasks_done = (await session.execute(
+                select(FlowTask).where(
+                    FlowTask.assignee_id == member_id,
+                    FlowTask.state == "done",
+                    FlowTask.updated_at >= since,
+                    FlowTask.updated_at <= until,
+                )
+            )).scalars().all()
+
+            bugs_fixed = (await session.execute(
+                select(FlowBug).where(
+                    FlowBug.assignee_id == member_id,
+                    FlowBug.state.in_(("closed", "resolved")),
+                    FlowBug.updated_at >= since,
+                    FlowBug.updated_at <= until,
+                )
+            )).scalars().all()
+
+            tasks_doing = (await session.execute(
+                select(FlowTask).where(
+                    FlowTask.assignee_id == member_id,
+                    FlowTask.state.in_(("doing", "in_progress")),
+                )
+            )).scalars().all()
+
+            stories = (await session.execute(
+                select(FlowStory).where(
+                    FlowStory.assignee_id == member_id,
+                    FlowStory.state.in_(("developing", "reviewing", "testing")),
+                )
+            )).scalars().all()
+
+            events = (await session.execute(
+                select(FlowEvent).where(
+                    FlowEvent.actor_id == member_id,
+                    FlowEvent.created_at >= since,
+                    FlowEvent.created_at <= until,
+                ).order_by(FlowEvent.created_at.asc()).limit(100)
+            )).scalars().all()
+
+            project_ids = set()
+            for items in (tasks_done, bugs_fixed, tasks_doing, stories):
+                for item in items:
+                    pid = getattr(item, "project_id", None)
+                    if pid:
+                        project_ids.add(pid)
+
+            project_names: dict[str, str] = {}
+            if project_ids:
+                proj_rows = (await session.execute(
+                    select(FlowProject.id, FlowProject.name)
+                    .where(FlowProject.id.in_(list(project_ids)))
+                )).all()
+                project_names = {pid: pname for pid, pname in proj_rows}
+
+            entity_ids_by_type: dict[str, set[str]] = {}
+            for ev in events:
+                entity_ids_by_type.setdefault(ev.entity_type, set()).add(ev.entity_id)
+
+            entity_titles: dict[str, str] = {}
+            model_map = {"task": FlowTask, "bug": FlowBug, "story": FlowStory}
+            for etype, eids in entity_ids_by_type.items():
+                model = model_map.get(etype)
+                if model and eids:
+                    rows = (await session.execute(
+                        select(model.id, model.title).where(model.id.in_(list(eids)))
+                    )).all()
+                    for eid, title in rows:
+                        entity_titles[f"{etype}:{eid}"] = title
+
+        severity_labels = {1: "致命", 2: "严重", 3: "一般", 4: "轻微"}
+
+        def _item_dict(item, item_type: str) -> dict:
+            pid = getattr(item, "project_id", "") or ""
+            d = {
+                "id": item.id,
+                "title": item.title,
+                "type": item_type,
+                "state": getattr(item, "state", ""),
+                "project_name": project_names.get(pid, ""),
+            }
+            if item_type == "bug":
+                d["severity"] = severity_labels.get(getattr(item, "severity", 3), "一般")
+            if item_type == "task":
+                d["task_type"] = getattr(item, "task_type", "")
+            progress = getattr(item, "progress", None)
+            if progress is not None:
+                d["progress"] = progress
+            return d
+
+        type_labels = {"story": "需求", "task": "任务", "bug": "缺陷", "project": "项目"}
+        events_list = []
+        for ev in events:
+            key = f"{ev.entity_type}:{ev.entity_id}"
+            events_list.append({
+                "entity_type": type_labels.get(ev.entity_type, ev.entity_type),
+                "entity_title": entity_titles.get(key, ev.entity_id),
+                "action": ev.action,
+                "detail": ev.detail,
+                "time": ev.created_at.strftime("%H:%M") if ev.created_at else "",
+            })
+
+        has_data = bool(tasks_done or bugs_fixed or tasks_doing or stories or events)
+
+        return {
+            "has_data": has_data,
+            "tasks_completed": [_item_dict(t, "task") for t in tasks_done],
+            "bugs_fixed": [_item_dict(b, "bug") for b in bugs_fixed],
+            "tasks_in_progress": [_item_dict(t, "task") for t in tasks_doing],
+            "stories_in_progress": [_item_dict(s, "story") for s in stories],
+            "events": events_list,
+            "summary": {
+                "tasks_completed_count": len(tasks_done),
+                "bugs_fixed_count": len(bugs_fixed),
+                "tasks_in_progress_count": len(tasks_doing),
+                "stories_in_progress_count": len(stories),
+                "events_count": len(events),
+            },
+        }
