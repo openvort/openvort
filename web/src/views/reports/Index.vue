@@ -1,938 +1,517 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from "vue";
-import { useRouter } from "vue-router";
+import { ref, onMounted, computed, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import {
-    getReports, getReportDetail, submitReport, reviewReport,
-    getReportTemplates, createReportTemplate, updateReportTemplate, deleteReportTemplate,
-    getReportRules, createReportRule, updateReportRule, deleteReportRule, testSendReportRule,
-    getReportStats, getMembersSimple, generateReportContentPrompt,
+    getReports, getPublications, deletePublication, getReportStats,
+    sendReminders, sendSummary,
 } from "@/api";
-import {
-    Plus, FileText, CheckCircle, XCircle, Clock,
-    Search, Users, Bot,
-} from "lucide-vue-next";
+import { Plus, Search, Clock, Users, Bell, Pencil } from "lucide-vue-next";
 import { message } from "@openvort/vort-ui";
 import { useUserStore } from "@/stores";
+import PublicationDrawer from "./components/PublicationDrawer.vue";
+import WriteReportDrawer from "./components/WriteReportDrawer.vue";
+import ReportDetailDrawer from "./components/ReportDetailDrawer.vue";
 
 // ---- Types ----
 
 interface ReportItem {
     id: string;
+    publication_id: string;
     report_type: string;
     report_date: string;
     title: string;
     content: string;
     status: string;
     reporter_id: string;
-    reviewer_id: string;
+    reporter_name: string;
+    reporter_avatar_url: string;
     auto_generated: boolean;
     submitted_at: string | null;
-    reviewed_at: string | null;
-    reviewer_comment: string;
     created_at: string;
 }
 
-interface TemplateItem {
+interface DateGroup {
+    date: string;
+    label: string;
+    items: ReportItem[];
+}
+
+interface PublicationItem {
     id: string;
     name: string;
     description: string;
     report_type: string;
-    content_schema: object;
-    auto_collect: object;
-    created_at: string;
-}
-
-interface RuleItem {
-    id: string;
-    name: string;
-    template_id: string;
-    template_name: string;
-    reviewer_id: string;
-    deadline_cron: string;
-    workdays_only: boolean;
-    reminder_minutes: number;
-    escalation_minutes: number;
+    repeat_cycle: string;
+    deadline_time: string;
+    reminder_enabled: boolean;
+    skip_weekends: boolean;
+    skip_holidays: boolean;
+    allow_multiple: boolean;
+    allow_edit: boolean;
+    notify_summary: boolean;
+    notify_on_receive: boolean;
     enabled: boolean;
-    member_ids: string[];
-    member_count: number;
-    member_names: string[];
-}
-
-interface MemberItem {
-    id: string;
-    name: string;
-    email: string;
+    submitter_ids: string[];
+    submitter_names: string[];
+    submitter_count: number;
+    whitelist_ids: string[];
+    whitelist_names: string[];
+    receiver_ids: string[];
+    receiver_names: string[];
+    owner_id: string;
+    owner_name: string;
+    created_at: string;
 }
 
 // ---- State ----
 
-const userStore = useUserStore();
+const route = useRoute();
 const router = useRouter();
-const activeTab = ref("my");
-const isAdmin = computed(() => userStore.isAdmin || userStore.userInfo.roles.includes("manager"));
+const userStore = useUserStore();
+const isAdmin = computed(() => userStore.isAdmin || userStore.userInfo.roles?.includes("manager"));
+const validTabs = ["read", "publish"];
+const activeTab = ref(validTabs.includes(route.query.tab as string) ? (route.query.tab as string) : "read");
+const readSubTab = ref("received");
 
-// My reports
+watch(activeTab, (tab) => {
+    router.replace({ query: { ...route.query, tab } });
+});
+
+// Reports
+const receivedReports = ref<ReportItem[]>([]);
 const myReports = ref<ReportItem[]>([]);
+const loadingReceived = ref(false);
 const loadingMy = ref(false);
-const myFilterType = ref("");
-const myFilterStatus = ref("");
+const filterReporter = ref("");
+const filterPubId = ref("");
+const filterDate = ref("");
+const filterStatus = ref("");
+const searchKeyword = ref("");
 
-// Subordinate reports
-const subReports = ref<ReportItem[]>([]);
-const loadingSub = ref(false);
-const subFilterStatus = ref("");
-
-// Report detail
-const detailVisible = ref(false);
-const detailReport = ref<ReportItem | null>(null);
-const detailLoading = ref(false);
-
-// Submit dialog
-const submitDialogOpen = ref(false);
-const submitForm = ref({ report_type: "daily", title: "", content: "", report_date: "" });
-const submitting = ref(false);
-
-// Review dialog
-const reviewDialogOpen = ref(false);
-const reviewForm = ref({ status: "reviewed", comment: "" });
-const reviewing = ref(false);
-const reviewReportId = ref("");
-
-// Settings tab
-const templates = ref<TemplateItem[]>([]);
-const rules = ref<RuleItem[]>([]);
-const loadingTemplates = ref(false);
-const loadingRules = ref(false);
-
-// Template dialog
-const templateDialogOpen = ref(false);
-const templateForm = ref({ name: "", description: "", report_type: "daily" });
-const savingTemplate = ref(false);
-const editingTemplateId = ref("");
-
-// Rule dialog
-const ruleDialogOpen = ref(false);
-const editingRuleId = ref("");
-const ruleForm = ref({
-    template_id: "",
-    member_ids: [] as string[],
-    deadline_cron: "0 18 * * 1-5",
-    workdays_only: true,
-});
-const savingRule = ref(false);
-
-// Member list for rule dialog
-const allMembers = ref<MemberItem[]>([]);
-const memberSearchQuery = ref("");
-const loadingMembers = ref(false);
-
-const filteredMembers = computed(() => {
-    if (!memberSearchQuery.value.trim()) return allMembers.value;
-    const q = memberSearchQuery.value.trim().toLowerCase();
-    return allMembers.value.filter(m => m.name.toLowerCase().includes(q));
-});
-
-const isAllSelected = computed(() =>
-    filteredMembers.value.length > 0 && filteredMembers.value.every(m => ruleForm.value.member_ids.includes(m.id))
-);
-
-const isSomeSelected = computed(() =>
-    filteredMembers.value.some(m => ruleForm.value.member_ids.includes(m.id)) && !isAllSelected.value
-);
+// Publications (admin)
+const publications = ref<PublicationItem[]>([]);
+const loadingPubs = ref(false);
 
 // Stats
-const stats = ref({ total: 0, draft: 0, submitted: 0, reviewed: 0, rejected: 0 });
+const stats = ref({ total: 0, draft: 0, submitted: 0 });
+
+// Drawers
+const pubDrawerOpen = ref(false);
+const editingPub = ref<any>(null);
+const writeDrawerOpen = ref(false);
+const detailDrawerOpen = ref(false);
+const detailReportId = ref("");
 
 // ---- Helpers ----
 
-const typeOptions = [
-    { label: "全部", value: "" },
-    { label: "日报", value: "daily" },
-    { label: "周报", value: "weekly" },
-    { label: "月报", value: "monthly" },
-    { label: "季报", value: "quarterly" },
-];
-const statusOptions = [
-    { label: "全部", value: "" },
-    { label: "草稿", value: "draft" },
-    { label: "已提交", value: "submitted" },
-    { label: "已审阅", value: "reviewed" },
-    { label: "已退回", value: "rejected" },
-];
-const typeLabel = (val: string) => ({ daily: "日报", weekly: "周报", monthly: "月报", quarterly: "季报" }[val] || val);
-const typeColor = (val: string) => ({ daily: "blue", weekly: "purple", monthly: "orange", quarterly: "cyan" }[val] || "default");
-const statusLabel = (val: string) => ({ draft: "草稿", submitted: "已提交", reviewed: "已审阅", rejected: "已退回" }[val] || val);
-const statusColor = (val: string) => ({ draft: "default", submitted: "processing", reviewed: "green", rejected: "red" }[val] || "default");
+const typeLabel = (v: string) => ({ daily: "日报", weekly: "周报", monthly: "月报", quarterly: "季报" }[v] || v);
+const typeColor = (v: string) => ({ daily: "blue", weekly: "purple", monthly: "orange", quarterly: "cyan" }[v] || "default");
+const cycleLabel = (v: string) => ({ daily: "按日", weekly: "按周", monthly: "按月" }[v] || v);
 
-// ---- My Reports ----
+const AVATAR_COLORS = ["#1677ff", "#52c41a", "#faad14", "#eb2f96", "#722ed1", "#13c2c2", "#fa541c", "#2f54eb"];
+function avatarBg(name: string): string {
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]!;
+}
+
+function formatContentPreview(content: string): string {
+    const plain = content
+        .replace(/^#{1,6}\s+/gm, "")
+        .replace(/\*\*(.+?)\*\*/g, "$1")
+        .replace(/\*(.+?)\*/g, "$1")
+        .replace(/~~(.+?)~~/g, "$1")
+        .replace(/`(.+?)`/g, "$1")
+        .replace(/^\s*[-*+]\s+/gm, "- ")
+        .replace(/^\s*\d+\.\s+/gm, "");
+    const lines = plain.split("\n").filter(l => l.trim());
+    return lines.slice(0, 3).join("\n").slice(0, 200);
+}
+
+function formatDateLabel(dateStr: string): string {
+    if (!dateStr) return "";
+    const d = new Date(dateStr);
+    return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+}
+
+function formatMemberSummary(names: string[], max = 3): string {
+    if (names.length <= max) return names.join("、");
+    return `${names.slice(0, max).join("、")} 等 ${names.length} 人`;
+}
+
+// unique reporter list for the person filter
+const reporterOptions = computed(() => {
+    const reports = readSubTab.value === "received" ? receivedReports.value : myReports.value;
+    const map = new Map<string, string>();
+    reports.forEach(r => { if (r.reporter_id && r.reporter_name) map.set(r.reporter_id, r.reporter_name); });
+    return Array.from(map, ([id, name]) => ({ id, name }));
+});
+
+// ---- Data loading ----
+
+async function loadReceivedReports() {
+    loadingReceived.value = true;
+    try {
+        const params: Record<string, any> = { scope: "received", page_size: 100 };
+        if (filterPubId.value) params.publication_id = filterPubId.value;
+        if (filterDate.value) { params.since = filterDate.value; params.until = filterDate.value; }
+        if (filterReporter.value) params.reporter_id = filterReporter.value;
+        const res: any = await getReports(params);
+        receivedReports.value = res?.items || [];
+    } catch { receivedReports.value = []; }
+    finally { loadingReceived.value = false; }
+}
 
 async function loadMyReports() {
     loadingMy.value = true;
     try {
-        const params: Record<string, any> = { page_size: 50 };
-        if (myFilterType.value) params.report_type = myFilterType.value;
-        if (myFilterStatus.value) params.status = myFilterStatus.value;
+        const params: Record<string, any> = { page_size: 100 };
+        if (filterPubId.value) params.publication_id = filterPubId.value;
+        if (filterDate.value) { params.since = filterDate.value; params.until = filterDate.value; }
         const res: any = await getReports(params);
         myReports.value = res?.items || [];
-    } catch { /* ignore */ }
+    } catch { myReports.value = []; }
     finally { loadingMy.value = false; }
 }
 
-// ---- Subordinate Reports ----
-
-async function loadSubReports() {
-    loadingSub.value = true;
+async function loadPublications() {
+    loadingPubs.value = true;
     try {
-        const params: Record<string, any> = { reviewer_id: userStore.userInfo.id, page_size: 50 };
-        if (subFilterStatus.value) params.status = subFilterStatus.value;
-        const res: any = await getReports(params);
-        subReports.value = res?.items || [];
-    } catch { /* ignore */ }
-    finally { loadingSub.value = false; }
-}
-
-// ---- Detail ----
-
-async function openDetail(reportId: string) {
-    detailVisible.value = true;
-    detailLoading.value = true;
-    try {
-        const res: any = await getReportDetail(reportId);
-        detailReport.value = res;
-    } catch { message.error("加载失败"); }
-    finally { detailLoading.value = false; }
-}
-
-// ---- Submit ----
-
-function openSubmitDialog() {
-    submitForm.value = { report_type: "daily", title: "", content: "", report_date: "" };
-    submitDialogOpen.value = true;
-}
-
-async function handleSubmit() {
-    if (!submitForm.value.content.trim()) {
-        message.error("请填写汇报内容");
-        return;
-    }
-    submitting.value = true;
-    try {
-        const res: any = await submitReport({
-            report_type: submitForm.value.report_type,
-            title: submitForm.value.title || `${typeLabel(submitForm.value.report_type)} - ${submitForm.value.report_date || new Date().toISOString().slice(0, 10)}`,
-            content: submitForm.value.content,
-            report_date: submitForm.value.report_date || undefined,
-        });
-        if (res?.success) {
-            message.success("汇报已提交");
-            submitDialogOpen.value = false;
-            await loadMyReports();
-        } else { message.error("提交失败"); }
-    } catch { message.error("提交失败"); }
-    finally { submitting.value = false; }
-}
-
-async function handleAiGenerateContent(reportType?: string, reportDate?: string) {
-    const type = reportType || submitForm.value.report_type;
-    const date = reportDate || submitForm.value.report_date || new Date().toISOString().slice(0, 10);
-    if (!type) {
-        message.warning("请先选择汇报类型");
-        return;
-    }
-    try {
-        const res: any = await generateReportContentPrompt(type, date);
-        if (res?.prompt) {
-            submitDialogOpen.value = false;
-            router.push({ name: "chat", query: { prompt: res.prompt } });
-        }
-    } catch (e: any) {
-        message.error(e?.response?.data?.detail || "生成失败");
-    }
-}
-
-// ---- Review ----
-
-function openReviewDialog(reportId: string) {
-    reviewReportId.value = reportId;
-    reviewForm.value = { status: "reviewed", comment: "" };
-    reviewDialogOpen.value = true;
-}
-
-async function handleReview() {
-    reviewing.value = true;
-    try {
-        const res: any = await reviewReport(reviewReportId.value, reviewForm.value);
-        if (res?.success) {
-            message.success(reviewForm.value.status === "reviewed" ? "已通过" : "已退回");
-            reviewDialogOpen.value = false;
-            detailVisible.value = false;
-            await loadSubReports();
-        } else { message.error("操作失败"); }
-    } catch { message.error("操作失败"); }
-    finally { reviewing.value = false; }
-}
-
-// ---- Settings ----
-
-async function loadTemplates() {
-    loadingTemplates.value = true;
-    try {
-        const res: any = await getReportTemplates();
-        templates.value = res?.templates || [];
-    } catch { /* ignore */ }
-    finally { loadingTemplates.value = false; }
-}
-
-async function loadRules() {
-    loadingRules.value = true;
-    try {
-        const res: any = await getReportRules();
-        rules.value = res?.rules || [];
-    } catch { /* ignore */ }
-    finally { loadingRules.value = false; }
+        const res: any = await getPublications();
+        publications.value = res?.publications || [];
+    } catch { publications.value = []; }
+    finally { loadingPubs.value = false; }
 }
 
 async function loadStats() {
     try {
         const res: any = await getReportStats();
-        stats.value = res || { total: 0, draft: 0, submitted: 0, reviewed: 0, rejected: 0 };
+        stats.value = res || { total: 0, draft: 0, submitted: 0 };
     } catch { /* ignore */ }
 }
 
-function openTemplateDialog(template?: TemplateItem) {
-    if (template) {
-        editingTemplateId.value = template.id;
-        templateForm.value = { name: template.name, description: template.description || "", report_type: template.report_type };
-    } else {
-        editingTemplateId.value = "";
-        templateForm.value = { name: "", description: "", report_type: "daily" };
-    }
-    templateDialogOpen.value = true;
+function refreshReportData() {
+    loadReceivedReports();
+    loadMyReports();
+    loadStats();
 }
 
-async function handleSaveTemplate() {
-    if (!templateForm.value.name.trim()) {
-        message.error("请输入模板名称");
-        return;
-    }
-    savingTemplate.value = true;
-    try {
-        const isEdit = !!editingTemplateId.value;
-        const res: any = isEdit
-            ? await updateReportTemplate(editingTemplateId.value, templateForm.value)
-            : await createReportTemplate(templateForm.value);
-        if (res?.success) {
-            message.success(isEdit ? "模板已更新" : "模板已创建");
-            templateDialogOpen.value = false;
-            await loadTemplates();
-        } else { message.error(isEdit ? "更新失败" : "创建失败"); }
-    } catch { message.error(editingTemplateId.value ? "更新失败" : "创建失败"); }
-    finally { savingTemplate.value = false; }
+function reloadCurrentTab() {
+    if (readSubTab.value === "received") loadReceivedReports();
+    else loadMyReports();
 }
 
-async function handleDeleteTemplate(id: string) {
+function resetFilters() {
+    filterReporter.value = "";
+    filterPubId.value = "";
+    filterDate.value = "";
+    filterStatus.value = "";
+    searchKeyword.value = "";
+    reloadCurrentTab();
+}
+
+// ---- Filtered & grouped ----
+
+function applyLocalFilters(reports: ReportItem[]): ReportItem[] {
+    let items = reports;
+    if (filterStatus.value) {
+        items = items.filter(r => r.status === filterStatus.value);
+    }
+    if (searchKeyword.value.trim()) {
+        const q = searchKeyword.value.trim().toLowerCase();
+        items = items.filter(r =>
+            r.title.toLowerCase().includes(q) || r.reporter_name.toLowerCase().includes(q) || r.content.toLowerCase().includes(q)
+        );
+    }
+    return items;
+}
+
+function groupByDate(reports: ReportItem[]): DateGroup[] {
+    const map = new Map<string, ReportItem[]>();
+    for (const r of reports) {
+        const key = r.report_date || "unknown";
+        if (!map.has(key)) map.set(key, []);
+        map.get(key)!.push(r);
+    }
+    return Array.from(map, ([date, items]) => ({
+        date,
+        label: formatDateLabel(date),
+        items: items.sort((a, b) => (b.submitted_at || "").localeCompare(a.submitted_at || "")),
+    })).sort((a, b) => b.date.localeCompare(a.date));
+}
+
+const groupedReceived = computed(() => groupByDate(applyLocalFilters(receivedReports.value)));
+const groupedMy = computed(() => groupByDate(applyLocalFilters(myReports.value)));
+
+const hasReceivedData = computed(() => groupedReceived.value.some(g => g.items.length > 0));
+const hasMyData = computed(() => groupedMy.value.some(g => g.items.length > 0));
+
+// ---- Actions ----
+
+function openDetail(reportId: string) {
+    detailReportId.value = reportId;
+    detailDrawerOpen.value = true;
+}
+
+function openPubDrawer(pub?: PublicationItem) {
+    editingPub.value = pub || null;
+    pubDrawerOpen.value = true;
+}
+
+async function handleDeletePub(id: string) {
     try {
-        const res: any = await deleteReportTemplate(id);
+        const res: any = await deletePublication(id);
         if (res?.success) {
             message.success("已删除");
-            await loadTemplates();
+            await loadPublications();
         }
     } catch { message.error("删除失败"); }
 }
 
-// ---- Rule CRUD ----
-
-async function loadAllMembers() {
-    if (allMembers.value.length > 0) return;
-    loadingMembers.value = true;
+async function handleSendReminder(id: string) {
     try {
-        const res: any = await getMembersSimple({ size: 500 });
-        allMembers.value = (res?.members || []).filter((m: any) => m.id && !m.is_virtual);
-    } catch { allMembers.value = []; }
-    finally { loadingMembers.value = false; }
-}
-
-function toggleMemberSelection(memberId: string) {
-    const idx = ruleForm.value.member_ids.indexOf(memberId);
-    if (idx > -1) {
-        ruleForm.value.member_ids.splice(idx, 1);
-    } else {
-        ruleForm.value.member_ids.push(memberId);
-    }
-}
-
-function toggleSelectAll() {
-    if (isAllSelected.value) {
-        const visibleIds = new Set(filteredMembers.value.map(m => m.id));
-        ruleForm.value.member_ids = ruleForm.value.member_ids.filter(id => !visibleIds.has(id));
-    } else {
-        const currentSet = new Set(ruleForm.value.member_ids);
-        filteredMembers.value.forEach(m => currentSet.add(m.id));
-        ruleForm.value.member_ids = [...currentSet];
-    }
-}
-
-function openRuleDialog(rule?: RuleItem) {
-    if (rule) {
-        editingRuleId.value = rule.id;
-        ruleForm.value = {
-            template_id: rule.template_id,
-            member_ids: [...rule.member_ids],
-            deadline_cron: rule.deadline_cron,
-            workdays_only: rule.workdays_only,
-        };
-    } else {
-        editingRuleId.value = "";
-        ruleForm.value = {
-            template_id: "",
-            member_ids: [],
-            deadline_cron: "0 18 * * 1-5",
-            workdays_only: true,
-        };
-    }
-    memberSearchQuery.value = "";
-    ruleDialogOpen.value = true;
-    loadAllMembers();
-}
-
-async function handleSaveRule() {
-    if (!ruleForm.value.template_id) {
-        message.error("请选择汇报模板");
-        return;
-    }
-    if (ruleForm.value.member_ids.length === 0) {
-        message.error("请至少选择一位成员");
-        return;
-    }
-    savingRule.value = true;
-    try {
-        if (editingRuleId.value) {
-            const res: any = await updateReportRule(editingRuleId.value, {
-                member_ids: ruleForm.value.member_ids,
-                deadline_cron: ruleForm.value.deadline_cron,
-                workdays_only: ruleForm.value.workdays_only,
-            });
-            if (res?.success) {
-                message.success("规则已更新");
-                ruleDialogOpen.value = false;
-                await loadRules();
-            } else { message.error("更新失败"); }
-        } else {
-            const res: any = await createReportRule({
-                template_id: ruleForm.value.template_id,
-                member_ids: ruleForm.value.member_ids,
-                deadline_cron: ruleForm.value.deadline_cron,
-                workdays_only: ruleForm.value.workdays_only,
-            });
-            if (res?.success) {
-                message.success("规则已创建");
-                ruleDialogOpen.value = false;
-                await loadRules();
-            } else { message.error(res?.error || "创建失败"); }
-        }
-    } catch { message.error(editingRuleId.value ? "更新失败" : "创建失败"); }
-    finally { savingRule.value = false; }
-}
-
-async function handleToggleRule(rule: RuleItem) {
-    try {
-        const res: any = await updateReportRule(rule.id, { enabled: !rule.enabled });
-        if (res?.success) {
-            rule.enabled = !rule.enabled;
-        } else { message.error("操作失败"); }
-    } catch { message.error("操作失败"); }
-}
-
-async function handleTestSendRule(id: string) {
-    try {
-        const res: any = await testSendReportRule(id);
+        const res: any = await sendReminders(id);
         if (res?.ok) {
-            message.success(`测试发送完成：成功 ${res.sent}/${res.total} 人`);
-        } else {
-            message.error(res?.error || "测试发送失败");
-        }
-    } catch { message.error("测试发送失败"); }
+            if (res.sent > 0) {
+                message.success(`已发送提醒：${res.sent} 人`);
+            } else if (res.submitter_count > 0 && res.submitted_count >= res.submitter_count) {
+                message.warning("所有提交人今日已提交，无需催报");
+            } else if (res.submitter_count === 0) {
+                message.warning("该发布暂无提交人");
+            } else {
+                message.success("已发送提醒：0 人");
+            }
+        } else { message.error(res?.error || "发送失败"); }
+    } catch { message.error("发送失败"); }
 }
 
-async function handleDeleteRule(id: string) {
+async function handleSendSummary(id: string) {
     try {
-        const res: any = await deleteReportRule(id);
-        if (res?.success) {
-            message.success("已删除");
-            await loadRules();
-        }
-    } catch { message.error("删除失败"); }
-}
-
-// ---- Avatar helpers ----
-
-const AVATAR_COLORS = [
-    'bg-blue-500', 'bg-green-500', 'bg-purple-500', 'bg-orange-500',
-    'bg-pink-500', 'bg-teal-500', 'bg-indigo-500', 'bg-red-400',
-    'bg-cyan-500', 'bg-amber-500',
-];
-
-function getInitial(name: string): string {
-    if (!name) return '?';
-    const trimmed = name.trim();
-    const first = trimmed.charAt(0);
-    return /[a-zA-Z]/.test(first) ? first.toUpperCase() : first;
-}
-
-function getAvatarColor(name: string): string {
-    if (!name) return AVATAR_COLORS[0];
-    let hash = 0;
-    for (let i = 0; i < name.length; i++) {
-        hash = name.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
-}
-
-function formatMemberSummary(rule: RuleItem): string {
-    const names = rule.member_names || [];
-    if (names.length <= 3) return names.join("、");
-    return `${names.slice(0, 3).join("、")} 等 ${names.length} 人`;
+        const res: any = await sendSummary(id);
+        if (res?.ok) {
+            message.success(`已发送汇总：${res.sent} 人`);
+        } else { message.error(res?.error || "发送失败"); }
+    } catch { message.error("发送失败"); }
 }
 
 // ---- Init ----
 
 onMounted(() => {
-    loadMyReports();
-    loadSubReports();
-    loadStats();
-    loadTemplates();
-    loadRules();
+    refreshReportData();
+    loadPublications();
 });
 </script>
 
 <template>
     <div class="space-y-4">
-        <!-- Stats cards -->
-        <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
-            <div class="bg-white rounded-xl p-4">
-                <div class="text-sm text-gray-400">总汇报数</div>
-                <div class="text-2xl font-semibold text-gray-800 mt-1">{{ stats.total }}</div>
-            </div>
-            <div class="bg-white rounded-xl p-4">
-                <div class="text-sm text-gray-400">草稿</div>
-                <div class="text-2xl font-semibold text-gray-500 mt-1">{{ stats.draft }}</div>
-            </div>
-            <div class="bg-white rounded-xl p-4">
-                <div class="text-sm text-gray-400">已提交</div>
-                <div class="text-2xl font-semibold text-blue-600 mt-1">{{ stats.submitted }}</div>
-            </div>
-            <div class="bg-white rounded-xl p-4">
-                <div class="text-sm text-gray-400">已审阅</div>
-                <div class="text-2xl font-semibold text-green-600 mt-1">{{ stats.reviewed }}</div>
-            </div>
-            <div class="bg-white rounded-xl p-4">
-                <div class="text-sm text-gray-400">已退回</div>
-                <div class="text-2xl font-semibold text-red-500 mt-1">{{ stats.rejected }}</div>
-            </div>
-        </div>
-
         <!-- Main content -->
         <div class="bg-white rounded-xl p-6">
-            <VortTabs v-model:activeKey="activeTab">
-                <!-- My reports -->
-                <VortTabPane tab-key="my" tab="我的汇报">
+            <!-- Tabs -->
+            <VortTabs v-model:activeKey="activeTab" :hide-content="true" class="mb-5">
+                <VortTabPane tab-key="read" tab="读汇报" />
+                <VortTabPane v-if="isAdmin" tab-key="publish" tab="发布汇报" />
+            </VortTabs>
+
+            <!-- ===== 读汇报 content ===== -->
+            <div v-show="activeTab === 'read'">
+                    <!-- Sub tabs (segment style) -->
+                    <div class="flex items-center gap-1 bg-gray-50 rounded-lg p-0.5 w-fit mb-5">
+                        <button
+                            class="px-4 py-1.5 rounded-md text-sm font-medium transition-all"
+                            :class="readSubTab === 'received' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'"
+                            @click="readSubTab = 'received'; resetFilters()"
+                        >我收到的</button>
+                        <button
+                            class="px-4 py-1.5 rounded-md text-sm font-medium transition-all"
+                            :class="readSubTab === 'submitted' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'"
+                            @click="readSubTab = 'submitted'; resetFilters()"
+                        >我提交的</button>
+                    </div>
+
+                    <!-- Filters -->
                     <div class="flex items-center justify-between mb-4">
-                        <div class="flex items-center gap-3">
-                            <VortSelect v-model="myFilterType" placeholder="全部类型" allow-clear style="width: 120px" @change="loadMyReports">
-                                <VortSelectOption v-for="opt in typeOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</VortSelectOption>
-                            </VortSelect>
-                            <VortSelect v-model="myFilterStatus" placeholder="全部状态" allow-clear style="width: 120px" @change="loadMyReports">
-                                <VortSelectOption v-for="opt in statusOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</VortSelectOption>
-                            </VortSelect>
+                        <div class="flex items-center gap-2">
+                            <vort-select v-model="filterReporter" placeholder="所有人" allow-clear style="width: 110px" @change="reloadCurrentTab">
+                                <vort-select-option value="">所有人</vort-select-option>
+                                <vort-select-option v-for="m in reporterOptions" :key="m.id" :value="m.id">{{ m.name }}</vort-select-option>
+                            </vort-select>
+                            <vort-select v-model="filterPubId" placeholder="所有模板" allow-clear style="width: 140px" @change="reloadCurrentTab">
+                                <vort-select-option value="">所有模板</vort-select-option>
+                                <vort-select-option v-for="pub in publications" :key="pub.id" :value="pub.id">{{ pub.name }}</vort-select-option>
+                            </vort-select>
+                            <vort-date-picker v-model="filterDate" value-format="YYYY-MM-DD" placeholder="选择日期" allow-clear style="width: 140px" @change="reloadCurrentTab" />
+                            <vort-select v-model="filterStatus" placeholder="全部状态" allow-clear style="width: 120px">
+                                <vort-select-option value="">全部状态</vort-select-option>
+                                <vort-select-option value="submitted">已提交</vort-select-option>
+                                <vort-select-option value="draft">草稿</vort-select-option>
+                            </vort-select>
                         </div>
                         <div class="flex items-center gap-2">
-                            <AiAssistButton prompt="我想写一份日报/周报/月报，请引导我完成。请先询问我要写哪种类型的汇报，然后帮我梳理和生成汇报内容。" />
-                            <VortButton variant="primary" @click="openSubmitDialog">
-                                <Plus :size="14" class="mr-1" /> 写汇报
-                            </VortButton>
-                        </div>
-                    </div>
-
-                    <VortSpin :spinning="loadingMy">
-                        <div v-if="myReports.length" class="space-y-2">
-                            <div
-                                v-for="r in myReports" :key="r.id"
-                                class="flex items-center justify-between px-5 py-3.5 rounded-lg border border-gray-100 hover:bg-gray-50 cursor-pointer"
-                                @click="openDetail(r.id)"
-                            >
-                                <div class="flex items-center gap-3 min-w-0">
-                                    <VortTag :color="typeColor(r.report_type)" size="small">{{ typeLabel(r.report_type) }}</VortTag>
-                                    <span class="text-sm font-medium text-gray-800 truncate">{{ r.title || '无标题' }}</span>
-                                    <span class="text-xs text-gray-400 flex-shrink-0">{{ r.report_date }}</span>
-                                </div>
-                                <div class="flex items-center gap-2 flex-shrink-0">
-                                    <VortTag v-if="r.auto_generated" size="small" color="cyan">AI 生成</VortTag>
-                                    <VortTag :color="statusColor(r.status)" size="small">{{ statusLabel(r.status) }}</VortTag>
-                                </div>
-                            </div>
-                        </div>
-                        <div v-else class="text-gray-400 text-sm text-center py-16">
-                            暂无汇报记录，点击右上角「写汇报」开始
-                        </div>
-                    </VortSpin>
-                </VortTabPane>
-
-                <!-- Subordinate reports -->
-                <VortTabPane tab-key="subordinate" tab="下属汇报">
-                    <div class="flex items-center justify-between mb-4">
-                        <div class="flex items-center gap-3">
-                            <VortSelect v-model="subFilterStatus" placeholder="全部状态" allow-clear style="width: 120px" @change="loadSubReports">
-                                <VortSelectOption v-for="opt in statusOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</VortSelectOption>
-                            </VortSelect>
-                        </div>
-                        <AiAssistButton
-                            label="帮我汇总"
-                            prompt="请帮我汇总下属提交的汇报。请查看我所有下属最近的日报/周报，总结关键进展、风险和阻塞项，生成一份管理层摘要。"
-                        />
-                    </div>
-
-                    <VortSpin :spinning="loadingSub">
-                        <div v-if="subReports.length" class="space-y-2">
-                            <div
-                                v-for="r in subReports" :key="r.id"
-                                class="flex items-center justify-between px-5 py-3.5 rounded-lg border border-gray-100 hover:bg-gray-50 cursor-pointer"
-                                @click="openDetail(r.id)"
-                            >
-                                <div class="flex items-center gap-3 min-w-0">
-                                    <VortTag :color="typeColor(r.report_type)" size="small">{{ typeLabel(r.report_type) }}</VortTag>
-                                    <span class="text-sm font-medium text-gray-800 truncate">{{ r.title || '无标题' }}</span>
-                                    <span class="text-xs text-gray-400 flex-shrink-0">{{ r.report_date }}</span>
-                                </div>
-                                <div class="flex items-center gap-2 flex-shrink-0">
-                                    <VortTag :color="statusColor(r.status)" size="small">{{ statusLabel(r.status) }}</VortTag>
-                                    <VortButton v-if="r.status === 'submitted'" size="small" variant="primary" @click.stop="openReviewDialog(r.id)">
-                                        审阅
-                                    </VortButton>
-                                </div>
-                            </div>
-                        </div>
-                        <div v-else class="text-gray-400 text-sm text-center py-16">
-                            暂无下属汇报
-                        </div>
-                    </VortSpin>
-                </VortTabPane>
-
-                <!-- Settings -->
-                <VortTabPane v-if="isAdmin" tab-key="settings" tab="汇报设置">
-                    <div class="space-y-6">
-                        <!-- Template management -->
-                        <div>
-                            <div class="flex items-center justify-between mb-3">
-                                <h4 class="text-sm font-medium text-gray-600">汇报模板</h4>
-                                <VortButton size="small" @click="openTemplateDialog">
-                                    <Plus :size="14" class="mr-1" /> 新增模板
-                                </VortButton>
-                            </div>
-                            <VortSpin :spinning="loadingTemplates">
-                                <div v-if="templates.length" class="space-y-2">
-                                    <div
-                                        v-for="t in templates" :key="t.id"
-                                        class="flex items-center justify-between px-4 py-3 rounded-lg border border-gray-100"
-                                    >
-                                        <div class="flex items-center gap-3">
-                                            <FileText :size="16" class="text-gray-400 flex-shrink-0" />
-                                            <div class="min-w-0">
-                                                <div class="flex items-center gap-2">
-                                                    <span class="text-sm font-medium text-gray-800">{{ t.name }}</span>
-                                                    <VortTag :color="typeColor(t.report_type)" size="small">{{ typeLabel(t.report_type) }}</VortTag>
-                                                </div>
-                                                <div class="text-xs text-gray-400 mt-0.5 truncate max-w-md">{{ t.description || '暂无描述' }}</div>
-                                            </div>
-                                        </div>
-                                        <div class="flex items-center gap-2 whitespace-nowrap">
-                                            <a class="text-sm text-blue-600 cursor-pointer" @click="openTemplateDialog(t)">编辑</a>
-                                            <VortDivider type="vertical" />
-                                            <VortPopconfirm title="确认删除此模板？" @confirm="handleDeleteTemplate(t.id)">
-                                                <a class="text-sm text-red-500 cursor-pointer">删除</a>
-                                            </VortPopconfirm>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div v-else class="text-gray-400 text-sm text-center py-8">暂无模板</div>
-                            </VortSpin>
-                        </div>
-
-                        <VortDivider />
-
-                        <!-- Rule management -->
-                        <div>
-                            <div class="flex items-center justify-between mb-3">
-                                <h4 class="text-sm font-medium text-gray-600">汇报规则</h4>
-                                <VortButton size="small" @click="openRuleDialog()">
-                                    <Plus :size="14" class="mr-1" /> 新增规则
-                                </VortButton>
-                            </div>
-                            <VortSpin :spinning="loadingRules">
-                                <div v-if="rules.length" class="space-y-2">
-                                    <div
-                                        v-for="r in rules" :key="r.id"
-                                        class="flex items-center justify-between px-4 py-3 rounded-lg border border-gray-100"
-                                    >
-                                        <div class="flex items-center gap-3 text-sm min-w-0">
-                                            <VortSwitch
-                                                :checked="r.enabled"
-                                                size="small"
-                                                @change="handleToggleRule(r)"
-                                            />
-                                            <span class="font-medium text-gray-800 flex-shrink-0">{{ r.template_name || '未知模板' }}</span>
-                                            <VortTag size="small" color="default">
-                                                <Users :size="11" class="inline mr-0.5" />{{ r.member_count }} 人
-                                            </VortTag>
-                                            <span class="text-gray-400 truncate" :title="formatMemberSummary(r)">{{ formatMemberSummary(r) }}</span>
-                                            <span class="text-gray-400 flex-shrink-0">
-                                                <Clock :size="12" class="inline mr-1" />{{ r.deadline_cron }}
-                                            </span>
-                                            <VortTag v-if="r.workdays_only" size="small" color="blue">仅工作日</VortTag>
-                                        </div>
-                                        <div class="flex items-center gap-2 whitespace-nowrap flex-shrink-0 ml-3">
-                                            <a class="text-sm text-blue-600 cursor-pointer" @click="handleTestSendRule(r.id)">测试发送</a>
-                                            <VortDivider type="vertical" />
-                                            <a class="text-sm text-blue-600 cursor-pointer" @click="openRuleDialog(r)">编辑</a>
-                                            <VortDivider type="vertical" />
-                                            <VortPopconfirm title="确认删除此规则？" @confirm="handleDeleteRule(r.id)">
-                                                <a class="text-sm text-red-500 cursor-pointer">删除</a>
-                                            </VortPopconfirm>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div v-else class="text-gray-400 text-sm text-center py-8">暂无规则</div>
-                            </VortSpin>
-                        </div>
-                    </div>
-                </VortTabPane>
-            </VortTabs>
-        </div>
-
-        <!-- Report detail drawer -->
-        <VortDrawer :open="detailVisible" title="汇报详情" :width="600" @update:open="detailVisible = $event">
-            <template v-if="detailLoading">
-                <div class="flex items-center justify-center py-16 text-gray-400">加载中...</div>
-            </template>
-            <template v-else-if="detailReport">
-                <div class="space-y-4">
-                    <div class="flex items-center gap-3">
-                        <VortTag :color="typeColor(detailReport.report_type)">{{ typeLabel(detailReport.report_type) }}</VortTag>
-                        <VortTag :color="statusColor(detailReport.status)">{{ statusLabel(detailReport.status) }}</VortTag>
-                        <VortTag v-if="detailReport.auto_generated" color="cyan">AI 生成</VortTag>
-                    </div>
-
-                    <div>
-                        <h3 class="text-lg font-medium text-gray-800">{{ detailReport.title || '无标题' }}</h3>
-                        <div class="text-xs text-gray-400 mt-1">{{ detailReport.report_date }}</div>
-                    </div>
-
-                    <div class="prose prose-sm max-w-none bg-gray-50 rounded-lg p-4 whitespace-pre-wrap text-sm text-gray-700">{{ detailReport.content || '无内容' }}</div>
-
-                    <div v-if="detailReport.reviewer_comment" class="bg-yellow-50 rounded-lg p-4">
-                        <div class="text-xs text-yellow-600 font-medium mb-1">审阅批注</div>
-                        <div class="text-sm text-gray-700">{{ detailReport.reviewer_comment }}</div>
-                    </div>
-
-                    <div class="grid grid-cols-2 gap-4 text-sm">
-                        <div>
-                            <span class="text-gray-400">提交时间</span>
-                            <div class="text-gray-800 mt-0.5">{{ detailReport.submitted_at || '未提交' }}</div>
-                        </div>
-                        <div>
-                            <span class="text-gray-400">审阅时间</span>
-                            <div class="text-gray-800 mt-0.5">{{ detailReport.reviewed_at || '未审阅' }}</div>
-                        </div>
-                    </div>
-
-                    <div v-if="detailReport.status === 'submitted'" class="flex justify-end gap-3 pt-4 border-t border-gray-100">
-                        <VortButton @click="openReviewDialog(detailReport!.id)">
-                            <XCircle :size="14" class="mr-1" /> 退回
-                        </VortButton>
-                        <VortButton variant="primary" @click="reviewReportId = detailReport!.id; reviewForm = { status: 'reviewed', comment: '' }; handleReview()">
-                            <CheckCircle :size="14" class="mr-1" /> 通过
-                        </VortButton>
-                    </div>
-                </div>
-            </template>
-        </VortDrawer>
-
-        <!-- Submit report dialog -->
-        <VortDialog
-            :open="submitDialogOpen"
-            title="写汇报"
-            :width="640"
-            :ok-text="'提交'"
-            :confirm-loading="submitting"
-            @update:open="submitDialogOpen = $event"
-            @ok="handleSubmit"
-        >
-            <div class="space-y-4">
-                <div class="grid grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-xs text-gray-500 mb-1">汇报类型</label>
-                        <VortSelect v-model="submitForm.report_type" style="width: 100%">
-                            <VortSelectOption value="daily">日报</VortSelectOption>
-                            <VortSelectOption value="weekly">周报</VortSelectOption>
-                            <VortSelectOption value="monthly">月报</VortSelectOption>
-                            <VortSelectOption value="quarterly">季报</VortSelectOption>
-                        </VortSelect>
-                    </div>
-                    <div>
-                        <label class="block text-xs text-gray-500 mb-1">汇报日期</label>
-                        <VortDatePicker v-model="submitForm.report_date" value-format="YYYY-MM-DD" placeholder="默认今天" style="width: 100%" />
-                    </div>
-                </div>
-                <div>
-                    <label class="block text-xs text-gray-500 mb-1">标题</label>
-                    <VortInput v-model="submitForm.title" placeholder="留空则自动生成" />
-                </div>
-                <div>
-                    <label class="block text-xs text-gray-500 mb-1">内容（Markdown）</label>
-                    <div class="space-y-2">
-                        <VortTextarea v-model="submitForm.content" :rows="12" placeholder="## 今日工作&#10;&#10;## 遇到的问题&#10;&#10;## 明日计划" />
-                        <div class="flex justify-end">
-                            <vort-button size="small" @click="handleAiGenerateContent">
-                                <Bot :size="12" class="mr-1" /> AI 助手创建
+                            <vort-input-search
+                                v-model="searchKeyword"
+                                placeholder="搜索汇报内容"
+                                allow-clear
+                                style="width: 180px"
+                            />
+                            <vort-button variant="primary" @click="writeDrawerOpen = true">
+                                <Pencil :size="14" class="mr-1" /> 写汇报
                             </vort-button>
                         </div>
                     </div>
-                </div>
+
+                    <!-- Received reports (date grouped) -->
+                    <div v-if="readSubTab === 'received'">
+                        <vort-spin :spinning="loadingReceived">
+                            <div v-if="hasReceivedData" class="space-y-6">
+                                <div v-for="group in groupedReceived" :key="group.date">
+                                    <div class="text-xs text-gray-400 pb-2 mb-2 border-b border-gray-100">{{ group.label }}</div>
+                                    <div class="space-y-0">
+                                        <div
+                                            v-for="r in group.items" :key="r.id"
+                                            class="flex items-start gap-3 px-3 py-3.5 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors"
+                                            @click="openDetail(r.id)"
+                                        >
+                                            <div
+                                                class="w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center overflow-hidden mt-0.5"
+                                                :style="{ backgroundColor: r.reporter_avatar_url ? undefined : avatarBg(r.reporter_name) }"
+                                            >
+                                                <img v-if="r.reporter_avatar_url" :src="r.reporter_avatar_url" class="w-full h-full object-cover" />
+                                                <span v-else class="text-white text-xs font-medium">{{ (r.reporter_name || '?')[0] }}</span>
+                                            </div>
+                                            <div class="flex-1 min-w-0">
+                                                <div class="flex items-center gap-2 mb-0.5">
+                                                    <span class="text-sm font-semibold text-gray-900">{{ r.reporter_name }}</span>
+                                                </div>
+                                                <p class="text-sm text-gray-500 line-clamp-2 whitespace-pre-line leading-relaxed">{{ formatContentPreview(r.content) || r.title }}</p>
+                                            </div>
+                                            <span class="text-xs text-gray-400 flex-shrink-0 mt-1">
+                                                {{ r.submitted_at?.slice(11, 16) || '' }}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div v-else class="text-gray-400 text-sm text-center py-16">暂无收到的汇报</div>
+                        </vort-spin>
+                    </div>
+
+                    <!-- Submitted reports (date grouped) -->
+                    <div v-if="readSubTab === 'submitted'">
+                        <vort-spin :spinning="loadingMy">
+                            <div v-if="hasMyData" class="space-y-6">
+                                <div v-for="group in groupedMy" :key="group.date">
+                                    <div class="text-xs text-gray-400 pb-2 mb-2 border-b border-gray-100">{{ group.label }}</div>
+                                    <div class="space-y-0">
+                                        <div
+                                            v-for="r in group.items" :key="r.id"
+                                            class="flex items-start gap-3 px-3 py-3.5 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors"
+                                            @click="openDetail(r.id)"
+                                        >
+                                            <div
+                                                class="w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center overflow-hidden mt-0.5"
+                                                :style="{ backgroundColor: r.reporter_avatar_url ? undefined : avatarBg(r.reporter_name) }"
+                                            >
+                                                <img v-if="r.reporter_avatar_url" :src="r.reporter_avatar_url" class="w-full h-full object-cover" />
+                                                <span v-else class="text-white text-xs font-medium">{{ (r.reporter_name || '?')[0] }}</span>
+                                            </div>
+                                            <div class="flex-1 min-w-0">
+                                                <div class="flex items-center gap-2 mb-0.5">
+                                                    <span class="text-sm font-semibold text-gray-900">{{ r.reporter_name }}</span>
+                                                    <vort-tag v-if="r.auto_generated" size="small" color="cyan">AI</vort-tag>
+                                                </div>
+                                                <p class="text-sm text-gray-500 line-clamp-2 whitespace-pre-line leading-relaxed">{{ formatContentPreview(r.content) || r.title }}</p>
+                                            </div>
+                                            <span class="text-xs text-gray-400 flex-shrink-0 mt-1">
+                                                {{ r.submitted_at?.slice(11, 16) || '' }}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div v-else class="text-gray-400 text-sm text-center py-16">暂无提交记录</div>
+                        </vort-spin>
+                    </div>
             </div>
-        </VortDialog>
 
-        <!-- Review dialog -->
-        <VortDialog
-            :open="reviewDialogOpen"
-            title="审阅汇报"
-            :ok-text="reviewForm.status === 'reviewed' ? '通过' : '退回'"
-            :confirm-loading="reviewing"
-            @update:open="reviewDialogOpen = $event"
-            @ok="handleReview"
-        >
-            <div class="space-y-4">
-                <div>
-                    <label class="block text-xs text-gray-500 mb-1">审阅结果</label>
-                    <VortSelect v-model="reviewForm.status" style="width: 100%">
-                        <VortSelectOption value="reviewed">通过</VortSelectOption>
-                        <VortSelectOption value="rejected">退回</VortSelectOption>
-                    </VortSelect>
-                </div>
-                <div>
-                    <label class="block text-xs text-gray-500 mb-1">批注（可选）</label>
-                    <VortTextarea v-model="reviewForm.comment" :rows="4" placeholder="添加审阅批注..." />
-                </div>
-            </div>
-        </VortDialog>
+            <!-- ===== 发布汇报 content ===== -->
+            <div v-if="isAdmin" v-show="activeTab === 'publish'">
+                    <div class="flex items-center justify-between mb-4">
+                        <h4 class="text-sm font-medium text-gray-600">已发布的汇报</h4>
+                        <vort-button variant="primary" @click="openPubDrawer()">
+                            <Plus :size="14" class="mr-1" /> 发布汇报
+                        </vort-button>
+                    </div>
 
-        <!-- Template dialog (create / edit) -->
-        <VortDialog
-            :open="templateDialogOpen"
-            :title="editingTemplateId ? '编辑汇报模板' : '新增汇报模板'"
-            :ok-text="editingTemplateId ? '保存' : '创建'"
-            :confirm-loading="savingTemplate"
-            @update:open="templateDialogOpen = $event"
-            @ok="handleSaveTemplate"
-        >
-            <div class="space-y-4">
-                <div>
-                    <label class="block text-xs text-gray-500 mb-1">模板名称</label>
-                    <VortInput v-model="templateForm.name" placeholder="如：技术团队日报" />
-                </div>
-                <div>
-                    <label class="block text-xs text-gray-500 mb-1">模板描述</label>
-                    <VortTextarea v-model="templateForm.description" :rows="3" placeholder="描述此模板要求提交的汇报内容，如：每日工作进展、遇到的问题及解决方案、明日计划等" />
-                </div>
-                <div>
-                    <label class="block text-xs text-gray-500 mb-1">汇报类型</label>
-                    <VortSelect v-model="templateForm.report_type" style="width: 100%">
-                        <VortSelectOption value="daily">日报</VortSelectOption>
-                        <VortSelectOption value="weekly">周报</VortSelectOption>
-                        <VortSelectOption value="monthly">月报</VortSelectOption>
-                        <VortSelectOption value="quarterly">季报</VortSelectOption>
-                    </VortSelect>
-                </div>
-            </div>
-        </VortDialog>
-
-        <!-- Rule dialog (create / edit) -->
-        <VortDialog
-            :open="ruleDialogOpen"
-            :title="editingRuleId ? '编辑汇报规则' : '新增汇报规则'"
-            :ok-text="editingRuleId ? '保存' : '创建'"
-            :confirm-loading="savingRule"
-            :width="520"
-            @update:open="ruleDialogOpen = $event"
-            @ok="handleSaveRule"
-        >
-            <div class="space-y-4">
-                <div>
-                    <label class="block text-xs text-gray-500 mb-1">汇报模板</label>
-                    <VortSelect v-model="ruleForm.template_id" placeholder="请选择模板" style="width: 100%" :disabled="!!editingRuleId">
-                        <VortSelectOption v-for="t in templates" :key="t.id" :value="t.id">{{ t.name }}</VortSelectOption>
-                    </VortSelect>
-                </div>
-
-                <div>
-                    <label class="block text-xs text-gray-500 mb-1">
-                        选择成员
-                        <span class="text-gray-300 ml-1">已选 {{ ruleForm.member_ids.length }} 人</span>
-                    </label>
-
-                    <div class="border border-gray-200 rounded-lg overflow-hidden">
-                        <div class="flex items-center gap-2 px-3 py-2 bg-gray-50 border-b border-gray-200">
-                            <VortCheckbox
-                                :checked="isAllSelected"
-                                :indeterminate="isSomeSelected"
-                                @update:checked="toggleSelectAll"
-                            />
-                            <div class="relative flex-1">
-                                <Search :size="14" class="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-                                <input
-                                    v-model="memberSearchQuery"
-                                    type="text"
-                                    placeholder="搜索成员..."
-                                    class="w-full h-8 pl-8 pr-3 text-sm border border-gray-200 rounded-md outline-none focus:border-blue-500 bg-white"
-                                />
+                    <vort-spin :spinning="loadingPubs">
+                        <div v-if="publications.length" class="space-y-3">
+                            <div
+                                v-for="pub in publications" :key="pub.id"
+                                class="border border-gray-100 rounded-lg p-4"
+                            >
+                                <div class="flex items-start justify-between">
+                                    <div class="min-w-0 flex-1">
+                                        <div class="flex items-center gap-2 mb-1">
+                                            <span class="text-sm font-medium text-gray-800">{{ pub.name }}</span>
+                                            <vort-tag :color="typeColor(pub.report_type)" size="small">{{ typeLabel(pub.report_type) }}</vort-tag>
+                                            <vort-tag size="small" :color="pub.enabled ? 'green' : 'default'">
+                                                {{ pub.enabled ? '启用' : '停用' }}
+                                            </vort-tag>
+                                        </div>
+                                        <p class="text-xs text-gray-400 mb-2 truncate max-w-lg">{{ pub.description || '暂无描述' }}</p>
+                                        <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
+                                            <span class="flex items-center gap-1">
+                                                <Users :size="12" /> 提交人 {{ pub.submitter_count }} 人
+                                            </span>
+                                            <span class="flex items-center gap-1">
+                                                <Clock :size="12" /> {{ cycleLabel(pub.repeat_cycle) }} {{ pub.deadline_time }}
+                                            </span>
+                                            <span class="flex items-center gap-1">
+                                                <Bell :size="12" /> 接收人 {{ formatMemberSummary(pub.receiver_names) }}
+                                            </span>
+                                            <span v-if="pub.skip_weekends">跳过周末</span>
+                                            <span v-if="pub.skip_holidays">跳过节假日</span>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center gap-2 whitespace-nowrap flex-shrink-0 ml-4">
+                                        <a class="text-sm text-blue-600 cursor-pointer" @click="handleSendReminder(pub.id)">催报</a>
+                                        <vort-divider type="vertical" />
+                                        <a class="text-sm text-blue-600 cursor-pointer" @click="handleSendSummary(pub.id)">汇总</a>
+                                        <vort-divider type="vertical" />
+                                        <a class="text-sm text-blue-600 cursor-pointer" @click="openPubDrawer(pub)">编辑</a>
+                                        <vort-divider type="vertical" />
+                                        <vort-popconfirm title="确认删除此发布？" @confirm="handleDeletePub(pub.id)">
+                                            <a class="text-sm text-red-500 cursor-pointer">删除</a>
+                                        </vort-popconfirm>
+                                    </div>
+                                </div>
                             </div>
                         </div>
-
-                        <div class="max-h-64 overflow-y-auto">
-                            <VortSpin :spinning="loadingMembers">
-                                <div v-if="filteredMembers.length" class="divide-y divide-gray-50">
-                                    <label
-                                        v-for="m in filteredMembers" :key="m.id"
-                                        class="flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 cursor-pointer"
-                                    >
-                                        <VortCheckbox
-                                            :checked="ruleForm.member_ids.includes(m.id)"
-                                            @update:checked="toggleMemberSelection(m.id)"
-                                        />
-                                        <span
-                                            class="inline-flex items-center justify-center w-7 h-7 rounded-full text-white text-xs font-medium flex-shrink-0"
-                                            :class="getAvatarColor(m.name)"
-                                        >{{ getInitial(m.name) }}</span>
-                                        <span class="text-sm text-gray-800">{{ m.name }}</span>
-                                    </label>
-                                </div>
-                                <div v-else class="text-gray-400 text-sm text-center py-6">无匹配成员</div>
-                            </VortSpin>
+                        <div v-else class="text-gray-400 text-sm text-center py-16">
+                            暂无发布，点击右上角「发布汇报」开始
                         </div>
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-xs text-gray-500 mb-1">截止时间 (cron)</label>
-                        <VortInput v-model="ruleForm.deadline_cron" placeholder="0 18 * * 1-5" />
-                    </div>
-                    <div class="flex items-end pb-0.5">
-                        <label class="inline-flex items-center gap-2 cursor-pointer">
-                            <VortSwitch v-model:checked="ruleForm.workdays_only" size="small" />
-                            <span class="text-sm text-gray-600">仅工作日执行</span>
-                        </label>
-                    </div>
-                </div>
+                    </vort-spin>
             </div>
-        </VortDialog>
+        </div>
+
+        <!-- Drawers -->
+        <PublicationDrawer
+            :open="pubDrawerOpen"
+            :edit-data="editingPub"
+            @update:open="pubDrawerOpen = $event"
+            @saved="loadPublications"
+        />
+
+        <WriteReportDrawer
+            :open="writeDrawerOpen"
+            @update:open="writeDrawerOpen = $event"
+            @saved="refreshReportData"
+        />
+
+        <ReportDetailDrawer
+            :open="detailDrawerOpen"
+            :report-id="detailReportId"
+            @update:open="detailDrawerOpen = $event"
+            @updated="refreshReportData"
+        />
     </div>
 </template>

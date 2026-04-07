@@ -51,6 +51,7 @@ declare module 'vue' {
     VortSelectOption: typeof import('@openvort/vort-ui')['SelectOption']
     VortSpin: typeof import('@openvort/vort-ui')['Spin']
     VortStatistic: typeof import('@openvort/vort-ui')['Statistic']
+    VortSteps: typeof import('@openvort/vort-ui')['Steps']
     VortSwitch: typeof import('@openvort/vort-ui')['Switch']
     VortTable: typeof import('@openvort/vort-ui')['Table']
     VortTableColumn: typeof import('@openvort/vort-ui')['TableColumn']
