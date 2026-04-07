@@ -1,16 +1,15 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from "vue";
+import { ref, onMounted, computed } from "vue";
 import { useRouter } from "vue-router";
 import {
     getReports, getReportDetail, submitReport, reviewReport,
-    getReportTemplates, createReportTemplate, deleteReportTemplate,
-    getReportRules, createReportRule, updateReportRule, deleteReportRule,
+    getReportTemplates, createReportTemplate, updateReportTemplate, deleteReportTemplate,
+    getReportRules, createReportRule, updateReportRule, deleteReportRule, testSendReportRule,
     getReportStats, getMembersSimple, generateReportContentPrompt,
 } from "@/api";
 import {
-    Plus, FileText, Send, CheckCircle, XCircle, Clock,
-    BarChart3, Settings, ChevronLeft, ChevronRight, Eye, Bot,
-    Search,
+    Plus, FileText, CheckCircle, XCircle, Clock,
+    Search, Users, Bot,
 } from "lucide-vue-next";
 import { message } from "@openvort/vort-ui";
 import { useUserStore } from "@/stores";
@@ -45,17 +44,18 @@ interface TemplateItem {
 
 interface RuleItem {
     id: string;
+    name: string;
     template_id: string;
     template_name: string;
-    scope: string;
-    target_id: string;
-    target_name: string;
     reviewer_id: string;
     deadline_cron: string;
     workdays_only: boolean;
     reminder_minutes: number;
     escalation_minutes: number;
     enabled: boolean;
+    member_ids: string[];
+    member_count: number;
+    member_names: string[];
 }
 
 interface MemberItem {
@@ -108,13 +108,14 @@ const loadingRules = ref(false);
 const templateDialogOpen = ref(false);
 const templateForm = ref({ name: "", description: "", report_type: "daily" });
 const savingTemplate = ref(false);
+const editingTemplateId = ref("");
 
 // Rule dialog
 const ruleDialogOpen = ref(false);
+const editingRuleId = ref("");
 const ruleForm = ref({
     template_id: "",
-    scope: "member",
-    target_ids: [] as string[],
+    member_ids: [] as string[],
     deadline_cron: "0 18 * * 1-5",
     workdays_only: true,
 });
@@ -132,11 +133,11 @@ const filteredMembers = computed(() => {
 });
 
 const isAllSelected = computed(() =>
-    filteredMembers.value.length > 0 && filteredMembers.value.every(m => ruleForm.value.target_ids.includes(m.id))
+    filteredMembers.value.length > 0 && filteredMembers.value.every(m => ruleForm.value.member_ids.includes(m.id))
 );
 
 const isSomeSelected = computed(() =>
-    filteredMembers.value.some(m => ruleForm.value.target_ids.includes(m.id)) && !isAllSelected.value
+    filteredMembers.value.some(m => ruleForm.value.member_ids.includes(m.id)) && !isAllSelected.value
 );
 
 // Stats
@@ -231,7 +232,6 @@ async function handleSubmit() {
     finally { submitting.value = false; }
 }
 
-// AI generate report content
 async function handleAiGenerateContent(reportType?: string, reportDate?: string) {
     const type = reportType || submitForm.value.report_type;
     const date = reportDate || submitForm.value.report_date || new Date().toISOString().slice(0, 10);
@@ -299,8 +299,14 @@ async function loadStats() {
     } catch { /* ignore */ }
 }
 
-function openTemplateDialog() {
-    templateForm.value = { name: "", description: "", report_type: "daily" };
+function openTemplateDialog(template?: TemplateItem) {
+    if (template) {
+        editingTemplateId.value = template.id;
+        templateForm.value = { name: template.name, description: template.description || "", report_type: template.report_type };
+    } else {
+        editingTemplateId.value = "";
+        templateForm.value = { name: "", description: "", report_type: "daily" };
+    }
     templateDialogOpen.value = true;
 }
 
@@ -311,13 +317,16 @@ async function handleSaveTemplate() {
     }
     savingTemplate.value = true;
     try {
-        const res: any = await createReportTemplate(templateForm.value);
+        const isEdit = !!editingTemplateId.value;
+        const res: any = isEdit
+            ? await updateReportTemplate(editingTemplateId.value, templateForm.value)
+            : await createReportTemplate(templateForm.value);
         if (res?.success) {
-            message.success("模板已创建");
+            message.success(isEdit ? "模板已更新" : "模板已创建");
             templateDialogOpen.value = false;
             await loadTemplates();
-        } else { message.error("创建失败"); }
-    } catch { message.error("创建失败"); }
+        } else { message.error(isEdit ? "更新失败" : "创建失败"); }
+    } catch { message.error(editingTemplateId.value ? "更新失败" : "创建失败"); }
     finally { savingTemplate.value = false; }
 }
 
@@ -338,39 +347,49 @@ async function loadAllMembers() {
     loadingMembers.value = true;
     try {
         const res: any = await getMembersSimple({ size: 500 });
-        allMembers.value = (res?.members || []).filter((m: any) => !m.is_virtual);
+        allMembers.value = (res?.members || []).filter((m: any) => m.id && !m.is_virtual);
     } catch { allMembers.value = []; }
     finally { loadingMembers.value = false; }
 }
 
 function toggleMemberSelection(memberId: string) {
-    const idx = ruleForm.value.target_ids.indexOf(memberId);
+    const idx = ruleForm.value.member_ids.indexOf(memberId);
     if (idx > -1) {
-        ruleForm.value.target_ids.splice(idx, 1);
+        ruleForm.value.member_ids.splice(idx, 1);
     } else {
-        ruleForm.value.target_ids.push(memberId);
+        ruleForm.value.member_ids.push(memberId);
     }
 }
 
 function toggleSelectAll() {
     if (isAllSelected.value) {
         const visibleIds = new Set(filteredMembers.value.map(m => m.id));
-        ruleForm.value.target_ids = ruleForm.value.target_ids.filter(id => !visibleIds.has(id));
+        ruleForm.value.member_ids = ruleForm.value.member_ids.filter(id => !visibleIds.has(id));
     } else {
-        const currentSet = new Set(ruleForm.value.target_ids);
+        const currentSet = new Set(ruleForm.value.member_ids);
         filteredMembers.value.forEach(m => currentSet.add(m.id));
-        ruleForm.value.target_ids = [...currentSet];
+        ruleForm.value.member_ids = [...currentSet];
     }
 }
 
-function openRuleDialog() {
-    ruleForm.value = {
-        template_id: "",
-        scope: "member",
-        target_ids: [],
-        deadline_cron: "0 18 * * 1-5",
-        workdays_only: true,
-    };
+function openRuleDialog(rule?: RuleItem) {
+    if (rule) {
+        editingRuleId.value = rule.id;
+        ruleForm.value = {
+            template_id: rule.template_id,
+            member_ids: [...rule.member_ids],
+            deadline_cron: rule.deadline_cron,
+            workdays_only: rule.workdays_only,
+        };
+    } else {
+        editingRuleId.value = "";
+        ruleForm.value = {
+            template_id: "",
+            member_ids: [],
+            deadline_cron: "0 18 * * 1-5",
+            workdays_only: true,
+        };
+    }
     memberSearchQuery.value = "";
     ruleDialogOpen.value = true;
     loadAllMembers();
@@ -381,25 +400,37 @@ async function handleSaveRule() {
         message.error("请选择汇报模板");
         return;
     }
-    if (ruleForm.value.target_ids.length === 0) {
+    if (ruleForm.value.member_ids.length === 0) {
         message.error("请至少选择一位成员");
         return;
     }
     savingRule.value = true;
     try {
-        const res: any = await createReportRule({
-            template_id: ruleForm.value.template_id,
-            scope: ruleForm.value.scope,
-            target_ids: ruleForm.value.target_ids,
-            deadline_cron: ruleForm.value.deadline_cron,
-            workdays_only: ruleForm.value.workdays_only,
-        });
-        if (res?.success) {
-            message.success(`已创建 ${res.count} 条规则`);
-            ruleDialogOpen.value = false;
-            await loadRules();
-        } else { message.error(res?.error || "创建失败"); }
-    } catch { message.error("创建失败"); }
+        if (editingRuleId.value) {
+            const res: any = await updateReportRule(editingRuleId.value, {
+                member_ids: ruleForm.value.member_ids,
+                deadline_cron: ruleForm.value.deadline_cron,
+                workdays_only: ruleForm.value.workdays_only,
+            });
+            if (res?.success) {
+                message.success("规则已更新");
+                ruleDialogOpen.value = false;
+                await loadRules();
+            } else { message.error("更新失败"); }
+        } else {
+            const res: any = await createReportRule({
+                template_id: ruleForm.value.template_id,
+                member_ids: ruleForm.value.member_ids,
+                deadline_cron: ruleForm.value.deadline_cron,
+                workdays_only: ruleForm.value.workdays_only,
+            });
+            if (res?.success) {
+                message.success("规则已创建");
+                ruleDialogOpen.value = false;
+                await loadRules();
+            } else { message.error(res?.error || "创建失败"); }
+        }
+    } catch { message.error(editingRuleId.value ? "更新失败" : "创建失败"); }
     finally { savingRule.value = false; }
 }
 
@@ -410,6 +441,17 @@ async function handleToggleRule(rule: RuleItem) {
             rule.enabled = !rule.enabled;
         } else { message.error("操作失败"); }
     } catch { message.error("操作失败"); }
+}
+
+async function handleTestSendRule(id: string) {
+    try {
+        const res: any = await testSendReportRule(id);
+        if (res?.ok) {
+            message.success(`测试发送完成：成功 ${res.sent}/${res.total} 人`);
+        } else {
+            message.error(res?.error || "测试发送失败");
+        }
+    } catch { message.error("测试发送失败"); }
 }
 
 async function handleDeleteRule(id: string) {
@@ -444,6 +486,12 @@ function getAvatarColor(name: string): string {
         hash = name.charCodeAt(i) + ((hash << 5) - hash);
     }
     return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+
+function formatMemberSummary(rule: RuleItem): string {
+    const names = rule.member_names || [];
+    if (names.length <= 3) return names.join("、");
+    return `${names.slice(0, 3).join("、")} 等 ${names.length} 人`;
 }
 
 // ---- Init ----
@@ -593,12 +641,16 @@ onMounted(() => {
                                                     <span class="text-sm font-medium text-gray-800">{{ t.name }}</span>
                                                     <VortTag :color="typeColor(t.report_type)" size="small">{{ typeLabel(t.report_type) }}</VortTag>
                                                 </div>
-                                                <div v-if="t.description" class="text-xs text-gray-400 mt-0.5 truncate max-w-md">{{ t.description }}</div>
+                                                <div class="text-xs text-gray-400 mt-0.5 truncate max-w-md">{{ t.description || '暂无描述' }}</div>
                                             </div>
                                         </div>
-                                        <VortPopconfirm title="确认删除此模板？" @confirm="handleDeleteTemplate(t.id)">
-                                            <a class="text-sm text-red-500 cursor-pointer">删除</a>
-                                        </VortPopconfirm>
+                                        <div class="flex items-center gap-2 whitespace-nowrap">
+                                            <a class="text-sm text-blue-600 cursor-pointer" @click="openTemplateDialog(t)">编辑</a>
+                                            <VortDivider type="vertical" />
+                                            <VortPopconfirm title="确认删除此模板？" @confirm="handleDeleteTemplate(t.id)">
+                                                <a class="text-sm text-red-500 cursor-pointer">删除</a>
+                                            </VortPopconfirm>
+                                        </div>
                                     </div>
                                 </div>
                                 <div v-else class="text-gray-400 text-sm text-center py-8">暂无模板</div>
@@ -611,7 +663,7 @@ onMounted(() => {
                         <div>
                             <div class="flex items-center justify-between mb-3">
                                 <h4 class="text-sm font-medium text-gray-600">汇报规则</h4>
-                                <VortButton size="small" @click="openRuleDialog">
+                                <VortButton size="small" @click="openRuleDialog()">
                                     <Plus :size="14" class="mr-1" /> 新增规则
                                 </VortButton>
                             </div>
@@ -621,22 +673,31 @@ onMounted(() => {
                                         v-for="r in rules" :key="r.id"
                                         class="flex items-center justify-between px-4 py-3 rounded-lg border border-gray-100"
                                     >
-                                        <div class="flex items-center gap-3 text-sm">
+                                        <div class="flex items-center gap-3 text-sm min-w-0">
                                             <VortSwitch
                                                 :checked="r.enabled"
                                                 size="small"
                                                 @change="handleToggleRule(r)"
                                             />
-                                            <span class="text-gray-800">{{ r.template_name || '未知模板' }}</span>
-                                            <span class="text-gray-400">{{ r.scope === 'member' ? '个人' : '部门' }}: {{ r.target_id.slice(0, 8) }}</span>
-                                            <span class="text-gray-400">
+                                            <span class="font-medium text-gray-800 flex-shrink-0">{{ r.template_name || '未知模板' }}</span>
+                                            <VortTag size="small" color="default">
+                                                <Users :size="11" class="inline mr-0.5" />{{ r.member_count }} 人
+                                            </VortTag>
+                                            <span class="text-gray-400 truncate" :title="formatMemberSummary(r)">{{ formatMemberSummary(r) }}</span>
+                                            <span class="text-gray-400 flex-shrink-0">
                                                 <Clock :size="12" class="inline mr-1" />{{ r.deadline_cron }}
                                             </span>
                                             <VortTag v-if="r.workdays_only" size="small" color="blue">仅工作日</VortTag>
                                         </div>
-                                        <VortPopconfirm title="确认删除此规则？" @confirm="handleDeleteRule(r.id)">
-                                            <a class="text-sm text-red-500 cursor-pointer">删除</a>
-                                        </VortPopconfirm>
+                                        <div class="flex items-center gap-2 whitespace-nowrap flex-shrink-0 ml-3">
+                                            <a class="text-sm text-blue-600 cursor-pointer" @click="handleTestSendRule(r.id)">测试发送</a>
+                                            <VortDivider type="vertical" />
+                                            <a class="text-sm text-blue-600 cursor-pointer" @click="openRuleDialog(r)">编辑</a>
+                                            <VortDivider type="vertical" />
+                                            <VortPopconfirm title="确认删除此规则？" @confirm="handleDeleteRule(r.id)">
+                                                <a class="text-sm text-red-500 cursor-pointer">删除</a>
+                                            </VortPopconfirm>
+                                        </div>
                                     </div>
                                 </div>
                                 <div v-else class="text-gray-400 text-sm text-center py-8">暂无规则</div>
@@ -763,11 +824,11 @@ onMounted(() => {
             </div>
         </VortDialog>
 
-        <!-- New template dialog -->
+        <!-- Template dialog (create / edit) -->
         <VortDialog
             :open="templateDialogOpen"
-            title="新增汇报模板"
-            :ok-text="'创建'"
+            :title="editingTemplateId ? '编辑汇报模板' : '新增汇报模板'"
+            :ok-text="editingTemplateId ? '保存' : '创建'"
             :confirm-loading="savingTemplate"
             @update:open="templateDialogOpen = $event"
             @ok="handleSaveTemplate"
@@ -793,11 +854,11 @@ onMounted(() => {
             </div>
         </VortDialog>
 
-        <!-- New rule dialog -->
+        <!-- Rule dialog (create / edit) -->
         <VortDialog
             :open="ruleDialogOpen"
-            title="新增汇报规则"
-            :ok-text="'创建'"
+            :title="editingRuleId ? '编辑汇报规则' : '新增汇报规则'"
+            :ok-text="editingRuleId ? '保存' : '创建'"
             :confirm-loading="savingRule"
             :width="520"
             @update:open="ruleDialogOpen = $event"
@@ -806,7 +867,7 @@ onMounted(() => {
             <div class="space-y-4">
                 <div>
                     <label class="block text-xs text-gray-500 mb-1">汇报模板</label>
-                    <VortSelect v-model="ruleForm.template_id" placeholder="请选择模板" style="width: 100%">
+                    <VortSelect v-model="ruleForm.template_id" placeholder="请选择模板" style="width: 100%" :disabled="!!editingRuleId">
                         <VortSelectOption v-for="t in templates" :key="t.id" :value="t.id">{{ t.name }}</VortSelectOption>
                     </VortSelect>
                 </div>
@@ -814,11 +875,10 @@ onMounted(() => {
                 <div>
                     <label class="block text-xs text-gray-500 mb-1">
                         选择成员
-                        <span class="text-gray-300 ml-1">已选 {{ ruleForm.target_ids.length }} 人</span>
+                        <span class="text-gray-300 ml-1">已选 {{ ruleForm.member_ids.length }} 人</span>
                     </label>
 
                     <div class="border border-gray-200 rounded-lg overflow-hidden">
-                        <!-- Search + select all header -->
                         <div class="flex items-center gap-2 px-3 py-2 bg-gray-50 border-b border-gray-200">
                             <VortCheckbox
                                 :checked="isAllSelected"
@@ -836,7 +896,6 @@ onMounted(() => {
                             </div>
                         </div>
 
-                        <!-- Member list -->
                         <div class="max-h-64 overflow-y-auto">
                             <VortSpin :spinning="loadingMembers">
                                 <div v-if="filteredMembers.length" class="divide-y divide-gray-50">
@@ -845,7 +904,7 @@ onMounted(() => {
                                         class="flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 cursor-pointer"
                                     >
                                         <VortCheckbox
-                                            :checked="ruleForm.target_ids.includes(m.id)"
+                                            :checked="ruleForm.member_ids.includes(m.id)"
                                             @update:checked="toggleMemberSelection(m.id)"
                                         />
                                         <span

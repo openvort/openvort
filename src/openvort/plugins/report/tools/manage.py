@@ -15,7 +15,8 @@ class ReportManageTool(BaseTool):
     description = (
         "管理汇报模板和汇报规则。"
         "模板定义汇报的格式和内容要求（如日报、周报、月报）。"
-        "规则定义谁需要提交什么汇报、截止时间、审阅人等。"
+        "规则定义哪些成员需要提交什么汇报、截止时间、审阅人等。"
+        "一条规则可以关联多个成员。"
     )
 
     def __init__(self, session_factory_getter):
@@ -35,7 +36,7 @@ class ReportManageTool(BaseTool):
                 },
                 "template_id": {"type": "string", "description": "模板 ID（更新/删除/创建规则时需要）"},
                 "rule_id": {"type": "string", "description": "规则 ID（更新/删除规则时需要）"},
-                "name": {"type": "string", "description": "模板名称（创建/更新模板时）"},
+                "name": {"type": "string", "description": "模板或规则名称"},
                 "description": {"type": "string", "description": "模板描述（说明此汇报要提交的内容）"},
                 "report_type": {
                     "type": "string", "enum": ["daily", "weekly", "monthly", "quarterly"],
@@ -49,13 +50,13 @@ class ReportManageTool(BaseTool):
                     "type": "object",
                     "description": "自动采集配置，如 {\"git\": true, \"vortflow\": true}",
                 },
-                "scope": {
-                    "type": "string", "enum": ["member", "department"],
-                    "description": "规则范围：member（个人）或 department（部门）",
+                "member_ids": {
+                    "type": "array", "items": {"type": "string"},
+                    "description": "规则关联的成员 ID 列表",
                 },
-                "target_id": {"type": "string", "description": "规则目标（member_id 或 department_id）"},
                 "reviewer_id": {"type": "string", "description": "审阅人 member_id"},
                 "deadline_cron": {"type": "string", "description": "截止时间 cron 表达式（5段式）"},
+                "workdays_only": {"type": "boolean", "description": "是否仅工作日执行"},
                 "reminder_minutes": {"type": "integer", "description": "提前提醒分钟数"},
                 "escalation_minutes": {"type": "integer", "description": "超时升级通知分钟数"},
                 "enabled": {"type": "boolean", "description": "是否启用"},
@@ -108,16 +109,18 @@ class ReportManageTool(BaseTool):
 
         elif action == "create_rule":
             template_id = params.get("template_id", "")
-            scope = params.get("scope", "member")
-            target_id = params.get("target_id", "")
-            if not template_id or not target_id:
-                return json.dumps({"ok": False, "error": "需要 template_id 和 target_id"}, ensure_ascii=False)
+            member_ids = params.get("member_ids", [])
+            if not template_id:
+                return json.dumps({"ok": False, "error": "需要 template_id"}, ensure_ascii=False)
+            if not member_ids:
+                return json.dumps({"ok": False, "error": "需要 member_ids"}, ensure_ascii=False)
             result = await service.create_rule(
                 template_id=template_id,
-                scope=scope,
-                target_id=target_id,
+                member_ids=member_ids,
+                name=params.get("name", ""),
                 reviewer_id=params.get("reviewer_id"),
                 deadline_cron=params.get("deadline_cron", "0 18 * * 1-5"),
+                workdays_only=params.get("workdays_only", True),
                 reminder_minutes=params.get("reminder_minutes", 30),
                 escalation_minutes=params.get("escalation_minutes", 120),
                 enabled=params.get("enabled", True),
@@ -129,7 +132,7 @@ class ReportManageTool(BaseTool):
             if not rule_id:
                 return json.dumps({"ok": False, "error": "需要 rule_id"}, ensure_ascii=False)
             fields = {}
-            for key in ("scope", "target_id", "reviewer_id", "deadline_cron",
+            for key in ("name", "member_ids", "reviewer_id", "deadline_cron",
                         "workdays_only", "reminder_minutes", "escalation_minutes", "enabled"):
                 if key in params:
                     fields[key] = params[key]

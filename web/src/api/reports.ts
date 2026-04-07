@@ -10,6 +10,10 @@ export function createReportTemplate(data: { name: string; description?: string;
     return request.post("/reports/templates", data);
 }
 
+export function updateReportTemplate(id: string, data: { name: string; description?: string; report_type: string; content_schema?: object; auto_collect?: object }) {
+    return request.put(`/reports/templates/${id}`, data);
+}
+
 export function deleteReportTemplate(id: string) {
     return request.delete(`/reports/templates/${id}`);
 }
@@ -20,16 +24,20 @@ export function getReportRules(templateId?: string) {
     return request.get("/reports/rules", { params: { template_id: templateId } });
 }
 
-export function createReportRule(data: { template_id: string; scope: string; target_id?: string; target_ids?: string[]; reviewer_id?: string; deadline_cron?: string; workdays_only?: boolean; reminder_minutes?: number; escalation_minutes?: number; enabled?: boolean }) {
+export function createReportRule(data: { template_id: string; member_ids: string[]; name?: string; deadline_cron?: string; workdays_only?: boolean }) {
     return request.post("/reports/rules", data);
 }
 
-export function updateReportRule(id: string, data: { enabled?: boolean; deadline_cron?: string; workdays_only?: boolean }) {
+export function updateReportRule(id: string, data: { member_ids?: string[]; enabled?: boolean; deadline_cron?: string; workdays_only?: boolean }) {
     return request.put(`/reports/rules/${id}`, data);
 }
 
 export function deleteReportRule(id: string) {
     return request.delete(`/reports/rules/${id}`);
+}
+
+export function testSendReportRule(id: string) {
+    return request.post(`/reports/rules/${id}/test-send`);
 }
 
 // ---- Reports ----

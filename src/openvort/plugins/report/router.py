@@ -48,6 +48,22 @@ async def create_template(req: TemplateRequest):
     return {"success": True, "template": result}
 
 
+@router.put("/templates/{template_id}")
+async def update_template(template_id: str, req: TemplateRequest):
+    service = _get_service()
+    result = await service.update_template(
+        template_id,
+        name=req.name,
+        description=req.description,
+        report_type=req.report_type,
+        content_schema=req.content_schema,
+        auto_collect=req.auto_collect,
+    )
+    if not result:
+        return {"success": False, "error": "模板不存在"}
+    return {"success": True, "template": result}
+
+
 @router.delete("/templates/{template_id}")
 async def delete_template(template_id: str):
     service = _get_service()
@@ -59,9 +75,8 @@ async def delete_template(template_id: str):
 
 class RuleRequest(BaseModel):
     template_id: str
-    scope: str = "member"
-    target_id: str = ""
-    target_ids: list[str] | None = None
+    member_ids: list[str | None] = []
+    name: str = ""
     reviewer_id: str | None = None
     deadline_cron: str = "0 18 * * 1-5"
     workdays_only: bool = True
@@ -71,6 +86,8 @@ class RuleRequest(BaseModel):
 
 
 class RuleUpdateRequest(BaseModel):
+    name: str | None = None
+    member_ids: list[str | None] | None = None
     enabled: bool | None = None
     deadline_cron: str | None = None
     workdays_only: bool | None = None
@@ -88,34 +105,45 @@ async def list_rules(template_id: str | None = None):
 @router.post("/rules")
 async def create_rule(req: RuleRequest):
     service = _get_service()
-    ids = req.target_ids or ([req.target_id] if req.target_id else [])
-    if not ids:
-        return {"success": False, "error": "No target specified"}
+    member_ids = [x for x in req.member_ids if x]
+    if not member_ids:
+        return {"success": False, "error": "请至少选择一位成员"}
 
-    results = []
-    for tid in ids:
-        result = await service.create_rule(
-            template_id=req.template_id,
-            scope=req.scope,
-            target_id=tid,
-            reviewer_id=req.reviewer_id,
-            deadline_cron=req.deadline_cron,
-            reminder_minutes=req.reminder_minutes,
-            escalation_minutes=req.escalation_minutes,
-            enabled=req.enabled,
-        )
-        results.append(result)
-    return {"success": True, "rules": results, "count": len(results)}
+    result = await service.create_rule(
+        template_id=req.template_id,
+        member_ids=member_ids,
+        name=req.name,
+        reviewer_id=req.reviewer_id,
+        deadline_cron=req.deadline_cron,
+        workdays_only=req.workdays_only,
+        reminder_minutes=req.reminder_minutes,
+        escalation_minutes=req.escalation_minutes,
+        enabled=req.enabled,
+    )
+    return {"success": True, "rule": result}
 
 
 @router.put("/rules/{rule_id}")
 async def update_rule(rule_id: str, req: RuleUpdateRequest):
     service = _get_service()
-    fields = {k: v for k, v in req.model_dump().items() if v is not None}
+    fields: dict = {}
+    for key in ("name", "deadline_cron", "workdays_only", "reminder_minutes", "escalation_minutes", "enabled"):
+        val = getattr(req, key)
+        if val is not None:
+            fields[key] = val
+    if req.member_ids is not None:
+        fields["member_ids"] = [x for x in req.member_ids if x]
     result = await service.update_rule(rule_id, **fields)
     if not result:
-        return {"success": False, "error": "Rule not found"}
+        return {"success": False, "error": "规则不存在"}
     return {"success": True, "rule": result}
+
+
+@router.post("/rules/{rule_id}/test-send")
+async def test_send_rule(rule_id: str):
+    service = _get_service()
+    result = await service.test_send_rule(rule_id)
+    return result
 
 
 @router.delete("/rules/{rule_id}")

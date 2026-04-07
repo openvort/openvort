@@ -880,7 +880,7 @@ async def init_db(database_url: str) -> None:
               AND s.project_id IS NOT NULL
         """))
 
-    # Report module: template description + rule workdays_only
+    # Report module: template description + rule workdays_only + rule name
     async with _engine.begin() as conn:
         await conn.execute(text(
             "ALTER TABLE IF EXISTS report_templates ADD COLUMN IF NOT EXISTS description VARCHAR(512) DEFAULT ''"
@@ -888,6 +888,29 @@ async def init_db(database_url: str) -> None:
         await conn.execute(text(
             "ALTER TABLE IF EXISTS report_rules ADD COLUMN IF NOT EXISTS workdays_only BOOLEAN DEFAULT TRUE"
         ))
+        await conn.execute(text(
+            "ALTER TABLE IF EXISTS report_rules ADD COLUMN IF NOT EXISTS name VARCHAR(128) DEFAULT ''"
+        ))
+
+    # Report rule members: migrate from 1-rule-per-member to many-to-many
+    async with _engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS report_rule_members (
+                rule_id VARCHAR(32) REFERENCES report_rules(id) ON DELETE CASCADE,
+                member_id VARCHAR(32) REFERENCES members(id),
+                PRIMARY KEY (rule_id, member_id)
+            )
+        """))
+        exists = await conn.execute(text(
+            "SELECT 1 FROM report_rule_members LIMIT 1"
+        ))
+        if exists.first() is None:
+            await conn.execute(text("""
+                INSERT INTO report_rule_members (rule_id, member_id)
+                SELECT id, target_id FROM report_rules
+                WHERE target_id IS NOT NULL AND target_id != ''
+                ON CONFLICT DO NOTHING
+            """))
 
     # Notifications: add data_json for structured notification payload
     async with _engine.begin() as conn:
