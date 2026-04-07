@@ -31,8 +31,13 @@
 
 **生成后的流程：**
 1. 当 `has_system_data=true` 时，基于 collected_data 用自然语言重新组织日报内容，使其像人写的
-2. 当 `has_system_data=false` 时，引导用户口述工作内容，帮助整理
-3. 展示给用户确认后，调用 `submit` 动作提交（传入 `report_id`）
+2. 当返回 `identity_hint` 时，说明 Git 提交存在但无法匹配到当前用户。此时应该：
+   - 告知用户仓库中发现了提交记录，但 Git 作者信息与系统账号不匹配
+   - 展示 `identity_hint.unmatched_authors` 中的作者名和邮箱，询问用户哪个是他的
+   - 引导用户在个人资料中补充邮箱，补充后即可自动匹配
+   - 同时仍然引导用户手动描述今天的工作内容
+3. 当 `has_system_data=false` 且无 `identity_hint` 时，引导用户口述工作内容
+4. 展示给用户确认后，调用 `submit` 动作提交（传入 `report_id`）
 
 ### 汇报关系管理
 

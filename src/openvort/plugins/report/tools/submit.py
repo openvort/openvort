@@ -92,24 +92,36 @@ class ReportSubmitTool(BaseTool):
         vf = collected_data.get("vortflow")
         git = collected_data.get("git")
         has_system_data = bool(
-            (vf and vf.get("has_data"))
+            (vf and vf.get("has_data") and (
+                vf.get("tasks_completed") or vf.get("bugs_fixed")
+                or vf.get("tasks_in_progress") or vf.get("stories_in_progress")
+                or vf.get("events")
+            ))
             or (git and git.get("total_commits", 0) > 0)
         )
 
         if has_system_data:
             message = "已根据工作记录生成日报草稿，请确认或告诉我需要修改的地方。确认后我会帮你提交。"
+        elif collected_data.get("identity_hint"):
+            message = (
+                "暂未找到你的代码提交记录，可能是因为 Git 提交的作者信息与你的系统账号不匹配。"
+                "请查看下方的身份提示，在个人资料中补充你的邮箱后即可自动匹配。"
+            )
         else:
             message = (
                 "暂未找到今天的系统工作记录。"
                 "请告诉我你今天主要做了哪些工作，我来帮你整理成日报。"
             )
 
-        return {
+        result = {
             "ok": True, "report": report,
             "collected_data": collected_data,
             "has_system_data": has_system_data,
             "message": message,
         }
+        if collected_data.get("identity_hint"):
+            result["identity_hint"] = collected_data["identity_hint"]
+        return result
 
     async def _submit(self, service, kwargs: dict) -> dict:
         report_id = kwargs.get("report_id", "")
@@ -204,13 +216,17 @@ class ReportSubmitTool(BaseTool):
             })
             result = _json.loads(result_str) if isinstance(result_str, str) else result_str
             if result.get("ok"):
+                git_data = result.get("git", {})
                 data["git"] = {
-                    "total_commits": result.get("git", {}).get("total_commits", 0),
-                    "active_repos": result.get("git", {}).get("active_repos", 0),
-                    "repo_breakdown": result.get("git", {}).get("repo_breakdown", []),
+                    "total_commits": git_data.get("total_commits", 0),
+                    "active_repos": git_data.get("active_repos", 0),
+                    "repo_breakdown": git_data.get("repo_breakdown", []),
+                    "recent_commits": git_data.get("recent_commits", []),
                 }
+                if result.get("identity_hint"):
+                    data["identity_hint"] = result["identity_hint"]
         except Exception as e:
-            log.debug(f"采集 Git 数据失败: {e}")
+            log.warning(f"采集 Git 数据失败: {e}", exc_info=True)
 
         try:
             provider = self._slot_getter("project_provider") if self._slot_getter else None
@@ -252,64 +268,64 @@ class ReportSubmitTool(BaseTool):
     @staticmethod
     def _build_content(report_type: str, collected_data: dict) -> str:
         lines: list[str] = []
-        label = {"daily": "日报", "weekly": "周报", "monthly": "月报", "quarterly": "季报"}.get(report_type, "汇报")
+        has_any_content = False
 
         vf = collected_data.get("vortflow")
-        has_vf_details = vf and vf.get("has_data") and vf.get("tasks_completed")
         git = collected_data.get("git")
         has_git = git and git.get("total_commits", 0) > 0
 
-        if has_vf_details:
-            tasks = vf.get("tasks_completed", [])
-            if tasks:
-                lines.append("### 完成的任务")
-                for t in tasks:
-                    proj = f"[{t['project_name']}] " if t.get("project_name") else ""
-                    lines.append(f"- {proj}{t['title']}")
+        if vf and vf.get("has_data"):
+            for section_key, section_title in [
+                ("tasks_completed", "完成的任务"),
+                ("bugs_fixed", "修复的缺陷"),
+                ("tasks_in_progress", "进行中的任务"),
+                ("stories_in_progress", "进行中的需求"),
+            ]:
+                items = vf.get(section_key, [])
+                if not items:
+                    continue
+                has_any_content = True
+                lines.append(f"### {section_title}")
+                for item in items:
+                    proj = f"[{item['project_name']}] " if item.get("project_name") else ""
+                    suffix = ""
+                    if section_key == "bugs_fixed" and item.get("severity"):
+                        suffix = f"（{item['severity']}）"
+                    elif item.get("progress"):
+                        suffix = f"（进度 {item['progress']}%）"
+                    lines.append(f"- {proj}{item['title']}{suffix}")
                 lines.append("")
 
-            bugs = vf.get("bugs_fixed", [])
-            if bugs:
-                lines.append("### 修复的缺陷")
-                for b in bugs:
-                    proj = f"[{b['project_name']}] " if b.get("project_name") else ""
-                    sev = f"（{b['severity']}）" if b.get("severity") else ""
-                    lines.append(f"- {proj}{b['title']}{sev}")
-                lines.append("")
-
-            doing = vf.get("tasks_in_progress", [])
-            if doing:
-                lines.append("### 进行中的任务")
-                for t in doing:
-                    proj = f"[{t['project_name']}] " if t.get("project_name") else ""
-                    progress = f"（进度 {t['progress']}%）" if t.get("progress") else ""
-                    lines.append(f"- {proj}{t['title']}{progress}")
-                lines.append("")
-
-            stories = vf.get("stories_in_progress", [])
-            if stories:
-                lines.append("### 进行中的需求")
-                for s in stories:
-                    proj = f"[{s['project_name']}] " if s.get("project_name") else ""
-                    lines.append(f"- {proj}{s['title']}")
-                lines.append("")
-
-        elif vf and vf.get("has_data"):
-            summary = vf.get("summary", {})
-            if summary.get("tasks_completed_count") or summary.get("bugs_fixed_count"):
-                lines.append("### 任务进度")
-                lines.append(f"- 完成任务：{summary.get('tasks_completed_count', 0)}")
-                lines.append(f"- 修复缺陷：{summary.get('bugs_fixed_count', 0)}")
+            events = vf.get("events", [])
+            if events and not has_any_content:
+                has_any_content = True
+                lines.append("### 今日工作动态")
+                seen_titles: set[str] = set()
+                for ev in events:
+                    title = ev.get("entity_title", "")
+                    if title in seen_titles:
+                        continue
+                    seen_titles.add(title)
+                    etype = ev.get("entity_type", "")
+                    lines.append(f"- [{etype}] {title}")
                 lines.append("")
 
         if has_git:
+            has_any_content = True
             lines.append("### 代码提交")
             lines.append(f"- 共 {git['total_commits']} 次提交，涉及 {git['active_repos']} 个仓库")
-            for repo in git.get("repo_breakdown", [])[:5]:
-                lines.append(f"  - {repo.get('repo', 'N/A')}: {repo.get('commits', 0)} 次提交")
+            recent = git.get("recent_commits", [])
+            if recent:
+                for c in recent:
+                    msg = c.get("message", "").strip()
+                    if msg:
+                        lines.append(f"  - {msg}")
+            else:
+                for repo in git.get("repo_breakdown", [])[:5]:
+                    lines.append(f"  - {repo.get('repo', 'N/A')}: {repo.get('commits', 0)} 次提交")
             lines.append("")
 
-        if not has_vf_details and not has_git:
+        if not has_any_content:
             lines.append("### 今日工作")
             lines.append("（暂未采集到系统工作数据，请手动补充具体工作内容）\n")
 
