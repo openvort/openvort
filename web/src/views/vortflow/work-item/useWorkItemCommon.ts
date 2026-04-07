@@ -97,10 +97,14 @@ const buildOptionsForType = (type: string): StatusOption[] =>
 const buildStateToNameMap = (type: string): Record<string, string> => {
     const map: Record<string, string> = {};
     for (const s of sharedApiStatuses.value) {
-        if (!s.work_item_types.includes(type) || !s.command) continue;
-        for (const state of s.command.split(",")) {
-            const key = state.trim();
-            if (key && !map[key]) map[key] = s.name;
+        if (!s.work_item_types.includes(type)) continue;
+        if (s.command) {
+            for (const state of s.command.split(",")) {
+                const key = state.trim();
+                if (key && !map[key]) map[key] = s.name;
+            }
+        } else {
+            if (!map[s.name]) map[s.name] = s.name;
         }
     }
     return map;
@@ -109,8 +113,12 @@ const buildStateToNameMap = (type: string): Record<string, string> => {
 const buildNameToStatesMap = (type: string): Record<string, string[]> => {
     const map: Record<string, string[]> = {};
     for (const s of sharedApiStatuses.value) {
-        if (!s.work_item_types.includes(type) || !s.command) continue;
-        map[s.name] = s.command.split(",").map((x) => x.trim()).filter(Boolean);
+        if (!s.work_item_types.includes(type)) continue;
+        if (s.command) {
+            map[s.name] = s.command.split(",").map((x) => x.trim()).filter(Boolean);
+        } else {
+            map[s.name] = [s.name];
+        }
     }
     return map;
 };
