@@ -546,7 +546,43 @@ class FlowComment(Base):
     entity_type: Mapped[str] = mapped_column(String(32), index=True)  # story/task/bug
     entity_id: Mapped[str] = mapped_column(String(32), index=True)
     author_id: Mapped[str] = mapped_column(String(32), ForeignKey("members.id"), index=True)
+    parent_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
     content: Mapped[str] = mapped_column(Text, default="")
     mentions_json: Mapped[str] = mapped_column(Text, default="[]")  # member_ids mentioned via @
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class FlowReminderSettings(Base):
+    """Project-level work item reminder settings"""
+
+    __tablename__ = "flow_reminder_settings"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    project_id: Mapped[str] = mapped_column(String(32), ForeignKey("flow_projects.id"), unique=True, index=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    scenes_json: Mapped[str] = mapped_column(Text, default='{}')
+    work_days: Mapped[str] = mapped_column(String(20), default="1,2,3,4,5")
+    near_deadline_days: Mapped[int] = mapped_column(Integer, default=3)
+    ai_suggestion: Mapped[bool] = mapped_column(Boolean, default=True)
+    skip_empty: Mapped[bool] = mapped_column(Boolean, default=True)
+    min_threshold: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class FlowDocumentLink(Base):
+    """Work item - knowledge base document association"""
+
+    __tablename__ = "flow_document_links"
+    __table_args__ = (
+        UniqueConstraint("document_id", "entity_type", "entity_id", name="uq_document_workitem"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    document_id: Mapped[str] = mapped_column(String(32), index=True)
+    entity_type: Mapped[str] = mapped_column(String(16), index=True)  # story/task/bug
+    entity_id: Mapped[str] = mapped_column(String(32), index=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_by: Mapped[str | None] = mapped_column(String(32), ForeignKey("members.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

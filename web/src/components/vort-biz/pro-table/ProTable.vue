@@ -1,7 +1,7 @@
 <script setup lang="ts" generic="T = any">
 import { ref, computed, watch, onBeforeUnmount, onMounted, nextTick } from "vue";
-import { Checkbox, Spin, Pagination, Popover } from "@/components/vort";
-import { CaretUpFilled, CaretDownFilled, EmptyOutlined } from "@/components/vort/icons";
+import { Checkbox, Spin, Pagination, Popover } from "@openvort/vort-ui";
+import { CaretUpFilled, CaretDownFilled, EmptyOutlined } from "@openvort/vort-ui";
 import type {
   TableColumn,
   TablePagination,
@@ -1072,7 +1072,7 @@ defineExpose({
 
         <!-- 表体 -->
         <tbody class="vort-pro-table-tbody">
-          <tr v-if="tableData.length === 0 && !internalLoading" class="vort-pro-table-empty-row">
+          <tr v-if="tableData.length === 0 && !internalLoading && !loading" class="vort-pro-table-empty-row">
             <td :colspan="(rowSelection ? 1 : 0) + leafColumns.length" class="vort-pro-table-empty-cell">
               <div class="vort-pro-table-empty-fixed" :style="{ width: emptyFixedWidth }">
                 <slot name="empty">

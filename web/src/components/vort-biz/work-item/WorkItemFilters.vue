@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { DownOutlined } from "@/components/vort/icons";
+import { DownOutlined } from "@openvort/vort-ui";
 import PopoverSelect from "@/components/vort-biz/popover-select/PopoverSelect.vue";
 import WorkItemMemberPicker from "./WorkItemMemberPicker.vue";
 import StatusIcon from "./StatusIcon.vue";
@@ -85,7 +85,9 @@ const filteredTypeOptions = computed(() => {
 
 const ownerDisplayLabel = computed(() => {
     if (!props.owner.length) return "";
-    return props.owner[0] || "";
+    const id = props.owner[0];
+    const member = props.memberOptions.find(m => m.id === id);
+    return member?.name || id || "";
 });
 
 const ownerExtraCount = computed(() => Math.max(0, props.owner.length - 1));

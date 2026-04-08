@@ -94,7 +94,7 @@ def main():
 # ---------------------------------------------------------------------------
 # Register sub-commands
 # ---------------------------------------------------------------------------
-from openvort.cli.service import init_cmd, start_cmd, stop_cmd, restart_cmd  # noqa: E402
+from openvort.cli.service import start_cmd, stop_cmd, restart_cmd  # noqa: E402
 from openvort.cli.channels import channels  # noqa: E402
 from openvort.cli.inspect import tools, plugins  # noqa: E402
 from openvort.cli.agent import agent  # noqa: E402
@@ -105,7 +105,6 @@ from openvort.cli.pairing import pairing  # noqa: E402
 from openvort.cli.coding import coding  # noqa: E402
 from openvort.cli.doctor import doctor_cmd  # noqa: E402
 
-main.add_command(init_cmd, "init")
 main.add_command(start_cmd, "start")
 main.add_command(stop_cmd, "stop")
 main.add_command(restart_cmd, "restart")

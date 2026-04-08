@@ -2,8 +2,8 @@
 import { ref, onMounted, computed } from "vue";
 import { getPlugins, getPluginDetail, updatePlugin, installPlugin, uninstallPlugin, pipInstallPlugin, uploadPlugin, deletePlugin } from "@/api";
 import { Puzzle, Wrench, Plus, Upload, Trash2, ChevronDown, ChevronRight, Download, ExternalLink, Github } from "lucide-vue-next";
-import { message } from "@/components/vort/message";
-import { dialog } from "@/components/vort/dialog";
+import { message } from "@openvort/vort-ui";
+import { dialog } from "@openvort/vort-ui";
 import { usePluginStore } from "@/stores/modules/plugin";
 import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
 

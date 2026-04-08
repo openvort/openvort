@@ -7,7 +7,7 @@ import {
     getBackupDownloadUrl, getRestoreStreamUrl,
     getSettings, updateSettings,
 } from "@/api";
-import { message } from "@/components/vort";
+import { message } from "@openvort/vort-ui";
 import {
     ArrowUpCircle, Download, Trash2, RotateCcw, Database,
     RefreshCw, Loader2, X, Check, HardDriveDownload, Clock,
@@ -130,6 +130,9 @@ const sseMessage = ref("");
 const sseError = ref("");
 const sseRunning = ref(false);
 const sseDone = ref(false);
+const ssePercent = ref<number | null>(null);
+const sseCurrentStep = ref(0);
+const sseTotalSteps = ref(0);
 
 function resetSseDialog() {
     sseStep.value = "";
@@ -137,6 +140,9 @@ function resetSseDialog() {
     sseError.value = "";
     sseRunning.value = false;
     sseDone.value = false;
+    ssePercent.value = null;
+    sseCurrentStep.value = 0;
+    sseTotalSteps.value = 0;
 }
 
 function startUpgradeOrRollback(version: string, isRollback = false) {
@@ -177,10 +183,14 @@ function startUpgradeOrRollback(version: string, isRollback = false) {
                     if (ev.type === "progress") {
                         sseStep.value = ev.step || "";
                         sseMessage.value = ev.message || "";
+                        ssePercent.value = ev.percent ?? null;
+                        sseCurrentStep.value = ev.current_step ?? 0;
+                        sseTotalSteps.value = ev.total_steps ?? 0;
                     } else if (ev.type === "done") {
                         sseDone.value = true;
                         sseRunning.value = false;
                         sseMessage.value = ev.message || "操作完成";
+                        ssePercent.value = ev.percent ?? 100;
                     } else if (ev.type === "error") {
                         sseError.value = ev.message || "操作失败";
                         sseRunning.value = false;
@@ -230,10 +240,14 @@ function startRestore(filename: string) {
                     if (ev.type === "progress") {
                         sseStep.value = ev.step || "";
                         sseMessage.value = ev.message || "";
+                        ssePercent.value = ev.percent ?? null;
+                        sseCurrentStep.value = ev.current_step ?? 0;
+                        sseTotalSteps.value = ev.total_steps ?? 0;
                     } else if (ev.type === "done") {
                         sseDone.value = true;
                         sseRunning.value = false;
                         sseMessage.value = ev.message || "恢复完成";
+                        ssePercent.value = ev.percent ?? 100;
                     } else if (ev.type === "error") {
                         sseError.value = ev.message || "恢复失败";
                         sseRunning.value = false;
@@ -490,11 +504,16 @@ onMounted(() => {
                             <div class="flex flex-col items-center gap-4 py-4">
                                 <Loader2 :size="32" class="text-blue-500 animate-spin" />
                                 <div class="text-center">
-                                    <div class="text-sm font-medium text-gray-800">{{ stepLabels[sseStep] || '准备中...' }}</div>
+                                    <div class="text-sm font-medium text-gray-800">
+                                        {{ stepLabels[sseStep] || '准备中...' }}
+                                        <span v-if="sseTotalSteps" class="text-gray-400 font-normal text-xs ml-1">({{ sseCurrentStep }}/{{ sseTotalSteps }})</span>
+                                    </div>
                                     <div class="text-xs text-gray-500 mt-1">{{ sseMessage }}</div>
                                 </div>
                                 <div class="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
-                                    <div class="bg-blue-500 h-full rounded-full transition-all duration-500 animate-pulse" style="width: 70%"></div>
+                                    <div class="bg-blue-500 h-full rounded-full transition-all duration-300"
+                                         :class="{ 'animate-pulse': ssePercent == null }"
+                                         :style="{ width: (ssePercent ?? 15) + '%' }"></div>
                                 </div>
                                 <p class="text-[11px] text-gray-400">请勿关闭页面或刷新浏览器</p>
                             </div>

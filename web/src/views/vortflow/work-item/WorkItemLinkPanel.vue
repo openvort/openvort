@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
 import { Plus, X, Search, ChevronDown, Check, Link2 } from "lucide-vue-next";
-import { message } from "@/components/vort";
+import { message } from "@openvort/vort-ui";
 import {
     getVortflowStories,
     getVortflowTasks,
@@ -25,7 +25,7 @@ const emit = defineEmits<{
 
 const {
     getWorkItemTypeIconClass,
-    getWorkItemTypeIconSymbol,
+    getWorkItemTypeIcon,
     mapBackendStateToStatus,
     getMemberNameById,
 } = useWorkItemCommon();
@@ -62,13 +62,14 @@ const DISPLAY_TYPE_MAP: Record<string, WorkItemType> = {
     bug: "缺陷",
 };
 
-const TYPE_OPTIONS: WorkItemType[] = ["需求", "任务", "缺陷"];
+const TYPE_OPTIONS_ALL = "全部";
+const TYPE_OPTIONS: (typeof TYPE_OPTIONS_ALL | WorkItemType)[] = [TYPE_OPTIONS_ALL, "需求", "任务", "缺陷"];
 
 const linkedItems = ref<LinkedItem[]>([]);
 const loading = ref(false);
 const adding = ref(false);
 const searchKeyword = ref("");
-const searchType = ref<WorkItemType>("缺陷");
+const searchType = ref<typeof TYPE_OPTIONS_ALL | WorkItemType>(TYPE_OPTIONS_ALL);
 const searchResults = ref<SearchResultItem[]>([]);
 const searchLoading = ref(false);
 const showDropdown = ref(false);
@@ -114,6 +115,32 @@ const loadLinks = async () => {
     }
 };
 
+const searchSingleType = async (kw: string, backendType: "story" | "task" | "bug", displayType: WorkItemType) => {
+    let res: any;
+    if (backendType === "story") {
+        res = await getVortflowStories({ keyword: kw, page_size: 20 });
+    } else if (backendType === "task") {
+        res = await getVortflowTasks({ keyword: kw, page_size: 20 });
+    } else {
+        res = await getVortflowBugs({ keyword: kw, page_size: 20 });
+    }
+    const items = (res?.items || []) as any[];
+    return items
+        .filter((item) => {
+            const key = `${backendType}:${item.id}`;
+            if (linkedIdSet.value.has(key)) return false;
+            if (backendType === props.entityType && item.id === props.entityId) return false;
+            return true;
+        })
+        .map((item) => ({
+            id: item.id,
+            title: item.title || "",
+            state: item.state || "",
+            workNo: toWorkNo(item.id),
+            displayType,
+        }));
+};
+
 const doSearch = async () => {
     const kw = searchKeyword.value.trim();
     if (!kw) {
@@ -123,30 +150,17 @@ const doSearch = async () => {
     }
     searchLoading.value = true;
     try {
-        const backendType = BACKEND_TYPE_MAP[searchType.value];
-        let res: any;
-        if (backendType === "story") {
-            res = await getVortflowStories({ keyword: kw, page_size: 20 });
-        } else if (backendType === "task") {
-            res = await getVortflowTasks({ keyword: kw, page_size: 20 });
+        if (searchType.value === TYPE_OPTIONS_ALL) {
+            const [stories, tasks, bugs] = await Promise.all([
+                searchSingleType(kw, "story", "需求"),
+                searchSingleType(kw, "task", "任务"),
+                searchSingleType(kw, "bug", "缺陷"),
+            ]);
+            searchResults.value = [...stories, ...tasks, ...bugs];
         } else {
-            res = await getVortflowBugs({ keyword: kw, page_size: 20 });
+            const backendType = BACKEND_TYPE_MAP[searchType.value];
+            searchResults.value = await searchSingleType(kw, backendType, searchType.value);
         }
-        const items = (res?.items || []) as any[];
-        searchResults.value = items
-            .filter((item) => {
-                const key = `${backendType}:${item.id}`;
-                if (linkedIdSet.value.has(key)) return false;
-                if (backendType === props.entityType && item.id === props.entityId) return false;
-                return true;
-            })
-            .map((item) => ({
-                id: item.id,
-                title: item.title || "",
-                state: item.state || "",
-                workNo: toWorkNo(item.id),
-                displayType: searchType.value,
-            }));
         showDropdown.value = true;
     } catch {
         searchResults.value = [];
@@ -225,7 +239,7 @@ const toggleTypeDropdown = () => {
     typeDropdownOpen.value = !typeDropdownOpen.value;
 };
 
-const selectType = (t: WorkItemType) => {
+const selectType = (t: typeof TYPE_OPTIONS_ALL | WorkItemType) => {
     searchType.value = t;
     typeDropdownOpen.value = false;
     searchResults.value = [];
@@ -263,9 +277,11 @@ watch(
             <div class="wi-link-search-bar">
                 <div class="wi-link-type-picker" tabindex="0" @blur="onTypeBlur">
                     <button type="button" class="wi-link-type-btn" @click="toggleTypeDropdown">
-                        <span :class="['wi-link-type-badge', getWorkItemTypeIconClass(searchType)]">
-                            {{ getWorkItemTypeIconSymbol(searchType) }}
-                        </span>
+                        <template v-if="searchType !== TYPE_OPTIONS_ALL">
+                            <span :class="['wi-link-type-badge', getWorkItemTypeIconClass(searchType as WorkItemType)]">
+                                <component :is="getWorkItemTypeIcon(searchType as WorkItemType)" :size="12" />
+                            </span>
+                        </template>
                         <span class="wi-link-type-label">{{ searchType }}</span>
                         <ChevronDown class="wi-link-type-chevron" :size="12" />
                     </button>
@@ -278,9 +294,11 @@ watch(
                             :class="{ selected: searchType === t }"
                             @mousedown.prevent="selectType(t)"
                         >
-                            <span :class="['wi-link-type-badge', getWorkItemTypeIconClass(t)]">
-                                {{ getWorkItemTypeIconSymbol(t) }}
-                            </span>
+                            <template v-if="t !== TYPE_OPTIONS_ALL">
+                                <span :class="['wi-link-type-badge', getWorkItemTypeIconClass(t as WorkItemType)]">
+                                    <component :is="getWorkItemTypeIcon(t as WorkItemType)" :size="12" />
+                                </span>
+                            </template>
                             <span class="wi-link-type-option-label">{{ t }}</span>
                             <Check v-if="searchType === t" class="wi-link-type-check" :size="14" />
                         </button>
@@ -346,7 +364,7 @@ watch(
             >
                 <button type="button" class="wi-link-item-main" @click="openLinkedItem(item)">
                     <span :class="['wi-link-type-badge', getWorkItemTypeIconClass(item.displayType)]">
-                        {{ getWorkItemTypeIconSymbol(item.displayType) }}
+                        <component :is="getWorkItemTypeIcon(item.displayType)" :size="12" />
                     </span>
                     <span class="wi-link-item-no">{{ item.workNo }}</span>
                     <span class="wi-link-item-title">{{ item.title }}</span>

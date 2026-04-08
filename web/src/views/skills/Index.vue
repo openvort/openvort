@@ -6,7 +6,7 @@ import {
     getSkillTags,
     generateSkillContentPrompt,
 } from "@/api";
-import { message, dialog } from "@/components/vort";
+import { message, dialog } from "@openvort/vort-ui";
 import { Plus, Trash2, Save, BookOpen, Bot, X, Tag, Search, Info, ArrowUpDown, Pencil } from "lucide-vue-next";
 import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
 

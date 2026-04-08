@@ -63,10 +63,7 @@ def _map_special_fields(src, from_type: str, to_type: str) -> dict:
             extra["severity"] = getattr(src, "severity", 3) if from_type == "bug" else 3
 
     # --- estimate_hours / actual_hours ---
-    if to_type == "task":
-        extra["estimate_hours"] = getattr(src, "estimate_hours", None)
-        extra["actual_hours"] = getattr(src, "actual_hours", None)
-    elif to_type == "bug":
+    if to_type in ("task", "bug"):
         extra["estimate_hours"] = getattr(src, "estimate_hours", None)
         extra["actual_hours"] = getattr(src, "actual_hours", None)
 

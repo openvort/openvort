@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
 import { z } from "zod";
-import { Dialog } from "@/components/vort";
-import { DownOutlined } from "@/components/vort/icons";
+import { Dialog } from "@openvort/vort-ui";
+import { DownOutlined } from "@openvort/vort-ui";
 import { useVortFlowStore } from "@/stores";
 import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMemberPicker.vue";
 import { useWorkItemCommon } from "../work-item/useWorkItemCommon";

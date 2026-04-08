@@ -2,6 +2,7 @@
 
 import uuid
 
+import httpx
 from fastapi import APIRouter, Body, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import select, func, delete as sa_delete
@@ -116,11 +117,13 @@ def _repo_to_dict(r: GitRepo) -> dict:
 
 def _get_provider_instance(provider: GitProvider):
     """Create a provider API client from the DB record."""
+    from openvort.plugins.vortgit.providers import create_provider
+
     token = decrypt_token(provider.access_token) if provider.access_token else ""
-    if provider.platform == "gitee":
-        from openvort.plugins.vortgit.providers.gitee import GiteeProvider
-        return GiteeProvider(access_token=token, api_base=provider.api_base)
-    raise HTTPException(400, f"Unsupported platform: {provider.platform}")
+    try:
+        return create_provider(provider.platform, access_token=token, api_base=provider.api_base)
+    except ValueError:
+        raise HTTPException(400, f"Unsupported platform: {provider.platform}")
 
 
 def _require_admin(request: Request) -> dict:
@@ -195,8 +198,8 @@ async def update_provider(provider_id: str, body: ProviderUpdate):
             provider.platform = body.platform
         if body.api_base is not None:
             provider.api_base = body.api_base
-        if body.access_token is not None:
-            provider.access_token = encrypt_token(body.access_token) if body.access_token else ""
+        if body.access_token:
+            provider.access_token = encrypt_token(body.access_token)
         if body.is_default is not None:
             provider.is_default = body.is_default
         await session.commit()
@@ -434,6 +437,9 @@ async def list_repo_commits(
             per_page=per_page,
         )
         return {"items": commits}
+    except httpx.HTTPStatusError as exc:
+        log.warning("list_commits failed for %s: %s", repo.full_name, exc)
+        raise HTTPException(502, f"远程仓库请求失败: {exc.response.status_code}")
     finally:
         await client.close()
 
@@ -453,6 +459,58 @@ async def list_repo_branches(repo_id: str):
     try:
         branches = await client.list_branches(repo.full_name)
         return {"items": branches}
+    except httpx.HTTPStatusError as exc:
+        log.warning("list_branches failed for %s: %s", repo.full_name, exc)
+        raise HTTPException(502, f"远程仓库请求失败: {exc.response.status_code}")
+    finally:
+        await client.close()
+
+
+@router.get("/repos/{repo_id}/tree")
+async def get_repo_tree(repo_id: str, path: str = "", ref: str = ""):
+    """List directory entries at *path* on *ref* (branch/tag/sha)."""
+    sf = get_session_factory()
+    async with sf() as session:
+        repo = await session.get(GitRepo, repo_id)
+        if not repo:
+            raise HTTPException(404, "Repo not found")
+        provider = await session.get(GitProvider, repo.provider_id)
+        if not provider:
+            raise HTTPException(404, "Provider not found")
+
+    client = _get_provider_instance(provider)
+    try:
+        entries = await client.get_file_tree(
+            repo.full_name, path=path, ref=ref or repo.default_branch
+        )
+        return {"items": entries}
+    except httpx.HTTPStatusError as exc:
+        log.warning("get_file_tree failed for %s: %s", repo.full_name, exc)
+        raise HTTPException(502, f"远程仓库请求失败: {exc.response.status_code}")
+    finally:
+        await client.close()
+
+
+@router.get("/repos/{repo_id}/file-content")
+async def get_repo_file_content(repo_id: str, path: str, ref: str = ""):
+    """Get decoded file content at *path* on *ref*."""
+    sf = get_session_factory()
+    async with sf() as session:
+        repo = await session.get(GitRepo, repo_id)
+        if not repo:
+            raise HTTPException(404, "Repo not found")
+        provider = await session.get(GitProvider, repo.provider_id)
+        if not provider:
+            raise HTTPException(404, "Provider not found")
+
+    client = _get_provider_instance(provider)
+    try:
+        content = await client.get_file_content(
+            repo.full_name, path, ref=ref or repo.default_branch
+        )
+        return {"content": content}
+    except Exception as exc:
+        raise HTTPException(404, f"File not found: {exc}")
     finally:
         await client.close()
 
@@ -541,6 +599,9 @@ async def sync_repo(repo_id: str):
     client = _get_provider_instance(provider)
     try:
         remote = await client.get_repo(repo.full_name)
+    except httpx.HTTPStatusError as exc:
+        log.warning("sync_repo failed for %s: %s", repo.full_name, exc)
+        raise HTTPException(502, f"远程仓库请求失败: {exc.response.status_code}")
     finally:
         await client.close()
 

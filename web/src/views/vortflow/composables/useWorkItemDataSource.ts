@@ -421,7 +421,11 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
         const hasOwnerFilter = ownerValues.length > 0;
         const { ownerMemberId, matchOwner } = createOwnerMatcher(ownerValues);
         const typeValue = String(propType ?? params.type ?? "").trim();
-        const statusValues: string[] = Array.isArray(params.status) ? params.status.filter(Boolean) : [];
+        const statusValues: string[] = Array.isArray(params.status)
+            ? params.status
+                .map(value => String(value || "").trim())
+                .filter(value => value && value !== "全部")
+            : [];
         const current = Number(params.current || 1);
         const pageSize = Number(params.pageSize || 20);
 
@@ -552,9 +556,9 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
                 const start = (current - 1) * pageSize;
                 rows = allRows.slice(start, start + pageSize);
             } else {
-                const backendState = backendStates?.[0];
+                const combinedState = backendStates?.join(",");
                 if (hasOwnerFilter && (workType === "需求" || ownerValues.includes("未指派") || !ownerMemberId)) {
-                    const allItems = await fetchAllItemsByState(backendState);
+                    const allItems = await fetchAllItemsByState(combinedState);
                     const allRows = buildRowsFromItems(allItems)
                         .filter((x) => !statusValues.length || statusValues.includes(x.status))
                         .filter(matchOwner);
@@ -562,7 +566,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
                     const start = (current - 1) * pageSize;
                     rows = allRows.slice(start, start + pageSize);
                 } else {
-                    const res: any = await requestByState(backendState, current, pageSize);
+                    const res: any = await requestByState(combinedState, current, pageSize);
                     rows = buildRowsFromItems((res as any)?.items || []);
                     if (statusValues.length) rows = rows.filter((x) => statusValues.includes(x.status));
                     if (hasOwnerFilter) rows = rows.filter(matchOwner);

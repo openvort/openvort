@@ -94,12 +94,12 @@ class ContactService:
         """从指定平台同步通讯录
 
         Returns:
-            同步统计: {"created": N, "updated": N, "matched": N, "pending": N}
+            同步统计: {"created": N, "updated": N, "matched": N, "pending": N, "errors": [...]}
         """
         platform = provider.platform
         log.info(f"开始同步通讯录: {platform}")
 
-        stats = {"created": 0, "updated": 0, "matched": 0, "pending": 0, "skipped": 0}
+        stats: dict = {"created": 0, "updated": 0, "matched": 0, "pending": 0, "skipped": 0}
 
         # 1. 同步部门
         try:
@@ -108,9 +108,15 @@ class ContactService:
             log.info(f"已同步 {len(departments)} 个部门 ({platform})")
         except Exception as e:
             log.warning(f"同步部门失败 ({platform}): {e}")
+            provider.add_error(f"同步部门失败: {e}")
 
         # 2. 同步成员
-        contacts = await provider.fetch_members()
+        try:
+            contacts = await provider.fetch_members()
+        except Exception as e:
+            log.warning(f"拉取成员失败 ({platform}): {e}")
+            provider.add_error(f"拉取成员失败: {e}")
+            contacts = []
         log.info(f"拉取到 {len(contacts)} 个联系人 ({platform})")
 
         for contact in contacts:
@@ -128,6 +134,11 @@ class ContactService:
             mapped = await self._map_roles_from_position(contacts)
             if mapped:
                 log.info(f"角色映射: {mapped} 人已分配角色 ({platform})")
+
+        errors = list(dict.fromkeys(provider.errors))
+        if errors:
+            stats["errors"] = errors
+            log.warning(f"同步存在错误 ({platform}): {errors}")
 
         return stats
 

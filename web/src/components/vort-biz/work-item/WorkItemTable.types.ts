@@ -130,6 +130,9 @@ export interface DetailComment {
     authorId?: string;
     createdAt: string;
     content: string;
+    parentId?: number | null;
+    parentAuthor?: string;
+    parentContent?: string;
 }
 
 export interface DetailLog {

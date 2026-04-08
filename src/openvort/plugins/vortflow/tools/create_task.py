@@ -7,6 +7,7 @@ import json
 from sqlalchemy import select
 
 from openvort.plugin.base import BaseTool
+from openvort.plugins.vortflow.notifier import schedule_notification
 from openvort.utils.logging import get_logger
 
 log = get_logger("plugins.vortflow.tools.create_task")
@@ -22,8 +23,9 @@ class CreateTaskTool(BaseTool):
     )
     required_permission = "vortflow.task"
 
-    def __init__(self, get_session_factory):
+    def __init__(self, get_session_factory, notifier=None):
         self._get_sf = get_session_factory
+        self._notifier = notifier
 
     def input_schema(self) -> dict:
         return {
@@ -131,6 +133,12 @@ class CreateTaskTool(BaseTool):
             await session.commit()
             await session.refresh(t)
             task_id = t.id
+
+        if self._notifier:
+            schedule_notification(self._notifier.notify_item_created(
+                "task", task_id, title, project_id or "", member_id,
+                assignee_id=assignee_id,
+            ))
 
         parts = [f"任务「{title}」已创建"]
         if assignee_name and assignee_id:

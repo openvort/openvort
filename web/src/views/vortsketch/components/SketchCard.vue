@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
-import { Tag as VortTag } from "@/components/vort";
+import { Tag as VortTag } from "@openvort/vort-ui";
 import { Clock, MoreHorizontal, Pencil, Copy, Trash2, FileCode2, Files } from "lucide-vue-next";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";

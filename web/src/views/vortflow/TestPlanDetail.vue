@@ -5,15 +5,17 @@ import {
     Plus, Search, ChevronRight, ChevronDown, FolderOpen, Folder,
     Ellipsis, CheckCircle, XCircle, AlertCircle, SkipForward, Bug, ChevronsUpDown,
     ExternalLink, GitPullRequest, Trash2, Bot, MessageSquare, History, Loader2,
-    FileText, Copy, MoreHorizontal,
+    FileText, Copy, MoreHorizontal, ArrowUpDown, Check, Filter,
 } from "lucide-vue-next";
-import { message, Dropdown, DropdownMenuItem, Dialog } from "@/components/vort";
+import { message, Dropdown, DropdownMenuItem, Dialog } from "@openvort/vort-ui";
+import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
 import { useVortFlowStore } from "@/stores";
 import { useWorkItemCommon } from "./work-item/useWorkItemCommon";
 import WorkItemCreate from "./work-item/WorkItemCreate.vue";
 import TestPlanEditDialog from "./components/TestPlanEditDialog.vue";
 import TestPlanAddCasesDialog from "./components/TestPlanAddCasesDialog.vue";
 import TestPlanAddPRDialog from "./components/TestPlanAddPRDialog.vue";
+import TestCaseDetailDrawer from "./components/TestCaseDetailDrawer.vue";
 import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMemberPicker.vue";
 import {
     getVortflowTestPlan,
@@ -161,6 +163,29 @@ const selectedModuleId = ref("");
 const moduleSearch = ref("");
 const showModuleSearch = ref(false);
 
+const EXPAND_STORAGE_KEY = "vortflow_test_module_expanded";
+
+const saveExpandedState = () => {
+    const projectId = plan.value?.project_id;
+    if (!projectId) return;
+    try {
+        const all = JSON.parse(localStorage.getItem(EXPAND_STORAGE_KEY) || "{}");
+        all[projectId] = [...expandedModuleIds.value];
+        localStorage.setItem(EXPAND_STORAGE_KEY, JSON.stringify(all));
+    } catch { /* ignore */ }
+};
+
+const loadExpandedState = (): Set<string> | null => {
+    const projectId = plan.value?.project_id;
+    if (!projectId) return null;
+    try {
+        const all = JSON.parse(localStorage.getItem(EXPAND_STORAGE_KEY) || "{}");
+        const ids = all[projectId];
+        if (Array.isArray(ids)) return new Set(ids);
+    } catch { /* ignore */ }
+    return null;
+};
+
 const flatNodes = computed<FlatNode[]>(() => {
     const map = new Map<string, RawModule>();
     const childMap = new Map<string, string[]>();
@@ -200,8 +225,13 @@ const loadModules = async () => {
     try {
         const res = await getVortflowTestModules({ project_id: projectId });
         rawModules.value = (res as any)?.items || [];
-        const parentIds = new Set(rawModules.value.filter((m) => m.parent_id).map((m) => m.parent_id!));
-        for (const pid of parentIds) expandedModuleIds.value.add(pid);
+        const saved = loadExpandedState();
+        if (saved) {
+            const validIds = new Set(rawModules.value.map((m) => m.id));
+            expandedModuleIds.value = new Set([...saved].filter((id) => validIds.has(id)));
+        } else {
+            expandedModuleIds.value = new Set();
+        }
     } catch {
         rawModules.value = [];
     }
@@ -211,6 +241,7 @@ const toggleModuleExpand = (id: string) => {
     const next = new Set(expandedModuleIds.value);
     if (next.has(id)) next.delete(id); else next.add(id);
     expandedModuleIds.value = next;
+    saveExpandedState();
 };
 
 const selectModule = (id: string) => {
@@ -218,13 +249,99 @@ const selectModule = (id: string) => {
     loadCases();
 };
 
+// ============ Module Case Counts ============
+
+const moduleCaseCounts = ref<Map<string, number>>(new Map());
+
+const loadModuleCaseCounts = async () => {
+    try {
+        const res = await getVortflowTestPlanCases(planId.value, {});
+        const items: any[] = (res as any).items || [];
+        const counts = new Map<string, number>();
+        for (const c of items) {
+            if (c.module_id) counts.set(c.module_id, (counts.get(c.module_id) || 0) + 1);
+        }
+        moduleCaseCounts.value = counts;
+    } catch { /* ignore */ }
+};
+
+const moduleAggCounts = computed(() => {
+    const direct = moduleCaseCounts.value;
+    const childMap = new Map<string, string[]>();
+    for (const m of rawModules.value) {
+        const pid = m.parent_id || "__root__";
+        if (!childMap.has(pid)) childMap.set(pid, []);
+        childMap.get(pid)!.push(m.id);
+    }
+    const result = new Map<string, number>();
+    const calc = (id: string): number => {
+        if (result.has(id)) return result.get(id)!;
+        let count = direct.get(id) || 0;
+        for (const cid of (childMap.get(id) || [])) count += calc(cid);
+        result.set(id, count);
+        return count;
+    };
+    for (const m of rawModules.value) calc(m.id);
+    return result;
+});
+
 // ============ Plan Cases ============
 
 const cases = ref<any[]>([]);
 const casesLoading = ref(false);
 const casesTotal = ref(0);
 const caseKeyword = ref("");
-const caseSortBy = ref("");
+const caseSortOpen = ref(false);
+
+const SORT_STORAGE_KEY = "vortflow_test_plan_case_sort";
+
+const loadSavedSort = (): string => {
+    try {
+        return localStorage.getItem(SORT_STORAGE_KEY) || "priority";
+    } catch { return "priority"; }
+};
+
+const caseSortBy = ref(loadSavedSort());
+
+const sortOptions = [
+    { value: "", label: "默认排序" },
+    { value: "id", label: "编号" },
+    { value: "priority", label: "优先级" },
+    { value: "created_at", label: "创建时间" },
+    { value: "updated_at", label: "更新时间" },
+];
+
+const currentSortLabel = computed(() => sortOptions.find(o => o.value === caseSortBy.value)?.label || "默认排序");
+
+const handleSortChange = (value: string) => {
+    caseSortBy.value = value;
+    caseSortOpen.value = false;
+    try { localStorage.setItem(SORT_STORAGE_KEY, value); } catch { /* ignore */ }
+    loadCases();
+};
+
+const caseFilterOpen = ref(false);
+const caseFilterType = ref("");
+const caseFilterPriority = ref("");
+
+const caseFilterCount = computed(() => {
+    let count = 0;
+    if (caseFilterType.value) count++;
+    if (caseFilterPriority.value) count++;
+    return count;
+});
+
+const handleApplyFilter = () => {
+    caseFilterOpen.value = false;
+    loadCases();
+};
+
+const handleResetFilter = () => {
+    caseFilterType.value = "";
+    caseFilterPriority.value = "";
+    caseFilterOpen.value = false;
+    loadCases();
+};
 
 const loadCases = async () => {
     casesLoading.value = true;
@@ -233,6 +350,8 @@ const loadCases = async () => {
             module_id: selectedModuleId.value || undefined,
             keyword: caseKeyword.value || undefined,
             sort_by: caseSortBy.value || undefined,
+            case_type: caseFilterType.value || undefined,
+            priority: caseFilterPriority.value ? parseInt(caseFilterPriority.value) : undefined,
         });
         cases.value = (res as any).items || [];
         casesTotal.value = (res as any).total || 0;
@@ -245,6 +364,7 @@ const handleRemoveCase = async (planCaseId: string) => {
     await removeVortflowTestPlanCase(planId.value, planCaseId);
     message.success("已移除");
     loadCases();
+    loadModuleCaseCounts();
     loadPlan();
 };
 
@@ -318,12 +438,23 @@ const handleFinishPlan = async () => {
     loadPlan();
 };
 
+// ============ Case Detail Drawer ============
+
+const caseDetailDrawerOpen = ref(false);
+const caseDetailId = ref("");
+
+const handleViewCase = (row: any) => {
+    caseDetailId.value = row.test_case_id;
+    caseDetailDrawerOpen.value = true;
+};
+
 // ============ Add Cases Dialog ============
 
 const addCasesDialogOpen = ref(false);
 
 const handleAddCasesSaved = () => {
     loadCases();
+    loadModuleCaseCounts();
     loadPlan();
 };
 
@@ -481,6 +612,15 @@ const handleAddPRSaved = () => {
     loadPlan();
 };
 
+// --- Review detail drawer ---
+const reviewDetailDrawerOpen = ref(false);
+const reviewDetailTarget = ref<any>(null);
+
+const handleShowReviewNotes = (row: any) => {
+    reviewDetailTarget.value = row;
+    reviewDetailDrawerOpen.value = true;
+};
+
 // --- Review history ---
 const historyDialogOpen = ref(false);
 const historyTarget = ref<any>(null);
@@ -628,12 +768,12 @@ const verStageLabels: Record<string, string> = { dev: "开发环境", staging: "
 onMounted(async () => {
     await loadMemberOptions();
     await loadPlan();
-    await Promise.all([loadModules(), loadCases(), loadReviews(), loadReports(), loadLinkOptions(), loadPlanSwitcherList()]);
+    await Promise.all([loadModules(), loadCases(), loadModuleCaseCounts(), loadReviews(), loadReports(), loadLinkOptions(), loadPlanSwitcherList()]);
 });
 
 watch(planId, async () => {
     await loadPlan();
-    await Promise.all([loadModules(), loadCases(), loadReviews()]);
+    await Promise.all([loadModules(), loadCases(), loadModuleCaseCounts(), loadReviews()]);
 });
 </script>
 
@@ -894,6 +1034,13 @@ watch(planId, async () => {
                         <span v-else class="w-3 shrink-0" />
                         <component :is="node.hasChildren && node.expanded ? FolderOpen : Folder" :size="14" class="shrink-0" />
                         <span class="truncate">{{ node.name }}</span>
+                        <vort-badge
+                            v-if="moduleAggCounts.get(node.id)"
+                            :count="moduleAggCounts.get(node.id)"
+                            :overflow-count="999"
+                            size="small"
+                            class="shrink-0 ml-auto"
+                        />
                     </div>
                 </div>
 
@@ -913,6 +1060,55 @@ watch(planId, async () => {
                             <span class="text-sm text-gray-400 whitespace-nowrap">共 {{ casesTotal }} 项</span>
                         </div>
                         <div class="flex items-center gap-2">
+                            <Dropdown v-model:open="caseSortOpen" trigger="click" placement="bottomRight">
+                                <vort-button size="small">
+                                    <ArrowUpDown :size="14" class="mr-1" /> {{ currentSortLabel }}
+                                </vort-button>
+                                <template #overlay>
+                                    <DropdownMenuItem
+                                        v-for="opt in sortOptions"
+                                        :key="opt.value"
+                                        @click="handleSortChange(opt.value)"
+                                    >
+                                        <Check v-if="caseSortBy === opt.value" :size="14" class="text-blue-500 mr-1.5" />
+                                        <span v-else class="w-[14px] mr-1.5 inline-block" />
+                                        {{ opt.label }}
+                                    </DropdownMenuItem>
+                                </template>
+                            </Dropdown>
+                            <Dropdown v-model:open="caseFilterOpen" trigger="click" placement="bottomRight">
+                                <vort-button size="small">
+                                    <Filter :size="14" class="mr-1" /> 筛选
+                                    <span v-if="caseFilterCount" class="ml-1 text-blue-500">{{ caseFilterCount }}</span>
+                                </vort-button>
+                                <template #overlay>
+                                    <div class="p-3 w-[220px] space-y-3" @click.stop>
+                                        <div>
+                                            <div class="text-xs text-gray-400 mb-1.5">用例类型</div>
+                                            <vort-select v-model="caseFilterType" placeholder="全部" allow-clear size="small" style="width: 100%">
+                                                <vort-select-option value="functional">功能测试</vort-select-option>
+                                                <vort-select-option value="performance">性能测试</vort-select-option>
+                                                <vort-select-option value="api">接口测试</vort-select-option>
+                                                <vort-select-option value="ui">UI 测试</vort-select-option>
+                                                <vort-select-option value="security">安全测试</vort-select-option>
+                                            </vort-select>
+                                        </div>
+                                        <div>
+                                            <div class="text-xs text-gray-400 mb-1.5">优先级</div>
+                                            <vort-select v-model="caseFilterPriority" placeholder="全部" allow-clear size="small" style="width: 100%">
+                                                <vort-select-option value="0">P0</vort-select-option>
+                                                <vort-select-option value="1">P1</vort-select-option>
+                                                <vort-select-option value="2">P2</vort-select-option>
+                                                <vort-select-option value="3">P3</vort-select-option>
+                                            </vort-select>
+                                        </div>
+                                        <div class="flex justify-end gap-2 pt-1">
+                                            <vort-button size="small" @click="handleResetFilter">重置</vort-button>
+                                            <vort-button variant="primary" size="small" @click="handleApplyFilter">确定</vort-button>
+                                        </div>
+                                    </div>
+                                </template>
+                            </Dropdown>
                             <vort-button variant="primary" size="small" @click="addCasesDialogOpen = true">
                                 <Plus :size="14" class="mr-1" /> 添加用例
                             </vort-button>
@@ -928,7 +1124,7 @@ watch(planId, async () => {
 
                         <vort-table-column label="标题" :min-width="180">
                             <template #default="{ row }">
-                                <span class="text-sm text-gray-800">{{ row.title }}</span>
+                                <a class="text-sm text-blue-600 cursor-pointer hover:underline" @click="handleViewCase(row)">{{ row.title }}</a>
                             </template>
                         </vort-table-column>
 
@@ -1179,12 +1375,13 @@ watch(planId, async () => {
                                         </div>
                                     </template>
                                 </Dropdown>
-                                <vort-tooltip v-if="row.review_notes">
-                                    <MessageSquare :size="14" class="text-gray-400 cursor-help shrink-0" />
-                                    <template #title>
-                                        <div class="max-w-[360px] text-sm whitespace-pre-wrap">{{ row.review_notes }}</div>
-                                    </template>
-                                </vort-tooltip>
+                                <a
+                                    v-if="row.review_notes"
+                                    class="inline-flex items-center justify-center w-6 h-6 rounded hover:bg-gray-100 cursor-pointer text-gray-400 hover:text-blue-500 transition-colors shrink-0"
+                                    @click="handleShowReviewNotes(row)"
+                                >
+                                    <MessageSquare :size="14" />
+                                </a>
                             </div>
                         </template>
                     </vort-table-column>
@@ -1388,6 +1585,81 @@ watch(planId, async () => {
                 </div>
             </vort-spin>
         </Dialog>
+
+        <!-- Review Detail Drawer -->
+        <vort-drawer
+            v-model:open="reviewDetailDrawerOpen"
+            title="评审详情"
+            :width="580"
+        >
+            <template v-if="reviewDetailTarget">
+                <div class="space-y-5">
+                    <div class="bg-gray-50 rounded-lg p-4 space-y-2.5">
+                        <div class="flex items-center gap-2">
+                            <GitPullRequest :size="14" class="text-gray-400 shrink-0" />
+                            <a
+                                v-if="reviewDetailTarget.pr_url"
+                                :href="reviewDetailTarget.pr_url"
+                                target="_blank"
+                                class="text-sm text-blue-600 hover:underline"
+                            >
+                                #{{ reviewDetailTarget.pr_number }} {{ reviewDetailTarget.pr_title }}
+                            </a>
+                            <span v-else class="text-sm text-gray-800">
+                                #{{ reviewDetailTarget.pr_number }} {{ reviewDetailTarget.pr_title }}
+                            </span>
+                        </div>
+                        <div class="flex items-center gap-4 text-sm">
+                            <div class="flex items-center gap-1.5">
+                                <span class="text-gray-400">仓库:</span>
+                                <span class="text-gray-700">{{ reviewDetailTarget.repo_name || '-' }}</span>
+                            </div>
+                            <div class="flex items-center gap-1.5">
+                                <span class="text-gray-400">分支:</span>
+                                <span class="text-gray-500 font-mono text-xs">{{ reviewDetailTarget.head_branch }} &rarr; {{ reviewDetailTarget.base_branch }}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="flex items-center gap-2">
+                            <span class="text-sm text-gray-400">评审状态</span>
+                            <vort-tag :color="reviewStatusColors[reviewDetailTarget.review_status] || 'default'">
+                                {{ reviewStatusLabels[reviewDetailTarget.review_status] || reviewDetailTarget.review_status }}
+                            </vort-tag>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-sm text-gray-400">评审人</span>
+                            <div v-if="reviewDetailTarget.reviewer_name" class="flex items-center gap-1.5">
+                                <span
+                                    class="w-5 h-5 rounded-full text-white text-[10px] flex items-center justify-center shrink-0 overflow-hidden"
+                                    :style="{ backgroundColor: getAvatarBg(reviewDetailTarget.reviewer_name) }"
+                                >
+                                    <img
+                                        v-if="getMemberAvatarUrl(reviewDetailTarget.reviewer_name)"
+                                        :src="getMemberAvatarUrl(reviewDetailTarget.reviewer_name)"
+                                        class="w-full h-full object-cover"
+                                    >
+                                    <template v-else>{{ getAvatarLabel(reviewDetailTarget.reviewer_name) }}</template>
+                                </span>
+                                <span class="text-sm text-gray-700">{{ reviewDetailTarget.reviewer_name }}</span>
+                            </div>
+                            <span v-else class="text-sm text-gray-500">未指定</span>
+                        </div>
+                    </div>
+
+                    <div>
+                        <span class="text-sm text-gray-400">评审意见</span>
+                        <div class="mt-2 bg-gray-50 rounded-lg p-5 max-h-[calc(100vh-360px)] overflow-y-auto">
+                            <MarkdownView :content="reviewDetailTarget.review_notes" />
+                        </div>
+                    </div>
+                </div>
+            </template>
+        </vort-drawer>
+
+        <!-- Case Detail Drawer -->
+        <TestCaseDetailDrawer v-model:open="caseDetailDrawerOpen" :case-id="caseDetailId" />
 
         <!-- File Bug Drawer -->
         <vort-drawer

@@ -15,9 +15,12 @@ env/
 # IDE
 .idea/
 .vscode/
-.cursor/
 *.swp
 *.swo
+
+# .cursor 目录：规则和 skills 提交到 Gitee 供团队共享，敏感文件单独排除
+.cursor/skills/openvort-release/
+.cursor/skills/openvort-infra-memo/
 
 # Environment variables
 .env

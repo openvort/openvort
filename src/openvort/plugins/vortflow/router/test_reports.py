@@ -105,6 +105,26 @@ async def _build_report_snapshot(session, plan: FlowTestPlan) -> dict:
         for ex in all_case_execs:
             case_exec_map.setdefault(ex.plan_case_id, []).append(ex.result)
 
+    # Batch-resolve maintainer names and bug counts to avoid N+1 queries
+    maintainer_ids = {tc.maintainer_id for _, tc in plan_cases if tc.maintainer_id}
+    maintainer_map: dict[str, str] = {}
+    if maintainer_ids:
+        m_rows = (await session.execute(
+            select(Member).where(Member.id.in_(list(maintainer_ids)))
+        )).scalars().all()
+        maintainer_map = {m.id: m.name for m in m_rows}
+
+    test_case_ids_for_bugs = [tc.id for _, tc in plan_cases]
+    bug_count_map: dict[str, int] = {}
+    if test_case_ids_for_bugs:
+        bug_count_rows = (await session.execute(
+            select(FlowTestCaseWorkItem.test_case_id, func.count())
+            .where(FlowTestCaseWorkItem.test_case_id.in_(test_case_ids_for_bugs),
+                   FlowTestCaseWorkItem.entity_type == "bug")
+            .group_by(FlowTestCaseWorkItem.test_case_id)
+        )).all()
+        bug_count_map = {row[0]: row[1] for row in bug_count_rows}
+
     case_details = []
     for pc, tc in plan_cases:
         execs = case_exec_map.get(pc.id, [])
@@ -112,25 +132,17 @@ async def _build_report_snapshot(session, plan: FlowTestPlan) -> dict:
         for r in execs:
             if r in dist:
                 dist[r] += 1
-        maintainer_name = await _resolve_member_name(session, tc.maintainer_id)
-
-        # Count bugs linked to this test case
-        bug_count = (await session.execute(
-            select(func.count()).select_from(FlowTestCaseWorkItem)
-            .where(FlowTestCaseWorkItem.test_case_id == tc.id,
-                   FlowTestCaseWorkItem.entity_type == "bug")
-        )).scalar_one()
 
         case_details.append({
             "test_case_id": tc.id,
             "title": tc.title,
             "case_type": tc.case_type,
             "priority": tc.priority,
-            "maintainer_name": maintainer_name,
+            "maintainer_name": maintainer_map.get(tc.maintainer_id, "") if tc.maintainer_id else "",
             "latest_result": latest_exec_map.get(pc.id, ""),
             "execution_count": len(execs),
             "execution_distribution": dist,
-            "bug_count": bug_count,
+            "bug_count": bug_count_map.get(tc.id, 0),
         })
 
     # Execution frequency distribution

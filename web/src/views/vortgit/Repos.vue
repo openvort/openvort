@@ -10,7 +10,7 @@ import {
 } from "@/api";
 import { Plus, RefreshCw, Download, GitCommit, GitBranch, ChevronDown, ChevronRight } from "lucide-vue-next";
 import { useLocalStorage } from "@vueuse/core";
-import { message } from "@/components/vort";
+import { message } from "@openvort/vort-ui";
 
 interface RepoItem {
     id: string;

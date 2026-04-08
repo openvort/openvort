@@ -3,7 +3,7 @@ import { ref, computed, onMounted } from "vue";
 import {
     Button as VortButton, Spin as VortSpin, Input as VortInput,
     Dialog as VortDialog, message,
-} from "@/components/vort";
+} from "@openvort/vort-ui";
 import { Plus, Search, PencilRuler } from "lucide-vue-next";
 import { getSketches, createSketch, updateSketch, deleteSketch, duplicateSketch } from "@/api";
 import SketchCard from "./components/SketchCard.vue";

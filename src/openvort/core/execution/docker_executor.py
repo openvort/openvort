@@ -24,9 +24,9 @@ if TYPE_CHECKING:
 log = get_logger("core.docker_executor")
 
 BUILTIN_IMAGES: dict[str, dict] = {
-    "openvort/worker-sandbox:latest": {"context": "docker/worker-sandbox"},
-    "openvort/coding-sandbox:latest": {"context": "docker/coding-sandbox"},
-    "openvort/browser-sandbox:latest": {"context": "docker/browser-sandbox", "use_entrypoint": True},
+    "ghcr.io/openvort/worker-sandbox:latest": {"context": "docker/worker-sandbox"},
+    "ghcr.io/openvort/coding-sandbox:latest": {"context": "docker/coding-sandbox"},
+    "ghcr.io/openvort/browser-sandbox:latest": {"context": "docker/browser-sandbox", "use_entrypoint": True},
 }
 
 

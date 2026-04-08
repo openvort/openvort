@@ -47,6 +47,14 @@ export function createKBTextDocument(data: { title: string; content: string; fil
     return request.post("/knowledge/documents/text", data);
 }
 
+export function createKBGitDocument(data: { repo_id: string; branch: string; path: string; title?: string; folder_id?: string }) {
+    return request.post("/knowledge/documents/git", data);
+}
+
+export function getKBDocGitContent(docId: string, branch: string) {
+    return request.get(`/knowledge/documents/${docId}/git-content`, { params: { branch } });
+}
+
 export function getKBDocument(id: string) {
     return request.get(`/knowledge/documents/${id}`);
 }

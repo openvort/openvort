@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, reactive, onMounted, watch } from "vue";
 import { pinyin } from "pinyin-pro";
-import { message } from "@/components/vort";
-import { DownOutlined } from "@/components/vort/icons";
+import { message } from "@openvort/vort-ui";
+import { DownOutlined } from "@openvort/vort-ui";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
 import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMemberPicker.vue";
 import WorkItemPriority from "@/components/vort-biz/work-item/WorkItemPriority.vue";
@@ -18,6 +18,7 @@ import {
     uploadVortflowFile,
 } from "@/api";
 import { useWorkItemCommon } from "./useWorkItemCommon";
+import { formatFileSize } from "@/utils/format";
 import type { WorkItemType, Priority, DateRange, NewBugForm, RowItem, AttachmentItem } from "@/components/vort-biz/work-item/WorkItemTable.types";
 
 interface Props {
@@ -56,7 +57,7 @@ const {
     loadMemberOptions,
     ownerGroups,
     getWorkItemTypeIconClass,
-    getWorkItemTypeIconSymbol,
+    getWorkItemTypeIcon,
 } = useWorkItemCommon();
 
 const FALLBACK_TEMPLATES: Record<WorkItemType, string> = {
@@ -154,12 +155,6 @@ const handleAttachmentFiles = async (e: Event) => {
 
 const removeAttachment = (index: number) => {
     createBugForm.attachments.splice(index, 1);
-};
-
-const formatFileSize = (bytes: number): string => {
-    if (bytes < 1024) return bytes + " B";
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
 };
 
 const apiProjects = ref<Array<{ id: string; name: string }>>([]);
@@ -841,7 +836,7 @@ watch(() => createBugForm.repo, async (value, oldValue) => {
                     <div class="create-readonly-field">
                         <div class="create-readonly-title">
                             <span class="work-type-icon-small create-parent-icon" :class="getWorkItemTypeIconClass('任务')">
-                                {{ getWorkItemTypeIconSymbol("任务") }}
+                                <component :is="getWorkItemTypeIcon('任务')" :size="12" />
                             </span>
                             <span class="create-readonly-no">{{ taskParentRecord?.workNo || createBugForm.parentId }}</span>
                             <span class="create-readonly-main">{{ taskParentRecord?.title || "已选择父任务" }}</span>

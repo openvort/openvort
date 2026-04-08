@@ -92,9 +92,7 @@ async def _cleanup_member_references(session, member_ids: list[str]):
         # VortGit
         ("git_providers", "owner_id"),
         # Report
-        ("report_templates", "owner_id"),
-        ("report_rules", "reviewer_id"),
-        ("reports", "reviewer_id"),
+        ("report_publications", "owner_id"),
         # System
         ("voice_providers", "owner_id"),
     ]
@@ -118,6 +116,9 @@ async def _cleanup_member_references(session, member_ids: list[str]):
         ("reporting_relations", "reporter_id"),
         ("reporting_relations", "supervisor_id"),
         ("reports", "reporter_id"),
+        ("report_publication_submitters", "member_id"),
+        ("report_publication_whitelist", "member_id"),
+        ("report_publication_receivers", "member_id"),
         ("sketches", "created_by"),
     ]
 
@@ -435,7 +436,7 @@ async def get_virtual_member_stats():
         result = await db.execute(stmt)
         session_stats = {row.target_id: row for row in result.all()}
 
-        today_start = datetime.utcnow().replace(
+        today_start = datetime.now().replace(
             hour=0, minute=0, second=0, microsecond=0
         )
         today_stmt = (

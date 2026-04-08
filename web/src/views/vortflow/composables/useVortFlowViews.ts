@@ -65,7 +65,9 @@ export function useVortFlowViews(type: WorkItemType) {
                 id: v.id,
                 name: v.name,
                 scope: v.scope,
-                getFilters: () => v.filters,
+                // Custom views restore their saved toolbar/column state in WorkItemTable.
+                // They should not inject the same snapshot into request-time view filters again.
+                getFilters: () => ({}),
             }));
         return [...SYSTEM_VIEWS, ...custom];
     });

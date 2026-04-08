@@ -2,7 +2,7 @@
 import { onMounted, ref } from "vue";
 import { Plus } from "lucide-vue-next";
 import { createVoiceProvider, deleteVoiceProvider, getVoiceProviders, updateVoiceProvider } from "@/api";
-import { message } from "@/components/vort";
+import { message } from "@openvort/vort-ui";
 
 interface VoiceProviderItem {
     id: string;

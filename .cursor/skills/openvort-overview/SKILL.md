@@ -249,10 +249,11 @@ class Settings(BaseSettings):  # env_prefix="OPENVORT_"
 ## CLI 命令
 
 ```
-openvort init                      # 交互式初始化 .env
-openvort start                     # 启动服务 (--web/--no-web)
+openvort start                     # 启动服务（自动创建 DB + 下载前端）
+openvort start --dev               # 开发模式启动（跳过 IM 通道/ASR/TTS 等重量级初始化）
 openvort stop                      # 停止服务
 openvort restart                   # 重启服务（stop + start）
+openvort restart --dev             # 开发模式重启
 openvort doctor                    # 诊断系统配置和连接状态
 openvort channels list|test        # 通道管理
 openvort tools list                # 列出已注册工具
@@ -264,6 +265,15 @@ openvort pairing approve|reject|list|allowlist    # DM 配对管理
 openvort coding setup              # 配置 AI 编码环境（Docker 镜像 + CLI 工具 + API Key）
 openvort coding status             # 查看 AI 编码环境状态
 ```
+
+### --dev 开发模式
+
+`openvort start --dev` / `openvort restart --dev` 用于本地开发，与正常模式的区别：
+- 跳过 IM 通道（企微/钉钉/飞书/OpenClaw）初始化
+- 跳过 ASR/TTS/Embedding 服务初始化
+- 跳过 NotificationCenter 恢复
+- Banner 显示后端真实端口（不受 `OPENVORT_WEB_SITE_URL` 影响）
+- 前端 Vite dev server 需手动启动：`cd web && npm run dev`（:9090，代理 /api 到 :8090）
 
 ## 插件系统
 

@@ -17,35 +17,40 @@ from openvort.utils.logging import get_logger
 
 _log_app = get_logger("web.app")
 
+DEMO_READONLY_ERROR = "演示账号无操作权限"
+
+
+def _extract_payload(conn: HTTPConnection) -> dict | None:
+    """Extract and verify JWT payload from request headers or query params."""
+    auth = conn.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        token = conn.query_params.get("token", "")
+    else:
+        token = auth[7:]
+    if not token:
+        return None
+    return verify_token(token)
+
 
 def require_auth(conn: HTTPConnection) -> dict:
     """JWT 认证依赖 — 所有登录用户。WebSocket 端点自行鉴权，此处跳过。"""
     if conn.scope.get("type") == "websocket":
         return {}
 
-    auth = conn.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
-        token = conn.query_params.get("token", "")
-    else:
-        token = auth[7:]
-
-    if not token:
-        raise HTTPException(status_code=401, detail="未登录")
-
-    payload = verify_token(token)
+    payload = _extract_payload(conn)
     if not payload:
-        raise HTTPException(status_code=401, detail="Token 无效或已过期")
+        raise HTTPException(status_code=401, detail="未登录")
     return payload
 
 
 def require_admin(conn: HTTPConnection) -> dict:
-    """管理员权限依赖 — 仅 admin 角色。WebSocket 端点自行鉴权，此处跳过。"""
+    """管理员权限依赖 — admin 或 demo（只读）角色。WebSocket 端点自行鉴权，此处跳过。"""
     if conn.scope.get("type") == "websocket":
         return {}
 
     payload = require_auth(conn)
     roles = payload.get("roles", [])
-    if "admin" not in roles:
+    if "admin" not in roles and "demo" not in roles:
         raise HTTPException(status_code=403, detail="需要管理员权限")
     return payload
 
@@ -54,11 +59,11 @@ def _setup_mcp(app: FastAPI) -> None:
     """Mount MCP Server as ASGI sub-app at /mcp for Cursor/Claude Desktop integration."""
     try:
         from openvort.web.deps import get_registry as _get_reg
-        from openvort.web.mcp_server import create_mcp_server
+        from openvort.web.mcp_server import create_mcp_server, McpAuthMiddleware
 
         registry = _get_reg()
         mcp = create_mcp_server(registry)
-        mcp_asgi = mcp.streamable_http_app()
+        mcp_asgi = McpAuthMiddleware(mcp.streamable_http_app())
 
         @asynccontextmanager
         async def _mcp_lifespan_ctx(a):
@@ -122,6 +127,72 @@ def create_app() -> FastAPI:
             return response
 
     app.add_middleware(NoCacheAPIMiddleware)
+
+    _DEMO_WRITE_WHITELIST = {"/api/auth/login"}
+
+    class DemoReadonlyMiddleware(BaseHTTPMiddleware):
+        """Block non-GET API requests for demo users."""
+
+        async def dispatch(self, request: Request, call_next):
+            if (
+                request.method not in ("GET", "HEAD", "OPTIONS")
+                and request.url.path.startswith("/api/")
+                and request.url.path not in _DEMO_WRITE_WHITELIST
+            ):
+                payload = _extract_payload(request)
+                if payload and "demo" in payload.get("roles", []):
+                    from starlette.responses import JSONResponse
+                    return JSONResponse(
+                        status_code=403,
+                        content={"detail": DEMO_READONLY_ERROR},
+                    )
+            return await call_next(request)
+
+    app.add_middleware(DemoReadonlyMiddleware)
+
+    _member_exists_cache: dict[str, float] = {}
+    _MEMBER_CACHE_TTL = 300  # 5 min
+
+    _AUTH_SKIP_PREFIXES = ("/api/auth/", "/api/health", "/api/webhooks/")
+
+    class MemberVerifyMiddleware(BaseHTTPMiddleware):
+        """Reject requests whose JWT member_id no longer exists in DB (e.g. after DB switch)."""
+
+        async def dispatch(self, request: Request, call_next):
+            path = request.url.path
+            if not path.startswith("/api/") or any(path.startswith(p) for p in _AUTH_SKIP_PREFIXES):
+                return await call_next(request)
+
+            payload = _extract_payload(request)
+            if not payload:
+                return await call_next(request)
+
+            member_id = payload.get("sub", "")
+            if not member_id:
+                return await call_next(request)
+
+            import time as _t
+            now = _t.time()
+            if member_id in _member_exists_cache and now - _member_exists_cache[member_id] < _MEMBER_CACHE_TTL:
+                return await call_next(request)
+
+            try:
+                from openvort.contacts.models import Member
+                from openvort.web.deps import get_db_session_factory
+                sf = get_db_session_factory()
+                async with sf() as session:
+                    m = await session.get(Member, member_id)
+                    if not m or m.status != "active":
+                        _member_exists_cache.pop(member_id, None)
+                        from starlette.responses import JSONResponse
+                        return JSONResponse(status_code=401, content={"detail": "账号不存在或已停用，请重新登录"})
+                _member_exists_cache[member_id] = now
+            except Exception:
+                pass
+
+            return await call_next(request)
+
+    app.add_middleware(MemberVerifyMiddleware)
 
     # 注册路由
     from openvort.web.routers import (
@@ -344,7 +415,11 @@ def create_app() -> FastAPI:
         static_dir = Path("/app/web/dist")
     else:
         static_dir = Path(__file__).parent.parent.parent.parent / "web" / "dist"
-    if static_dir.exists():
+    if not (static_dir / "index.html").exists():
+        _frontend_fallback = _get_settings().data_dir / "frontend"
+        if (_frontend_fallback / "index.html").exists():
+            static_dir = _frontend_fallback
+    if static_dir.exists() and (static_dir / "index.html").exists():
         from fastapi.responses import FileResponse
 
         # 静态资源（js/css/svg 等）

@@ -1,6 +1,6 @@
 import { ref } from "vue";
 import { getJenkinsInstances, createJenkinsInstance, updateJenkinsInstance, deleteJenkinsInstance, verifyJenkinsInstance, getJenkinsInstanceCredential, saveJenkinsInstanceCredential, deleteJenkinsInstanceCredential } from "@/api/jenkins";
-import { message } from "@/components/vort";
+import { message } from "@openvort/vort-ui";
 import type { JenkinsInstance } from "../types";
 
 export function useJenkinsInstances() {

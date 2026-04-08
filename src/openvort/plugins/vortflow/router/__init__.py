@@ -20,6 +20,8 @@ from .test_reports import sub_router as test_reports_router
 from .notify import sub_router as notify_router
 from .description_templates import sub_router as description_templates_router
 from .convert import sub_router as convert_router
+from .document_links import sub_router as document_links_router
+from .reminder import sub_router as reminder_router
 
 router = APIRouter(prefix="/api/vortflow", tags=["vortflow"])
 
@@ -41,3 +43,5 @@ router.include_router(test_reports_router)
 router.include_router(notify_router)
 router.include_router(description_templates_router)
 router.include_router(convert_router)
+router.include_router(document_links_router)
+router.include_router(reminder_router)

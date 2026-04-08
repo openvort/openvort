@@ -131,6 +131,14 @@ class BaseChannel(ABC):
         """
         return ""
 
+    def get_setup_permissions(self) -> dict | None:
+        """返回平台推荐的权限配置 JSON
+
+        用于前端展示可直接导入到平台的权限 JSON，方便用户批量开通权限。
+        返回 None 表示该通道不提供此功能。
+        """
+        return None
+
     def get_current_config(self) -> dict:
         """返回当前配置值（secret 字段脱敏显示）"""
         return {}

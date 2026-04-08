@@ -1,4 +1,4 @@
-import type { FloatingPlacement } from "@/components/vort";
+import type { PopoverPlacement } from "@openvort/vort-ui";
 
 /**
  * PopForm 输入类型
@@ -43,7 +43,7 @@ export interface PopFormProps {
 
     // ========== Popconfirm 属性 ==========
     /** 气泡框位置，默认 top */
-    placement?: FloatingPlacement;
+    placement?: PopoverPlacement;
     /** 确认按钮文字，默认 "确定" */
     okText?: string;
     /** 取消按钮文字，默认 "取消" */

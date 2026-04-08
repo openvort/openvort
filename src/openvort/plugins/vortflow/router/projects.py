@@ -123,13 +123,14 @@ async def update_project(project_id: str, body: ProjectUpdate):
         for field in ["name", "code", "color", "description", "product", "iteration", "version"]:
             val = getattr(body, field)
             if val is not None:
-                changes[field] = val
+                old_val = getattr(p, field)
+                changes[field] = {"from": old_val, "to": val}
                 setattr(p, field, val)
         if body.owner_id is not None:
             old_owner_id = p.owner_id
             new_owner_id = body.owner_id or None
             p.owner_id = new_owner_id
-            changes["owner_id"] = body.owner_id
+            changes["owner_id"] = {"from": old_owner_id, "to": body.owner_id}
 
             if old_owner_id and old_owner_id != new_owner_id:
                 await session.execute(
@@ -154,11 +155,13 @@ async def update_project(project_id: str, body: ProjectUpdate):
                         project_id=project_id, member_id=new_owner_id, role="owner"))
 
         if body.start_date is not None:
+            old_val = str(p.start_date) if p.start_date else None
             p.start_date = _parse_dt(body.start_date)
-            changes["start_date"] = body.start_date
+            changes["start_date"] = {"from": old_val, "to": body.start_date}
         if body.end_date is not None:
+            old_val = str(p.end_date) if p.end_date else None
             p.end_date = _parse_dt(body.end_date)
-            changes["end_date"] = body.end_date
+            changes["end_date"] = {"from": old_val, "to": body.end_date}
         if changes:
             await _log_event(session, "project", project_id, "updated", changes)
         await session.commit()

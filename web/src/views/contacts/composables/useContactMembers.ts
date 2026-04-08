@@ -6,7 +6,7 @@ import {
     syncContacts, getSuggestions, acceptSuggestion, rejectSuggestion,
     dedupContacts, getChannels,
 } from "@/api";
-import { message, dialog } from "@/components/vort";
+import { message, dialog } from "@openvort/vort-ui";
 import type { MemberItem, MemberDetail, Suggestion, ChannelItem } from "../types";
 
 export interface UseContactMembersOptions {
@@ -88,10 +88,17 @@ export function useContactMembers(options: UseContactMembersOptions) {
         try {
             const res: any = await syncContacts(channel);
             if (res?.success && res.results?.length) {
-                const details = res.results.map((r: any) =>
-                    `${r.platform}: 新建 ${r.created || 0}, 更新 ${r.updated || 0}, 关联 ${r.matched || 0}, 待确认 ${r.pending || 0}`
-                ).join("；");
-                message.success(`同步完成 — ${details}`);
+                const allErrors: string[] = [];
+                const details = res.results.map((r: any) => {
+                    if (r.errors?.length) allErrors.push(...r.errors);
+                    return `${r.platform}: 新建 ${r.created || 0}, 更新 ${r.updated || 0}, 关联 ${r.matched || 0}, 待确认 ${r.pending || 0}`;
+                }).join("；");
+                if (allErrors.length) {
+                    const uniqueErrors = [...new Set(allErrors)];
+                    message.warning(`同步部分失败 — ${uniqueErrors[0]}`);
+                } else {
+                    message.success(`同步完成 — ${details}`);
+                }
             } else if (res?.success) {
                 message.success("同步完成，无可用通道");
             } else {

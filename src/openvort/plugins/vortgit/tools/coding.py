@@ -19,15 +19,10 @@ log = get_logger("plugins.vortgit.tools.coding")
 def _create_provider(provider):
     """Create a provider client from DB record."""
     from openvort.plugins.vortgit.crypto import decrypt_token
+    from openvort.plugins.vortgit.providers import create_provider
 
     token = decrypt_token(provider.access_token) if provider.access_token else ""
-    if provider.platform == "gitee":
-        from openvort.plugins.vortgit.providers.gitee import GiteeProvider
-        return GiteeProvider(access_token=token, api_base=provider.api_base)
-    if provider.platform == "github":
-        from openvort.plugins.vortgit.providers.github import GitHubProvider
-        return GitHubProvider(access_token=token, api_base=provider.api_base)
-    raise ValueError(f"Unsupported platform: {provider.platform}")
+    return create_provider(provider.platform, access_token=token, api_base=provider.api_base)
 
 
 async def _get_repo_and_provider(repo_id: str):

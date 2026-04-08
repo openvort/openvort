@@ -220,15 +220,9 @@ class ManageProviderTool(BaseTool):
             p_id = provider.id
 
         try:
-            if platform == "gitee":
-                from openvort.plugins.vortgit.providers.gitee import GiteeProvider
-                client = GiteeProvider(access_token=token)
-            else:
-                return json.dumps(
-                    {"ok": False, "message": f"暂不支持验证 {platform} 平台，但平台已保存。"},
-                    ensure_ascii=False,
-                )
+            from openvort.plugins.vortgit.providers import create_provider
 
+            client = create_provider(platform, access_token=token)
             try:
                 repos = await client.list_repos(page=1, per_page=1)
                 return json.dumps(
@@ -251,6 +245,11 @@ class ManageProviderTool(BaseTool):
                 )
             finally:
                 await client.close()
+        except ValueError as e:
+            return json.dumps(
+                {"ok": False, "message": f"暂不支持验证 {platform} 平台：{e}"},
+                ensure_ascii=False,
+            )
         except Exception as e:
             return json.dumps({"ok": False, "message": f"验证出错：{e}"})
 

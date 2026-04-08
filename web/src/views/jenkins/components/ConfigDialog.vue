@@ -95,7 +95,7 @@
 <script setup lang="ts">
 import { computed, watch } from "vue";
 import { Loader2, Bot, History } from "lucide-vue-next";
-import { Dialog } from "@/components/vort";
+import { Dialog } from "@openvort/vort-ui";
 import { useInlineAi } from "../composables/useInlineAi";
 import type { JenkinsConfigSummary } from "../types";
 

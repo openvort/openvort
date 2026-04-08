@@ -2,7 +2,7 @@ import { ref, type Ref, type ComputedRef } from "vue";
 import type { ChatMessage, ChatSession, PendingImage, PendingFile, Contact, Draft, ToolCall } from "../types";
 import { sendChatMessage, getChatStreamUrl, createChatSession, abortChatMessage } from "@/api";
 import { useUserStore } from "@/stores";
-import { message } from "@/components/vort";
+import { message } from "@openvort/vort-ui";
 import { marked } from "marked";
 
 export interface ActiveStream {

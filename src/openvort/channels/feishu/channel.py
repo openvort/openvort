@@ -330,13 +330,34 @@ class FeishuChannel(BaseChannel):
     def get_setup_guide(self) -> str:
         return (
             "### 飞书配置指南\n\n"
-            "1. 登录 [飞书开放平台](https://open.feishu.cn/app)\n"
-            "2. 创建「企业自建应用」，开通机器人能力\n"
+            "1. 登录 [飞书开放平台](https://open.feishu.cn/app)，创建「企业自建应用」\n"
+            "2. 点击「添加应用能力」，添加 **机器人** 能力\n"
             "3. 在「凭证与基础信息」中获取 **App ID** 和 **App Secret**\n"
-            "4. 主模式推荐使用长连接模式，无需公网地址\n"
-            "5. 如需公网回调，在「事件订阅」中配置请求地址，获取 **Verification Token** 和 **Encrypt Key**\n"
-            "6. 订阅 `im.message.receive_v1`，并开通群聊 @ 机器人、消息资源下载、通讯录等权限\n"
+            "4. 在「权限管理」中通过「批量导入」开通所需权限（见下方 JSON）\n"
+            "5. 订阅事件 `im.message.receive_v1`\n"
+            "6. **发布应用**（每次修改权限/能力后都需要重新发布）\n\n"
+            "[查看详细配置文档 →](https://openvort.com/docs/guide/channels-feishu)\n"
         )
+
+    def get_setup_permissions(self) -> dict | None:
+        return {
+            "scopes": {
+                "tenant": [
+                    "im:message",
+                    "im:message:send_as_bot",
+                    "im:message.p2p_msg:readonly",
+                    "im:message.group_at_msg:readonly",
+                    "im:resource",
+                    "cardkit:card:write",
+                    "contact:contact.base:readonly",
+                    "contact:user.base:readonly",
+                    "contact:user.employee_id:readonly",
+                    "contact:user.email:readonly",
+                    "contact:user.phone:readonly",
+                    "contact:department.base:readonly",
+                ],
+            },
+        }
 
     def get_current_config(self) -> dict:
         def _mask(value: str) -> str:
@@ -358,7 +379,10 @@ class FeishuChannel(BaseChannel):
     def apply_config(self, config: dict) -> None:
         for key in ("app_id", "app_secret", "verification_token", "encrypt_key", "api_base"):
             if key in config:
-                setattr(self._settings, key, config[key])
+                value = config[key]
+                if isinstance(value, str):
+                    value = value.strip()
+                setattr(self._settings, key, value)
         self._api = None
 
     async def test_connection(self) -> dict:

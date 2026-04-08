@@ -3,7 +3,8 @@ import vue from "@vitejs/plugin-vue";
 import tailwindcss from "@tailwindcss/vite";
 import Components from "unplugin-vue-components/vite";
 import svgLoader from "vite-svg-loader";
-import { VortResolver } from "./src/components/vort/resolver";
+import { VortResolver } from "@openvort/vort-ui/resolver";
+import { VortBizResolver } from "./src/components/vort-biz/resolver";
 
 export default defineConfig({
     plugins: [
@@ -11,7 +12,7 @@ export default defineConfig({
         tailwindcss(),
         Components({
             dirs: [],
-            resolvers: [VortResolver()],
+            resolvers: [VortBizResolver(), VortResolver()],
             dts: "src/components.d.ts"
         }),
         svgLoader()

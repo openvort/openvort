@@ -1,5 +1,5 @@
 import { computed, nextTick, ref, watch } from "vue";
-import { message } from "@/components/vort";
+import { message } from "@openvort/vort-ui";
 import { useVortFlowStore } from "@/stores";
 import { SYSTEM_VIEWS } from "./useVortFlowViews";
 import type { ColumnFilterValue } from "@/components/vort-biz/pro-table/ColumnFilterPopover.vue";
@@ -168,7 +168,7 @@ export function useWorkItemViewState(options: UseWorkItemViewStateOptions) {
         resetViewBaseline();
     };
 
-    watch(currentViewId, () => {
+    const applyViewState = () => {
         keyword.value = "";
         owner.value = [];
         status.value = [];
@@ -200,7 +200,9 @@ export function useWorkItemViewState(options: UseWorkItemViewStateOptions) {
             );
         }
         nextTick(() => resetViewBaseline());
-    });
+    };
+
+    watch(currentViewId, applyViewState);
 
     return {
         viewBaseline,
@@ -217,5 +219,6 @@ export function useWorkItemViewState(options: UseWorkItemViewStateOptions) {
         handleUpdateCurrentView,
         handleSaveAsNew,
         handleSaveAsNewView,
+        applyViewState,
     };
 }

@@ -6,7 +6,9 @@
 [![Vue 3](https://img.shields.io/badge/Vue-3.5-brightgreen.svg)](https://vuejs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115%2B-009688.svg)](https://fastapi.tiangolo.com/)
 
-[官网](https://openvort.com) | [文档](https://openvort.com/docs) | [扩展市场](https://openvort.com/extensions) | [社区](https://openvort.com/community)
+[官网](https://openvort.com) | [在线演示](http://demo.openvort.com/login?isDemo=1) | [文档](https://openvort.com/docs) | [扩展市场](https://openvort.com/extensions) | [社区](https://openvort.com/community)
+
+> **[>>> 在线 Demo 演示 <<<](http://demo.openvort.com/login?isDemo=1)** — 无需安装，立即体验
 
 开源 AI 员工平台 — 创建 AI 员工，让他们与真人一起在企业微信、钉钉、飞书里协作，就像多招了几个同事。
 
@@ -47,63 +49,105 @@
 
 ## 快速开始
 
-### 本地开发
+### Docker 部署（推荐，只需安装 Docker）
 
 ```bash
-# 克隆仓库
-git clone https://github.com/openvort/openvort.git
-cd openvort
-
-# 启动开发用 PostgreSQL（需要 Docker）
-docker compose -f docker-compose.dev.yml up -d
-
-# 安装后端（editable 模式）
-pip install -e ".[dev]"
-
-# 复制并编辑环境变量
-cp .env.example .env
-# 修改数据库连接为本地：
-#   OPENVORT_DATABASE_URL=postgresql+asyncpg://openvort:openvort@localhost:5432/openvort
-# 至少配置 OPENVORT_LLM_API_KEY
-
-# 启动服务（后端 API + Web 面板）
-openvort start
-```
-
-首次启动自动创建管理员账号（admin / admin），登录后强制修改密码。
-
-### Docker 部署
-
-```bash
-# 复制并编辑环境变量
-cp .env.example .env
-
-# 一键启动（含 PostgreSQL）
+curl -fsSL https://raw.githubusercontent.com/openvort/openvort/master/docker-compose.yml -o docker-compose.yml
 docker compose up -d
 ```
 
-默认映射端口 `10899`，访问 `http://localhost:10899` 进入 Web 管理面板。
+访问 **http://localhost:10899**，使用 `admin` / `admin` 登录。
 
-### 前端单独开发
+> 没有 Docker？[macOS](https://docs.docker.com/desktop/setup/install/mac-install/) / [Windows](https://docs.docker.com/desktop/setup/install/windows-install/) / Linux: `curl -fsSL https://get.docker.com | sudo sh`
+
+### pip 安装
+
+需要 Python 3.11+ 和 Docker。
+
+```bash
+pip install openvort
+openvort start
+```
+
+首次启动自动创建数据库容器、下载前端、初始化管理员账号。访问 **http://localhost:8090** 登录。
+
+<details>
+<summary>安装 Python 3.11+</summary>
+
+**macOS**：`brew install python@3.11`
+
+**Ubuntu / Debian**：`sudo apt update && sudo apt install -y python3.11 python3.11-venv python3-pip`
+
+**Windows**：[下载安装](https://www.python.org/downloads/)（勾选 "Add to PATH"）
+
+</details>
+
+### 从源码构建 Docker 镜像
+
+国内网络环境可使用 `MIRROR=cn` 参数，自动切换 apt / Node.js / pip 为国内镜像源：
+
+```bash
+docker build --build-arg MIRROR=cn -t openvort .
+```
+
+### 从源码运行
+
+```bash
+git clone https://github.com/openvort/openvort.git
+cd openvort
+pip install -e ".[dev]"
+openvort start
+```
+
+开发模式（推荐开发者使用）：
+
+```bash
+openvort start --dev   # 跳过 IM 通道/ASR/TTS 等重量级初始化，启动更快
+```
+
+前端 HMR 开发（在另一个终端）：
 
 ```bash
 cd web
 npm install
-npm run dev   # Vite dev server，默认 http://localhost:9090，/api 代理到 8090
+npm run dev   # Vite dev server on :9090，/api 代理到后端 :8090
+```
+
+### 启动后
+
+首次登录使用 `admin` / `admin`，登录后会要求修改密码。
+
+AI 功能需要在 **AI 配置** 页面设置 LLM API Key（支持 Anthropic Claude / OpenAI 兼容协议），其他功能开箱即用。
+
+### 故障排查
+
+```bash
+openvort doctor                 # 诊断系统配置和连接状态（pip 安装）
+docker compose logs             # 查看所有容器日志（Docker 部署）
+docker logs openvort-postgres   # 查看数据库容器日志（pip 安装）
 ```
 
 ## 环境变量
 
+所有配置均为可选。不创建 `.env` 文件也能正常启动（数据库自动创建，AI 功能通过 Web 面板配置）。
+
+高级用户可通过环境变量或 `.env` 文件自定义配置：
+
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `OPENVORT_LLM_API_KEY` | LLM API Key（必填） | — |
-| `OPENVORT_LLM_PROVIDER` | 提供商（anthropic / openai_compatible） | `anthropic` |
-| `OPENVORT_LLM_API_BASE` | API 地址 | `https://api.anthropic.com` |
-| `OPENVORT_LLM_MODEL` | 模型名称 | `claude-sonnet-4-20250514` |
-| `OPENVORT_DATABASE_URL` | 数据库连接（asyncpg 格式） | `postgresql+asyncpg://openvort:openvort@postgres:5432/openvort` |
+| `OPENVORT_DATABASE_URL` | 数据库连接（asyncpg 格式） | `postgresql+asyncpg://openvort:openvort@localhost:5432/openvort` |
 | `OPENVORT_LOG_LEVEL` | 日志级别 | `INFO` |
 | `OPENVORT_WEB_PORT` | Web 面板端口 | `8090` |
 | `OPENVORT_WEB_DEFAULT_PASSWORD` | 管理员初始密码（仅首次启动，登录后强制修改） | `admin` |
+
+LLM 配置推荐通过 Web 面板的 **AI 配置** 页面管理（保存在数据库中），也可通过环境变量设置：
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `OPENVORT_LLM_API_KEY` | LLM API Key | — |
+| `OPENVORT_LLM_PROVIDER` | 提供商（anthropic / openai_compatible） | `anthropic` |
+| `OPENVORT_LLM_API_BASE` | API 地址 | `https://api.anthropic.com` |
+| `OPENVORT_LLM_MODEL` | 模型名称 | `claude-sonnet-4-20250514` |
 
 完整配置参考 [`.env.example`](.env.example)。
 
@@ -121,7 +165,7 @@ npm run dev   # Vite dev server，默认 http://localhost:9090，/api 代理到 
 
 ```
 src/openvort/
-├── cli/            # CLI 入口（init / start / stop / restart / doctor / marketplace / coding 等子命令）
+├── cli/            # CLI 入口（start / stop / restart / doctor / marketplace / coding 等子命令）
 ├── core/           # 引擎核心
 │   ├── engine/     #   Agent Runtime / LLM Client / Session / Router
 │   ├── messaging/  #   Dispatcher / Commands / Pairing / Group / Inbox
@@ -182,14 +226,16 @@ openvort marketplace uninstall slug      # 卸载
 ## 开发命令
 
 ```bash
-# 启动开发数据库（首次）
-docker compose -f docker-compose.dev.yml up -d
-
 make install   # pip install -e ".[dev]"
 make dev       # openvort start
 make test      # pytest -v
 make lint      # ruff check
 make format    # ruff format
+
+# 开发模式
+openvort start --dev       # 轻量启动（跳过 IM/ASR/TTS），后端 :8090
+openvort restart --dev     # 轻量重启
+cd web && npm run dev      # 前端 HMR :9090，/api 代理到 :8090
 ```
 
 ## 文档

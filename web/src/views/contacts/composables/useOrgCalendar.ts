@@ -3,7 +3,7 @@ import {
     getOrgCalendar, createOrgCalendarEntry, deleteOrgCalendarEntry,
     syncHolidays, getWorkSettings, updateWorkSettings,
 } from "@/api";
-import { message } from "@/components/vort";
+import { message } from "@openvort/vort-ui";
 import type { CalendarEntry, WorkSettingsData } from "../types";
 
 export function useOrgCalendar() {

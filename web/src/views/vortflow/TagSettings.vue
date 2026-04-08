@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from "vue";
 import { GripVertical, Pencil, ArrowRightLeft, Trash2, Plus } from "lucide-vue-next";
 import { getVortflowTags, deleteVortflowTag, reorderVortflowTags } from "@/api";
-import { message } from "@/components/vort/message";
+import { message } from "@openvort/vort-ui";
 import TagEditDialog from "./components/TagEditDialog.vue";
 import TagMigrateDialog from "./components/TagMigrateDialog.vue";
 

@@ -2,7 +2,7 @@
 import { ref, watch } from "vue";
 import { z } from "zod";
 import { Info } from "lucide-vue-next";
-import { DownOutlined } from "@/components/vort/icons";
+import { DownOutlined } from "@openvort/vort-ui";
 import { useVortFlowStore } from "@/stores";
 import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMemberPicker.vue";
 import { useWorkItemCommon } from "../work-item/useWorkItemCommon";
@@ -95,6 +95,7 @@ const handleOwnerSelect = (name: string) => {
 };
 
 const handleSave = async (andContinue = false) => {
+    if (formLoading.value) return;
     try { await formRef.value?.validate(); } catch { return; }
     const r = formData.value;
     const estimateHours = typeof r.estimate_hours === "number" ? r.estimate_hours : undefined;
@@ -229,9 +230,9 @@ const handleSave = async (andContinue = false) => {
 
         <template #footer>
             <div class="flex justify-end gap-3">
-                <vort-button @click="emit('update:open', false)">取消</vort-button>
-                <vort-button v-if="mode === 'add'" @click="handleSave(true)">新建并继续</vort-button>
-                <vort-button variant="primary" :loading="formLoading" @click="handleSave()">确定</vort-button>
+                <vort-button :disabled="formLoading" @click="emit('update:open', false)">取消</vort-button>
+                <vort-button v-if="mode === 'add'" :disabled="formLoading" @click="handleSave(true)">新建并继续</vort-button>
+                <vort-button variant="primary" :loading="formLoading" :disabled="formLoading" @click="handleSave()">确定</vort-button>
             </div>
         </template>
     </vort-dialog>

@@ -1,7 +1,10 @@
-"""Service commands: init, start, stop, restart."""
+"""Service commands: start, stop, restart."""
 
 import os
+import shutil
+import socket
 from pathlib import Path
+from urllib.parse import urlparse
 
 import click
 
@@ -15,61 +18,174 @@ from openvort.cli import (
     _run_async,
 )
 
+DOCKER_PG_CONTAINER = "openvort-postgres"
+DOCKER_PG_IMAGE = "pgvector/pgvector:pg17"
+DOCKER_PG_VOLUME = "openvort-pgdata"
 
-@click.command()
-def init_cmd():
-    """初始化配置（交互式）"""
-    env_file = Path(".env")
-    if env_file.exists():
-        if not click.confirm(".env 文件已存在，是否覆盖？", default=False):
-            click.echo("已取消")
+
+def _port_is_open(host: str, port: int) -> bool:
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(2)
+            return s.connect_ex((host, port)) == 0
+    except OSError:
+        return False
+
+
+async def _ensure_postgres(database_url: str, log) -> None:
+    """Ensure PostgreSQL is reachable. Auto-start a Docker container when
+    the URL points to localhost and the server is not running."""
+    import asyncio
+
+    parsed = urlparse(database_url.replace("postgresql+asyncpg://", "postgresql://"))
+    host = parsed.hostname or "localhost"
+    port = parsed.port or 5432
+
+    if host not in ("localhost", "127.0.0.1"):
+        return
+
+    if _port_is_open(host, port):
+        return
+
+    if not shutil.which("docker"):
+        log.error(
+            "PostgreSQL 不可用且未安装 Docker。\n"
+            "  请安装 Docker: https://docs.docker.com/get-docker/\n"
+            "  或通过 OPENVORT_DATABASE_URL 环境变量指定已有数据库。"
+        )
+        raise SystemExit(1)
+
+    proc = await asyncio.create_subprocess_exec(
+        "docker", "inspect", "--format", "{{.State.Status}}", DOCKER_PG_CONTAINER,
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+    )
+    stdout, _ = await proc.communicate()
+    container_status = stdout.decode().strip() if proc.returncode == 0 else ""
+
+    if container_status == "running":
+        return
+    elif container_status:
+        log.info(f"启动已有的 PostgreSQL 容器 ({DOCKER_PG_CONTAINER})...")
+        p = await asyncio.create_subprocess_exec(
+            "docker", "start", DOCKER_PG_CONTAINER,
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await p.communicate()
+        if p.returncode != 0:
+            log.error(f"启动 PostgreSQL 容器失败: {stderr.decode().strip()}")
+            raise SystemExit(1)
+    else:
+        if _port_is_open(host, port):
+            log.error(f"端口 {port} 已被占用但不是 PostgreSQL。请释放端口或配置其他数据库。")
+            raise SystemExit(1)
+        log.info(f"首次启动，正在创建 PostgreSQL 容器 ({DOCKER_PG_IMAGE})...")
+        p = await asyncio.create_subprocess_exec(
+            "docker", "run", "-d",
+            "--name", DOCKER_PG_CONTAINER,
+            "-e", "POSTGRES_USER=openvort",
+            "-e", "POSTGRES_PASSWORD=openvort",
+            "-e", "POSTGRES_DB=openvort",
+            "-p", f"{port}:5432",
+            "-v", f"{DOCKER_PG_VOLUME}:/var/lib/postgresql/data",
+            "--restart", "unless-stopped",
+            DOCKER_PG_IMAGE,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await p.communicate()
+        if p.returncode != 0:
+            log.error(f"创建 PostgreSQL 容器失败: {stderr.decode().strip()}")
+            raise SystemExit(1)
+        log.info("PostgreSQL 容器已创建")
+
+    log.info("等待 PostgreSQL 就绪...")
+    for _ in range(30):
+        if _port_is_open(host, port):
+            log.info("PostgreSQL 已就绪")
+            return
+        await asyncio.sleep(1)
+
+    log.error("PostgreSQL 启动超时（30s），请检查 Docker 容器状态: docker logs openvort-postgres")
+    raise SystemExit(1)
+
+
+async def _ensure_frontend(log) -> None:
+    """Ensure frontend static files exist. Download from GitHub Release if missing."""
+    from openvort.config.settings import get_settings
+
+    settings = get_settings()
+
+    candidates = [Path("/app/web/dist")]
+    project_root = Path(__file__).resolve().parent.parent.parent.parent
+    candidates.append(project_root / "web" / "dist")
+    candidates.append(settings.data_dir / "frontend")
+
+    static_override = os.environ.get("OPENVORT_STATIC_DIR")
+    if static_override:
+        candidates.insert(0, Path(static_override))
+
+    for loc in candidates:
+        if (loc / "index.html").exists():
             return
 
-    click.echo("🚀 OpenVort 初始化向导\n")
+    target = settings.data_dir / "frontend"
+    target.mkdir(parents=True, exist_ok=True)
 
-    # LLM 配置
-    click.echo("── LLM 配置 ──")
-    provider = click.prompt("LLM 提供商", default="anthropic")
-    api_key = click.prompt("API Key", hide_input=True)
-    api_base = click.prompt("API Base URL", default="https://api.anthropic.com")
-    model = click.prompt("模型", default="claude-sonnet-4-20250514")
+    log.info("前端文件不存在，正在从 GitHub Release 下载...")
+    try:
+        from openvort.core.services.updater import UpdateService
+        updater = UpdateService()
+        release = await updater._find_release(__version__)
+        if not release:
+            log.warning(f"未找到 v{__version__} 的 Release，跳过前端下载。可手动构建: cd web && npm install && npm run build")
+            return
 
-    # 企微配置（可选）
-    click.echo("\n── 企业微信配置（可选，回车跳过）──")
-    corp_id = click.prompt("Corp ID", default="", show_default=False)
-    app_secret = click.prompt("App Secret", default="", show_default=False, hide_input=bool(corp_id))
-    agent_id = click.prompt("Agent ID", default="", show_default=False)
+        frontend_asset = None
+        for asset in release.get("assets", []):
+            name = asset["name"]
+            if "frontend" in name and name.endswith(".tar.gz"):
+                frontend_asset = asset
+                break
 
-    # 写入 .env
-    lines = [
-        "# OpenVort 配置",
-        f"OPENVORT_LLM_PROVIDER={provider}",
-        f"OPENVORT_LLM_API_KEY={api_key}",
-        f"OPENVORT_LLM_API_BASE={api_base}",
-        f"OPENVORT_LLM_MODEL={model}",
-        "",
-        "# 数据库 (本地开发连接 Docker Compose 中的 PostgreSQL)",
-        "OPENVORT_DATABASE_URL=postgresql+asyncpg://openvort:openvort@localhost:5432/openvort",
-        "",
-    ]
+        if not frontend_asset:
+            log.warning("Release 中未找到前端包，跳过。可手动构建: cd web && npm install && npm run build")
+            return
 
-    if corp_id:
-        lines.extend([
-            "# 企业微信",
-            f"OPENVORT_WECOM_CORP_ID={corp_id}",
-            f"OPENVORT_WECOM_APP_SECRET={app_secret}",
-            f"OPENVORT_WECOM_AGENT_ID={agent_id}",
-        ])
+        import tarfile
+        import tempfile
 
-    env_file.write_text("\n".join(lines) + "\n")
-    click.echo(f"\n✅ 配置已写入 {env_file}")
-    click.echo("运行 `openvort start` 启动服务")
+        tmp_path = Path(tempfile.mktemp(suffix=".tar.gz"))
+        try:
+            log.info(f"下载: {frontend_asset['name']}...")
+            await updater._download_asset(frontend_asset["browser_download_url"], tmp_path)
+
+            with tarfile.open(tmp_path, "r:gz") as tar:
+                members = tar.getmembers()
+                prefix = ""
+                if members and "/" in members[0].name:
+                    prefix = members[0].name.split("/")[0] + "/"
+                target_resolved = target.resolve()
+                for member in members:
+                    if member.name.startswith(prefix):
+                        member.name = member.name[len(prefix):]
+                    if not member.name:
+                        continue
+                    dest = (target / member.name).resolve()
+                    if not str(dest).startswith(str(target_resolved)):
+                        continue
+                    tar.extract(member, target)
+            log.info(f"前端已下载到: {target}")
+        finally:
+            tmp_path.unlink(missing_ok=True)
+    except Exception as e:
+        log.warning(f"前端自动下载失败: {e}")
+        log.warning("可手动构建前端: cd web && npm install && npm run build")
 
 
 @click.command()
-def start_cmd():
+@click.option("--dev", "-d", is_flag=True, help="开发模式：跳过 IM 通道/ASR/TTS 等重量级初始化，加快启动速度")
+def start_cmd(dev: bool):
     """启动 OpenVort 服务"""
-    _run_async(_start_service())
+    _run_async(_start_service(dev=dev))
 
 
 async def _cleanup_duplicate_admins(session_factory):
@@ -91,7 +207,7 @@ async def _cleanup_duplicate_admins(session_factory):
         get_logger("cli").info(f"已清理 {len(delete_ids)} 条重复 admin 记录")
 
 
-async def _start_service():
+async def _start_service(*, dev: bool = False):
     """启动服务的异步实现"""
     from openvort.auth.service import AuthService
     from openvort.config.settings import get_settings
@@ -111,11 +227,14 @@ async def _start_service():
     from openvort.utils.logging import get_logger
     log = get_logger("cli")
 
-    log.info(f"OpenVort v{__version__} 启动中...")
+    log.info(f"OpenVort v{__version__} 启动中..." + (" [DEV]" if dev else ""))
 
     # 单例保护：杀掉旧进程，写入当前 PID
     _check_and_kill_existing()
     log.info(f"PID={os.getpid()}, PID 文件: {PID_FILE}")
+
+    # 自动确保 PostgreSQL 可用（localhost 场景下自动拉起 Docker 容器）
+    await _ensure_postgres(settings.database_url, log)
 
     # 初始化数据库
     await init_db(settings.database_url)
@@ -172,13 +291,14 @@ async def _start_service():
         log.warning(f"TaskRunner 初始化失败: {e}")
 
     # Initialize NotificationCenter for delayed IM delivery
-    try:
-        from openvort.core.services.notification import init_notification_center
-        notif_center = init_notification_center(session_factory, registry)
-        await notif_center.recover_on_startup()
-        log.info("NotificationCenter 已初始化")
-    except Exception as e:
-        log.warning(f"NotificationCenter 初始化失败: {e}")
+    if not dev:
+        try:
+            from openvort.core.services.notification import init_notification_center
+            notif_center = init_notification_center(session_factory, registry)
+            await notif_center.recover_on_startup()
+            log.info("NotificationCenter 已初始化")
+        except Exception as e:
+            log.warning(f"NotificationCenter 初始化失败: {e}")
 
     # 加载 Skill（知识注入，DB 驱动）
     from openvort.skill.loader import SkillLoader
@@ -295,52 +415,42 @@ async def _start_service():
     from openvort.core.messaging.dispatcher import MessageDispatcher
     dispatcher = MessageDispatcher()
 
-    # 初始化 ASR 服务（用于语音消息转写）
-    from openvort.services.asr import ASRService
-    asr_service = ASRService(session_factory)
-    await asr_service.load_providers()
-    if asr_service._providers:
-        log.debug(f"已加载 {len(asr_service._providers)} 个 ASR Provider")
-    else:
-        log.debug("未配置 ASR Provider，语音消息将无法识别")
+    # 初始化 ASR / TTS / Embedding 服务（dev 模式下跳过）
+    asr_service = None
+    tts_service = None
+    embedding_service = None
+    if not dev:
+        from openvort.services.asr import ASRService
+        asr_service = ASRService(session_factory)
+        await asr_service.load_providers()
 
-    # 初始化 TTS 服务（用于语音消息发送）
-    from openvort.services.tts import TTSService
-    tts_service = TTSService(session_factory)
-    await tts_service.load_providers()
-    if tts_service.available:
-        log.debug("TTS 服务已就绪")
-    else:
-        log.info("未配置 TTS Provider，语音发送功能不可用")
+        from openvort.services.tts import TTSService
+        tts_service = TTSService(session_factory)
+        await tts_service.load_providers()
 
-    # 初始化 Embedding 服务（用于知识库向量检索）
-    from openvort.services.embedding import EmbeddingService
-    embedding_service = EmbeddingService(session_factory)
-    await embedding_service.load_providers()
-    if embedding_service.available:
-        log.debug("Embedding 服务已就绪")
-    else:
-        log.info("未配置 Embedding Provider，知识库检索功能不可用")
+        from openvort.services.embedding import EmbeddingService
+        embedding_service = EmbeddingService(session_factory)
+        await embedding_service.load_providers()
 
-    # 将 TTS 服务注入到语音发送工具
-    voice_tool = registry.get_tool("wecom_send_voice")
-    if voice_tool and hasattr(voice_tool, "set_tts_service"):
-        voice_tool.set_tts_service(tts_service)
-    feishu_voice_tool = registry.get_tool("feishu_send_voice")
-    if feishu_voice_tool and hasattr(feishu_voice_tool, "set_tts_service"):
-        feishu_voice_tool.set_tts_service(tts_service)
-    dingtalk_voice_tool = registry.get_tool("dingtalk_send_voice")
-    if dingtalk_voice_tool and hasattr(dingtalk_voice_tool, "set_tts_service"):
-        dingtalk_voice_tool.set_tts_service(tts_service)
+        voice_tool = registry.get_tool("wecom_send_voice")
+        if voice_tool and hasattr(voice_tool, "set_tts_service"):
+            voice_tool.set_tts_service(tts_service)
+        feishu_voice_tool = registry.get_tool("feishu_send_voice")
+        if feishu_voice_tool and hasattr(feishu_voice_tool, "set_tts_service"):
+            feishu_voice_tool.set_tts_service(tts_service)
+        dingtalk_voice_tool = registry.get_tool("dingtalk_send_voice")
+        if dingtalk_voice_tool and hasattr(dingtalk_voice_tool, "set_tts_service"):
+            dingtalk_voice_tool.set_tts_service(tts_service)
 
     # 初始化 InboxService（IM 跨实例消息去重）
     from openvort.core.messaging.inbox import InboxService
     inbox_service = InboxService(session_factory)
 
-    # 配置 Channel
+    # 配置 Channel（dev 模式下跳过 IM 通道启动）
     import asyncio
 
-    channels = registry.list_channels()
+    _employee_bot_mgr = None
+    channels = registry.list_channels() if not dev else []
     for ch in channels:
         if hasattr(ch, "set_inbox_service"):
             ch.set_inbox_service(inbox_service)
@@ -417,6 +527,55 @@ async def _start_service():
 
                 _ch.set_stream_handler(bot_stream_handler)
                 await ch.start_bot()
+
+            # ---- AI Employee independent bots ----
+            try:
+                from openvort.channels.wecom.employee_bot import EmployeeBotManager
+
+                _employee_bot_mgr = EmployeeBotManager()
+
+                def _make_employee_stream_handler(emp_member_id: str):
+                    async def handler(msg):
+                        raw = getattr(msg, "raw", None) or {}
+                        chat_type = raw.get("_bot_chat_type", "single")
+                        chat_id = raw.get("_bot_chat_id", "")
+                        is_group = chat_type != "single" and bool(chat_id)
+
+                        if is_group:
+                            session_uid = f"group:emp:{emp_member_id}:{chat_id}"
+                        else:
+                            session_uid = f"emp:{emp_member_id}:{msg.sender_id}"
+
+                        cmd_result = await command_handler.handle(msg.channel, session_uid, msg.content)
+                        if cmd_result.handled:
+                            if cmd_result.reply:
+                                yield {"type": "text", "text": cmd_result.reply}
+                            return
+
+                        ctx = await build_context(msg.channel, msg.sender_id)
+                        ctx.user_id = session_uid
+                        ctx.target_member_id = emp_member_id
+                        ctx.images = getattr(msg, "images", []) or []
+
+                        content = msg.content
+                        if is_group:
+                            ctx.group_id = chat_id
+                            sender_name = ctx.member.name if ctx.member else msg.sender_id
+                            content = f"[{sender_name}]: {content}"
+
+                        async for event in agent.process_stream_im(ctx, content):
+                            yield event
+                    return handler
+
+                count = await _employee_bot_mgr.start_all(
+                    session_factory,
+                    _make_employee_stream_handler,
+                    inbox=inbox_service,
+                )
+                if count:
+                    log.info(f"企微 AI 员工独立 Bot: 已启动 {count} 个")
+            except Exception as e:
+                log.warning(f"启动 AI 员工独立 Bot 失败: {e}")
 
             await ch.start()
 
@@ -735,6 +894,9 @@ async def _start_service():
     except Exception as e:
         log.warning(f"恢复定时任务失败: {e}")
 
+    # ---- 确保前端静态文件存在 ----
+    await _ensure_frontend(log)
+
     # ---- Web 管理面板 ----
     web_server = None
     web_started = False
@@ -795,7 +957,7 @@ async def _start_service():
         except Exception as e:
             log.warning(f"Web 面板启动失败: {e}")
 
-    _print_ready_banner(settings, settings.web.enabled and web_started, is_first_boot, channels, registry)
+    _print_ready_banner(settings, settings.web.enabled and web_started, is_first_boot, channels, registry, dev=dev)
 
     # 保持运行
     try:
@@ -804,6 +966,11 @@ async def _start_service():
     except (KeyboardInterrupt, asyncio.CancelledError):
         log.info("正在关闭...")
         _scheduler.stop()
+        try:
+            if _employee_bot_mgr:
+                await _employee_bot_mgr.stop_all()
+        except Exception:
+            pass
         for ch in channels:
             await ch.stop()
         from openvort.db import close_db
@@ -841,7 +1008,8 @@ def stop_cmd():
 
 
 @click.command()
-def restart_cmd():
+@click.option("--dev", "-d", is_flag=True, help="开发模式：跳过 IM 通道/ASR/TTS 等重量级初始化，加快启动速度")
+def restart_cmd(dev: bool):
     """重启 OpenVort 服务（stop + start）"""
     if PID_FILE.exists():
         try:
@@ -858,7 +1026,7 @@ def restart_cmd():
             pass
 
     click.echo("正在启动...")
-    _run_async(_start_service())
+    _run_async(_start_service(dev=dev))
 
 
 async def _auto_create_admin(session_factory, auth_service):
@@ -887,20 +1055,24 @@ async def _auto_create_admin(session_factory, auth_service):
     await mark_initialized(session_factory, member_id)
 
 
-def _print_ready_banner(settings, web_ok: bool, first_boot: bool, channels, registry):
+def _print_ready_banner(settings, web_ok: bool, first_boot: bool, channels, registry, *, dev: bool = False):
     """Print the startup-complete banner to stdout."""
     from openvort.config.settings import get_settings
     settings = get_settings()
 
-    site_url = settings.web.site_url.rstrip("/") if settings.web.site_url else ""
     host = settings.web.host
     port = settings.web.port
-    if site_url:
-        panel_url = site_url
-    elif host == "0.0.0.0":
-        panel_url = f"http://localhost:{port}"
+    display_host = "localhost" if host == "0.0.0.0" else host
+
+    if dev:
+        backend_url = f"http://{display_host}:{port}"
+        panel_url = backend_url
     else:
-        panel_url = f"http://{host}:{port}"
+        site_url = settings.web.site_url.rstrip("/") if settings.web.site_url else ""
+        if site_url:
+            panel_url = site_url
+        else:
+            panel_url = f"http://{display_host}:{port}"
 
     tool_count = len(registry.list_tools())
     ch_count = len(channels)
@@ -911,18 +1083,31 @@ def _print_ready_banner(settings, web_ok: bool, first_boot: bool, channels, regi
     lines: list[str] = []
     lines.append("")
     lines.append(border)
-    lines.append(f"  OpenVort v{__version__} started".center(w))
+    title = f"  OpenVort v{__version__} started"
+    if dev:
+        title += " [DEV]"
+    lines.append(title.center(w))
     lines.append(border)
     lines.append("")
 
     if web_ok:
-        lines.append(f"  Panel   {panel_url}")
-        lines.append(f"  API     {panel_url}/api")
+        if dev:
+            lines.append(f"  Backend {panel_url}")
+            lines.append(f"  API     {panel_url}/api")
+        else:
+            lines.append(f"  Panel   {panel_url}")
+            lines.append(f"  API     {panel_url}/api")
     else:
         lines.append("  Panel   (disabled)")
 
     lines.append("")
     lines.append(f"  Channels  {ch_count}      Tools  {tool_count}")
+
+    if dev:
+        lines.append("")
+        lines.append("  Mode    DEV (IM channels / ASR / TTS skipped)")
+        lines.append(f"  Tip     Run 'cd web && npm run dev' for frontend HMR")
+
     lines.append("")
 
     if first_boot:

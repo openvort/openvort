@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
 import { getVortflowDescriptionTemplates, updateVortflowDescriptionTemplate } from "@/api";
-import { message } from "@/components/vort/message";
+import { message } from "@openvort/vort-ui";
 
 type WorkItemType = "需求" | "任务" | "缺陷";
 

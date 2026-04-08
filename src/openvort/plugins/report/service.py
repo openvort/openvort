@@ -1,19 +1,29 @@
 """
-汇报业务层
+汇报业务层 (v2)
 
-模板/规则/汇报实例的 CRUD + 汇报生成 + 分发逻辑。
+Publication CRUD + Report CRUD + IM 通知
 """
 
 import json
 from datetime import date, datetime
 
-from sqlalchemy import select, delete, func as sa_func
+from sqlalchemy import delete, select, func as sa_func
 from sqlalchemy.orm import selectinload
 
-from openvort.plugins.report.models import Report, ReportRule, ReportTemplate
+from openvort.plugins.report.models import (
+    Report,
+    ReportPublication,
+    ReportPublicationReceiver,
+    ReportPublicationSubmitter,
+    ReportPublicationWhitelist,
+    ReportReceiverFilter,
+)
 from openvort.utils.logging import get_logger
 
 log = get_logger("plugins.report.service")
+
+CYCLE_LABELS = {"daily": "按日", "weekly": "按周", "monthly": "按月"}
+TYPE_LABELS = {"daily": "日报", "weekly": "周报", "monthly": "月报", "quarterly": "季报"}
 
 
 class ReportService:
@@ -22,167 +32,145 @@ class ReportService:
     def __init__(self, session_factory):
         self._sf = session_factory
 
-    # ---- Template CRUD ----
+    # ===================== Publication CRUD =====================
 
-    async def create_template(
-        self,
-        name: str,
-        report_type: str,
-        description: str = "",
-        content_schema: dict | None = None,
-        auto_collect: dict | None = None,
-        owner_id: str | None = None,
-    ) -> dict:
-        tmpl = ReportTemplate(
-            name=name,
-            description=description,
-            report_type=report_type,
+    async def create_publication(self, *, name: str, description: str = "", report_type: str = "daily",
+                                 content_schema: dict | None = None, repeat_cycle: str = "daily",
+                                 deadline_time: str = "次日 10:00", reminder_enabled: bool = True,
+                                 reminder_time: str = "10:00", skip_weekends: bool = True,
+                                 skip_holidays: bool = True, allow_multiple: bool = True,
+                                 allow_edit: bool = True, notify_summary: bool = True,
+                                 notify_on_receive: bool = True, owner_id: str | None = None,
+                                 submitter_ids: list[str] | None = None,
+                                 whitelist_ids: list[str] | None = None,
+                                 receiver_ids: list[str] | None = None,
+                                 receiver_filters: dict[str, list[str]] | None = None) -> dict:
+        pub = ReportPublication(
+            name=name, description=description, report_type=report_type,
             content_schema=json.dumps(content_schema or {}),
-            auto_collect=json.dumps(auto_collect or {"git": True, "vortflow": True}),
+            repeat_cycle=repeat_cycle, deadline_time=deadline_time,
+            reminder_enabled=reminder_enabled, reminder_time=reminder_time,
+            skip_weekends=skip_weekends, skip_holidays=skip_holidays,
+            allow_multiple=allow_multiple, allow_edit=allow_edit,
+            notify_summary=notify_summary, notify_on_receive=notify_on_receive,
             owner_id=owner_id,
         )
         async with self._sf() as session:
-            session.add(tmpl)
-            await session.commit()
-            await session.refresh(tmpl)
-        log.info(f"创建模板: {tmpl.id[:8]} ({name})")
-        return self._template_to_dict(tmpl)
+            session.add(pub)
+            await session.flush()
 
-    async def update_template(self, template_id: str, **fields) -> dict | None:
+            for mid in (submitter_ids or []):
+                if mid:
+                    session.add(ReportPublicationSubmitter(publication_id=pub.id, member_id=mid))
+            for mid in (whitelist_ids or []):
+                if mid:
+                    session.add(ReportPublicationWhitelist(publication_id=pub.id, member_id=mid))
+            for mid in (receiver_ids or []):
+                if mid:
+                    session.add(ReportPublicationReceiver(publication_id=pub.id, member_id=mid))
+
+            if receiver_filters:
+                for rid, sids in receiver_filters.items():
+                    for sid in sids:
+                        session.add(ReportReceiverFilter(publication_id=pub.id, receiver_id=rid, submitter_id=sid))
+
+            await session.commit()
+            return await self._load_publication_dict(session, pub.id)
+
+    async def update_publication(self, publication_id: str, **fields) -> dict | None:
         async with self._sf() as session:
-            stmt = select(ReportTemplate).where(ReportTemplate.id == template_id)
-            result = await session.execute(stmt)
-            tmpl = result.scalar_one_or_none()
-            if not tmpl:
+            pub = await self._get_pub(session, publication_id)
+            if not pub:
                 return None
 
-            for key in ("name", "description", "report_type", "owner_id"):
+            scalar_fields = (
+                "name", "description", "report_type", "repeat_cycle", "deadline_time",
+                "reminder_enabled", "reminder_time", "skip_weekends", "skip_holidays",
+                "allow_multiple", "allow_edit", "notify_summary", "notify_on_receive",
+                "owner_id", "enabled",
+            )
+            for key in scalar_fields:
                 if key in fields:
-                    setattr(tmpl, key, fields[key])
+                    setattr(pub, key, fields[key])
             if "content_schema" in fields:
-                tmpl.content_schema = json.dumps(fields["content_schema"])
-            if "auto_collect" in fields:
-                tmpl.auto_collect = json.dumps(fields["auto_collect"])
+                pub.content_schema = json.dumps(fields["content_schema"])
+
+            if "submitter_ids" in fields:
+                await self._replace_assoc(session, ReportPublicationSubmitter, publication_id, fields["submitter_ids"])
+            if "whitelist_ids" in fields:
+                await self._replace_assoc(session, ReportPublicationWhitelist, publication_id, fields["whitelist_ids"])
+            if "receiver_ids" in fields:
+                await self._replace_assoc(session, ReportPublicationReceiver, publication_id, fields["receiver_ids"])
+
+            if "receiver_filters" in fields:
+                await self._replace_receiver_filters(session, publication_id, fields["receiver_filters"] or {})
 
             await session.commit()
-            await session.refresh(tmpl)
-        return self._template_to_dict(tmpl)
+            return await self._load_publication_dict(session, publication_id)
 
-    async def delete_template(self, template_id: str) -> bool:
+    async def delete_publication(self, publication_id: str) -> bool:
         async with self._sf() as session:
-            stmt = delete(ReportTemplate).where(ReportTemplate.id == template_id)
-            result = await session.execute(stmt)
+            pub = await self._get_pub(session, publication_id)
+            if not pub:
+                return False
+            await session.delete(pub)
             await session.commit()
-        return result.rowcount > 0
+        return True
 
-    async def list_templates(self) -> list[dict]:
+    async def list_publications(self) -> list[dict]:
         async with self._sf() as session:
-            stmt = select(ReportTemplate).order_by(ReportTemplate.created_at.desc())
+            stmt = (
+                select(ReportPublication)
+                .options(
+                    selectinload(ReportPublication.submitters),
+                    selectinload(ReportPublication.whitelist),
+                    selectinload(ReportPublication.receivers),
+                    selectinload(ReportPublication.receiver_filters),
+                )
+                .order_by(ReportPublication.created_at.desc())
+            )
             result = await session.execute(stmt)
-            return [self._template_to_dict(t) for t in result.scalars().all()]
+            pubs = result.scalars().all()
 
-    async def get_template(self, template_id: str) -> dict | None:
+            all_mids = set()
+            for p in pubs:
+                for s in p.submitters:
+                    all_mids.add(s.member_id)
+                for w in p.whitelist:
+                    all_mids.add(w.member_id)
+                for r in p.receivers:
+                    all_mids.add(r.member_id)
+                for f in p.receiver_filters:
+                    all_mids.add(f.receiver_id)
+                    all_mids.add(f.submitter_id)
+
+            names = await self._resolve_member_names(session, list(all_mids)) if all_mids else {}
+            return [self._pub_to_dict(p, names) for p in pubs]
+
+    async def get_publication(self, publication_id: str) -> dict | None:
         async with self._sf() as session:
-            stmt = select(ReportTemplate).where(ReportTemplate.id == template_id)
-            result = await session.execute(stmt)
-            tmpl = result.scalar_one_or_none()
-            return self._template_to_dict(tmpl) if tmpl else None
+            return await self._load_publication_dict(session, publication_id)
 
-    # ---- Rule CRUD ----
+    # ===================== Report CRUD =====================
 
-    async def create_rule(
-        self,
-        template_id: str,
-        scope: str,
-        target_id: str,
-        reviewer_id: str | None = None,
-        deadline_cron: str = "0 18 * * 1-5",
-        reminder_minutes: int = 30,
-        escalation_minutes: int = 120,
-        enabled: bool = True,
-    ) -> dict:
-        rule = ReportRule(
-            template_id=template_id,
-            scope=scope,
-            target_id=target_id,
-            reviewer_id=reviewer_id,
-            deadline_cron=deadline_cron,
-            reminder_minutes=reminder_minutes,
-            escalation_minutes=escalation_minutes,
-            enabled=enabled,
-        )
-        async with self._sf() as session:
-            session.add(rule)
-            await session.commit()
-            await session.refresh(rule)
-        log.info(f"创建规则: {rule.id[:8]} scope={scope} target={target_id}")
-        return self._rule_to_dict(rule)
-
-    async def update_rule(self, rule_id: str, **fields) -> dict | None:
-        async with self._sf() as session:
-            stmt = select(ReportRule).where(ReportRule.id == rule_id)
-            result = await session.execute(stmt)
-            rule = result.scalar_one_or_none()
-            if not rule:
-                return None
-
-            for key in ("scope", "target_id", "reviewer_id", "deadline_cron",
-                        "workdays_only", "reminder_minutes", "escalation_minutes", "enabled"):
-                if key in fields:
-                    setattr(rule, key, fields[key])
-
-            await session.commit()
-            await session.refresh(rule)
-        return self._rule_to_dict(rule)
-
-    async def delete_rule(self, rule_id: str) -> bool:
-        async with self._sf() as session:
-            stmt = delete(ReportRule).where(ReportRule.id == rule_id)
-            result = await session.execute(stmt)
-            await session.commit()
-        return result.rowcount > 0
-
-    async def list_rules(self, template_id: str | None = None) -> list[dict]:
-        async with self._sf() as session:
-            stmt = select(ReportRule).options(selectinload(ReportRule.template))
-            if template_id:
-                stmt = stmt.where(ReportRule.template_id == template_id)
-            stmt = stmt.order_by(ReportRule.created_at.desc())
-            result = await session.execute(stmt)
-            return [self._rule_to_dict(r) for r in result.scalars().all()]
-
-    # ---- Report CRUD ----
-
-    async def create_report(
-        self,
-        reporter_id: str,
-        report_type: str,
-        report_date: date,
-        title: str = "",
-        content: str = "",
-        status: str = "draft",
-        auto_generated: bool = False,
-        template_id: str | None = None,
-        rule_id: str | None = None,
-        reviewer_id: str | None = None,
-    ) -> dict:
+    async def create_report(self, *, reporter_id: str, report_type: str, report_date: date,
+                            title: str = "", content: str = "", status: str = "draft",
+                            auto_generated: bool = False, publication_id: str | None = None) -> dict:
         report = Report(
-            reporter_id=reporter_id,
-            report_type=report_type,
-            report_date=report_date,
-            title=title,
-            content=content,
-            status=status,
-            auto_generated=auto_generated,
-            template_id=template_id,
-            rule_id=rule_id,
-            reviewer_id=reviewer_id,
+            publication_id=publication_id, reporter_id=reporter_id,
+            report_type=report_type, report_date=report_date,
+            title=title, content=content, status=status, auto_generated=auto_generated,
         )
+        if status == "submitted":
+            report.submitted_at = datetime.now()
         async with self._sf() as session:
             session.add(report)
             await session.commit()
             await session.refresh(report)
-        log.info(f"创建汇报: {report.id[:8]} type={report_type} date={report_date}")
+
+        if status == "submitted" and publication_id:
+            await self._notify_receivers_on_submit(report)
+
         return self._report_to_dict(report)
 
     async def update_report(self, report_id: str, **fields) -> dict | None:
@@ -193,17 +181,23 @@ class ReportService:
             if not report:
                 return None
 
-            for key in ("title", "content", "status", "reviewer_id", "reviewer_comment"):
+            old_status = report.status
+            has_content_change = "content" in fields or "title" in fields
+            for key in ("title", "content", "status", "publication_id"):
                 if key in fields:
                     setattr(report, key, fields[key])
 
-            if fields.get("status") == "submitted" and not report.submitted_at:
+            if fields.get("status") == "submitted" and old_status != "submitted":
                 report.submitted_at = datetime.now()
-            if fields.get("status") in ("reviewed", "rejected") and not report.reviewed_at:
-                report.reviewed_at = datetime.now()
 
             await session.commit()
             await session.refresh(report)
+
+        if fields.get("status") == "submitted" and old_status != "submitted" and report.publication_id:
+            await self._notify_receivers_on_submit(report)
+        elif has_content_change and report.status == "submitted" and report.publication_id:
+            await self._notify_receivers_on_edit(report)
+
         return self._report_to_dict(report)
 
     async def get_report(self, report_id: str) -> dict | None:
@@ -211,19 +205,29 @@ class ReportService:
             stmt = select(Report).where(Report.id == report_id)
             result = await session.execute(stmt)
             report = result.scalar_one_or_none()
-            return self._report_to_dict(report) if report else None
+            if not report:
+                return None
+            info = await self._resolve_member_info(session, [report.reporter_id])
+            d = self._report_to_dict(report)
+            mi = info.get(report.reporter_id, {})
+            d["reporter_name"] = mi.get("name", "")
+            d["reporter_avatar_url"] = mi.get("avatar_url", "")
 
-    async def list_reports(
-        self,
-        reporter_id: str | None = None,
-        reporter_ids: list[str] | None = None,
-        reviewer_id: str | None = None,
-        report_type: str | None = None,
-        status: str | None = None,
-        since: date | None = None,
-        until: date | None = None,
-        limit: int = 50,
-    ) -> list[dict]:
+            if report.publication_id:
+                pub = await session.get(ReportPublication, report.publication_id)
+                if pub:
+                    d["publication_name"] = pub.name
+                    d["allow_edit"] = pub.allow_edit
+            return d
+
+    async def list_reports(self, *, reporter_id: str | None = None,
+                           reporter_ids: list[str] | None = None,
+                           publication_id: str | None = None,
+                           report_type: str | None = None,
+                           status: str | None = None,
+                           since: date | None = None,
+                           until: date | None = None,
+                           limit: int = 50) -> list[dict]:
         async with self._sf() as session:
             stmt = select(Report)
             if reporter_ids is not None:
@@ -232,8 +236,8 @@ class ReportService:
                 stmt = stmt.where(Report.reporter_id.in_(reporter_ids))
             elif reporter_id:
                 stmt = stmt.where(Report.reporter_id == reporter_id)
-            if reviewer_id:
-                stmt = stmt.where(Report.reviewer_id == reviewer_id)
+            if publication_id:
+                stmt = stmt.where(Report.publication_id == publication_id)
             if report_type:
                 stmt = stmt.where(Report.report_type == report_type)
             if status:
@@ -242,32 +246,95 @@ class ReportService:
                 stmt = stmt.where(Report.report_date >= since)
             if until:
                 stmt = stmt.where(Report.report_date <= until)
-            stmt = stmt.order_by(Report.report_date.desc()).limit(limit)
+            stmt = stmt.order_by(Report.report_date.desc(), Report.submitted_at.desc()).limit(limit)
             result = await session.execute(stmt)
-            return [self._report_to_dict(r) for r in result.scalars().all()]
+            reports = result.scalars().all()
 
-    async def get_subordinate_ids(self, member_id: str) -> list[str]:
-        """Get all subordinate member IDs from reporting relations"""
-        from openvort.contacts.models import ReportingRelation
+            all_mids = list({r.reporter_id for r in reports})
+            info = await self._resolve_member_info(session, all_mids) if all_mids else {}
+            items = []
+            for r in reports:
+                d = self._report_to_dict(r)
+                mi = info.get(r.reporter_id, {})
+                d["reporter_name"] = mi.get("name", "")
+                d["reporter_avatar_url"] = mi.get("avatar_url", "")
+                items.append(d)
+            return items
+
+    async def list_received_reports(self, receiver_id: str, *,
+                                    publication_id: str | None = None,
+                                    reporter_id: str | None = None,
+                                    report_type: str | None = None,
+                                    status: str | None = None,
+                                    since: date | None = None,
+                                    until: date | None = None,
+                                    limit: int = 50) -> list[dict]:
+        """List reports from publications where receiver_id is a receiver,
+        respecting per-receiver submitter filters."""
+        from sqlalchemy import or_, exists, and_
 
         async with self._sf() as session:
-            stmt = select(ReportingRelation.reporter_id).where(
-                ReportingRelation.supervisor_id == member_id
+            sub = (
+                select(ReportPublicationReceiver.publication_id)
+                .where(ReportPublicationReceiver.member_id == receiver_id)
             )
-            result = await session.execute(stmt)
-            return [r[0] for r in result.all()]
 
-    async def get_report_stats(
-        self,
-        reviewer_id: str | None = None,
-        since: date | None = None,
-        until: date | None = None,
-    ) -> dict:
-        """汇报统计：总数、各状态数"""
+            filter_exists = exists().where(
+                ReportReceiverFilter.publication_id == Report.publication_id,
+                ReportReceiverFilter.receiver_id == receiver_id,
+            )
+            reporter_in_filter = exists().where(
+                ReportReceiverFilter.publication_id == Report.publication_id,
+                ReportReceiverFilter.receiver_id == receiver_id,
+                ReportReceiverFilter.submitter_id == Report.reporter_id,
+            )
+
+            stmt = select(Report).where(
+                Report.publication_id.in_(sub),
+                Report.status == "submitted",
+                or_(~filter_exists, reporter_in_filter),
+            )
+            if publication_id:
+                stmt = stmt.where(Report.publication_id == publication_id)
+            if reporter_id:
+                stmt = stmt.where(Report.reporter_id == reporter_id)
+            if report_type:
+                stmt = stmt.where(Report.report_type == report_type)
+            if status:
+                stmt = stmt.where(Report.status == status)
+            if since:
+                stmt = stmt.where(Report.report_date >= since)
+            if until:
+                stmt = stmt.where(Report.report_date <= until)
+            stmt = stmt.order_by(Report.report_date.desc(), Report.submitted_at.desc()).limit(limit)
+            result = await session.execute(stmt)
+            reports = result.scalars().all()
+
+            all_mids = list({r.reporter_id for r in reports})
+            info = await self._resolve_member_info(session, all_mids) if all_mids else {}
+            items = []
+            for r in reports:
+                d = self._report_to_dict(r)
+                mi = info.get(r.reporter_id, {})
+                d["reporter_name"] = mi.get("name", "")
+                d["reporter_avatar_url"] = mi.get("avatar_url", "")
+                items.append(d)
+            return items
+
+    async def get_report_stats(self, *, reporter_id: str | None = None,
+                               receiver_id: str | None = None,
+                               since: date | None = None,
+                               until: date | None = None) -> dict:
         async with self._sf() as session:
             stmt = select(Report.status, sa_func.count(Report.id))
-            if reviewer_id:
-                stmt = stmt.where(Report.reviewer_id == reviewer_id)
+            if reporter_id:
+                stmt = stmt.where(Report.reporter_id == reporter_id)
+            if receiver_id:
+                sub = (
+                    select(ReportPublicationReceiver.publication_id)
+                    .where(ReportPublicationReceiver.member_id == receiver_id)
+                )
+                stmt = stmt.where(Report.publication_id.in_(sub))
             if since:
                 stmt = stmt.where(Report.report_date >= since)
             if until:
@@ -276,133 +343,374 @@ class ReportService:
             result = await session.execute(stmt)
             rows = result.all()
 
-            stats = {"total": 0, "draft": 0, "submitted": 0, "reviewed": 0, "rejected": 0}
-            for status, count in rows:
-                stats[status] = count
+            stats = {"total": 0, "draft": 0, "submitted": 0}
+            for s, count in rows:
+                stats[s] = count
                 stats["total"] += count
             return stats
 
-    # ---- Reminder & Delivery ----
-
-    async def get_pending_reporters(self, rule_id: str) -> list[str]:
-        """获取某规则下尚未提交汇报的成员 ID 列表"""
+    async def get_publications_for_submitter(self, member_id: str) -> list[dict]:
+        """Get enabled publications where member is a submitter (and not whitelisted)."""
         async with self._sf() as session:
-            # Get the rule
-            stmt = select(ReportRule).where(ReportRule.id == rule_id)
+            sub_ids = select(ReportPublicationSubmitter.publication_id).where(
+                ReportPublicationSubmitter.member_id == member_id
+            )
+            wl_ids = select(ReportPublicationWhitelist.publication_id).where(
+                ReportPublicationWhitelist.member_id == member_id
+            )
+            stmt = (
+                select(ReportPublication)
+                .where(
+                    ReportPublication.id.in_(sub_ids),
+                    ReportPublication.id.notin_(wl_ids),
+                    ReportPublication.enabled == True,  # noqa: E712
+                )
+                .order_by(ReportPublication.created_at.desc())
+            )
             result = await session.execute(stmt)
-            rule = result.scalar_one_or_none()
-            if not rule:
-                return []
+            pubs = result.scalars().all()
+            return [{"id": p.id, "name": p.name, "description": p.description,
+                      "report_type": p.report_type} for p in pubs]
+
+    # ===================== IM Notifications =====================
+
+    async def _notify_receivers_on_submit(self, report: Report) -> None:
+        """When a report is submitted, notify receivers of its publication (if enabled),
+        respecting per-receiver submitter filters."""
+        try:
+            async with self._sf() as session:
+                pub = await self._get_pub(session, report.publication_id)
+                if not pub or not pub.notify_on_receive:
+                    return
+                all_receiver_ids = [r.member_id for r in pub.receivers]
+                if not all_receiver_ids:
+                    return
+
+                filter_map = self._build_receiver_filter_map(pub)
+                receiver_ids = [
+                    rid for rid in all_receiver_ids
+                    if rid not in filter_map or report.reporter_id in filter_map[rid]
+                ]
+                if not receiver_ids:
+                    return
+
+                names = await self._resolve_member_names(session, [report.reporter_id])
+                reporter_name = names.get(report.reporter_id, "")
+
+            from openvort.plugins.vortflow.aggregator import send_im_to_member
+
+            type_label = TYPE_LABELS.get(report.report_type, "汇报")
+            report_url = self._build_report_url("read")
+            text = (
+                f"**{reporter_name}** 提交了{type_label}\n\n"
+                f"**{report.title or '无标题'}**\n\n"
+                f"{(report.content or '')[:200]}{'...' if len(report.content or '') > 200 else ''}"
+            )
+            if report_url:
+                text += f"\n\n[查看详情]({report_url})"
+            for rid in receiver_ids:
+                try:
+                    await send_im_to_member(rid, text)
+                except Exception as e:
+                    log.warning(f"通知接收人失败 receiver={rid}: {e}")
+        except Exception as e:
+            log.warning(f"发送提交通知失败: {e}")
+
+    async def _notify_receivers_on_edit(self, report: Report) -> None:
+        """When a submitted report is edited, notify receivers."""
+        try:
+            async with self._sf() as session:
+                pub = await self._get_pub(session, report.publication_id)
+                if not pub or not pub.notify_on_receive:
+                    return
+                all_receiver_ids = [r.member_id for r in pub.receivers]
+                if not all_receiver_ids:
+                    return
+
+                filter_map = self._build_receiver_filter_map(pub)
+                receiver_ids = [
+                    rid for rid in all_receiver_ids
+                    if rid not in filter_map or report.reporter_id in filter_map[rid]
+                ]
+                if not receiver_ids:
+                    return
+
+                names = await self._resolve_member_names(session, [report.reporter_id])
+                reporter_name = names.get(report.reporter_id, "")
+
+            from openvort.plugins.vortflow.aggregator import send_im_to_member
+
+            type_label = TYPE_LABELS.get(report.report_type, "汇报")
+            report_url = self._build_report_url("read")
+            text = (
+                f"**{reporter_name}** 修改了{type_label}\n\n"
+                f"**{report.title or '无标题'}**\n\n"
+                f"{(report.content or '')[:200]}{'...' if len(report.content or '') > 200 else ''}"
+            )
+            if report_url:
+                text += f"\n\n[查看详情]({report_url})"
+            for rid in receiver_ids:
+                try:
+                    await send_im_to_member(rid, text)
+                except Exception as e:
+                    log.warning(f"编辑通知接收人失败 receiver={rid}: {e}")
+        except Exception as e:
+            log.warning(f"发送编辑通知失败: {e}")
+
+    async def send_fill_reminders(self, publication_id: str) -> dict:
+        """Send IM reminders to submitters who haven't submitted yet today."""
+        from openvort.plugins.vortflow.aggregator import send_im_to_member
+
+        async with self._sf() as session:
+            pub_dict = await self._load_publication_dict(session, publication_id)
+            if not pub_dict:
+                return {"ok": False, "error": "发布不存在"}
+
+            pub = await self._get_pub(session, publication_id)
+            submitter_ids = [s.member_id for s in pub.submitters]
+            whitelist_ids = {w.member_id for w in pub.whitelist}
+            effective_ids = [sid for sid in submitter_ids if sid not in whitelist_ids]
+
+            if not effective_ids:
+                return {"ok": True, "sent": 0, "total": 0}
 
             today = date.today()
-
-            if rule.scope == "member":
-                # Check if this member has submitted today
-                stmt = select(Report).where(
-                    Report.reporter_id == rule.target_id,
-                    Report.report_date == today,
-                    Report.status.in_(["submitted", "reviewed"]),
-                )
-                result = await session.execute(stmt)
-                if not result.scalar_one_or_none():
-                    return [rule.target_id]
-                return []
-
-            elif rule.scope == "department":
-                # Get all members in this department
-                from openvort.contacts.models import MemberDepartment
-                stmt = select(MemberDepartment.member_id).where(
-                    MemberDepartment.department_id == int(rule.target_id)
-                )
-                result = await session.execute(stmt)
-                member_ids = [r[0] for r in result.all()]
-
-                # Find who hasn't submitted
-                pending = []
-                for mid in member_ids:
-                    stmt = select(Report).where(
-                        Report.reporter_id == mid,
-                        Report.report_date == today,
-                        Report.status.in_(["submitted", "reviewed"]),
-                    )
-                    result = await session.execute(stmt)
-                    if not result.scalar_one_or_none():
-                        pending.append(mid)
-                return pending
-
-        return []
-
-    async def get_reviewer_for_member(self, member_id: str) -> str | None:
-        """根据汇报关系获取成员的主要上级"""
-        from openvort.contacts.models import ReportingRelation
-
-        async with self._sf() as session:
-            stmt = (
-                select(ReportingRelation)
-                .where(
-                    ReportingRelation.reporter_id == member_id,
-                    ReportingRelation.is_primary == True,  # noqa: E712
-                )
-                .limit(1)
+            submitted_stmt = select(Report.reporter_id).where(
+                Report.publication_id == publication_id,
+                Report.report_date == today,
+                Report.status == "submitted",
             )
-            result = await session.execute(stmt)
-            rel = result.scalar_one_or_none()
-            return rel.supervisor_id if rel else None
+            result = await session.execute(submitted_stmt)
+            submitted_ids = {r[0] for r in result.all()}
+            pending_ids = [mid for mid in effective_ids if mid not in submitted_ids]
+            names = await self._resolve_member_names(session, pending_ids)
 
-    async def get_enabled_rules(self) -> list[dict]:
-        """获取所有启用的规则"""
-        async with self._sf() as session:
-            stmt = (
-                select(ReportRule)
-                .options(selectinload(ReportRule.template))
-                .where(ReportRule.enabled == True)  # noqa: E712
+        type_label = TYPE_LABELS.get(pub_dict.get("report_type", ""), "汇报")
+        report_url = self._build_report_url()
+        sent, failed = 0, 0
+        for mid in pending_ids:
+            name = names.get(mid, "")
+            text = (
+                f"{name}，请及时提交{type_label}：**{pub_dict['name']}**\n\n"
+                f"截止时间：{pub_dict.get('deadline_time', '')}"
             )
-            result = await session.execute(stmt)
-            return [self._rule_to_dict(r) for r in result.scalars().all()]
+            if report_url:
+                text += f"\n\n[前往填写]({report_url})"
+            try:
+                await send_im_to_member(mid, text)
+                sent += 1
+            except Exception as e:
+                log.warning(f"提醒发送失败 member={mid}: {e}")
+                failed += 1
 
-    # ---- Helpers ----
-
-    @staticmethod
-    def _template_to_dict(t: ReportTemplate) -> dict:
         return {
-            "id": t.id,
-            "name": t.name,
-            "description": t.description or "",
-            "report_type": t.report_type,
-            "content_schema": json.loads(t.content_schema) if t.content_schema else {},
-            "auto_collect": json.loads(t.auto_collect) if t.auto_collect else {},
-            "owner_id": t.owner_id or "",
-            "created_at": t.created_at.isoformat() if t.created_at else None,
-            "updated_at": t.updated_at.isoformat() if t.updated_at else None,
+            "ok": True, "sent": sent, "failed": failed,
+            "total": len(pending_ids),
+            "submitted_count": len(submitted_ids),
+            "submitter_count": len(effective_ids),
         }
 
+    async def send_deadline_summary(self, publication_id: str) -> dict:
+        """At deadline, send summary to all receivers."""
+        from openvort.plugins.vortflow.aggregator import send_im_to_member
+
+        async with self._sf() as session:
+            pub = await self._get_pub(session, publication_id)
+            if not pub or not pub.notify_summary:
+                return {"ok": False, "error": "发布不存在或未启用汇总通知"}
+
+            receiver_ids = [r.member_id for r in pub.receivers]
+            if not receiver_ids:
+                return {"ok": True, "sent": 0}
+
+            submitter_ids = [s.member_id for s in pub.submitters]
+            whitelist_ids = {w.member_id for w in pub.whitelist}
+            effective_ids = [sid for sid in submitter_ids if sid not in whitelist_ids]
+
+            today = date.today()
+            submitted_stmt = select(Report.reporter_id).where(
+                Report.publication_id == publication_id,
+                Report.report_date == today,
+                Report.status == "submitted",
+            )
+            result = await session.execute(submitted_stmt)
+            submitted_ids = {r[0] for r in result.all()}
+
+            all_mids = list(set(effective_ids) | set(receiver_ids))
+            names = await self._resolve_member_names(session, all_mids)
+
+        submitted_names = [names.get(mid, mid[:8]) for mid in effective_ids if mid in submitted_ids]
+        pending_names = [names.get(mid, mid[:8]) for mid in effective_ids if mid not in submitted_ids]
+
+        type_label = TYPE_LABELS.get(pub.report_type, "汇报")
+        lines = [
+            f"## {type_label}汇总 · {pub.name}",
+            "",
+            f"- 应提交：{len(effective_ids)} 人",
+            f"- 已提交：{len(submitted_names)} 人",
+            f"- 未提交：{len(pending_names)} 人",
+        ]
+        if pending_names:
+            lines.append(f"\n未提交成员：{'、'.join(pending_names[:10])}"
+                         + (f" 等{len(pending_names)}人" if len(pending_names) > 10 else ""))
+
+        report_url = self._build_report_url("read")
+        if report_url:
+            lines.append(f"\n[查看汇报]({report_url})")
+
+        text = "\n".join(lines)
+        sent = 0
+        for rid in receiver_ids:
+            try:
+                await send_im_to_member(rid, text)
+                sent += 1
+            except Exception as e:
+                log.warning(f"汇总通知发送失败 receiver={rid}: {e}")
+
+        return {"ok": True, "sent": sent, "total": len(receiver_ids)}
+
+    # ===================== Helpers =====================
+
     @staticmethod
-    def _rule_to_dict(r: ReportRule) -> dict:
+    async def _get_pub(session, publication_id: str) -> ReportPublication | None:
+        stmt = (
+            select(ReportPublication)
+            .options(
+                selectinload(ReportPublication.submitters),
+                selectinload(ReportPublication.whitelist),
+                selectinload(ReportPublication.receivers),
+                selectinload(ReportPublication.receiver_filters),
+            )
+            .where(ReportPublication.id == publication_id)
+        )
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def _load_publication_dict(self, session, publication_id: str) -> dict | None:
+        pub = await self._get_pub(session, publication_id)
+        if not pub:
+            return None
+        all_mids = set()
+        for s in pub.submitters:
+            all_mids.add(s.member_id)
+        for w in pub.whitelist:
+            all_mids.add(w.member_id)
+        for r in pub.receivers:
+            all_mids.add(r.member_id)
+        if pub.owner_id:
+            all_mids.add(pub.owner_id)
+        names = await self._resolve_member_names(session, list(all_mids)) if all_mids else {}
+        return self._pub_to_dict(pub, names)
+
+    @staticmethod
+    def _build_report_url(tab: str = "") -> str:
+        from openvort.config.settings import get_settings
+        site_url = (get_settings().web.site_url or "").rstrip("/")
+        if not site_url:
+            return ""
+        url = f"{site_url}/reports"
+        if tab:
+            url += f"?tab={tab}"
+        return url
+
+    @staticmethod
+    async def _replace_receiver_filters(session, publication_id: str, filters: dict[str, list[str]]):
+        """Replace receiver filter rows. filters = {receiver_id: [submitter_id, ...]}"""
+        await session.execute(
+            delete(ReportReceiverFilter).where(ReportReceiverFilter.publication_id == publication_id)
+        )
+        for rid, sids in filters.items():
+            for sid in sids:
+                if rid and sid:
+                    session.add(ReportReceiverFilter(publication_id=publication_id, receiver_id=rid, submitter_id=sid))
+
+    @staticmethod
+    def _build_receiver_filter_map(pub: ReportPublication) -> dict[str, set[str]]:
+        """Build {receiver_id: set(submitter_ids)} from publication's receiver_filters.
+        Only receivers with configured filters appear in the map."""
+        fm: dict[str, set[str]] = {}
+        for f in pub.receiver_filters:
+            fm.setdefault(f.receiver_id, set()).add(f.submitter_id)
+        return fm
+
+    @staticmethod
+    async def _replace_assoc(session, model_cls, publication_id: str, member_ids: list[str]):
+        await session.execute(
+            delete(model_cls).where(model_cls.publication_id == publication_id)
+        )
+        for mid in member_ids:
+            if mid:
+                session.add(model_cls(publication_id=publication_id, member_id=mid))
+
+    @staticmethod
+    async def _resolve_member_names(session, member_ids: list[str]) -> dict[str, str]:
+        if not member_ids:
+            return {}
+        from openvort.contacts.models import Member
+        result = await session.execute(
+            select(Member.id, Member.name).where(Member.id.in_(member_ids))
+        )
+        return {mid: mname for mid, mname in result.all()}
+
+    @staticmethod
+    async def _resolve_member_info(session, member_ids: list[str]) -> dict[str, dict]:
+        """Return {member_id: {"name": ..., "avatar_url": ...}}"""
+        if not member_ids:
+            return {}
+        from openvort.contacts.models import Member
+        result = await session.execute(
+            select(Member.id, Member.name, Member.avatar_url).where(Member.id.in_(member_ids))
+        )
+        return {mid: {"name": mname, "avatar_url": avatar or ""} for mid, mname, avatar in result.all()}
+
+    @staticmethod
+    def _pub_to_dict(p: ReportPublication, names: dict[str, str] | None = None) -> dict:
+        names = names or {}
+        submitter_ids = [s.member_id for s in p.submitters]
+        whitelist_ids = [w.member_id for w in p.whitelist]
+        receiver_ids = [r.member_id for r in p.receivers]
+
+        rf_map: dict[str, list[str]] = {}
+        for f in (p.receiver_filters or []):
+            rf_map.setdefault(f.receiver_id, []).append(f.submitter_id)
+
         return {
-            "id": r.id,
-            "template_id": r.template_id,
-            "template_name": r.template.name if hasattr(r, "template") and r.template else "",
-            "scope": r.scope,
-            "target_id": r.target_id,
-            "target_name": "",
-            "reviewer_id": r.reviewer_id or "",
-            "deadline_cron": r.deadline_cron,
-            "workdays_only": r.workdays_only,
-            "reminder_minutes": r.reminder_minutes,
-            "escalation_minutes": r.escalation_minutes,
-            "enabled": r.enabled,
-            "created_at": r.created_at.isoformat() if r.created_at else None,
-            "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+            "id": p.id,
+            "name": p.name,
+            "description": p.description,
+            "report_type": p.report_type,
+            "content_schema": json.loads(p.content_schema) if p.content_schema else {},
+            "repeat_cycle": p.repeat_cycle,
+            "deadline_time": p.deadline_time,
+            "reminder_enabled": p.reminder_enabled,
+            "reminder_time": p.reminder_time,
+            "skip_weekends": p.skip_weekends,
+            "skip_holidays": p.skip_holidays,
+            "allow_multiple": p.allow_multiple,
+            "allow_edit": p.allow_edit,
+            "notify_summary": p.notify_summary,
+            "notify_on_receive": p.notify_on_receive,
+            "owner_id": p.owner_id or "",
+            "owner_name": names.get(p.owner_id, "") if p.owner_id else "",
+            "enabled": p.enabled,
+            "submitter_ids": submitter_ids,
+            "submitter_names": [names.get(mid, mid[:8]) for mid in submitter_ids],
+            "submitter_count": len(submitter_ids),
+            "whitelist_ids": whitelist_ids,
+            "whitelist_names": [names.get(mid, mid[:8]) for mid in whitelist_ids],
+            "receiver_ids": receiver_ids,
+            "receiver_names": [names.get(mid, mid[:8]) for mid in receiver_ids],
+            "receiver_filters": rf_map,
+            "created_at": p.created_at.isoformat() if p.created_at else None,
+            "updated_at": p.updated_at.isoformat() if p.updated_at else None,
         }
 
     @staticmethod
     def _report_to_dict(r: Report) -> dict:
         return {
             "id": r.id,
-            "rule_id": r.rule_id or "",
-            "template_id": r.template_id or "",
+            "publication_id": r.publication_id or "",
             "reporter_id": r.reporter_id,
-            "reviewer_id": r.reviewer_id or "",
             "report_date": r.report_date.isoformat() if r.report_date else "",
             "report_type": r.report_type,
             "title": r.title,
@@ -410,8 +718,6 @@ class ReportService:
             "status": r.status,
             "auto_generated": r.auto_generated,
             "submitted_at": r.submitted_at.isoformat() if r.submitted_at else None,
-            "reviewed_at": r.reviewed_at.isoformat() if r.reviewed_at else None,
-            "reviewer_comment": r.reviewer_comment,
             "created_at": r.created_at.isoformat() if r.created_at else None,
             "updated_at": r.updated_at.isoformat() if r.updated_at else None,
         }

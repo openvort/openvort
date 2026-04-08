@@ -5,17 +5,19 @@ import { useRouter } from "vue-router";
 import { useUserStore } from "@/stores";
 import openvortLogo from "@/assets/brand/openvort-logo.png";
 import { User, Lock } from "lucide-vue-next";
-import { message } from "@/components/vort";
+import { message } from "@openvort/vort-ui";
 import { login } from "@/api";
 
 const router = useRouter();
 const userStore = useUserStore();
 
+const isDemo = import.meta.env.VITE_IS_DEMO === "1";
+
 const loading = ref(false);
 const formRef = ref();
 const formData = reactive({
-    userId: "",
-    password: "",
+    userId: isDemo ? "demo" : "",
+    password: isDemo ? "openvort" : "",
 });
 
 const loginValidationSchema = z.object({
@@ -104,6 +106,9 @@ const handleLogin = async () => {
                     </VortButton>
                 </VortFormItem>
             </VortForm>
+            <p v-if="isDemo" class="mt-6 text-center text-xs text-gray-400">
+                演示账号：demo / openvort
+            </p>
         </div>
 
         <div class="mt-8 text-center text-xs text-gray-400">

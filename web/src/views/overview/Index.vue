@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { Settings2 } from "lucide-vue-next";
+import { useRouter } from "vue-router";
 import { getDashboard } from "@/api";
 
 import StatsWidget from "./widgets/StatsWidget.vue";
@@ -13,7 +14,11 @@ import SystemInfoWidget from "./widgets/SystemInfoWidget.vue";
 import WidgetCustomize from "./WidgetCustomize.vue";
 import type { WidgetConfig } from "./WidgetCustomize.vue";
 
+const router = useRouter();
+
 // ---- 数据 ----
+
+const llmConfigured = ref(true);
 
 const stats = ref({
     agentStatus: "running",
@@ -31,7 +36,10 @@ const stats = ref({
 onMounted(async () => {
     try {
         const res: any = await getDashboard();
-        if (res) Object.assign(stats.value, res);
+        if (res) {
+            Object.assign(stats.value, res);
+            if (res.llmConfigured === false) llmConfigured.value = false;
+        }
     } catch { /* fallback to defaults */ }
 });
 
@@ -80,6 +88,18 @@ function handleSaveWidgets(updated: WidgetConfig[]) {
 
 <template>
     <div class="space-y-6">
+        <VortAlert
+            v-if="!llmConfigured"
+            type="warning"
+            show-icon
+            message="AI 功能未配置"
+            description="尚未设置 LLM API Key，AI 对话等功能暂不可用。"
+        >
+            <template #action>
+                <VortButton type="primary" size="small" @click="router.push('/ai-config')">去配置</VortButton>
+            </template>
+        </VortAlert>
+
         <div class="flex items-center justify-between">
             <h2 class="text-lg font-medium text-gray-800">工作台</h2>
             <VortButton variant="text" size="small" @click="customizeOpen = true">

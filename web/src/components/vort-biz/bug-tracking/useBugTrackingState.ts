@@ -1,4 +1,5 @@
 import { computed, reactive, ref } from "vue";
+import { formatFileSize } from "@/utils/format";
 import type { ProTableColumn, ProTableRequestParams, ProTableResponse } from "@/components/vort-biz/pro-table";
 import {
     type RowItem,
@@ -184,12 +185,6 @@ export function useBugTrackingState() {
         return tagColorPalette[Math.abs(hash) % tagColorPalette.length]!;
     };
 
-    const formatFileSize = (size: number): string => {
-        if (size < 1024) return `${size} B`;
-        if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
-        return `${(size / (1024 * 1024)).toFixed(1)} MB`;
-    };
-
     // ==================== 行内编辑方法 ====================
     const getRowPriority = (record: RowItem, text?: Priority): Priority => priorityModel[record.workNo] ?? text ?? record.priority;
     const getRowStatus = (record: RowItem, text?: Status): Status => (statusModel[record.workNo] ?? text ?? record.status) as Status;
@@ -299,8 +294,20 @@ export function useBugTrackingState() {
     const getRowPlanTimeText = (record: RowItem, text?: DateRange): string => {
         const pt = getRowPlanTime(record, text);
         if (!pt || !pt[0]) return "设置计划时间";
-        if (!pt[1]) return `${pt[0]} ~ `;
-        return `${pt[0]} ~ ${pt[1]}`;
+        const start = pt[0];
+        const end = pt[1];
+        const currentYear = String(new Date().getFullYear());
+        const stripYear = (d: string) => d.slice(5);
+        if (!end) {
+            return (start.startsWith(currentYear) ? stripYear(start) : start) + " 开始";
+        }
+        const startYear = start.slice(0, 4);
+        const endYear = end.slice(0, 4);
+        if (startYear === endYear) {
+            const isCurrentYear = startYear === currentYear;
+            return `${isCurrentYear ? stripYear(start) : start}~${stripYear(end)}`;
+        }
+        return `${start}~${end}`;
     };
 
     const getCollapsedTags = (tags: string[], resolvedWidth?: string | number): { visible: string[]; hidden: number } => {
@@ -675,7 +682,7 @@ export function useBugTrackingState() {
         // 展开状态
         ownerGroups, isGroupOpen, typeGroupOpen, ownerGroupOpen, ownerEditGroupOpen, collaboratorGroupOpen, detailAssigneeGroupOpen, createAssigneeGroupOpen, collaboratorsModel,
         // 辅助函数
-        toWorkNo, getAvatarBg, getAvatarLabel, getTagColor, formatFileSize, getWorkTypeIconClass, getWorkTypeIconSymbol,
+        toWorkNo, getAvatarBg, getAvatarLabel, getTagColor, formatFileSize, getWorkTypeIconClass,
         // 行内编辑方法
         getRowPriority, getRowStatus, getRowOwner, getRowCollaborators, getRowTags, getRowPlanTime, togglePriorityMenu, selectPriority, toggleRowStatusMenu, selectRowStatus, toggleRowOwnerMenu, selectRowOwner, toggleCollaboratorMenu, toggleRowCollaborator, toggleTagMenu, toggleTagOption, finishTagEdit, togglePlanTimeMenu, onPlanTimeChange, getRowPlanTimeText, getCollapsedTags, getTagRenderInfo,
         // 筛选方法
@@ -700,8 +707,3 @@ function getWorkTypeIconClass(type: WorkType): string {
     return "work-type-icon-bug";
 }
 
-function getWorkTypeIconSymbol(type: WorkType): string {
-    if (type === "需求") return "≡";
-    if (type === "任务") return "☑";
-    return "✹";
-}

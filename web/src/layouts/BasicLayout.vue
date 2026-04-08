@@ -5,7 +5,7 @@ import { useAppStore, useUserStore } from "@/stores";
 import { useBreakpoint } from "@/hooks";
 import { initWebSocket, closeWebSocket } from "@/composables/useWebSocket";
 import { changePassword } from "@/api";
-import { message } from "@/components/vort";
+import { message } from "@openvort/vort-ui";
 import Sidebar from "./components/Sidebar.vue";
 import Header from "./components/Header.vue";
 import AiFloat from "@/components/ai-float/AiFloat.vue";

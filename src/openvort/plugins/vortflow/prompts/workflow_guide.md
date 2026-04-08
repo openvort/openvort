@@ -21,6 +21,7 @@
 ## 可用工具
 
 - `vortflow_intake_story` — 录入新需求（支持 iteration_name/iteration_id 关联迭代）
+- `vortflow_create_task` — 创建任务（可关联需求 story_id，支持指定项目、负责人、类型、工时）
 - `vortflow_create_bug` — 提交缺陷（支持 iteration_name/iteration_id 关联迭代）
 - `vortflow_assign` — 分配角色（产品经理、设计师、开发、测试等）
 - `vortflow_update_progress` — 推进状态（遵循状态机规则）
@@ -31,12 +32,21 @@
 ## 使用指南
 
 - 用户说"帮我录入一个需求"时，使用 `vortflow_intake_story`
+- 用户说"创建一个任务"时，使用 `vortflow_create_task`
 - 用户说"把这个需求分配给某人"时，使用 `vortflow_assign`
 - 用户说"这个需求评审通过了"时，使用 `vortflow_update_progress` 推进到下一状态
 - 用户说"查看当前需求状态"时，使用 `vortflow_query`
 - 用户说"创建 Bug 到某个迭代"时，使用 `vortflow_create_bug` 并传入 `iteration_name`
 - 用户说"查看迭代列表"时，使用 `vortflow_query(query_type=iterations)`
 - 需要关联迭代但不确定迭代 ID 时，先用 `vortflow_query(query_type=iterations)` 查询
+
+## 关联关系
+
+创建工作项时，务必维护正确的关联关系：
+
+- **创建任务时**：如果任务属于某个需求，必须传入 `story_id`。先用 `vortflow_query` 查出需求 ID，再创建任务
+- **创建缺陷时**：如果缺陷与某个需求或任务相关，应传入 `story_id` 或 `task_id`
+- **任务的 project_id**：如果指定了 `story_id`，`project_id` 会自动从需求继承，无需重复指定
 
 ## 优先级说明
 

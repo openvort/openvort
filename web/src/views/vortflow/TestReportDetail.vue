@@ -8,7 +8,7 @@ import {
 } from "lucide-vue-next";
 import * as echarts from "echarts";
 import * as XLSX from "xlsx";
-import { message, Dropdown, DropdownMenuItem } from "@/components/vort";
+import { message, Dropdown, DropdownMenuItem } from "@openvort/vort-ui";
 import VortEditor from "@/components/vort-biz/editor/VortEditor.vue";
 import { getVortflowTestReport, updateVortflowTestReport } from "@/api";
 

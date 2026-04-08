@@ -1,8 +1,68 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
-import { marked } from "marked";
+import { marked, type Tokens } from "marked";
+import mermaid from "mermaid";
 import { X, ZoomIn, ZoomOut, RotateCw, RotateCcw, Maximize, Download, ChevronLeft, ChevronRight } from "lucide-vue-next";
-import { getVortTeleportTo } from "@/components/vort/composables";
+import { getVortTeleportTo } from "@/components/vort-biz/utils/teleport";
+
+let mermaidIdCounter = 0;
+
+mermaid.initialize({
+    startOnLoad: false,
+    theme: "base",
+    themeVariables: {
+        primaryColor: "#e8f4fd",
+        primaryTextColor: "#1a1a1a",
+        primaryBorderColor: "#4a9eda",
+        lineColor: "#666666",
+        secondaryColor: "#f0f7ee",
+        tertiaryColor: "#fef3e2",
+        edgeLabelBackground: "#f7f9fc",
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+        fontSize: "14px",
+    },
+    flowchart: {
+        htmlLabels: true,
+        curve: "basis",
+        padding: 12,
+        nodeSpacing: 50,
+        rankSpacing: 60,
+        useMaxWidth: true,
+    },
+    securityLevel: "loose",
+});
+
+const slugify = (text: string) =>
+    text.replace(/<[^>]*>/g, "")
+        .replace(/&[^;]+;/g, "")
+        .trim()
+        .replace(/\s+/g, "-")
+        .replace(/[^\w\u4e00-\u9fff-]/g, "")
+        .toLowerCase();
+
+const renderer = new marked.Renderer();
+const originalCodeRenderer = renderer.code;
+renderer.code = function (token: Tokens.Code) {
+    if (token.lang === "mermaid") {
+        const id = `mermaid-${mermaidIdCounter++}`;
+        return `<div class="mermaid-container"><pre class="mermaid" id="${id}">${token.text}</pre></div>`;
+    }
+    return originalCodeRenderer.call(this, token);
+};
+const originalHeadingRenderer = renderer.heading;
+renderer.heading = function (token: Tokens.Heading) {
+    const rawHtml = originalHeadingRenderer.call(this, token);
+    const slug = slugify(token.text);
+    return rawHtml.replace(/^<h(\d)/, `<h$1 id="${slug}"`);
+};
+const originalLinkRenderer = renderer.link;
+renderer.link = function (token: Tokens.Link) {
+    const html = originalLinkRenderer.call(this, token);
+    if (/^https?:\/\//.test(token.href || "")) {
+        return html.replace(/^<a /, '<a target="_blank" rel="noopener noreferrer" ');
+    }
+    return html;
+};
 
 const props = defineProps<{
     content: string;
@@ -10,8 +70,44 @@ const props = defineProps<{
 
 const html = computed(() => {
     if (!props.content) return "";
-    return marked.parse(props.content, { async: false }) as string;
+    return marked.parse(props.content, { async: false, renderer }) as string;
 });
+
+const renderMermaid = async () => {
+    if (!contentRef.value) return;
+    const mermaidEls = contentRef.value.querySelectorAll<HTMLElement>("pre.mermaid");
+    if (mermaidEls.length === 0) return;
+    try {
+        await mermaid.run({ nodes: mermaidEls });
+    } catch {
+        // silently ignore render errors for malformed diagrams
+    }
+};
+
+const scrollToHash = () => {
+    const hash = decodeURIComponent(window.location.hash.slice(1));
+    if (!hash || !contentRef.value) return;
+    const target = contentRef.value.querySelector(`#${CSS.escape(hash)}`);
+    if (target) {
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+};
+
+const handleHashChange = () => { nextTick(scrollToHash); };
+
+const handleContentClick = (e: MouseEvent) => {
+    const anchor = (e.target as HTMLElement).closest("a");
+    if (!anchor) return;
+    const href = anchor.getAttribute("href");
+    if (!href || !href.startsWith("#")) return;
+    e.preventDefault();
+    const id = decodeURIComponent(href.slice(1));
+    const target = contentRef.value?.querySelector(`#${CSS.escape(id)}`);
+    if (target) {
+        history.replaceState(null, "", href);
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+};
 
 const contentRef = ref<HTMLElement | null>(null);
 const images = ref<string[]>([]);
@@ -120,23 +216,25 @@ const handleKeydown = (e: KeyboardEvent) => {
 
 const teleportTo = computed(() => getVortTeleportTo());
 
-watch(html, () => { nextTick(collectImages); });
+watch(html, () => { nextTick(() => { collectImages(); renderMermaid(); scrollToHash(); }); });
 onMounted(() => {
-    nextTick(collectImages);
+    nextTick(() => { collectImages(); renderMermaid(); scrollToHash(); });
     document.addEventListener("keydown", handleKeydown);
     document.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mouseup", handleMouseUp);
+    window.addEventListener("hashchange", handleHashChange);
 });
 onUnmounted(() => {
     document.removeEventListener("keydown", handleKeydown);
     document.removeEventListener("mousemove", handleMouseMove);
     document.removeEventListener("mouseup", handleMouseUp);
+    window.removeEventListener("hashchange", handleHashChange);
     document.body.style.overflow = "";
 });
 </script>
 
 <template>
-    <div ref="contentRef" class="markdown-view" v-html="html" />
+    <div ref="contentRef" class="markdown-view" v-html="html" @click="handleContentClick" />
 
     <Teleport :to="teleportTo">
         <div v-if="previewVisible" class="mv-preview-root">
@@ -229,6 +327,52 @@ onUnmounted(() => {
 .markdown-view table { border-collapse: collapse; width: 100%; margin: 0.5em 0; }
 .markdown-view th, .markdown-view td { border: 1px solid #e5e5e5; padding: 6px 12px; text-align: left; }
 .markdown-view th { background: #fafafa; font-weight: 600; }
+
+.markdown-view .mermaid-container {
+    margin: 1em 0;
+    padding: 20px;
+    background: #ffffff;
+    border: 1px solid #e8e8e8;
+    border-radius: 8px;
+    overflow-x: auto;
+}
+.markdown-view .mermaid-container pre.mermaid {
+    background: transparent;
+    color: inherit;
+    padding: 0;
+    margin: 0;
+    border-radius: 0;
+    text-align: center;
+}
+.markdown-view .mermaid-container svg {
+    max-width: 100%;
+    height: auto;
+}
+.markdown-view .mermaid-container .node rect,
+.markdown-view .mermaid-container .node polygon,
+.markdown-view .mermaid-container .node circle {
+    stroke-width: 1.5px;
+}
+.markdown-view .mermaid-container .edgeLabel {
+    background-color: #f7f9fc !important;
+    font-size: 12px;
+}
+.markdown-view .mermaid-container .edgeLabel .label {
+    background-color: #f7f9fc;
+    padding: 4px 10px;
+    border-radius: 4px;
+    color: #555;
+}
+.markdown-view .mermaid-container .edgePath .path {
+    stroke-width: 1.5px;
+}
+.markdown-view .mermaid-container .cluster rect {
+    fill: #f8f9fa;
+    stroke: #dee2e6;
+    stroke-width: 1px;
+    rx: 6;
+    ry: 6;
+}
 
 .mv-preview-root { position: fixed; inset: 0; z-index: 1080; }
 .mv-preview-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 0; }

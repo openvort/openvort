@@ -28,9 +28,14 @@ export const useUserStore = defineStore(
 
         const isLoggedIn = () => !!token.value;
 
-        const isAdmin = computed(() => userInfo.value.roles.includes("admin"));
+        const isAdmin = computed(() => userInfo.value.roles.includes("admin") || userInfo.value.roles.includes("demo"));
 
-        const hasRole = (role: string) => userInfo.value.roles.includes(role);
+        const isDemo = computed(() => userInfo.value.roles.includes("demo"));
+
+        const hasRole = (role: string) => {
+            if (role === "admin" && userInfo.value.roles.includes("demo")) return true;
+            return userInfo.value.roles.includes(role);
+        };
 
         const setToken = (t: string) => {
             token.value = t;
@@ -59,7 +64,7 @@ export const useUserStore = defineStore(
             };
         };
 
-        return { token, userInfo, mustChangePassword, isLoggedIn, isAdmin, hasRole, setToken, setUserInfo, setMustChangePassword, logout };
+        return { token, userInfo, mustChangePassword, isLoggedIn, isAdmin, isDemo, hasRole, setToken, setUserInfo, setMustChangePassword, logout };
     },
     { persist: true }
 );

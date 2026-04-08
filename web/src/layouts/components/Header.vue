@@ -12,7 +12,6 @@ defineProps<{ isScrolled: boolean; isMobile?: boolean }>();
 const router = useRouter();
 const userStore = useUserStore();
 const appStore = useAppStore();
-const showUserMenu = ref(false);
 
 const version = ref("");
 const llmHealthy = ref<boolean | null>(null);
@@ -23,7 +22,7 @@ const updateAvailable = ref(false);
 const latestVersion = ref("");
 const releaseNotes = ref("");
 
-const isAdmin = computed(() => userStore.userInfo.roles.includes("admin"));
+const isAdmin = computed(() => userStore.isAdmin);
 
 const checkVersionUpdate = (serverVersion: string) => {
     if (!serverVersion) return;
@@ -82,7 +81,6 @@ const handleLogout = () => {
 };
 
 const goProfile = () => {
-    showUserMenu.value = false;
     router.push("/profile");
 };
 
@@ -93,6 +91,9 @@ const upgradeMessage = ref("");
 const upgradeError = ref("");
 const upgradeRunning = ref(false);
 const upgradeDone = ref(false);
+const upgradePercent = ref<number | null>(null);
+const upgradeCurrentStep = ref(0);
+const upgradeTotalSteps = ref(0);
 
 const openUpgradeDialog = () => {
     showUpgradeDialog.value = true;
@@ -101,6 +102,9 @@ const openUpgradeDialog = () => {
     upgradeError.value = "";
     upgradeRunning.value = false;
     upgradeDone.value = false;
+    upgradePercent.value = null;
+    upgradeCurrentStep.value = 0;
+    upgradeTotalSteps.value = 0;
 };
 
 const startUpgrade = () => {
@@ -140,6 +144,9 @@ const startUpgrade = () => {
                     if (ev.type === "progress") {
                         upgradeStep.value = ev.step || "";
                         upgradeMessage.value = ev.message || "";
+                        upgradePercent.value = ev.percent ?? null;
+                        upgradeCurrentStep.value = ev.current_step ?? 0;
+                        upgradeTotalSteps.value = ev.total_steps ?? 0;
                     } else if (ev.type === "done") {
                         upgradeDone.value = true;
                         upgradeRunning.value = false;
@@ -233,37 +240,28 @@ const stepLabel = computed(() => {
             <!-- 通知 -->
             <NotificationPopover />
             <!-- 用户信息 -->
-            <div class="relative">
-                <div
-                    class="flex items-center gap-2 cursor-pointer px-2 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
-                    @click="showUserMenu = !showUserMenu"
-                >
-                    <div class="w-[28px] h-[28px] rounded-full bg-blue-600 flex items-center justify-center">
+            <vort-dropdown trigger="click" placement="bottomRight">
+                <div class="flex items-center gap-2 cursor-pointer px-2 py-1.5 rounded-lg hover:bg-gray-50 transition-colors">
+                    <img v-if="userStore.userInfo.avatar_url" :src="userStore.userInfo.avatar_url" class="w-[28px] h-[28px] rounded-full object-cover" />
+                    <div v-else class="w-[28px] h-[28px] rounded-full bg-blue-600 flex items-center justify-center">
                         <span class="text-white text-xs font-medium">{{ (userStore.userInfo.name || 'U')[0] }}</span>
                     </div>
                     <span class="hidden sm:inline text-[13px] text-gray-700">{{ userStore.userInfo.name || '用户' }}</span>
                 </div>
-
-                <!-- 下拉菜单 -->
-                <transition name="dropdown">
-                    <div
-                        v-if="showUserMenu"
-                        class="absolute right-0 top-[44px] w-[160px] bg-white rounded-lg shadow-lg border border-gray-100 py-1 z-50"
-                        @mouseleave="showUserMenu = false"
-                    >
-                        <div class="px-3 py-1.5 text-xs text-gray-400 border-b border-gray-100">
-                            {{ userStore.userInfo.roles.join(', ') || 'member' }}
-                        </div>
-                        <div class="px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 cursor-pointer flex items-center gap-2" @click="goProfile">
-                            <User :size="14" /> 个人设置
-                        </div>
-                        <div class="border-t border-gray-100 my-1"></div>
-                        <div class="px-3 py-2 text-[13px] text-red-500 hover:bg-red-50 cursor-pointer flex items-center gap-2" @click="handleLogout">
-                            <LogOut :size="14" /> 退出登录
-                        </div>
+                <template #overlay>
+                    <div class="px-3 py-1.5 text-xs text-gray-400">
+                        {{ userStore.userInfo.roles.join(', ') || 'member' }}
                     </div>
-                </transition>
-            </div>
+                    <vort-dropdown-menu-separator />
+                    <vort-dropdown-menu-item @click="goProfile">
+                        <User :size="14" /> 个人设置
+                    </vort-dropdown-menu-item>
+                    <vort-dropdown-menu-separator />
+                    <vort-dropdown-menu-item class="text-red-500" @click="handleLogout">
+                        <LogOut :size="14" /> 退出登录
+                    </vort-dropdown-menu-item>
+                </template>
+            </vort-dropdown>
         </div>
     </header>
 
@@ -305,11 +303,16 @@ const stepLabel = computed(() => {
                             <div class="flex flex-col items-center gap-4 py-6">
                                 <Loader2 :size="32" class="text-blue-500 animate-spin" />
                                 <div class="text-center">
-                                    <div class="text-sm font-medium text-gray-800">{{ stepLabel || '准备中...' }}</div>
+                                    <div class="text-sm font-medium text-gray-800">
+                                        {{ stepLabel || '准备中...' }}
+                                        <span v-if="upgradeTotalSteps" class="text-gray-400 font-normal text-xs ml-1">({{ upgradeCurrentStep }}/{{ upgradeTotalSteps }})</span>
+                                    </div>
                                     <div class="text-xs text-gray-500 mt-1">{{ upgradeMessage }}</div>
                                 </div>
                                 <div class="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
-                                    <div class="bg-blue-500 h-full rounded-full transition-all duration-500 animate-pulse" style="width: 70%"></div>
+                                    <div class="bg-blue-500 h-full rounded-full transition-all duration-300"
+                                         :class="{ 'animate-pulse': upgradePercent == null }"
+                                         :style="{ width: (upgradePercent ?? 15) + '%' }"></div>
                                 </div>
                                 <p class="text-[11px] text-gray-400">请勿关闭页面或刷新浏览器</p>
                             </div>

@@ -66,6 +66,14 @@ export function getVortgitRepoBranches(id: string) {
     return request.get(`/vortgit/repos/${id}/branches`);
 }
 
+export function getVortgitRepoTree(repoId: string, params: { path?: string; ref?: string }) {
+    return request.get(`/vortgit/repos/${repoId}/tree`, { params });
+}
+
+export function getVortgitRepoFileContent(repoId: string, params: { path: string; ref?: string }) {
+    return request.get(`/vortgit/repos/${repoId}/file-content`, { params });
+}
+
 // ---- Repo Members ----
 
 export function getVortgitRepoMembers(repoId: string) {

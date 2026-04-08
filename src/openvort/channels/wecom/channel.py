@@ -196,7 +196,8 @@ class WeComChannel(BaseChannel):
             "**方式二：自建应用（传统模式）**\n"
             "1. 进入「应用管理」→「自建」→ 创建应用\n"
             "2. 在应用详情页获取 **AgentId** 和 **Secret**\n"
-            "3. 如需 Webhook 模式：设置接收服务器，获取 **Token** 和 **EncodingAESKey**\n"
+            "3. 如需 Webhook 模式：设置接收服务器，获取 **Token** 和 **EncodingAESKey**\n\n"
+            "[查看详细配置文档 →](https://openvort.com/docs/guide/channels-wecom)\n"
         )
 
     def get_current_config(self) -> dict:

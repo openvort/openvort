@@ -3,8 +3,8 @@ import { ref, computed, watch } from "vue";
 import {
     Search, ChevronRight, ChevronDown, FolderOpen, Folder,
 } from "lucide-vue-next";
-import { Dialog } from "@/components/vort";
-import { message } from "@/components/vort/message";
+import { Dialog } from "@openvort/vort-ui";
+import { message } from "@openvort/vort-ui";
 import {
     getVortflowTestModules,
     getVortflowTestCases,
@@ -50,6 +50,27 @@ const selectedModuleId = ref("");
 const moduleSearch = ref("");
 const showModuleSearch = ref(false);
 
+const EXPAND_STORAGE_KEY = "vortflow_test_module_expanded";
+
+const saveExpandedState = () => {
+    if (!props.projectId) return;
+    try {
+        const all = JSON.parse(localStorage.getItem(EXPAND_STORAGE_KEY) || "{}");
+        all[props.projectId] = [...expandedIds.value];
+        localStorage.setItem(EXPAND_STORAGE_KEY, JSON.stringify(all));
+    } catch { /* ignore */ }
+};
+
+const loadExpandedState = (): Set<string> | null => {
+    if (!props.projectId) return null;
+    try {
+        const all = JSON.parse(localStorage.getItem(EXPAND_STORAGE_KEY) || "{}");
+        const ids = all[props.projectId];
+        if (Array.isArray(ids)) return new Set(ids);
+    } catch { /* ignore */ }
+    return null;
+};
+
 const flatNodes = computed<FlatNode[]>(() => {
     const map = new Map<string, RawModule>();
     const childMap = new Map<string, string[]>();
@@ -88,8 +109,13 @@ const loadModules = async () => {
     try {
         const res = await getVortflowTestModules({ project_id: props.projectId });
         rawModules.value = (res as any)?.items || [];
-        const parentIds = new Set(rawModules.value.filter((m) => m.parent_id).map((m) => m.parent_id!));
-        for (const pid of parentIds) expandedIds.value.add(pid);
+        const saved = loadExpandedState();
+        if (saved) {
+            const validIds = new Set(rawModules.value.map((m) => m.id));
+            expandedIds.value = new Set([...saved].filter((id) => validIds.has(id)));
+        } else {
+            expandedIds.value = new Set();
+        }
     } catch {
         rawModules.value = [];
     }
@@ -99,6 +125,7 @@ const toggleExpand = (id: string) => {
     const next = new Set(expandedIds.value);
     if (next.has(id)) next.delete(id); else next.add(id);
     expandedIds.value = next;
+    saveExpandedState();
 };
 
 const selectModule = (id: string) => {

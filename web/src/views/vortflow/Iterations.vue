@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, watch } from "vue";
 import { useRouter } from "vue-router";
 import { Plus } from "lucide-vue-next";
-import { DownOutlined } from "@/components/vort/icons";
+import { DownOutlined } from "@openvort/vort-ui";
 import { useCrudPage } from "@/hooks";
 import { useVortFlowStore } from "@/stores";
 import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMemberPicker.vue";
@@ -21,6 +21,7 @@ interface IterationItem {
     end_date: string | null;
     status: string;
     created_at: string | null;
+    updated_at?: string | null;
     owner_id?: string;
     assignee_id?: string;
     pm_id?: string;
@@ -89,6 +90,38 @@ const projectNameById = (id: string) => vortFlowStore.projects.find(p => p.id ==
 const formatDate = (iso: string | null) => {
     if (!iso) return "-";
     return iso.split("T")[0];
+};
+
+const formatPlanTimeRange = (startIso: string | null, endIso: string | null): string => {
+    const start = startIso ? startIso.split("T")[0] : "";
+    const end = endIso ? endIso.split("T")[0] : "";
+    if (!start && !end) return "-";
+    const currentYear = String(new Date().getFullYear());
+    const stripYear = (d: string) => d.slice(5);
+    if (!end) return (start.startsWith(currentYear) ? stripYear(start) : start) + " 开始";
+    if (!start) return "~" + (end.startsWith(currentYear) ? stripYear(end) : end);
+    const startYear = start.slice(0, 4);
+    const endYear = end.slice(0, 4);
+    if (startYear === endYear) {
+        const isCurrentYear = startYear === currentYear;
+        return `${isCurrentYear ? stripYear(start) : start}~${stripYear(end)}`;
+    }
+    return `${start}~${end}`;
+};
+
+const getIterOverdueInfo = (row: IterationItem): { days: number; completed: boolean } | null => {
+    const end = row.end_date ? row.end_date.split("T")[0] : "";
+    if (!end) return null;
+    const endDate = new Date(end + "T00:00:00");
+    const isDone = row.status === "completed";
+    const refDate = new Date();
+    if (isDone && row.updated_at) {
+        refDate.setTime(new Date(row.updated_at).getTime());
+    }
+    refDate.setHours(0, 0, 0, 0);
+    const diffDays = Math.floor((refDate.getTime() - endDate.getTime()) / 86400000);
+    if (diffDays <= 0) return null;
+    return { days: diffDays, completed: isDone };
 };
 
 const effortText = (i: IterationItem) => {
@@ -256,7 +289,12 @@ onMounted(async () => {
 
                 <vort-table-column label="计划时间" :width="260">
                     <template #default="{ row }">
-                        <span class="text-sm text-gray-500">{{ formatDate(row.start_date) }} - {{ formatDate(row.end_date) }}</span>
+                        <span class="text-sm text-gray-500">
+                            {{ formatPlanTimeRange(row.start_date, row.end_date) }}
+                            <span v-if="getIterOverdueInfo(row)" class="iter-overdue" :class="{ 'is-done': getIterOverdueInfo(row)!.completed }">
+                                {{ getIterOverdueInfo(row)!.completed ? `逾期${getIterOverdueInfo(row)!.days}天完成` : `逾期${getIterOverdueInfo(row)!.days}天` }}
+                            </span>
+                        </span>
                     </template>
                 </vort-table-column>
 
@@ -307,6 +345,17 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.iter-overdue {
+    margin-left: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    color: #dc2626;
+    white-space: nowrap;
+}
+.iter-overdue.is-done {
+    color: #d97706;
+}
+
 .filter-select-trigger {
     display: flex;
     align-items: center;

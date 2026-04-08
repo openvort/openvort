@@ -2,7 +2,7 @@
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { Filter, Plus, LayoutList, Ellipsis, Play, CheckCircle, Pencil, Trash2 } from "lucide-vue-next";
-import { message } from "@/components/vort";
+import { message } from "@openvort/vort-ui";
 import {
     getVortflowIteration, getVortflowIterations,
     getVortflowStories, getVortflowTasks, getVortflowBugs,

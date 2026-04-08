@@ -16,7 +16,7 @@ import {
     getInstallImageUrl,
 } from "@/api";
 import { useUserStore } from "@/stores/modules/user";
-import { message } from "@/components/vort";
+import { message } from "@openvort/vort-ui";
 import {
     Plus, CheckCircle, XCircle, HelpCircle, Play,
     RotateCw, Container, Cpu, MemoryStick,
@@ -52,9 +52,9 @@ const NODE_TYPE_OPTIONS = [
 ];
 
 const IMAGE_PRESETS = [
-    { value: "openvort/worker-sandbox:latest", label: "工作沙箱 (Python + Node + Claude Code + Aider)" },
-    { value: "openvort/coding-sandbox:latest", label: "编码沙箱 (Python + Node + Claude Code + Aider)" },
-    { value: "openvort/browser-sandbox:latest", label: "浏览器沙箱 (Chromium + noVNC 可视化)" },
+    { value: "ghcr.io/openvort/worker-sandbox:latest", label: "工作沙箱 (Python + Node + Claude Code + Aider)" },
+    { value: "ghcr.io/openvort/coding-sandbox:latest", label: "编码沙箱 (Python + Node + Claude Code + Aider)" },
+    { value: "ghcr.io/openvort/browser-sandbox:latest", label: "浏览器沙箱 (Chromium + noVNC 可视化)" },
     { value: "python:3.11-slim", label: "Python 3.11 (轻量)" },
     { value: "node:22-slim", label: "Node.js 22 (轻量)" },
     { value: "ubuntu:24.04", label: "Ubuntu 24.04 (通用)" },

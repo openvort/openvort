@@ -22,7 +22,7 @@ from openvort.utils.logging import get_logger
 
 log = get_logger("core.coding_env")
 
-DEFAULT_CODING_IMAGE = "openvort/coding-sandbox:latest"
+DEFAULT_CODING_IMAGE = "ghcr.io/openvort/coding-sandbox:latest"
 
 
 class EnvMode(str, Enum):
