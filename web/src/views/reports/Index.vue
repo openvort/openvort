@@ -72,7 +72,7 @@ const userStore = useUserStore();
 const isAdmin = computed(() => userStore.isAdmin || userStore.userInfo.roles?.includes("manager"));
 const validTabs = ["read", "publish"];
 const activeTab = ref(validTabs.includes(route.query.tab as string) ? (route.query.tab as string) : "read");
-const readSubTab = ref("received");
+const readSubTab = ref("submitted");
 
 watch(activeTab, (tab) => {
     router.replace({ query: { ...route.query, tab } });
@@ -316,7 +316,7 @@ onMounted(() => {
             <!-- Tabs -->
             <VortTabs v-model:activeKey="activeTab" :hide-content="true" class="mb-5">
                 <VortTabPane tab-key="read" tab="读汇报" />
-                <VortTabPane v-if="isAdmin" tab-key="publish" tab="发布汇报" />
+                <VortTabPane v-if="isAdmin" tab-key="publish" tab="发布汇报模板" />
             </VortTabs>
 
             <!-- ===== 读汇报 content ===== -->
@@ -325,14 +325,14 @@ onMounted(() => {
                     <div class="flex items-center gap-1 bg-gray-50 rounded-lg p-0.5 w-fit mb-5">
                         <button
                             class="px-4 py-1.5 rounded-md text-sm font-medium transition-all"
-                            :class="readSubTab === 'received' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'"
-                            @click="readSubTab = 'received'; resetFilters()"
-                        >我收到的</button>
-                        <button
-                            class="px-4 py-1.5 rounded-md text-sm font-medium transition-all"
                             :class="readSubTab === 'submitted' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'"
                             @click="readSubTab = 'submitted'; resetFilters()"
                         >我提交的</button>
+                        <button
+                            class="px-4 py-1.5 rounded-md text-sm font-medium transition-all"
+                            :class="readSubTab === 'received' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'"
+                            @click="readSubTab = 'received'; resetFilters()"
+                        >我收到的</button>
                     </div>
 
                     <!-- Filters -->
@@ -440,12 +440,12 @@ onMounted(() => {
                     </div>
             </div>
 
-            <!-- ===== 发布汇报 content ===== -->
+            <!-- ===== 发布汇报模板 content ===== -->
             <div v-if="isAdmin" v-show="activeTab === 'publish'">
                     <div class="flex items-center justify-between mb-4">
-                        <h4 class="text-sm font-medium text-gray-600">已发布的汇报</h4>
+                        <h4 class="text-sm font-medium text-gray-600">已发布的汇报模板</h4>
                         <vort-button variant="primary" @click="openPubDrawer()">
-                            <Plus :size="14" class="mr-1" /> 发布汇报
+                            <Plus :size="14" class="mr-1" /> 发布汇报模板
                         </vort-button>
                     </div>
 
@@ -496,7 +496,7 @@ onMounted(() => {
                             </div>
                         </div>
                         <div v-else class="text-gray-400 text-sm text-center py-16">
-                            暂无发布，点击右上角「发布汇报」开始
+                            暂无发布，点击右上角「发布汇报模板」开始
                         </div>
                     </vort-spin>
             </div>

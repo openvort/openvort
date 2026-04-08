@@ -25,20 +25,18 @@ const formRef = ref();
 const submitting = ref(false);
 
 const form = ref({
-    title: "",
     content: "",
     report_date: "",
 });
 
 const rules = z.object({
-    title: z.string().optional(),
     content: z.string().min(1, "请填写汇报内容"),
 });
 
 watch(() => props.open, async (val) => {
     if (val) {
         submitting.value = false;
-        form.value = { title: "", content: "", report_date: "" };
+        form.value = { content: "", report_date: "" };
         if (props.preselectedPub) {
             selectedPub.value = props.preselectedPub;
             step.value = "write";
@@ -74,7 +72,7 @@ async function handleSubmit() {
     try {
         const payload = {
             report_type: selectedPub.value?.report_type || "daily",
-            title: form.value.title || `${selectedPub.value?.name || "汇报"} - ${form.value.report_date || new Date().toISOString().slice(0, 10)}`,
+            title: `${selectedPub.value?.name || "汇报"} - ${form.value.report_date || new Date().toISOString().slice(0, 10)}`,
             content: form.value.content,
             report_date: form.value.report_date || undefined,
             publication_id: selectedPub.value?.id,
@@ -131,9 +129,6 @@ const typeLabels: Record<string, string> = { daily: "日报", weekly: "周报", 
             <vort-form ref="formRef" :model="form" :rules="rules" label-width="80px">
                 <vort-form-item label="日期" name="report_date">
                     <vort-date-picker v-model="form.report_date" value-format="YYYY-MM-DD" placeholder="默认今天" style="width: 100%" />
-                </vort-form-item>
-                <vort-form-item label="标题" name="title">
-                    <vort-input v-model="form.title" placeholder="留空则自动生成" />
                 </vort-form-item>
                 <vort-form-item label="内容" name="content" required>
                     <VortEditor v-model="form.content" placeholder="## 今日工作&#10;&#10;## 遇到的问题&#10;&#10;## 明日计划" min-height="300px" />

@@ -182,6 +182,7 @@ class ReportService:
                 return None
 
             old_status = report.status
+            has_content_change = "content" in fields or "title" in fields
             for key in ("title", "content", "status", "publication_id"):
                 if key in fields:
                     setattr(report, key, fields[key])
@@ -194,6 +195,8 @@ class ReportService:
 
         if fields.get("status") == "submitted" and old_status != "submitted" and report.publication_id:
             await self._notify_receivers_on_submit(report)
+        elif has_content_change and report.status == "submitted" and report.publication_id:
+            await self._notify_receivers_on_edit(report)
 
         return self._report_to_dict(report)
 
@@ -397,11 +400,14 @@ class ReportService:
             from openvort.plugins.vortflow.aggregator import send_im_to_member
 
             type_label = TYPE_LABELS.get(report.report_type, "汇报")
+            report_url = self._build_report_url("read")
             text = (
                 f"**{reporter_name}** 提交了{type_label}\n\n"
                 f"**{report.title or '无标题'}**\n\n"
                 f"{(report.content or '')[:200]}{'...' if len(report.content or '') > 200 else ''}"
             )
+            if report_url:
+                text += f"\n\n[查看详情]({report_url})"
             for rid in receiver_ids:
                 try:
                     await send_im_to_member(rid, text)
@@ -409,6 +415,47 @@ class ReportService:
                     log.warning(f"通知接收人失败 receiver={rid}: {e}")
         except Exception as e:
             log.warning(f"发送提交通知失败: {e}")
+
+    async def _notify_receivers_on_edit(self, report: Report) -> None:
+        """When a submitted report is edited, notify receivers."""
+        try:
+            async with self._sf() as session:
+                pub = await self._get_pub(session, report.publication_id)
+                if not pub or not pub.notify_on_receive:
+                    return
+                all_receiver_ids = [r.member_id for r in pub.receivers]
+                if not all_receiver_ids:
+                    return
+
+                filter_map = self._build_receiver_filter_map(pub)
+                receiver_ids = [
+                    rid for rid in all_receiver_ids
+                    if rid not in filter_map or report.reporter_id in filter_map[rid]
+                ]
+                if not receiver_ids:
+                    return
+
+                names = await self._resolve_member_names(session, [report.reporter_id])
+                reporter_name = names.get(report.reporter_id, "")
+
+            from openvort.plugins.vortflow.aggregator import send_im_to_member
+
+            type_label = TYPE_LABELS.get(report.report_type, "汇报")
+            report_url = self._build_report_url("read")
+            text = (
+                f"**{reporter_name}** 修改了{type_label}\n\n"
+                f"**{report.title or '无标题'}**\n\n"
+                f"{(report.content or '')[:200]}{'...' if len(report.content or '') > 200 else ''}"
+            )
+            if report_url:
+                text += f"\n\n[查看详情]({report_url})"
+            for rid in receiver_ids:
+                try:
+                    await send_im_to_member(rid, text)
+                except Exception as e:
+                    log.warning(f"编辑通知接收人失败 receiver={rid}: {e}")
+        except Exception as e:
+            log.warning(f"发送编辑通知失败: {e}")
 
     async def send_fill_reminders(self, publication_id: str) -> dict:
         """Send IM reminders to submitters who haven't submitted yet today."""
@@ -439,6 +486,7 @@ class ReportService:
             names = await self._resolve_member_names(session, pending_ids)
 
         type_label = TYPE_LABELS.get(pub_dict.get("report_type", ""), "汇报")
+        report_url = self._build_report_url()
         sent, failed = 0, 0
         for mid in pending_ids:
             name = names.get(mid, "")
@@ -446,6 +494,8 @@ class ReportService:
                 f"{name}，请及时提交{type_label}：**{pub_dict['name']}**\n\n"
                 f"截止时间：{pub_dict.get('deadline_time', '')}"
             )
+            if report_url:
+                text += f"\n\n[前往填写]({report_url})"
             try:
                 await send_im_to_member(mid, text)
                 sent += 1
@@ -504,6 +554,10 @@ class ReportService:
             lines.append(f"\n未提交成员：{'、'.join(pending_names[:10])}"
                          + (f" 等{len(pending_names)}人" if len(pending_names) > 10 else ""))
 
+        report_url = self._build_report_url("read")
+        if report_url:
+            lines.append(f"\n[查看汇报]({report_url})")
+
         text = "\n".join(lines)
         sent = 0
         for rid in receiver_ids:
@@ -547,6 +601,17 @@ class ReportService:
             all_mids.add(pub.owner_id)
         names = await self._resolve_member_names(session, list(all_mids)) if all_mids else {}
         return self._pub_to_dict(pub, names)
+
+    @staticmethod
+    def _build_report_url(tab: str = "") -> str:
+        from openvort.config.settings import get_settings
+        site_url = (get_settings().web.site_url or "").rstrip("/")
+        if not site_url:
+            return ""
+        url = f"{site_url}/reports"
+        if tab:
+            url += f"?tab={tab}"
+        return url
 
     @staticmethod
     async def _replace_receiver_filters(session, publication_id: str, filters: dict[str, list[str]]):
