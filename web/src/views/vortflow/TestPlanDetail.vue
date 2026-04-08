@@ -8,6 +8,7 @@ import {
     FileText, Copy, MoreHorizontal, ArrowUpDown, Check, Filter,
 } from "lucide-vue-next";
 import { message, Dropdown, DropdownMenuItem, Dialog } from "@openvort/vort-ui";
+import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
 import { useVortFlowStore } from "@/stores";
 import { useWorkItemCommon } from "./work-item/useWorkItemCommon";
 import WorkItemCreate from "./work-item/WorkItemCreate.vue";
@@ -609,6 +610,15 @@ const handleRemoveReview = async (reviewId: string) => {
 const handleAddPRSaved = () => {
     loadReviews();
     loadPlan();
+};
+
+// --- Review detail drawer ---
+const reviewDetailDrawerOpen = ref(false);
+const reviewDetailTarget = ref<any>(null);
+
+const handleShowReviewNotes = (row: any) => {
+    reviewDetailTarget.value = row;
+    reviewDetailDrawerOpen.value = true;
 };
 
 // --- Review history ---
@@ -1365,12 +1375,13 @@ watch(planId, async () => {
                                         </div>
                                     </template>
                                 </Dropdown>
-                                <vort-tooltip v-if="row.review_notes">
-                                    <MessageSquare :size="14" class="text-gray-400 cursor-help shrink-0" />
-                                    <template #title>
-                                        <div class="max-w-[360px] text-sm whitespace-pre-wrap">{{ row.review_notes }}</div>
-                                    </template>
-                                </vort-tooltip>
+                                <a
+                                    v-if="row.review_notes"
+                                    class="inline-flex items-center justify-center w-6 h-6 rounded hover:bg-gray-100 cursor-pointer text-gray-400 hover:text-blue-500 transition-colors shrink-0"
+                                    @click="handleShowReviewNotes(row)"
+                                >
+                                    <MessageSquare :size="14" />
+                                </a>
                             </div>
                         </template>
                     </vort-table-column>
@@ -1574,6 +1585,78 @@ watch(planId, async () => {
                 </div>
             </vort-spin>
         </Dialog>
+
+        <!-- Review Detail Drawer -->
+        <vort-drawer
+            v-model:open="reviewDetailDrawerOpen"
+            title="评审详情"
+            :width="580"
+        >
+            <template v-if="reviewDetailTarget">
+                <div class="space-y-5">
+                    <div class="bg-gray-50 rounded-lg p-4 space-y-2.5">
+                        <div class="flex items-center gap-2">
+                            <GitPullRequest :size="14" class="text-gray-400 shrink-0" />
+                            <a
+                                v-if="reviewDetailTarget.pr_url"
+                                :href="reviewDetailTarget.pr_url"
+                                target="_blank"
+                                class="text-sm text-blue-600 hover:underline"
+                            >
+                                #{{ reviewDetailTarget.pr_number }} {{ reviewDetailTarget.pr_title }}
+                            </a>
+                            <span v-else class="text-sm text-gray-800">
+                                #{{ reviewDetailTarget.pr_number }} {{ reviewDetailTarget.pr_title }}
+                            </span>
+                        </div>
+                        <div class="flex items-center gap-4 text-sm">
+                            <div class="flex items-center gap-1.5">
+                                <span class="text-gray-400">仓库:</span>
+                                <span class="text-gray-700">{{ reviewDetailTarget.repo_name || '-' }}</span>
+                            </div>
+                            <div class="flex items-center gap-1.5">
+                                <span class="text-gray-400">分支:</span>
+                                <span class="text-gray-500 font-mono text-xs">{{ reviewDetailTarget.head_branch }} &rarr; {{ reviewDetailTarget.base_branch }}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="flex items-center gap-2">
+                            <span class="text-sm text-gray-400">评审状态</span>
+                            <vort-tag :color="reviewStatusColors[reviewDetailTarget.review_status] || 'default'">
+                                {{ reviewStatusLabels[reviewDetailTarget.review_status] || reviewDetailTarget.review_status }}
+                            </vort-tag>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-sm text-gray-400">评审人</span>
+                            <div v-if="reviewDetailTarget.reviewer_name" class="flex items-center gap-1.5">
+                                <span
+                                    class="w-5 h-5 rounded-full text-white text-[10px] flex items-center justify-center shrink-0 overflow-hidden"
+                                    :style="{ backgroundColor: getAvatarBg(reviewDetailTarget.reviewer_name) }"
+                                >
+                                    <img
+                                        v-if="getMemberAvatarUrl(reviewDetailTarget.reviewer_name)"
+                                        :src="getMemberAvatarUrl(reviewDetailTarget.reviewer_name)"
+                                        class="w-full h-full object-cover"
+                                    >
+                                    <template v-else>{{ getAvatarLabel(reviewDetailTarget.reviewer_name) }}</template>
+                                </span>
+                                <span class="text-sm text-gray-700">{{ reviewDetailTarget.reviewer_name }}</span>
+                            </div>
+                            <span v-else class="text-sm text-gray-500">未指定</span>
+                        </div>
+                    </div>
+
+                    <div>
+                        <span class="text-sm text-gray-400">评审意见</span>
+                        <div class="mt-2 bg-gray-50 rounded-lg p-5 max-h-[calc(100vh-360px)] overflow-y-auto">
+                            <MarkdownView :content="reviewDetailTarget.review_notes" />
+                        </div>
+                    </div>
+                </div>
+            </template>
+        </vort-drawer>
 
         <!-- Case Detail Drawer -->
         <TestCaseDetailDrawer v-model:open="caseDetailDrawerOpen" :case-id="caseDetailId" />
