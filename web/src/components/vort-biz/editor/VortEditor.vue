@@ -5,6 +5,10 @@ import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import BaseImage from "@tiptap/extension-image";
 import { Markdown } from "tiptap-markdown";
+import MarkdownIt from "markdown-it";
+
+const mdIt = MarkdownIt();
+const MD_PATTERN = /^#{1,6}\s|^\s*[-*+]\s|^\s*\d+\.\s|^\s*>/m;
 
 const Image = BaseImage.extend({
     addStorage() {
@@ -93,18 +97,38 @@ const editor = useEditor({
                 alwaysPreserveAspectRatio: true,
             },
         }),
-        Markdown,
+        Markdown.configure({
+            transformPastedText: true,
+            transformCopiedText: true,
+        }),
         Placeholder.configure({ placeholder: props.placeholder }),
     ],
     editorProps: {
         handlePaste(_view, event) {
-            const files = Array.from(event.clipboardData?.files || []).filter((f) => f.type.startsWith("image/"));
-            if (files.length === 0) return false;
-            event.preventDefault();
-            files.forEach((file) => {
-                void insertImageFromFile(file);
-            });
-            return true;
+            const clipboardData = event.clipboardData;
+            if (!clipboardData) return false;
+
+            const files = Array.from(clipboardData.files || []).filter((f) => f.type.startsWith("image/"));
+            if (files.length > 0) {
+                event.preventDefault();
+                files.forEach((file) => {
+                    void insertImageFromFile(file);
+                });
+                return true;
+            }
+
+            const text = clipboardData.getData("text/plain");
+            if (text && MD_PATTERN.test(text)) {
+                const ed = editor.value;
+                if (ed) {
+                    event.preventDefault();
+                    const html = mdIt.render(text);
+                    ed.chain().focus().insertContent(html).run();
+                    return true;
+                }
+            }
+
+            return false;
         },
         handleDrop(_view, event, _slice, moved) {
             if (moved) return false;
