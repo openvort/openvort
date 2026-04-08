@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from "vue";
+import { ref, computed, onMounted } from "vue";
 import { Search, X } from "lucide-vue-next";
 import { getDepartmentTree, getMembersSimple, getDepartmentMembers } from "@/api";
 import DeptTree from "@/components/vort-biz/dept-tree/DeptTree.vue";
@@ -29,9 +29,8 @@ interface SimpleMember {
 const searchQuery = ref("");
 const deptNodes = ref<DeptNode[]>([]);
 const expandedIds = ref<Set<number>>(new Set());
-const selectedDeptId = ref<number | null>(null);
 const allMembers = ref<SimpleMember[]>([]);
-const deptMembers = ref<SimpleMember[]>([]);
+const deptMembersMap = ref<Record<string, SimpleMember[]>>({});
 const loadingMembers = ref(false);
 const loadingDepts = ref(false);
 const totalCount = ref(0);
@@ -42,16 +41,25 @@ const selectedIds = computed({
     set: () => {},
 });
 
-const displayMembers = computed(() => {
-    const list = selectedDeptId.value !== null ? deptMembers.value : allMembers.value;
-    if (!searchQuery.value.trim()) return list;
+const filteredAllMembers = computed(() => {
+    if (!searchQuery.value.trim()) return [];
     const q = searchQuery.value.trim().toLowerCase();
-    return list.filter(m => m.name.toLowerCase().includes(q));
+    return allMembers.value.filter(m => m.name.toLowerCase().includes(q));
 });
 
 const selectedMembers = computed(() =>
     allMembers.value.filter(m => selectedIds.value.has(m.id))
 );
+
+const treeDeptMembers = computed(() => {
+    const result: Record<string, SimpleMember[]> = {
+        all: allMembers.value,
+    };
+    for (const [key, members] of Object.entries(deptMembersMap.value)) {
+        result[key] = members;
+    }
+    return result;
+});
 
 const COLORS = [
     "bg-red-500", "bg-orange-500", "bg-amber-500", "bg-green-500",
@@ -87,7 +95,9 @@ async function loadDepartments() {
         const res: any = await getDepartmentTree();
         deptNodes.value = res?.departments || [];
         if (deptNodes.value.length > 0) {
-            expandedIds.value = new Set(deptNodes.value.map(d => d.id));
+            const rootIds = deptNodes.value.map(d => d.id);
+            expandedIds.value = new Set(rootIds);
+            rootIds.forEach(id => ensureDeptMembers(id));
         }
     } catch { /* ignore */ }
     finally { loadingDepts.value = false; }
@@ -103,26 +113,30 @@ async function loadAllMembers() {
     finally { loadingMembers.value = false; }
 }
 
-async function loadDeptMembers(deptId: number) {
-    loadingMembers.value = true;
+async function ensureDeptMembers(deptId: number) {
+    const key = String(deptId);
+    if (deptMembersMap.value[key]) return;
     try {
         const res: any = await getDepartmentMembers(deptId);
-        deptMembers.value = (res?.members || []).filter((m: any) => m.id && !m.is_virtual);
-    } catch { deptMembers.value = []; }
-    finally { loadingMembers.value = false; }
-}
-
-function handleDeptSelect(id: number | null) {
-    selectedDeptId.value = id;
-    if (id !== null) {
-        loadDeptMembers(id);
+        deptMembersMap.value = {
+            ...deptMembersMap.value,
+            [key]: (res?.members || []).filter((m: any) => m.id && !m.is_virtual),
+        };
+    } catch {
+        deptMembersMap.value = { ...deptMembersMap.value, [key]: [] };
     }
 }
 
 function handleToggleExpand(id: number) {
     const s = new Set(expandedIds.value);
-    if (s.has(id)) s.delete(id);
-    else s.add(id);
+    if (s.has(id)) {
+        s.delete(id);
+    } else {
+        s.add(id);
+        if (id !== 0) {
+            ensureDeptMembers(id);
+        }
+    }
     expandedIds.value = s;
 }
 
@@ -133,8 +147,8 @@ onMounted(() => {
 </script>
 
 <template>
-    <div class="flex border border-gray-200 rounded-lg overflow-hidden" style="height: 420px">
-        <!-- Left: dept tree + member list -->
+    <div class="flex border border-gray-200 rounded-lg overflow-hidden" style="height: 520px">
+        <!-- Left: tree with inline members -->
         <div class="w-[280px] flex flex-col border-r border-gray-200">
             <div class="px-3 py-2 border-b border-gray-100">
                 <div class="relative">
@@ -148,24 +162,13 @@ onMounted(() => {
                 </div>
             </div>
 
-            <div class="flex-1 flex flex-col overflow-hidden">
-                <div class="max-h-[180px] overflow-y-auto shrink-0 px-1 py-1">
-                    <DeptTree
-                        :nodes="deptNodes"
-                        :expanded-ids="expandedIds"
-                        :selected-id="selectedDeptId"
-                        :show-all-node="true"
-                        :all-member-count="totalCount"
-                        @select="handleDeptSelect"
-                        @toggle-expand="handleToggleExpand"
-                    />
-                </div>
-
-                <div class="flex-1 overflow-y-auto border-t border-gray-100">
+            <div class="flex-1 overflow-y-auto px-1 py-1">
+                <!-- Search mode: flat member list -->
+                <template v-if="searchQuery.trim()">
                     <vort-spin :spinning="loadingMembers">
-                        <div v-if="displayMembers.length" class="divide-y divide-gray-50">
+                        <div v-if="filteredAllMembers.length" class="divide-y divide-gray-50">
                             <label
-                                v-for="m in displayMembers" :key="m.id"
+                                v-for="m in filteredAllMembers" :key="m.id"
                                 class="flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 cursor-pointer"
                             >
                                 <vort-checkbox
@@ -178,15 +181,28 @@ onMounted(() => {
                                 >{{ initial(m.name) }}</span>
                                 <div class="min-w-0">
                                     <div class="text-sm text-gray-800 truncate">{{ m.name }}</div>
-                                    <div v-if="m.dept" class="text-xs text-gray-400 truncate">
-                                        {{ m.dept }}
-                                    </div>
+                                    <div v-if="m.dept" class="text-xs text-gray-400 truncate">{{ m.dept }}</div>
                                 </div>
                             </label>
                         </div>
                         <div v-else class="text-gray-400 text-sm text-center py-8">无匹配成员</div>
                     </vort-spin>
-                </div>
+                </template>
+
+                <!-- Tree mode: departments with inline members -->
+                <template v-else>
+                    <DeptTree
+                        :nodes="deptNodes"
+                        :expanded-ids="expandedIds"
+                        :selected-id="null"
+                        :show-all-node="true"
+                        :all-member-count="totalCount"
+                        :dept-members="treeDeptMembers"
+                        :selected-member-ids="selectedIds"
+                        @toggle-expand="handleToggleExpand"
+                        @toggle-member="toggleMember"
+                    />
+                </template>
             </div>
         </div>
 

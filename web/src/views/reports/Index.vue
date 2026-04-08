@@ -58,6 +58,7 @@ interface PublicationItem {
     whitelist_names: string[];
     receiver_ids: string[];
     receiver_names: string[];
+    receiver_filters: Record<string, string[]>;
     owner_id: string;
     owner_name: string;
     created_at: string;
@@ -255,6 +256,12 @@ function openDetail(reportId: string) {
 
 function openPubDrawer(pub?: PublicationItem) {
     editingPub.value = pub || null;
+    pubDrawerOpen.value = true;
+}
+
+function handleCopyPub(pub: PublicationItem) {
+    const { id, submitter_names, submitter_count, whitelist_names, receiver_names, owner_id, owner_name, created_at, enabled, ...rest } = pub;
+    editingPub.value = { ...rest, name: `${pub.name} (副本)` };
     pubDrawerOpen.value = true;
 }
 
@@ -478,6 +485,8 @@ onMounted(() => {
                                         <a class="text-sm text-blue-600 cursor-pointer" @click="handleSendSummary(pub.id)">汇总</a>
                                         <vort-divider type="vertical" />
                                         <a class="text-sm text-blue-600 cursor-pointer" @click="openPubDrawer(pub)">编辑</a>
+                                        <vort-divider type="vertical" />
+                                        <a class="text-sm text-blue-600 cursor-pointer" @click="handleCopyPub(pub)">复制</a>
                                         <vort-divider type="vertical" />
                                         <vort-popconfirm title="确认删除此发布？" @confirm="handleDeletePub(pub.id)">
                                             <a class="text-sm text-red-500 cursor-pointer">删除</a>

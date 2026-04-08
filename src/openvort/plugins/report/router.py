@@ -49,6 +49,7 @@ class PublicationRequest(BaseModel):
     submitter_ids: list[str] = []
     whitelist_ids: list[str] = []
     receiver_ids: list[str] = []
+    receiver_filters: dict[str, list[str]] | None = None
 
 
 class PublicationUpdateRequest(BaseModel):
@@ -70,6 +71,7 @@ class PublicationUpdateRequest(BaseModel):
     submitter_ids: list[str] | None = None
     whitelist_ids: list[str] | None = None
     receiver_ids: list[str] | None = None
+    receiver_filters: dict[str, list[str]] | None = None
 
 
 @router.get("/publications")
@@ -92,7 +94,7 @@ async def create_publication(req: PublicationRequest, request: Request):
         allow_edit=req.allow_edit, notify_summary=req.notify_summary,
         notify_on_receive=req.notify_on_receive, owner_id=owner_id,
         submitter_ids=req.submitter_ids, whitelist_ids=req.whitelist_ids,
-        receiver_ids=req.receiver_ids,
+        receiver_ids=req.receiver_ids, receiver_filters=req.receiver_filters,
     )
     return {"success": True, "publication": result}
 
