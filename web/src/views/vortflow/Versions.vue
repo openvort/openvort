@@ -174,6 +174,7 @@ const handleEditVersion = (v: VersionItem) => {
 };
 
 const handleCreateVersion = async (andContinue = false) => {
+    if (createFormLoading.value) return;
     const projectId = vortFlowStore.selectedProjectId || vortFlowStore.projects[0]?.id;
     if (!projectId) return;
     const data = createVersionForm.value;
@@ -524,9 +525,22 @@ onMounted(async () => {
 
             <template #footer>
                 <div class="flex justify-end gap-3">
-                    <vort-button @click="createDialogOpen = false">取消</vort-button>
-                    <vort-button v-if="versionDialogMode === 'create'" @click="handleCreateVersion(true)">新建并继续</vort-button>
-                    <vort-button variant="primary" :loading="createFormLoading" @click="handleCreateVersion(false)">确定</vort-button>
+                    <vort-button :disabled="createFormLoading" @click="createDialogOpen = false">取消</vort-button>
+                    <vort-button
+                        v-if="versionDialogMode === 'create'"
+                        :disabled="createFormLoading"
+                        @click="handleCreateVersion(true)"
+                    >
+                        新建并继续
+                    </vort-button>
+                    <vort-button
+                        variant="primary"
+                        :loading="createFormLoading"
+                        :disabled="createFormLoading"
+                        @click="handleCreateVersion(false)"
+                    >
+                        确定
+                    </vort-button>
                 </div>
             </template>
         </vort-dialog>

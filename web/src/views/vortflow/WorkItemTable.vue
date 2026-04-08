@@ -231,7 +231,7 @@ const createWorkItemRef = ref<{
 
 const {
     selectedRowKeys, selectedRows, createParentItemId, createProjectId,
-    createDraftData, createBugAttachments, createBugForm, createParentRecord,
+    createDraftData, isCreating, createBugAttachments, createBugForm, createParentRecord,
     createInitialBugForm, resetCreateBugForm, rowSelection, clearSelection,
     syncRecordUpdateToApi, syncRecordStatusToApi, deleteOne, handleBatchDelete,
     handleCreateSuccess: crudCreateSuccess, handleCopyWorkItem: crudCopyWorkItem,
@@ -1172,9 +1172,16 @@ onMounted(async () => {
             </template>
             <template #footer>
                 <div v-if="createBugDrawerMode === 'create'" class="create-bug-footer">
-                    <VortButton variant="primary" @click="handleSubmitCreateBug()">新建</VortButton>
-                    <VortButton @click="handleSubmitCreateBug(true)">新建并继续</VortButton>
-                    <VortButton @click="handleCancelCreateWorkItem">取消</VortButton>
+                    <VortButton
+                        variant="primary"
+                        :loading="isCreating"
+                        :disabled="isCreating"
+                        @click="handleSubmitCreateBug()"
+                    >
+                        新建
+                    </VortButton>
+                    <VortButton :disabled="isCreating" @click="handleSubmitCreateBug(true)">新建并继续</VortButton>
+                    <VortButton :disabled="isCreating" @click="handleCancelCreateWorkItem">取消</VortButton>
                 </div>
             </template>
         </vort-drawer>
