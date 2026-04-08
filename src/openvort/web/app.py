@@ -150,6 +150,50 @@ def create_app() -> FastAPI:
 
     app.add_middleware(DemoReadonlyMiddleware)
 
+    _member_exists_cache: dict[str, float] = {}
+    _MEMBER_CACHE_TTL = 300  # 5 min
+
+    _AUTH_SKIP_PREFIXES = ("/api/auth/", "/api/health", "/api/webhooks/")
+
+    class MemberVerifyMiddleware(BaseHTTPMiddleware):
+        """Reject requests whose JWT member_id no longer exists in DB (e.g. after DB switch)."""
+
+        async def dispatch(self, request: Request, call_next):
+            path = request.url.path
+            if not path.startswith("/api/") or any(path.startswith(p) for p in _AUTH_SKIP_PREFIXES):
+                return await call_next(request)
+
+            payload = _extract_payload(request)
+            if not payload:
+                return await call_next(request)
+
+            member_id = payload.get("sub", "")
+            if not member_id:
+                return await call_next(request)
+
+            import time as _t
+            now = _t.time()
+            if member_id in _member_exists_cache and now - _member_exists_cache[member_id] < _MEMBER_CACHE_TTL:
+                return await call_next(request)
+
+            try:
+                from openvort.contacts.models import Member
+                from openvort.web.deps import get_db_session_factory
+                sf = get_db_session_factory()
+                async with sf() as session:
+                    m = await session.get(Member, member_id)
+                    if not m or m.status != "active":
+                        _member_exists_cache.pop(member_id, None)
+                        from starlette.responses import JSONResponse
+                        return JSONResponse(status_code=401, content={"detail": "账号不存在或已停用，请重新登录"})
+                _member_exists_cache[member_id] = now
+            except Exception:
+                pass
+
+            return await call_next(request)
+
+    app.add_middleware(MemberVerifyMiddleware)
+
     # 注册路由
     from openvort.web.routers import (
         auth_router, chat_router, dashboard_router, me_router,

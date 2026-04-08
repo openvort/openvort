@@ -3,6 +3,7 @@ import { ref } from "vue";
 import TagSettings from "./TagSettings.vue";
 import StatusSettings from "./StatusSettings.vue";
 import TemplateSettings from "./TemplateSettings.vue";
+import ReminderSettings from "./ReminderSettings.vue";
 
 const activeTab = ref("tags");
 </script>
@@ -19,6 +20,9 @@ const activeTab = ref("tags");
                 </vort-tab-pane>
                 <vort-tab-pane tab-key="templates" tab="内容模板">
                     <TemplateSettings />
+                </vort-tab-pane>
+                <vort-tab-pane tab-key="reminder" tab="提醒设置">
+                    <ReminderSettings />
                 </vort-tab-pane>
             </vort-tabs>
         </div>

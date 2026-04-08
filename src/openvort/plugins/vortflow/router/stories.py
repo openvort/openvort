@@ -1,7 +1,7 @@
 import json
 
 from fastapi import APIRouter, Query, Request
-from sqlalchemy import func, select, delete as sa_delete
+from sqlalchemy import func, select, delete as sa_delete, or_
 
 from openvort.db.engine import get_session_factory
 from openvort.web.app import require_auth
@@ -14,8 +14,6 @@ from openvort.plugins.vortflow.router.helpers import (
     _validate_story_parent,
     _collect_story_descendant_ids,
     _attach_story_links,
-    _attach_story_progress,
-    _calc_story_progress,
 )
 from openvort.plugins.vortflow.router.schemas import (
     StoryCreate,
@@ -50,7 +48,7 @@ async def list_stories(
     submitter_id: str = Query("", description="按创建者过滤"),
     assignee_id: str = Query("", description="按负责人过滤"),
     pm_id: str = Query("", description="按产品经理过滤"),
-    participant_id: str = Query("", description="按参与者过滤（检查 collaborators）"),
+    participant_id: str = Query("", description="按参与者过滤（负责人/创建人/协作者）"),
     iteration_id: str = Query("", description="按迭代过滤"),
     sort_by: str = Query("", description="排序字段"),
     sort_order: str = Query("desc", description="排序方向 asc/desc"),
@@ -104,8 +102,14 @@ async def list_stories(
             count_stmt = count_stmt.where(FlowStory.pm_id == pm_id)
         if participant_id:
             like_p = f'%"{participant_id}"%'
-            stmt = stmt.where(FlowStory.collaborators_json.like(like_p))
-            count_stmt = count_stmt.where(FlowStory.collaborators_json.like(like_p))
+            participant_cond = or_(
+                FlowStory.assignee_id == participant_id,
+                FlowStory.submitter_id == participant_id,
+                FlowStory.pm_id == participant_id,
+                FlowStory.collaborators_json.like(like_p),
+            )
+            stmt = stmt.where(participant_cond)
+            count_stmt = count_stmt.where(participant_cond)
         total = (await session.execute(count_stmt)).scalar_one()
         stmt = stmt.offset((page - 1) * page_size).limit(page_size)
         rows = (await session.execute(stmt)).scalars().all()
@@ -137,7 +141,6 @@ async def list_stories(
             "task_count": task_count_map.get(r.id, 0),
         } for r in rows]
         await _attach_story_links(session, items)
-        await _attach_story_progress(session, items)
     return {
         "total": total,
         "items": items,
@@ -165,9 +168,6 @@ async def get_story(story_id: str):
             "bug_count": bug_count,
             "children_count": children_count,
         }
-        computed = await _calc_story_progress(session, story_id)
-        if computed is not None:
-            item["progress"] = computed
         items = await _attach_story_links(session, [item])
     return items[0]
 

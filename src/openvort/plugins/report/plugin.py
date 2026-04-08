@@ -19,8 +19,8 @@ class ReportPlugin(BasePlugin):
 
     name = "report"
     display_name = "汇报管理"
-    description = "通过 AI 对话管理汇报模板、规则，自动生成日报/周报/月报，支持催报和向上聚合"
-    version = "0.1.0"
+    description = "通过 AI 对话管理汇报发布，自动生成日报/周报/月报，支持提醒和汇总通知"
+    version = "0.2.0"
 
     def activate(self, api: "PluginAPI") -> None:
         from openvort.db.engine import get_session_factory
@@ -59,9 +59,8 @@ class ReportPlugin(BasePlugin):
 
     def get_permissions(self) -> list[dict]:
         return [
-            {"code": "report.manage", "display_name": "管理汇报模板和规则"},
+            {"code": "report.manage", "display_name": "管理汇报发布"},
             {"code": "report.submit", "display_name": "提交汇报"},
-            {"code": "report.review", "display_name": "审阅下属汇报"},
         ]
 
     def get_prompts(self) -> list[str]:

@@ -219,6 +219,10 @@ class WorkSummaryTool(BaseTool):
                 "active_repos": git_summary["active_repos"],
                 "authors": git_summary["authors"],
                 "repo_breakdown": git_summary["repo_breakdown"],
+                "recent_commits": [
+                    {"message": c.get("message", "").split("\n")[0], "repo": c.get("_repo", "")}
+                    for c in git_summary.get("commits", [])[:20]
+                ],
             },
             "vortflow": vortflow_summary,
             "cross_references": references,
@@ -227,15 +231,60 @@ class WorkSummaryTool(BaseTool):
         if member_name:
             report["member"] = member_name
 
+        if git_summary.get("identity_hint"):
+            report["identity_hint"] = git_summary["identity_hint"]
+
         return json.dumps(report, ensure_ascii=False)
 
     # ---- Git data collection ----
+
+    @staticmethod
+    async def _resolve_git_identities(member_name: str) -> set[str]:
+        """Resolve member name to all known Git identities (name, email, platform usernames).
+
+        Used for local commit filtering when the API author param can't match.
+        """
+        identities: set[str] = set()
+        if not member_name:
+            return identities
+        identities.add(member_name.lower())
+        try:
+            from openvort.contacts.models import Member, PlatformIdentity
+            from openvort.db.engine import get_session_factory
+
+            sf = get_session_factory()
+            async with sf() as session:
+                member = (await session.execute(
+                    select(Member).where(Member.name == member_name).limit(1)
+                )).scalar_one_or_none()
+                if not member:
+                    return identities
+
+                if member.email:
+                    identities.add(member.email.lower())
+
+                pi_rows = (await session.execute(
+                    select(PlatformIdentity).where(
+                        PlatformIdentity.member_id == member.id,
+                    )
+                )).scalars().all()
+                for pi in pi_rows:
+                    if pi.platform_username:
+                        identities.add(pi.platform_username.lower())
+                    if pi.platform_email:
+                        identities.add(pi.platform_email.lower())
+        except Exception:
+            pass
+        identities.discard("")
+        return identities
 
     async def _collect_git_data(
         self, project_id: str, author: str, since: str, until: str
     ) -> dict:
         from openvort.db.engine import get_session_factory
         from openvort.plugins.vortgit.models import GitProvider, GitRepo
+
+        author_identities = await self._resolve_git_identities(author) if author else set()
 
         sf = get_session_factory()
         async with sf() as session:
@@ -255,27 +304,52 @@ class WorkSummaryTool(BaseTool):
 
         all_commits: list[dict] = []
         repo_breakdown: list[dict] = []
+        unmatched_authors: dict[str, str] = {}  # {author_name: author_email}
 
         for repo in repos:
             provider = provider_cache.get(repo.provider_id)
             if not provider:
                 continue
-            client = _create_provider(provider)
             try:
-                commits = await client.list_commits(
-                    repo.full_name,
-                    branch=repo.default_branch,
-                    since=since,
-                    until=until,
-                    author=author,
-                    per_page=50,
-                )
+                client = _create_provider(provider)
+            except Exception as e:
+                log.warning(f"Failed to create provider for {repo.full_name}: {e}")
+                continue
+            try:
+                if author_identities:
+                    raw_commits = await client.list_commits(
+                        repo.full_name,
+                        branch=repo.default_branch,
+                        since=since,
+                        until=until,
+                        per_page=100,
+                    )
+                    commits = []
+                    for c in raw_commits:
+                        name_l = c.get("author_name", "").lower()
+                        email_l = c.get("author_email", "").lower()
+                        if name_l in author_identities or email_l in author_identities:
+                            commits.append(c)
+                        else:
+                            aname = c.get("author_name", "")
+                            if aname and aname not in unmatched_authors:
+                                unmatched_authors[aname] = c.get("author_email", "")
+                else:
+                    commits = await client.list_commits(
+                        repo.full_name,
+                        branch=repo.default_branch,
+                        since=since,
+                        until=until,
+                        per_page=50,
+                    )
                 if commits:
                     repo_breakdown.append({
                         "repo": repo.full_name,
                         "repo_type": repo.repo_type,
                         "commits": len(commits),
                     })
+                    for c in commits:
+                        c["_repo"] = repo.full_name
                     all_commits.extend(commits)
             except Exception as e:
                 log.warning(f"Failed to fetch commits from {repo.full_name}: {e}")
@@ -287,13 +361,28 @@ class WorkSummaryTool(BaseTool):
             name = c.get("author_name", "unknown")
             authors[name] += 1
 
-        return {
+        result = {
             "total_commits": len(all_commits),
             "active_repos": len(repo_breakdown),
             "authors": [{"name": k, "commits": v} for k, v in sorted(authors.items(), key=lambda x: -x[1])],
             "repo_breakdown": sorted(repo_breakdown, key=lambda x: -x["commits"]),
             "commits": all_commits,
         }
+
+        if not all_commits and unmatched_authors and author:
+            result["identity_hint"] = {
+                "message": (
+                    f"仓库中有提交记录，但无法匹配到成员「{author}」。"
+                    "可能是 Git 提交作者名/邮箱与系统中的成员信息不一致。"
+                ),
+                "unmatched_authors": [
+                    {"name": name, "email": email}
+                    for name, email in unmatched_authors.items()
+                ],
+                "suggestion": "请确认以上哪个是你的 Git 账号，然后在个人资料中补充对应的邮箱即可自动匹配。",
+            }
+
+        return result
 
     # ---- VortFlow data collection ----
 

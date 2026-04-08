@@ -880,13 +880,10 @@ async def init_db(database_url: str) -> None:
               AND s.project_id IS NOT NULL
         """))
 
-    # Report module: template description + rule workdays_only
+    # Report v2: add publication_id to reports table for migration
     async with _engine.begin() as conn:
         await conn.execute(text(
-            "ALTER TABLE IF EXISTS report_templates ADD COLUMN IF NOT EXISTS description VARCHAR(512) DEFAULT ''"
-        ))
-        await conn.execute(text(
-            "ALTER TABLE IF EXISTS report_rules ADD COLUMN IF NOT EXISTS workdays_only BOOLEAN DEFAULT TRUE"
+            "ALTER TABLE IF EXISTS reports ADD COLUMN IF NOT EXISTS publication_id VARCHAR(32)"
         ))
 
     # Notifications: add data_json for structured notification payload

@@ -9,7 +9,7 @@ import { STATUS_ICON_KEYS, resolveIconKey } from "@/components/vort-biz/work-ite
 interface Props {
     open: boolean;
     mode?: "add" | "edit";
-    data?: { id?: string; name?: string; icon?: string; icon_color?: string; command?: string };
+    data?: { id?: string; name?: string; icon?: string; icon_color?: string; command?: string; work_item_types?: string[] };
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -31,11 +31,18 @@ const COLOR_OPTIONS = [
     "#a8a29e", "#bef264", "#94a3b8",
 ];
 
+const WORK_ITEM_TYPE_OPTIONS = [
+    { label: "需求", value: "需求" },
+    { label: "任务", value: "任务" },
+    { label: "缺陷", value: "缺陷" },
+];
+
 const loading = ref(false);
 const formName = ref("");
 const formIcon = ref("circle");
 const formIconColor = ref("#3b82f6");
 const formCommand = ref("");
+const formWorkItemTypes = ref<string[]>([]);
 
 watch(() => props.open, (val) => {
     if (val) {
@@ -44,11 +51,13 @@ watch(() => props.open, (val) => {
             formIcon.value = resolveIconKey(props.data.icon || "") || "circle";
             formIconColor.value = props.data.icon_color || "#3b82f6";
             formCommand.value = props.data.command || "";
+            formWorkItemTypes.value = [...(props.data.work_item_types || [])];
         } else {
             formName.value = "";
             formIcon.value = "circle";
             formIconColor.value = "#3b82f6";
             formCommand.value = "";
+            formWorkItemTypes.value = [];
         }
     }
 });
@@ -66,6 +75,7 @@ const handleSubmit = async () => {
             icon: formIcon.value,
             icon_color: formIconColor.value,
             command: formCommand.value.trim(),
+            work_item_types: formWorkItemTypes.value,
         };
         if (props.mode === "edit" && props.data?.id) {
             const res: any = await updateVortflowStatus(props.data.id, payload);
@@ -138,6 +148,27 @@ const close = () => emit("update:open", false);
                             <path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z" />
                         </svg>
                     </div>
+                </div>
+            </div>
+
+            <div>
+                <div class="text-sm font-medium text-gray-800 mb-2">已使用类型</div>
+                <div class="flex items-center gap-3">
+                    <label
+                        v-for="opt in WORK_ITEM_TYPE_OPTIONS"
+                        :key="opt.value"
+                        class="flex items-center gap-1.5 cursor-pointer select-none text-sm text-gray-700"
+                    >
+                        <input
+                            type="checkbox"
+                            :checked="formWorkItemTypes.includes(opt.value)"
+                            class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            @change="formWorkItemTypes.includes(opt.value)
+                                ? formWorkItemTypes.splice(formWorkItemTypes.indexOf(opt.value), 1)
+                                : formWorkItemTypes.push(opt.value)"
+                        />
+                        {{ opt.label }}
+                    </label>
                 </div>
             </div>
 

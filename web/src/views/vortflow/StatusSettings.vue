@@ -62,6 +62,7 @@ const handleEdit = (row: StatusItem) => {
         icon: row.icon,
         icon_color: row.icon_color,
         command: row.command,
+        work_item_types: row.work_item_types,
     };
     editDialogOpen.value = true;
 };

@@ -1,7 +1,7 @@
 import json
 
 from fastapi import APIRouter, Query, Request
-from sqlalchemy import func, select, delete as sa_delete
+from sqlalchemy import func, select, delete as sa_delete, or_
 
 from openvort.db.engine import get_session_factory
 from openvort.web.app import require_auth
@@ -47,7 +47,7 @@ async def list_tasks(
     keyword: str = Query("", description="关键词搜索"),
     project_id: str = Query("", description="按项目过滤（通过关联需求）"),
     creator_id: str = Query("", description="按创建者过滤"),
-    participant_id: str = Query("", description="按参与者过滤（检查 collaborators）"),
+    participant_id: str = Query("", description="按参与者过滤（负责人/创建人/协作者）"),
     iteration_id: str = Query("", description="按迭代过滤"),
     sort_by: str = Query("", description="排序字段"),
     sort_order: str = Query("desc", description="排序方向 asc/desc"),
@@ -107,8 +107,13 @@ async def list_tasks(
             count_stmt = count_stmt.where(FlowTask.title.ilike(like))
         if participant_id:
             like_p = f'%"{participant_id}"%'
-            stmt = stmt.where(FlowTask.collaborators_json.like(like_p))
-            count_stmt = count_stmt.where(FlowTask.collaborators_json.like(like_p))
+            participant_cond = or_(
+                FlowTask.assignee_id == participant_id,
+                FlowTask.creator_id == participant_id,
+                FlowTask.collaborators_json.like(like_p),
+            )
+            stmt = stmt.where(participant_cond)
+            count_stmt = count_stmt.where(participant_cond)
         total = (await session.execute(count_stmt)).scalar_one()
         stmt = stmt.offset((page - 1) * page_size).limit(page_size)
         rows = (await session.execute(stmt)).scalars().all()

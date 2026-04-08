@@ -1,40 +1,42 @@
 import request from "@/utils/request";
 
-// ---- Templates ----
+// ---- Publications ----
 
-export function getReportTemplates() {
-    return request.get("/reports/templates");
+export function getPublications() {
+    return request.get("/reports/publications");
 }
 
-export function createReportTemplate(data: { name: string; description?: string; report_type: string; content_schema?: object; auto_collect?: object }) {
-    return request.post("/reports/templates", data);
+export function createPublication(data: Record<string, any>) {
+    return request.post("/reports/publications", data);
 }
 
-export function deleteReportTemplate(id: string) {
-    return request.delete(`/reports/templates/${id}`);
+export function getPublication(id: string) {
+    return request.get(`/reports/publications/${id}`);
 }
 
-// ---- Rules ----
-
-export function getReportRules(templateId?: string) {
-    return request.get("/reports/rules", { params: { template_id: templateId } });
+export function updatePublication(id: string, data: Record<string, any>) {
+    return request.put(`/reports/publications/${id}`, data);
 }
 
-export function createReportRule(data: { template_id: string; scope: string; target_id?: string; target_ids?: string[]; reviewer_id?: string; deadline_cron?: string; workdays_only?: boolean; reminder_minutes?: number; escalation_minutes?: number; enabled?: boolean }) {
-    return request.post("/reports/rules", data);
+export function deletePublication(id: string) {
+    return request.delete(`/reports/publications/${id}`);
 }
 
-export function updateReportRule(id: string, data: { enabled?: boolean; deadline_cron?: string; workdays_only?: boolean }) {
-    return request.put(`/reports/rules/${id}`, data);
+export function sendReminders(id: string) {
+    return request.post(`/reports/publications/${id}/remind`);
 }
 
-export function deleteReportRule(id: string) {
-    return request.delete(`/reports/rules/${id}`);
+export function sendSummary(id: string) {
+    return request.post(`/reports/publications/${id}/summary`);
 }
 
 // ---- Reports ----
 
-export function getReports(params: { report_type?: string; status?: string; since?: string; until?: string; reporter_id?: string; reviewer_id?: string; page?: number; page_size?: number }) {
+export function getMyPublications() {
+    return request.get("/reports/my-publications");
+}
+
+export function getReports(params: Record<string, any>) {
     return request.get("/reports", { params });
 }
 
@@ -42,24 +44,14 @@ export function getReportDetail(id: string) {
     return request.get(`/reports/${id}`);
 }
 
-export function submitReport(data: { report_type: string; report_date?: string; title: string; content: string; template_id?: string; reviewer_id?: string }) {
+export function submitReport(data: { report_type: string; report_date?: string; title: string; content: string; publication_id?: string }) {
     return request.post("/reports", data);
 }
 
-export function updateReport(id: string, data: { title?: string; content?: string; reviewer_id?: string }) {
+export function updateReport(id: string, data: { title?: string; content?: string }) {
     return request.put(`/reports/${id}`, data);
 }
 
-export function generateReportContentPrompt(reportType: string, reportDate?: string) {
-    return request.get("/reports/generate-content-prompt", {
-        params: { report_type: reportType, report_date: reportDate },
-    });
-}
-
-export function reviewReport(id: string, data: { status: string; comment?: string }) {
-    return request.put(`/reports/${id}/review`, data);
-}
-
-export function getReportStats(params?: { reviewer_id?: string; since?: string; until?: string }) {
+export function getReportStats(params?: Record<string, any>) {
     return request.get("/reports/stats", { params });
 }

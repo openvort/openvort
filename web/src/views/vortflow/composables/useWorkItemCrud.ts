@@ -74,6 +74,7 @@ export function useWorkItemCrud(options: UseWorkItemCrudOptions) {
     const createParentItemId = ref("");
     const createProjectId = ref("");
     const createDraftData = ref<NewBugForm | null>(null);
+    const isCreating = ref(false);
     const createBugAttachments = ref<CreateBugAttachment[]>([]);
     const createAttachmentInputRef = ref<HTMLInputElement | null>(null);
 
@@ -262,6 +263,7 @@ export function useWorkItemCrud(options: UseWorkItemCrudOptions) {
     // --- Create ---
 
     const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) => {
+        if (isCreating.value) return false;
         const title = formData.title.trim();
         if (!title) {
             message.warning("请填写标题");
@@ -270,6 +272,7 @@ export function useWorkItemCrud(options: UseWorkItemCrudOptions) {
 
         if (unref(useApi)) {
             const type = (propType || formData.type || "缺陷") as WorkItemType;
+            isCreating.value = true;
             try {
                 let createdItem: any = null;
                 const ownerId = getMemberIdByName(formData.owner) || undefined;
@@ -367,6 +370,8 @@ export function useWorkItemCrud(options: UseWorkItemCrudOptions) {
             } catch (error: any) {
                 message.error(error?.message || "新建失败");
                 return false;
+            } finally {
+                isCreating.value = false;
             }
         }
         return true;
@@ -562,6 +567,7 @@ export function useWorkItemCrud(options: UseWorkItemCrudOptions) {
         createParentItemId,
         createProjectId,
         createDraftData,
+        isCreating,
         createBugAttachments,
         createAttachmentInputRef,
         createBugForm,

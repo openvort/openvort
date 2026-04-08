@@ -85,7 +85,9 @@ const filteredTypeOptions = computed(() => {
 
 const ownerDisplayLabel = computed(() => {
     if (!props.owner.length) return "";
-    return props.owner[0] || "";
+    const id = props.owner[0];
+    const member = props.memberOptions.find(m => m.id === id);
+    return member?.name || id || "";
 });
 
 const ownerExtraCount = computed(() => Math.max(0, props.owner.length - 1));
