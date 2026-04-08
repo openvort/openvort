@@ -46,7 +46,7 @@ async def list_bugs(
     keyword: str = Query("", description="关键词搜索"),
     project_id: str = Query("", description="按项目过滤（通过关联需求）"),
     reporter_id: str = Query("", description="按报告者过滤"),
-    participant_id: str = Query("", description="按参与者过滤（检查 collaborators）"),
+    participant_id: str = Query("", description="按参与者过滤（负责人/创建人/协作者）"),
     iteration_id: str = Query("", description="按迭代过滤（通过迭代关联的需求）"),
     sort_by: str = Query("", description="排序字段"),
     sort_order: str = Query("desc", description="排序方向 asc/desc"),
@@ -106,8 +106,13 @@ async def list_bugs(
             count_stmt = count_stmt.where(FlowBug.reporter_id == reporter_id)
         if participant_id:
             like_p = f'%"{participant_id}"%'
-            stmt = stmt.where(FlowBug.collaborators_json.like(like_p))
-            count_stmt = count_stmt.where(FlowBug.collaborators_json.like(like_p))
+            participant_cond = or_(
+                FlowBug.assignee_id == participant_id,
+                FlowBug.reporter_id == participant_id,
+                FlowBug.collaborators_json.like(like_p),
+            )
+            stmt = stmt.where(participant_cond)
+            count_stmt = count_stmt.where(participant_cond)
         if keyword:
             like = f"%{keyword}%"
             stmt = stmt.where(FlowBug.title.ilike(like))
