@@ -16,6 +16,7 @@ from openvort.plugins.report.models import (
     ReportPublicationReceiver,
     ReportPublicationSubmitter,
     ReportPublicationWhitelist,
+    ReportReceiverFilter,
 )
 from openvort.utils.logging import get_logger
 
@@ -42,7 +43,8 @@ class ReportService:
                                  notify_on_receive: bool = True, owner_id: str | None = None,
                                  submitter_ids: list[str] | None = None,
                                  whitelist_ids: list[str] | None = None,
-                                 receiver_ids: list[str] | None = None) -> dict:
+                                 receiver_ids: list[str] | None = None,
+                                 receiver_filters: dict[str, list[str]] | None = None) -> dict:
         pub = ReportPublication(
             name=name, description=description, report_type=report_type,
             content_schema=json.dumps(content_schema or {}),
@@ -66,6 +68,11 @@ class ReportService:
             for mid in (receiver_ids or []):
                 if mid:
                     session.add(ReportPublicationReceiver(publication_id=pub.id, member_id=mid))
+
+            if receiver_filters:
+                for rid, sids in receiver_filters.items():
+                    for sid in sids:
+                        session.add(ReportReceiverFilter(publication_id=pub.id, receiver_id=rid, submitter_id=sid))
 
             await session.commit()
             return await self._load_publication_dict(session, pub.id)
@@ -95,6 +102,9 @@ class ReportService:
             if "receiver_ids" in fields:
                 await self._replace_assoc(session, ReportPublicationReceiver, publication_id, fields["receiver_ids"])
 
+            if "receiver_filters" in fields:
+                await self._replace_receiver_filters(session, publication_id, fields["receiver_filters"] or {})
+
             await session.commit()
             return await self._load_publication_dict(session, publication_id)
 
@@ -115,6 +125,7 @@ class ReportService:
                     selectinload(ReportPublication.submitters),
                     selectinload(ReportPublication.whitelist),
                     selectinload(ReportPublication.receivers),
+                    selectinload(ReportPublication.receiver_filters),
                 )
                 .order_by(ReportPublication.created_at.desc())
             )
@@ -129,6 +140,10 @@ class ReportService:
                     all_mids.add(w.member_id)
                 for r in p.receivers:
                     all_mids.add(r.member_id)
+                for f in p.receiver_filters:
+                    all_mids.add(f.receiver_id)
+                    all_mids.add(f.submitter_id)
+
             names = await self._resolve_member_names(session, list(all_mids)) if all_mids else {}
             return [self._pub_to_dict(p, names) for p in pubs]
 
@@ -251,15 +266,30 @@ class ReportService:
                                     since: date | None = None,
                                     until: date | None = None,
                                     limit: int = 50) -> list[dict]:
-        """List reports from publications where receiver_id is a receiver."""
+        """List reports from publications where receiver_id is a receiver,
+        respecting per-receiver submitter filters."""
+        from sqlalchemy import or_, exists, and_
+
         async with self._sf() as session:
             sub = (
                 select(ReportPublicationReceiver.publication_id)
                 .where(ReportPublicationReceiver.member_id == receiver_id)
             )
+
+            filter_exists = exists().where(
+                ReportReceiverFilter.publication_id == Report.publication_id,
+                ReportReceiverFilter.receiver_id == receiver_id,
+            )
+            reporter_in_filter = exists().where(
+                ReportReceiverFilter.publication_id == Report.publication_id,
+                ReportReceiverFilter.receiver_id == receiver_id,
+                ReportReceiverFilter.submitter_id == Report.reporter_id,
+            )
+
             stmt = select(Report).where(
                 Report.publication_id.in_(sub),
                 Report.status == "submitted",
+                or_(~filter_exists, reporter_in_filter),
             )
             if publication_id:
                 stmt = stmt.where(Report.publication_id == publication_id)
@@ -342,15 +372,25 @@ class ReportService:
     # ===================== IM Notifications =====================
 
     async def _notify_receivers_on_submit(self, report: Report) -> None:
-        """When a report is submitted, notify all receivers of its publication (if enabled)."""
+        """When a report is submitted, notify receivers of its publication (if enabled),
+        respecting per-receiver submitter filters."""
         try:
             async with self._sf() as session:
                 pub = await self._get_pub(session, report.publication_id)
                 if not pub or not pub.notify_on_receive:
                     return
-                receiver_ids = [r.member_id for r in pub.receivers]
+                all_receiver_ids = [r.member_id for r in pub.receivers]
+                if not all_receiver_ids:
+                    return
+
+                filter_map = self._build_receiver_filter_map(pub)
+                receiver_ids = [
+                    rid for rid in all_receiver_ids
+                    if rid not in filter_map or report.reporter_id in filter_map[rid]
+                ]
                 if not receiver_ids:
                     return
+
                 names = await self._resolve_member_names(session, [report.reporter_id])
                 reporter_name = names.get(report.reporter_id, "")
 
@@ -485,6 +525,7 @@ class ReportService:
                 selectinload(ReportPublication.submitters),
                 selectinload(ReportPublication.whitelist),
                 selectinload(ReportPublication.receivers),
+                selectinload(ReportPublication.receiver_filters),
             )
             .where(ReportPublication.id == publication_id)
         )
@@ -506,6 +547,26 @@ class ReportService:
             all_mids.add(pub.owner_id)
         names = await self._resolve_member_names(session, list(all_mids)) if all_mids else {}
         return self._pub_to_dict(pub, names)
+
+    @staticmethod
+    async def _replace_receiver_filters(session, publication_id: str, filters: dict[str, list[str]]):
+        """Replace receiver filter rows. filters = {receiver_id: [submitter_id, ...]}"""
+        await session.execute(
+            delete(ReportReceiverFilter).where(ReportReceiverFilter.publication_id == publication_id)
+        )
+        for rid, sids in filters.items():
+            for sid in sids:
+                if rid and sid:
+                    session.add(ReportReceiverFilter(publication_id=publication_id, receiver_id=rid, submitter_id=sid))
+
+    @staticmethod
+    def _build_receiver_filter_map(pub: ReportPublication) -> dict[str, set[str]]:
+        """Build {receiver_id: set(submitter_ids)} from publication's receiver_filters.
+        Only receivers with configured filters appear in the map."""
+        fm: dict[str, set[str]] = {}
+        for f in pub.receiver_filters:
+            fm.setdefault(f.receiver_id, set()).add(f.submitter_id)
+        return fm
 
     @staticmethod
     async def _replace_assoc(session, model_cls, publication_id: str, member_ids: list[str]):
@@ -543,6 +604,11 @@ class ReportService:
         submitter_ids = [s.member_id for s in p.submitters]
         whitelist_ids = [w.member_id for w in p.whitelist]
         receiver_ids = [r.member_id for r in p.receivers]
+
+        rf_map: dict[str, list[str]] = {}
+        for f in (p.receiver_filters or []):
+            rf_map.setdefault(f.receiver_id, []).append(f.submitter_id)
+
         return {
             "id": p.id,
             "name": p.name,
@@ -569,6 +635,7 @@ class ReportService:
             "whitelist_names": [names.get(mid, mid[:8]) for mid in whitelist_ids],
             "receiver_ids": receiver_ids,
             "receiver_names": [names.get(mid, mid[:8]) for mid in receiver_ids],
+            "receiver_filters": rf_map,
             "created_at": p.created_at.isoformat() if p.created_at else None,
             "updated_at": p.updated_at.isoformat() if p.updated_at else None,
         }

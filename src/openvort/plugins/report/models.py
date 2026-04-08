@@ -5,6 +5,7 @@ ReportPublication — 发布的汇报（合并了模板+规则）
 ReportPublicationSubmitter — 提交人
 ReportPublicationWhitelist — 白名单（免提交）
 ReportPublicationReceiver — 接收人
+ReportReceiverFilter — 接收人过滤（指定接收哪些提交人的汇报）
 Report — 汇报实例
 """
 
@@ -62,6 +63,9 @@ class ReportPublication(Base):
     receivers: Mapped[list["ReportPublicationReceiver"]] = relationship(
         back_populates="publication", cascade="all, delete-orphan"
     )
+    receiver_filters: Mapped[list["ReportReceiverFilter"]] = relationship(
+        back_populates="publication", cascade="all, delete-orphan"
+    )
 
     def __repr__(self) -> str:
         return f"<ReportPublication {self.name} ({self.report_type})>"
@@ -101,6 +105,21 @@ class ReportPublicationReceiver(Base):
     )
     member_id: Mapped[str] = mapped_column(String(32), ForeignKey("members.id"), primary_key=True)
     publication: Mapped["ReportPublication"] = relationship(back_populates="receivers")
+
+
+class ReportReceiverFilter(Base):
+    """接收人过滤：指定接收人只接收哪些提交人的汇报。
+    无记录 = 接收全部提交人的汇报（默认行为）。
+    """
+
+    __tablename__ = "report_receiver_filters"
+
+    publication_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("report_publications.id", ondelete="CASCADE"), primary_key=True
+    )
+    receiver_id: Mapped[str] = mapped_column(String(32), ForeignKey("members.id"), primary_key=True)
+    submitter_id: Mapped[str] = mapped_column(String(32), ForeignKey("members.id"), primary_key=True)
+    publication: Mapped["ReportPublication"] = relationship(back_populates="receiver_filters")
 
 
 class Report(Base):
