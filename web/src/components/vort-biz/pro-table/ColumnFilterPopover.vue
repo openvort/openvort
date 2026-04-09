@@ -476,6 +476,11 @@ const handleClear = () => {
     height: 100%;
     object-fit: cover;
 }
+.enum-icon {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+}
 .enum-label {
     flex: 1;
     min-width: 0;

@@ -371,6 +371,14 @@ async def init_db(database_url: str) -> None:
             "ALTER TABLE IF EXISTS flow_bugs ADD COLUMN IF NOT EXISTS deadline TIMESTAMP"
         ))
 
+        for tbl in ("flow_stories", "flow_tasks", "flow_bugs"):
+            await conn.execute(text(
+                f"ALTER TABLE IF EXISTS {tbl} ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE"
+            ))
+            await conn.execute(text(
+                f"CREATE INDEX IF NOT EXISTS ix_{tbl}_is_archived ON {tbl}(is_archived)"
+            ))
+
         await conn.execute(text("""
             CREATE TABLE IF NOT EXISTS flow_comments (
                 id BIGSERIAL PRIMARY KEY,

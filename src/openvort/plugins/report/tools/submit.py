@@ -43,6 +43,7 @@ class ReportSubmitTool(BaseTool):
                 "title": {"type": "string", "description": "汇报标题"},
                 "content": {"type": "string", "description": "汇报内容（Markdown）"},
                 "publication_id": {"type": "string", "description": "关联的发布 ID"},
+                "project_id": {"type": "string", "description": "项目 ID，指定后只统计该项目的工作数据"},
             },
             "required": ["action"],
         }
@@ -78,7 +79,12 @@ class ReportSubmitTool(BaseTool):
             if not reporter_id:
                 return {"ok": False, "error": f"未找到成员: {reporter_name}"}
 
-        collected_data = await self._collect_data(reporter_id, reporter_name, report_type, report_date)
+        project_id = kwargs.get("project_id", "")
+        publication_id = kwargs.get("publication_id") or ""
+        if not publication_id and reporter_id:
+            publication_id = await self._auto_resolve_publication(service, reporter_id, report_type)
+
+        collected_data = await self._collect_data(reporter_id, reporter_name, report_type, report_date, project_id=project_id)
         title = self._build_title(report_type, report_date, reporter_name)
         content = self._build_content(report_type, collected_data)
 
@@ -86,7 +92,7 @@ class ReportSubmitTool(BaseTool):
             reporter_id=reporter_id or "unknown",
             report_type=report_type, report_date=report_date,
             title=title, content=content, status="draft",
-            auto_generated=True, publication_id=kwargs.get("publication_id"),
+            auto_generated=True, publication_id=publication_id or None,
         )
 
         vf = collected_data.get("vortflow")
@@ -94,6 +100,7 @@ class ReportSubmitTool(BaseTool):
         has_system_data = bool(
             (vf and vf.get("has_data") and (
                 vf.get("tasks_completed") or vf.get("bugs_fixed")
+                or vf.get("bugs_created") or vf.get("bugs_reopened")
                 or vf.get("tasks_in_progress") or vf.get("stories_in_progress")
                 or vf.get("events")
             ))
@@ -144,11 +151,15 @@ class ReportSubmitTool(BaseTool):
         if not content:
             return {"ok": False, "error": "汇报内容不能为空"}
 
+        publication_id = kwargs.get("publication_id") or ""
+        if not publication_id and reporter_id:
+            publication_id = await self._auto_resolve_publication(service, reporter_id, report_type)
+
         report = await service.create_report(
             reporter_id=reporter_id or "unknown",
             report_type=report_type, report_date=report_date,
             title=title, content=content, status="submitted",
-            publication_id=kwargs.get("publication_id"),
+            publication_id=publication_id or None,
         )
         return {"ok": True, "report": report, "message": "汇报已提交"}
 
@@ -177,6 +188,21 @@ class ReportSubmitTool(BaseTool):
         result = await service.update_report(report_id, status="draft")
         return {"ok": True, "report": result, "message": "汇报已撤回为草稿"}
 
+    @staticmethod
+    async def _auto_resolve_publication(service, reporter_id: str, report_type: str) -> str:
+        """Auto-resolve publication_id from submitter's active publications."""
+        pubs = await service.get_publications_for_submitter(reporter_id)
+        if not pubs:
+            return ""
+        matched = [p for p in pubs if p.get("report_type") == report_type]
+        if len(matched) == 1:
+            return matched[0]["id"]
+        if not matched and len(pubs) == 1:
+            return pubs[0]["id"]
+        if matched:
+            return matched[0]["id"]
+        return ""
+
     async def _resolve_member_id(self, name: str) -> str:
         from sqlalchemy import select
         from openvort.contacts.models import Member
@@ -199,7 +225,7 @@ class ReportSubmitTool(BaseTool):
         else:
             return report_date.replace(day=1).isoformat(), report_date.isoformat()
 
-    async def _collect_data(self, member_id: str, member_name: str, report_type: str, report_date: date) -> dict:
+    async def _collect_data(self, member_id: str, member_name: str, report_type: str, report_date: date, *, project_id: str = "") -> dict:
         import json as _json
 
         data: dict = {"git": None, "vortflow": None}
@@ -236,10 +262,11 @@ class ReportSubmitTool(BaseTool):
                 if hasattr(provider, "get_member_daily_details"):
                     data["vortflow"] = await provider.get_member_daily_details(
                         member_id, since_dt, until_dt,
+                        project_id=project_id,
                     )
                 else:
                     summary = await provider.get_tasks_summary(
-                        project_id="", member_id=member_id,
+                        project_id=project_id, member_id=member_id,
                         since=since_dt, until=until_dt,
                     )
                     data["vortflow"] = {
@@ -274,10 +301,14 @@ class ReportSubmitTool(BaseTool):
         git = collected_data.get("git")
         has_git = git and git.get("total_commits", 0) > 0
 
+        bug_sections = {"bugs_fixed", "bugs_created", "bugs_reopened"}
+
         if vf and vf.get("has_data"):
             for section_key, section_title in [
                 ("tasks_completed", "完成的任务"),
-                ("bugs_fixed", "修复的缺陷"),
+                ("bugs_fixed", "关闭的缺陷"),
+                ("bugs_created", "新增的缺陷"),
+                ("bugs_reopened", "再次打开的缺陷"),
                 ("tasks_in_progress", "进行中的任务"),
                 ("stories_in_progress", "进行中的需求"),
             ]:
@@ -289,7 +320,7 @@ class ReportSubmitTool(BaseTool):
                 for item in items:
                     proj = f"[{item['project_name']}] " if item.get("project_name") else ""
                     suffix = ""
-                    if section_key == "bugs_fixed" and item.get("severity"):
+                    if section_key in bug_sections and item.get("severity"):
                         suffix = f"（{item['severity']}）"
                     elif item.get("progress"):
                         suffix = f"（进度 {item['progress']}%）"

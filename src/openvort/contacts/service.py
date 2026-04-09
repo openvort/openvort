@@ -21,6 +21,7 @@ log = get_logger("contacts.service")
 # Avatar source priority: higher value wins, "manual" always takes precedence
 AVATAR_SOURCE_PRIORITY: dict[str, int] = {
     "": 0,
+    "generated": 5,
     "dingtalk": 10,
     "feishu": 10,
     "zentao": 10,
@@ -162,6 +163,7 @@ class ContactService:
                 member = await session.get(Member, existing.member_id)
                 if member:
                     self._backfill_member_info(member, contact)
+                    self._ensure_avatar(member)
                     # 同步部门关联
                     await self._sync_member_departments(session, member.id, platform, contact.department)
 
@@ -192,6 +194,7 @@ class ContactService:
                 else:
                     # 低置信度，创建 identity 挂到新 member，同时生成建议
                     member = self._create_member_from_contact(contact)
+                    self._ensure_avatar(member)
                     session.add(member)
                     await session.flush()
 
@@ -209,6 +212,7 @@ class ContactService:
 
             # 无匹配，创建新成员
             member = self._create_member_from_contact(contact)
+            self._ensure_avatar(member)
             session.add(member)
             await session.flush()
 
@@ -701,6 +705,21 @@ class ContactService:
         if contact.avatar_url and _avatar_priority(contact.platform) >= _avatar_priority(member.avatar_source):
             member.avatar_url = contact.avatar_url
             member.avatar_source = contact.platform
+
+    @staticmethod
+    def _ensure_avatar(member: Member) -> None:
+        """Generate a default avatar PNG if the member has no avatar."""
+        if member.avatar_url:
+            return
+        if not member.name:
+            return
+        try:
+            from openvort.contacts.avatar import generate_and_save_avatar
+
+            member.avatar_url = generate_and_save_avatar(member.name)
+            member.avatar_source = "generated"
+        except Exception as e:
+            log.warning("生成默认头像失败 (%s): %s", member.name, e)
 
     @staticmethod
     def _has_matchable_identity_info(contact: PlatformContact) -> bool:

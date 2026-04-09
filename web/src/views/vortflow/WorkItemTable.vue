@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ProTable, TableCell } from "@/components/vort-biz";
-import { message } from "@openvort/vort-ui";
+import { message, Pagination } from "@openvort/vort-ui";
 import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMemberPicker.vue";
 import WorkItemPriority from "@/components/vort-biz/work-item/WorkItemPriority.vue";
 import WorkItemStatus from "@/components/vort-biz/work-item/WorkItemStatus.vue";
@@ -21,6 +21,10 @@ import ViewManageDialog from "./components/ViewManageDialog.vue";
 import ViewCreateDialog from "./components/ViewCreateDialog.vue";
 import ColumnSettingsDialog from "./components/ColumnSettingsDialog.vue";
 import NewTagDialog from "./components/NewTagDialog.vue";
+import { GanttTimeline, GanttDivider } from "./gantt";
+import ViewModeToggle from "./gantt/ViewModeToggle.vue";
+import type { GanttZoomLevel } from "./gantt";
+import type { ViewMode } from "./gantt/ViewModeToggle.vue";
 import { useVortFlowStore } from "@/stores";
 import { useVortFlowViews, SYSTEM_VIEWS } from "./composables/useVortFlowViews";
 import { useWorkItemExport } from "./composables/useWorkItemExport";
@@ -74,6 +78,8 @@ const viewCreateOpen = ref(false);
 const { views: mergedViews, activeViewFilters: builtInViewFilters } = currentWorkItemType.value
     ? useVortFlowViews(currentWorkItemType.value)
     : { views: computed(() => SYSTEM_VIEWS), activeViewFilters: computed(() => ({})) };
+
+const isArchivedView = computed(() => Boolean((builtInViewFilters.value as Record<string, any>)?.archived));
 
 // --- Common & Draft ---
 
@@ -234,6 +240,7 @@ const {
     createDraftData, isCreating, createBugAttachments, createBugForm, createParentRecord,
     createInitialBugForm, resetCreateBugForm, rowSelection, clearSelection,
     syncRecordUpdateToApi, syncRecordStatusToApi, deleteOne, handleBatchDelete,
+    handleBatchArchive, handleBatchUnarchive,
     handleCreateSuccess: crudCreateSuccess, handleCopyWorkItem: crudCopyWorkItem,
     handleDetailUpdate: crudDetailUpdate, handleUnlinkChild: crudUnlinkChild,
 } = useWorkItemCrud({
@@ -295,6 +302,182 @@ const {
 // --- Export ---
 
 const { handleExportCsv, handleExportExcel, handleExportJson } = useWorkItemExport({ selectedRows, itemRowsById });
+
+// --- Gantt state ---
+
+const viewMode = computed<ViewMode>({
+    get: () => vortFlowStore.viewMode as ViewMode,
+    set: (v) => { vortFlowStore.viewMode = v; },
+});
+const ganttZoomLevel = computed<GanttZoomLevel>({
+    get: () => vortFlowStore.ganttZoomLevel as GanttZoomLevel,
+    set: (v) => { vortFlowStore.ganttZoomLevel = v; },
+});
+const isGanttMode = computed(() => viewMode.value === "gantt");
+const ganttLeftWidth = ref(0);
+const ganttContainerRef = ref<HTMLElement | null>(null);
+const ganttTablePaneRef = ref<HTMLElement | null>(null);
+const ganttTimelineRef = ref<InstanceType<typeof GanttTimeline> | null>(null);
+const ganttNeedScrollToToday = ref(false);
+const GANTT_ROW_HEIGHT = 50;
+
+const ganttRows = computed<RowItem[]>(() => {
+    if (!tableRef.value) return [];
+    const raw = tableRef.value.dataSource as RowItem[] | undefined;
+    return raw && postProcessTableRows ? postProcessTableRows(raw) : (raw || []);
+});
+
+const tableFirstLoaded = ref(false);
+const ganttRequest = async (params: any) => {
+    const result = await request(params);
+    if (!tableFirstLoaded.value) tableFirstLoaded.value = true;
+    return result;
+};
+const ganttRowTops = ref<number[]>([]);
+const ganttRowHeights = ref<number[]>([]);
+const ganttBodyHeight = ref(0);
+const ganttTableHeaderHeight = ref(0);
+
+let ganttResizeObs: ResizeObserver | null = null;
+
+function measureGanttPositions() {
+    const pane = ganttTablePaneRef.value;
+    if (!pane || !isGanttMode.value) return;
+
+    const thead = pane.querySelector(".vort-pro-table-thead");
+    if (thead) ganttTableHeaderHeight.value = thead.getBoundingClientRect().height;
+
+    const tbody = pane.querySelector(".vort-pro-table-tbody");
+    if (!tbody) return;
+    const rows = Array.from(tbody.children).filter(el => el.tagName === "TR");
+    const tops: number[] = [];
+    const heights: number[] = [];
+    let cumTop = 0;
+    for (const row of rows) {
+        const h = (row as HTMLElement).offsetHeight;
+        tops.push(cumTop);
+        heights.push(h);
+        cumTop += h;
+    }
+    ganttRowTops.value = tops;
+    ganttRowHeights.value = heights;
+    ganttBodyHeight.value = cumTop;
+}
+
+function setupGanttObserver() {
+    ganttResizeObs?.disconnect();
+    const pane = ganttTablePaneRef.value;
+    if (!pane) return;
+    const tbody = pane.querySelector(".vort-pro-table-tbody");
+    if (!tbody) return;
+    ganttResizeObs = new ResizeObserver(() => { measureGanttPositions(); });
+    ganttResizeObs.observe(tbody);
+}
+
+watch(isGanttMode, (v) => {
+    if (v) nextTick(() => { setupGanttObserver(); measureGanttPositions(); });
+    else ganttResizeObs?.disconnect();
+});
+
+watch(ganttRows, () => {
+    if (isGanttMode.value) nextTick(measureGanttPositions);
+    if (ganttNeedScrollToToday.value) {
+        ganttNeedScrollToToday.value = false;
+        nextTick(() => ganttTimelineRef.value?.scrollToToday());
+    }
+}, { deep: false });
+
+watch(tableFirstLoaded, (loaded) => {
+    if (loaded && isGanttMode.value) {
+        nextTick(() => { initGanttWidth(); setupGanttObserver(); measureGanttPositions(); });
+    }
+});
+
+function initGanttWidth() {
+    if (!ganttContainerRef.value) return;
+    const totalW = ganttContainerRef.value.clientWidth;
+    ganttLeftWidth.value = Math.round(totalW * vortFlowStore.ganttDividerRatio);
+}
+
+function onGanttDividerDrag(delta: number) {
+    if (!ganttContainerRef.value) return;
+    const totalW = ganttContainerRef.value.clientWidth;
+    const minW = 300;
+    const maxW = totalW - 300;
+    ganttLeftWidth.value = Math.max(minW, Math.min(maxW, ganttLeftWidth.value + delta));
+}
+
+function onGanttDividerDragEnd() {
+    if (!ganttContainerRef.value) return;
+    const totalW = ganttContainerRef.value.clientWidth;
+    if (totalW > 0) vortFlowStore.ganttDividerRatio = ganttLeftWidth.value / totalW;
+}
+
+function handleGanttTimeChange(rowId: string, startDate: string, endDate: string) {
+    const record = findItemRowByIdentifier(rowId);
+    if (!record) return;
+    const patch: any = {};
+    if (record.planTime?.[0] !== startDate || record.planTime?.[1] !== endDate) {
+        record.planTime = [startDate, endDate];
+        record.planStartDate = startDate;
+        record.planEndDate = endDate;
+        patch.plan_start = startDate;
+        patch.deadline = endDate;
+    }
+    if (Object.keys(patch).length) syncRecordUpdateToApi(record, patch);
+}
+
+function handleGanttProgressChange(rowId: string, progress: number) {
+    const record = findItemRowByIdentifier(rowId);
+    if (!record) return;
+    record.progress = progress;
+    syncRecordUpdateToApi(record, { progress });
+}
+
+function handleGanttCreateTime(rowId: string, startDate: string, endDate: string) {
+    const record = findItemRowByIdentifier(rowId);
+    if (!record) return;
+    record.planTime = [startDate, endDate];
+    record.planStartDate = startDate;
+    record.planEndDate = endDate;
+    syncRecordUpdateToApi(record, { plan_start: startDate, deadline: endDate });
+}
+
+function handleGanttClearDate(rowId: string, type: "start" | "end" | "both") {
+    const record = findItemRowByIdentifier(rowId);
+    if (!record) return;
+    const patch: Record<string, any> = {};
+    if (type === "start" || type === "both") {
+        record.planStartDate = "";
+        patch.plan_start = "";
+    }
+    if (type === "end" || type === "both") {
+        record.planEndDate = "";
+        patch.deadline = "";
+    }
+    record.planTime = [record.planStartDate || "", record.planEndDate || ""];
+    syncRecordUpdateToApi(record, patch);
+}
+
+const ganttPaginationTotal = computed(() => tableRef.value?.total ?? 0);
+const ganttPaginationCurrent = computed(() => tableRef.value?.current ?? 1);
+const ganttPaginationPageSize = computed(() => tableRef.value?.pageSize ?? vortFlowStore.tablePageSize);
+
+function handleGanttPageChange(page: number) {
+    if (!tableRef.value) return;
+    tableRef.value.current = page;
+    ganttNeedScrollToToday.value = true;
+    tableRef.value.refresh();
+}
+
+function handleGanttPageSizeChange(size: number) {
+    if (!tableRef.value) return;
+    tableRef.value.pageSize = size;
+    tableRef.value.current = 1;
+    vortFlowStore.tablePageSize = size;
+    ganttNeedScrollToToday.value = true;
+    tableRef.value.refresh();
+}
 
 // --- Page state ---
 
@@ -479,6 +662,8 @@ const getTagRenderInfo = (record: RowItem, text: string[] | undefined, resolvedW
 
 // --- Lifecycle ---
 
+onBeforeUnmount(() => { ganttResizeObs?.disconnect(); });
+
 onMounted(async () => {
     const urlProjectId = (route.query.project_id || route.query.project) as string;
     if (urlProjectId && urlProjectId !== vortFlowStore.selectedProjectId) {
@@ -512,6 +697,7 @@ onMounted(async () => {
     mountedReady.value = true;
     initialLoading.value = false;
     refreshTable();
+    nextTick(() => { initGanttWidth(); setupGanttObserver(); measureGanttPositions(); });
 
     const action = route.query.action as string;
     const id = route.query.id as string;
@@ -566,6 +752,9 @@ onMounted(async () => {
             :owner-groups="ownerGroups"
             :status-options="currentStatusFilterOptions"
             :show-type-filter="!props.type"
+            :get-avatar-bg="getAvatarBg"
+            :get-avatar-label="getAvatarLabel"
+            :get-avatar-url="getMemberAvatarUrl"
             @search="tableRef?.refresh?.()"
             @reset="onReset"
             @create="handleCreateBug"
@@ -617,6 +806,7 @@ onMounted(async () => {
                 </div>
             </template>
             <template #extra-actions>
+                <ViewModeToggle v-model="viewMode" />
                 <AiAssistButton
                     :prompt="`我想在项目「${currentProjectName}」中创建一个${resolveActiveType()}，请引导我完成。`"
                 />
@@ -636,19 +826,36 @@ onMounted(async () => {
             </template>
         </WorkItemFilters>
 
-        <div class="bg-white rounded-xl p-4 relative">
-            <div v-if="selectedRows.length > 0" class="mb-3 flex items-center gap-3 text-sm">
+        <div
+            ref="ganttContainerRef"
+            class="bg-white rounded-xl relative"
+            :class="isGanttMode ? 'gantt-layout-container' : 'p-4'"
+        >
+            <div v-if="selectedRows.length > 0" class="flex items-center gap-3 text-sm" :class="isGanttMode ? 'px-4 pt-3 pb-1' : 'mb-3'">
                 <span class="text-blue-500 font-medium">已选择 {{ selectedRows.length }} 个工作项</span>
                 <VortButton variant="text" @click="batchPropertyEditorOpen = true">修改属性</VortButton>
+                <vort-popconfirm v-if="isArchivedView" title="确认取消归档选中记录？" @confirm="handleBatchUnarchive">
+                    <VortButton variant="text">取消归档</VortButton>
+                </vort-popconfirm>
+                <vort-popconfirm v-else title="确认归档选中记录？归档后将不可编辑，且不再出现在常规视图中。" @confirm="handleBatchArchive">
+                    <VortButton variant="text">归档</VortButton>
+                </vort-popconfirm>
                 <vort-popconfirm title="确认批量删除选中记录？" @confirm="handleBatchDelete">
                     <VortButton variant="text" danger>删除</VortButton>
                 </vort-popconfirm>
                 <VortButton variant="link" @click="clearSelection">取消选择</VortButton>
             </div>
+
+            <div :class="isGanttMode && tableFirstLoaded ? 'gantt-split-layout' : ''">
+                <div
+                    ref="ganttTablePaneRef"
+                    :class="isGanttMode && tableFirstLoaded ? 'gantt-table-pane' : ''"
+                    :style="isGanttMode && tableFirstLoaded ? { width: `${ganttLeftWidth}px` } : {}"
+                >
             <ProTable
                 ref="tableRef"
                 :columns="columns"
-                :request="request"
+                :request="ganttRequest"
                 :immediate="false"
                 :loading="initialLoading"
                 :post-process-data="postProcessTableRows"
@@ -658,7 +865,7 @@ onMounted(async () => {
                 :pagination="{ pageSize: vortFlowStore.tablePageSize, showSizeChanger: true, showQuickJumper: true, pageSizeOptions: [10, 20, 50] }"
                 @pagination-change="({ pageSize: ps }) => { vortFlowStore.tablePageSize = ps; }"
                 :toolbar="false"
-                bordered
+                :bordered="!isGanttMode"
                 @column-width-change="handleColumnWidthChange"
             >
                 <template #header-status="{ column }">
@@ -745,6 +952,14 @@ onMounted(async () => {
                             </span>
 
                             <span class="title-link-text" :class="{ 'story-child-text': record.isChild }">{{ text }}</span>
+                            <span
+                                v-if="getRowOverdueInfo(record)"
+                                class="title-overdue-tag"
+                                :class="{ 'is-done': getRowOverdueInfo(record)!.completed }"
+                            >
+                                <svg class="title-overdue-icon" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg"><path fill="currentColor" d="M512 208c198.824 0 360 161.176 360 360s-161.176 360-360 360-360-161.176-360-360 161.176-360 360-360z m0 80c-154.64 0-280 125.36-280 280s125.36 280 280 280 280-125.36 280-280-125.36-280-280-280z m46.136 113.488v133.472l90.412 76.648-51.732 61.02L492.268 584a40 40 0 0 1-14.116-29.256l-0.016-1.256v-152h80zM259.528 126.972l56.128 57.008-160.964 158.48L98.56 285.452l160.96-158.48z m507.16 0l160.968 158.48-56.128 57.008-160.964-158.48 56.128-57.008z"></path></svg>
+                                逾期{{ getRowOverdueInfo(record)!.days }}天
+                            </span>
                         </VortButton>
                     </TableCell>
                 </template>
@@ -912,10 +1127,10 @@ onMounted(async () => {
                                 format="YYYY-MM-DD"
                                 separator="~"
                                 :open="planTimePickerOpen"
-                                :allow-clear="false"
+                                :allow-clear="true"
                                 :placeholder="['开始', '结束']"
                                 class="plan-time-picker"
-                                @change="(value: any) => onPlanTimeChange(record, value || text)"
+                                @change="(value: any) => onPlanTimeChange(record, value)"
                                 @open-change="(open: boolean) => onPlanTimeOpenChange(record, open)"
                                 @click.stop
                             />
@@ -1128,6 +1343,42 @@ onMounted(async () => {
                     </TableCell>
                 </template>
             </ProTable>
+                </div>
+                <template v-if="isGanttMode && tableFirstLoaded">
+                    <GanttDivider
+                        @drag="onGanttDividerDrag"
+                        @drag-end="onGanttDividerDragEnd"
+                    />
+                    <GanttTimeline
+                        ref="ganttTimelineRef"
+                        :rows="ganttRows"
+                        :row-tops="ganttRowTops"
+                        :row-heights="ganttRowHeights"
+                        :body-height="ganttBodyHeight"
+                        :table-header-height="ganttTableHeaderHeight"
+                        :row-height="GANTT_ROW_HEIGHT"
+                        :zoom-level="ganttZoomLevel"
+                        @update:zoom-level="(v: GanttZoomLevel) => ganttZoomLevel = v"
+                        @time-change="handleGanttTimeChange"
+                        @progress-change="handleGanttProgressChange"
+                        @create-time="handleGanttCreateTime"
+                        @clear-date="handleGanttClearDate"
+                    />
+                </template>
+            </div>
+
+            <div v-if="isGanttMode && ganttPaginationTotal > 0" class="gantt-pagination-footer">
+                <Pagination
+                    :current="ganttPaginationCurrent"
+                    :page-size="ganttPaginationPageSize"
+                    :total="ganttPaginationTotal"
+                    :show-size-changer="true"
+                    :show-quick-jumper="true"
+                    :page-size-options="[10, 20, 50]"
+                    @update:current="handleGanttPageChange"
+                    @update:page-size="handleGanttPageSizeChange"
+                />
+            </div>
         </div>
 
         <vort-drawer
@@ -1248,6 +1499,31 @@ onMounted(async () => {
     @apply truncate text-blue-600 hover:underline;
 }
 
+.title-overdue-tag {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 18px;
+    padding: 0 6px;
+    border-radius: 9px;
+    color: #dc2626;
+    background: #fef2f2;
+    white-space: nowrap;
+}
+
+.title-overdue-icon {
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
+}
+.title-overdue-tag.is-done {
+    color: #d97706;
+    background: #fffbeb;
+}
+
 .story-expand-toggle {
     display: inline-flex;
     align-items: center;
@@ -1360,7 +1636,7 @@ onMounted(async () => {
 :deep(.plan-time-picker) {
     max-width: 260px;
     border-color: transparent !important;
-    .vort-rangepicker-prefix,.vort-rangepicker-suffix{
+    .vort-rangepicker-prefix{
         display: none;
     }
     .vort-rangepicker-separator{
@@ -1472,6 +1748,75 @@ onMounted(async () => {
 
 .cell-select-plain {
     width: 100%;
+}
+
+/* ===== Gantt layout ===== */
+
+.gantt-layout-container {
+    overflow: hidden;
+}
+
+.gantt-split-layout {
+    display: flex;
+    height: calc(100vh - 240px);
+    min-height: 400px;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.gantt-table-pane {
+    flex-shrink: 0;
+    overflow: hidden;
+    position: relative;
+}
+
+.gantt-table-pane::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 8px;
+    background: linear-gradient(to left, rgba(0, 0, 0, 0.06), transparent);
+    pointer-events: none;
+    z-index: 20;
+}
+
+/* Force table header sticky inside the shared scroll container */
+.gantt-table-pane :deep(.vort-pro-table-thead th) {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--vort-table-header-bg, #fafafa);
+}
+
+/* Force fixed row height in gantt mode */
+.gantt-table-pane :deep(.vort-pro-table-tbody tr) {
+    height: 50px;
+}
+
+.gantt-table-pane :deep(.vort-pro-table-tbody td) {
+    height: 50px;
+    max-height: 50px;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+/* Hide pagination inside the table pane; it shows in the normal flow below */
+.gantt-table-pane :deep(.vort-pro-table-pagination) {
+    display: none;
+}
+
+.gantt-pagination-footer {
+    display: flex;
+    justify-content: flex-end;
+    padding: 12px 16px;
+    border-top: 1px solid #e5e7eb;
+}
+
+/* Disable horizontal scroll for the table wrapper (shared scroll manages vertical) */
+.gantt-table-pane :deep(.vort-pro-table-scroll) {
+    overflow: hidden !important;
 }
 
 </style>

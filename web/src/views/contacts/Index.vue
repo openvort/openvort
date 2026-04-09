@@ -452,7 +452,13 @@ onMounted(() => {
                                 <VortTableColumn label="姓名" prop="name">
                                     <template #default="{ row }">
                                         <div class="flex items-center gap-2">
+                                            <img
+                                                v-if="row.avatar_url"
+                                                :src="row.avatar_url"
+                                                class="w-7 h-7 rounded-full object-cover flex-shrink-0"
+                                            />
                                             <span
+                                                v-else
                                                 class="inline-flex items-center justify-center w-7 h-7 rounded-full text-white text-xs font-medium flex-shrink-0"
                                                 :class="getAvatarColor(row.name)"
                                             >{{ getInitial(row.name) }}</span>
@@ -682,7 +688,13 @@ onMounted(() => {
                                                 class="cursor-pointer"
                                                 @click="openMemberDrawer(m.id)"
                                             >
+                                                <img
+                                                    v-if="m.avatar_url"
+                                                    :src="m.avatar_url"
+                                                    class="w-4 h-4 rounded-full object-cover mr-1 flex-shrink-0"
+                                                />
                                                 <span
+                                                    v-else
                                                     class="inline-flex items-center justify-center w-4 h-4 rounded-full text-white mr-1 flex-shrink-0"
                                                     :class="getAvatarColor(m.name)"
                                                     style="font-size: 10px;"

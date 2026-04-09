@@ -23,8 +23,12 @@ from openvort.plugins.vortflow.router.schemas import (
 )
 from openvort.plugins.vortflow.models import (
     FlowTask,
+    FlowBug,
     FlowStory,
     FlowIterationTask,
+    FlowWorkItemLink,
+    FlowComment,
+    FlowTestCaseWorkItem,
 )
 from openvort.plugins.vortflow.engine import (
     TASK_TRANSITIONS,
@@ -49,6 +53,7 @@ async def list_tasks(
     creator_id: str = Query("", description="按创建者过滤"),
     participant_id: str = Query("", description="按参与者过滤（负责人/创建人/协作者）"),
     iteration_id: str = Query("", description="按迭代过滤"),
+    archived: bool = Query(False, description="是否查看已归档"),
     sort_by: str = Query("", description="排序字段"),
     sort_order: str = Query("desc", description="排序方向 asc/desc"),
     page: int = Query(1, ge=1),
@@ -58,6 +63,9 @@ async def list_tasks(
     async with sf() as session:
         stmt = _apply_sort(select(FlowTask), FlowTask, sort_by, sort_order, FlowTask.created_at)
         count_stmt = select(func.count()).select_from(FlowTask)
+        archived_cond = FlowTask.is_archived.is_(True) if archived else FlowTask.is_archived.is_not(True)
+        stmt = stmt.where(archived_cond)
+        count_stmt = count_stmt.where(archived_cond)
         if iteration_id == "__unplanned__":
             planned_ids = select(FlowIterationTask.task_id)
             stmt = stmt.where(~FlowTask.id.in_(planned_ids))
@@ -186,6 +194,7 @@ async def create_task(body: TaskCreate, request: Request):
             tags_json=json.dumps(body.tags or [], ensure_ascii=False),
             collaborators_json=json.dumps(body.collaborators or [], ensure_ascii=False),
             attachments_json=json.dumps(body.attachments or [], ensure_ascii=False),
+            plan_start=_parse_dt(body.plan_start),
             deadline=_parse_dt(body.deadline),
         )
         session.add(t)
@@ -216,6 +225,8 @@ async def update_task(task_id: str, body: TaskUpdate, request: Request):
         t = await session.get(FlowTask, task_id)
         if not t:
             return {"error": "任务不存在"}
+        if getattr(t, "is_archived", False):
+            return {"error": "操作失败，当前工作项已归档！"}
         old_assignee_id = t.assignee_id
         old_collaborators = _parse_json_list(t.collaborators_json)
         old_deadline = str(t.deadline) if t.deadline else None
@@ -240,6 +251,10 @@ async def update_task(task_id: str, body: TaskUpdate, request: Request):
         if body.attachments is not None:
             t.attachments_json = json.dumps(body.attachments, ensure_ascii=False)
             changes["attachments"] = body.attachments
+        if body.plan_start is not None:
+            old_val = str(t.plan_start) if t.plan_start else None
+            t.plan_start = _parse_dt(body.plan_start)
+            changes["plan_start"] = {"from": old_val, "to": body.plan_start}
         if body.deadline is not None:
             t.deadline = _parse_dt(body.deadline)
             changes["deadline"] = {"from": old_deadline, "to": body.deadline}
@@ -298,9 +313,28 @@ async def delete_task(task_id: str):
         t = await session.get(FlowTask, task_id)
         if not t:
             return {"error": "任务不存在"}
-        child_task_ids = (
-            await session.execute(select(FlowTask.id).where(FlowTask.parent_id == task_id))
-        ).scalars().all()
+        child_task_ids = list(
+            (await session.execute(select(FlowTask.id).where(FlowTask.parent_id == task_id))).scalars().all()
+        )
+        all_task_ids = [task_id, *child_task_ids]
+
+        # clean up iteration associations
+        await session.execute(sa_delete(FlowIterationTask).where(FlowIterationTask.task_id.in_(all_task_ids)))
+        # nullify bug.task_id references
+        await session.execute(
+            FlowBug.__table__.update().where(FlowBug.task_id.in_(all_task_ids)).values(task_id=None)
+        )
+        # clean up work item links, comments, test case associations
+        await session.execute(sa_delete(FlowWorkItemLink).where(
+            or_(FlowWorkItemLink.source_id.in_(all_task_ids), FlowWorkItemLink.target_id.in_(all_task_ids))
+        ))
+        await session.execute(sa_delete(FlowComment).where(
+            FlowComment.entity_type == "task", FlowComment.entity_id.in_(all_task_ids),
+        ))
+        await session.execute(sa_delete(FlowTestCaseWorkItem).where(
+            FlowTestCaseWorkItem.entity_id.in_(all_task_ids),
+        ))
+
         if child_task_ids:
             await session.execute(sa_delete(FlowTask).where(FlowTask.parent_id == task_id))
         await session.delete(t)
@@ -323,6 +357,8 @@ async def transition_task(task_id: str, body: TransitionBody, request: Request):
         t = await session.get(FlowTask, task_id)
         if not t:
             return {"error": "任务不存在"}
+        if getattr(t, "is_archived", False):
+            return {"error": "操作失败，当前工作项已归档！"}
         try:
             current = TaskState(t.state)
             target = TaskState(body.target_state)

@@ -5,7 +5,7 @@ Publication CRUD + Report CRUD + IM 通知
 """
 
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import delete, select, func as sa_func
 from sqlalchemy.orm import selectinload
@@ -16,6 +16,7 @@ from openvort.plugins.report.models import (
     ReportPublicationReceiver,
     ReportPublicationSubmitter,
     ReportPublicationWhitelist,
+    ReportRead,
     ReportReceiverFilter,
 )
 from openvort.utils.logging import get_logger
@@ -35,7 +36,8 @@ class ReportService:
     # ===================== Publication CRUD =====================
 
     async def create_publication(self, *, name: str, description: str = "", report_type: str = "daily",
-                                 content_schema: dict | None = None, repeat_cycle: str = "daily",
+                                 content_schema: dict | None = None, content_template: str = "",
+                                 repeat_cycle: str = "daily",
                                  deadline_time: str = "次日 10:00", reminder_enabled: bool = True,
                                  reminder_time: str = "10:00", skip_weekends: bool = True,
                                  skip_holidays: bool = True, allow_multiple: bool = True,
@@ -48,6 +50,7 @@ class ReportService:
         pub = ReportPublication(
             name=name, description=description, report_type=report_type,
             content_schema=json.dumps(content_schema or {}),
+            content_template=content_template,
             repeat_cycle=repeat_cycle, deadline_time=deadline_time,
             reminder_enabled=reminder_enabled, reminder_time=reminder_time,
             skip_weekends=skip_weekends, skip_holidays=skip_holidays,
@@ -84,7 +87,8 @@ class ReportService:
                 return None
 
             scalar_fields = (
-                "name", "description", "report_type", "repeat_cycle", "deadline_time",
+                "name", "description", "report_type", "content_template",
+                "repeat_cycle", "deadline_time",
                 "reminder_enabled", "reminder_time", "skip_weekends", "skip_holidays",
                 "allow_multiple", "allow_edit", "notify_summary", "notify_on_receive",
                 "owner_id", "enabled",
@@ -200,6 +204,25 @@ class ReportService:
 
         return self._report_to_dict(report)
 
+    async def withdraw_report(self, report_id: str, member_id: str) -> dict | None:
+        """Withdraw a submitted report back to draft. Only the reporter can withdraw."""
+        async with self._sf() as session:
+            stmt = select(Report).where(Report.id == report_id)
+            result = await session.execute(stmt)
+            report = result.scalar_one_or_none()
+            if not report:
+                return None
+            if report.reporter_id != member_id:
+                return {"error": "只能撤回自己的汇报"}
+            if report.status != "submitted":
+                return {"error": "只有已提交的汇报才能撤回"}
+
+            report.status = "draft"
+            report.submitted_at = None
+            await session.commit()
+            await session.refresh(report)
+            return self._report_to_dict(report)
+
     async def get_report(self, report_id: str) -> dict | None:
         async with self._sf() as session:
             stmt = select(Report).where(Report.id == report_id)
@@ -252,12 +275,17 @@ class ReportService:
 
             all_mids = list({r.reporter_id for r in reports})
             info = await self._resolve_member_info(session, all_mids) if all_mids else {}
+
+            pub_ids = list({r.publication_id for r in reports if r.publication_id})
+            pub_names = await self._resolve_publication_names(session, pub_ids) if pub_ids else {}
+
             items = []
             for r in reports:
                 d = self._report_to_dict(r)
                 mi = info.get(r.reporter_id, {})
                 d["reporter_name"] = mi.get("name", "")
                 d["reporter_avatar_url"] = mi.get("avatar_url", "")
+                d["publication_name"] = pub_names.get(r.publication_id, "") if r.publication_id else ""
                 items.append(d)
             return items
 
@@ -312,14 +340,83 @@ class ReportService:
 
             all_mids = list({r.reporter_id for r in reports})
             info = await self._resolve_member_info(session, all_mids) if all_mids else {}
+
+            pub_ids = list({r.publication_id for r in reports if r.publication_id})
+            pub_names = await self._resolve_publication_names(session, pub_ids) if pub_ids else {}
+
+            report_ids = [r.id for r in reports]
+            read_ids: set[str] = set()
+            if report_ids:
+                read_result = await session.execute(
+                    select(ReportRead.report_id).where(
+                        ReportRead.report_id.in_(report_ids),
+                        ReportRead.reader_id == receiver_id,
+                    )
+                )
+                read_ids = {row[0] for row in read_result.all()}
+
             items = []
             for r in reports:
                 d = self._report_to_dict(r)
                 mi = info.get(r.reporter_id, {})
                 d["reporter_name"] = mi.get("name", "")
                 d["reporter_avatar_url"] = mi.get("avatar_url", "")
+                d["publication_name"] = pub_names.get(r.publication_id, "") if r.publication_id else ""
+                d["is_read"] = r.id in read_ids
                 items.append(d)
             return items
+
+    async def mark_report_read(self, report_id: str, reader_id: str) -> bool:
+        async with self._sf() as session:
+            existing = await session.execute(
+                select(ReportRead).where(
+                    ReportRead.report_id == report_id,
+                    ReportRead.reader_id == reader_id,
+                )
+            )
+            if existing.scalar_one_or_none():
+                return True
+            session.add(ReportRead(report_id=report_id, reader_id=reader_id))
+            await session.commit()
+            return True
+
+    async def mark_all_reports_read(self, receiver_id: str, *,
+                                     publication_id: str | None = None) -> int:
+        """Mark all received unread reports as read. Returns count marked."""
+        from sqlalchemy import or_, exists
+
+        async with self._sf() as session:
+            sub = (
+                select(ReportPublicationReceiver.publication_id)
+                .where(ReportPublicationReceiver.member_id == receiver_id)
+            )
+            filter_exists = exists().where(
+                ReportReceiverFilter.publication_id == Report.publication_id,
+                ReportReceiverFilter.receiver_id == receiver_id,
+            )
+            reporter_in_filter = exists().where(
+                ReportReceiverFilter.publication_id == Report.publication_id,
+                ReportReceiverFilter.receiver_id == receiver_id,
+                ReportReceiverFilter.submitter_id == Report.reporter_id,
+            )
+            already_read = select(ReportRead.report_id).where(ReportRead.reader_id == receiver_id)
+
+            stmt = select(Report.id).where(
+                Report.publication_id.in_(sub),
+                Report.status == "submitted",
+                or_(~filter_exists, reporter_in_filter),
+                Report.id.notin_(already_read),
+            )
+            if publication_id:
+                stmt = stmt.where(Report.publication_id == publication_id)
+            result = await session.execute(stmt)
+            unread_ids = [row[0] for row in result.all()]
+
+            for rid in unread_ids:
+                session.add(ReportRead(report_id=rid, reader_id=receiver_id))
+            if unread_ids:
+                await session.commit()
+            return len(unread_ids)
 
     async def get_report_stats(self, *, reporter_id: str | None = None,
                                receiver_id: str | None = None,
@@ -349,6 +446,167 @@ class ReportService:
                 stats["total"] += count
             return stats
 
+    async def get_submission_stats(self, receiver_id: str, *,
+                                    publication_id: str | None = None,
+                                    since: date | None = None,
+                                    until: date | None = None) -> list[dict]:
+        """Per (date, publication) submission stats for a receiver.
+
+        Respects per-receiver submitter filters: if the receiver has configured
+        filters for a publication, only the filtered submitters are counted.
+
+        Returns a list of {publication_id, publication_name, report_date,
+        total_submitters, submitted_count}.
+        """
+        from collections import defaultdict
+
+        async with self._sf() as session:
+            pub_stmt = (
+                select(ReportPublication)
+                .options(
+                    selectinload(ReportPublication.submitters),
+                    selectinload(ReportPublication.whitelist),
+                    selectinload(ReportPublication.receiver_filters),
+                )
+                .join(ReportPublicationReceiver,
+                      ReportPublicationReceiver.publication_id == ReportPublication.id)
+                .where(
+                    ReportPublicationReceiver.member_id == receiver_id,
+                    ReportPublication.enabled == True,  # noqa: E712
+                )
+            )
+            if publication_id:
+                pub_stmt = pub_stmt.where(ReportPublication.id == publication_id)
+            result = await session.execute(pub_stmt)
+            pubs = result.scalars().unique().all()
+
+            if not pubs:
+                return []
+
+            pub_map: dict[str, dict] = {}
+            for p in pubs:
+                wl = {w.member_id for w in p.whitelist}
+                all_submitter_ids = [s.member_id for s in p.submitters if s.member_id not in wl]
+
+                filter_ids = {f.submitter_id for f in p.receiver_filters if f.receiver_id == receiver_id}
+                if filter_ids:
+                    visible_ids = set(sid for sid in all_submitter_ids if sid in filter_ids)
+                else:
+                    visible_ids = set(all_submitter_ids)
+
+                pub_map[p.id] = {
+                    "name": p.name,
+                    "total_submitters": len(visible_ids),
+                    "visible_ids": visible_ids,
+                }
+
+            report_stmt = (
+                select(Report.publication_id, Report.report_date, Report.reporter_id)
+                .where(
+                    Report.publication_id.in_(list(pub_map.keys())),
+                    Report.status == "submitted",
+                )
+            )
+            if since:
+                report_stmt = report_stmt.where(Report.report_date >= since)
+            if until:
+                report_stmt = report_stmt.where(Report.report_date <= until)
+            result = await session.execute(report_stmt)
+            rows = result.all()
+
+            count_map: dict[tuple, set] = defaultdict(set)
+            for pid, rdate, reporter_id in rows:
+                pm = pub_map.get(pid)
+                if pm and reporter_id in pm["visible_ids"]:
+                    count_map[(pid, rdate)].add(reporter_id)
+
+            stats = []
+            for (pid, rdate), submitted_set in sorted(
+                count_map.items(), key=lambda x: str(x[0][1]), reverse=True
+            ):
+                pm = pub_map.get(pid)
+                if not pm:
+                    continue
+                stats.append({
+                    "publication_id": pid,
+                    "publication_name": pm["name"],
+                    "report_date": rdate.isoformat() if rdate else "",
+                    "total_submitters": pm["total_submitters"],
+                    "submitted_count": len(submitted_set),
+                })
+            return stats
+
+    async def get_submission_detail(self, publication_id: str, report_date: date,
+                                    receiver_id: str | None = None) -> dict | None:
+        """Return submitted/not-submitted member lists for a publication on a given date.
+        If receiver_id is provided, respects per-receiver submitter filters."""
+        async with self._sf() as session:
+            pub = await session.execute(
+                select(ReportPublication)
+                .options(
+                    selectinload(ReportPublication.submitters),
+                    selectinload(ReportPublication.whitelist),
+                    selectinload(ReportPublication.receiver_filters),
+                )
+                .where(ReportPublication.id == publication_id)
+            )
+            pub_obj = pub.scalars().first()
+            if not pub_obj:
+                return None
+
+            wl = {w.member_id for w in pub_obj.whitelist}
+            all_submitter_ids = [s.member_id for s in pub_obj.submitters if s.member_id not in wl]
+
+            if receiver_id:
+                filter_ids = {f.submitter_id for f in pub_obj.receiver_filters if f.receiver_id == receiver_id}
+                if filter_ids:
+                    all_submitter_ids = [sid for sid in all_submitter_ids if sid in filter_ids]
+
+            result = await session.execute(
+                select(Report.reporter_id, Report.submitted_at)
+                .where(
+                    Report.publication_id == publication_id,
+                    Report.report_date == report_date,
+                    Report.status == "submitted",
+                )
+            )
+            submitted_rows = result.all()
+            submitted_map = {row[0]: row[1] for row in submitted_rows}
+            visible_set = set(all_submitter_ids)
+            submitted_ids = [mid for mid in submitted_map if mid in visible_set]
+            not_submitted_ids = [mid for mid in all_submitter_ids if mid not in submitted_map]
+
+            all_mids = list(set(submitted_ids + not_submitted_ids))
+            info = await self._resolve_member_info(session, all_mids) if all_mids else {}
+
+            submitted_list = []
+            for mid in submitted_ids:
+                mi = info.get(mid, {})
+                submitted_list.append({
+                    "member_id": mid,
+                    "name": mi.get("name", ""),
+                    "avatar_url": mi.get("avatar_url", ""),
+                    "submitted_at": submitted_map[mid].isoformat() if submitted_map[mid] else None,
+                })
+
+            not_submitted_list = []
+            for mid in not_submitted_ids:
+                mi = info.get(mid, {})
+                not_submitted_list.append({
+                    "member_id": mid,
+                    "name": mi.get("name", ""),
+                    "avatar_url": mi.get("avatar_url", ""),
+                })
+
+            return {
+                "publication_id": publication_id,
+                "publication_name": pub_obj.name,
+                "report_date": report_date.isoformat(),
+                "deadline_time": pub_obj.deadline_time,
+                "submitted": submitted_list,
+                "not_submitted": not_submitted_list,
+            }
+
     async def get_publications_for_submitter(self, member_id: str) -> list[dict]:
         """Get enabled publications where member is a submitter (and not whitelisted)."""
         async with self._sf() as session:
@@ -370,7 +628,8 @@ class ReportService:
             result = await session.execute(stmt)
             pubs = result.scalars().all()
             return [{"id": p.id, "name": p.name, "description": p.description,
-                      "report_type": p.report_type} for p in pubs]
+                      "report_type": p.report_type,
+                      "content_template": p.content_template or ""} for p in pubs]
 
     # ===================== IM Notifications =====================
 
@@ -457,8 +716,9 @@ class ReportService:
         except Exception as e:
             log.warning(f"发送编辑通知失败: {e}")
 
-    async def send_fill_reminders(self, publication_id: str) -> dict:
-        """Send IM reminders to submitters who haven't submitted yet today."""
+    async def send_fill_reminders(self, publication_id: str, *,
+                                   report_date: date | None = None) -> dict:
+        """Send IM reminders to submitters who haven't submitted for the given date."""
         from openvort.plugins.vortflow.aggregator import send_im_to_member
 
         async with self._sf() as session:
@@ -474,10 +734,12 @@ class ReportService:
             if not effective_ids:
                 return {"ok": True, "sent": 0, "total": 0}
 
-            today = date.today()
+            target_date = report_date or date.today()
+            period_start = self._compute_period_start(pub.repeat_cycle, target_date)
             submitted_stmt = select(Report.reporter_id).where(
                 Report.publication_id == publication_id,
-                Report.report_date == today,
+                Report.report_date >= period_start,
+                Report.report_date <= target_date,
                 Report.status == "submitted",
             )
             result = await session.execute(submitted_stmt)
@@ -486,13 +748,15 @@ class ReportService:
             names = await self._resolve_member_names(session, pending_ids)
 
         type_label = TYPE_LABELS.get(pub_dict.get("report_type", ""), "汇报")
+        date_label = f"{target_date.month}月{target_date.day}日"
+        deadline_display = self._compute_deadline_display(target_date, pub_dict.get("deadline_time", ""))
         report_url = self._build_report_url()
         sent, failed = 0, 0
         for mid in pending_ids:
             name = names.get(mid, "")
             text = (
-                f"{name}，请及时提交{type_label}：**{pub_dict['name']}**\n\n"
-                f"截止时间：{pub_dict.get('deadline_time', '')}"
+                f"{name}，请及时提交{date_label}{type_label}：**{pub_dict['name']}**\n\n"
+                f"截止时间：{deadline_display}"
             )
             if report_url:
                 text += f"\n\n[前往填写]({report_url})"
@@ -528,9 +792,11 @@ class ReportService:
             effective_ids = [sid for sid in submitter_ids if sid not in whitelist_ids]
 
             today = date.today()
+            period_start = self._compute_period_start(pub.repeat_cycle, today)
             submitted_stmt = select(Report.reporter_id).where(
                 Report.publication_id == publication_id,
-                Report.report_date == today,
+                Report.report_date >= period_start,
+                Report.report_date <= today,
                 Report.status == "submitted",
             )
             result = await session.execute(submitted_stmt)
@@ -572,6 +838,15 @@ class ReportService:
     # ===================== Helpers =====================
 
     @staticmethod
+    def _compute_period_start(repeat_cycle: str, today: date) -> date:
+        """Compute the start of the current reporting period based on repeat_cycle."""
+        if repeat_cycle == "weekly":
+            return today - timedelta(days=today.weekday())
+        elif repeat_cycle == "monthly":
+            return today.replace(day=1)
+        return today
+
+    @staticmethod
     async def _get_pub(session, publication_id: str) -> ReportPublication | None:
         stmt = (
             select(ReportPublication)
@@ -601,6 +876,19 @@ class ReportService:
             all_mids.add(pub.owner_id)
         names = await self._resolve_member_names(session, list(all_mids)) if all_mids else {}
         return self._pub_to_dict(pub, names)
+
+    @staticmethod
+    def _compute_deadline_display(report_date: date, deadline_time: str) -> str:
+        """Convert deadline_time config (e.g. '次日 08:45') to an absolute date string
+        relative to report_date. E.g. report_date=4/8, deadline='次日 08:45' -> '4月9日 08:45'."""
+        import re
+        m = re.search(r"(\d{2}:\d{2})", deadline_time)
+        hm = m.group(1) if m else "10:00"
+        if deadline_time.startswith("次日"):
+            d = report_date + timedelta(days=1)
+        else:
+            d = report_date
+        return f"{d.month}月{d.day}日 {hm}"
 
     @staticmethod
     def _build_report_url(tab: str = "") -> str:
@@ -643,6 +931,15 @@ class ReportService:
                 session.add(model_cls(publication_id=publication_id, member_id=mid))
 
     @staticmethod
+    async def _resolve_publication_names(session, pub_ids: list[str]) -> dict[str, str]:
+        if not pub_ids:
+            return {}
+        result = await session.execute(
+            select(ReportPublication.id, ReportPublication.name).where(ReportPublication.id.in_(pub_ids))
+        )
+        return {pid: pname for pid, pname in result.all()}
+
+    @staticmethod
     async def _resolve_member_names(session, member_ids: list[str]) -> dict[str, str]:
         if not member_ids:
             return {}
@@ -680,6 +977,7 @@ class ReportService:
             "description": p.description,
             "report_type": p.report_type,
             "content_schema": json.loads(p.content_schema) if p.content_schema else {},
+            "content_template": p.content_template or "",
             "repeat_cycle": p.repeat_cycle,
             "deadline_time": p.deadline_time,
             "reminder_enabled": p.reminder_enabled,

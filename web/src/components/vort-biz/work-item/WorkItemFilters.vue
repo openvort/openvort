@@ -19,6 +19,9 @@ export interface WorkItemFiltersProps {
     statusOptions?: Array<{ label: string; value: Status; icon: string; iconClass: string }>;
     typeOptions?: WorkItemType[];
     showTypeFilter?: boolean;
+    getAvatarBg?: (name: string) => string;
+    getAvatarLabel?: (name: string) => string;
+    getAvatarUrl?: (name: string) => string;
 }
 
 const props = withDefaults(defineProps<WorkItemFiltersProps>(), {
@@ -33,7 +36,10 @@ const props = withDefaults(defineProps<WorkItemFiltersProps>(), {
     ownerGroups: () => [],
     statusOptions: () => [],
     typeOptions: () => ["缺陷", "需求", "任务"],
-    showTypeFilter: true
+    showTypeFilter: true,
+    getAvatarBg: undefined,
+    getAvatarLabel: undefined,
+    getAvatarUrl: undefined,
 });
 
 const emit = defineEmits<{
@@ -138,6 +144,9 @@ const onCreate = () => emit("create");
                 :show-unassigned="true"
                 unassigned-value="未指派"
                 :dropdown-max-height="460"
+                :get-avatar-bg="props.getAvatarBg"
+                :get-avatar-label="props.getAvatarLabel"
+                :get-avatar-url="props.getAvatarUrl"
                 @update:open="(open) => ownerDropdownOpen = open"
                 @update:collaborators="(val) => emit('update:owner', val)"
             >

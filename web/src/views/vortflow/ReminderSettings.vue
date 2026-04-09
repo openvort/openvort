@@ -166,8 +166,13 @@ async function handleTest(scene: string) {
     }
     testing.value = true;
     try {
-        await testVortflowReminder(selectedProjectIds.value[0], scene);
-        message.success("测试提醒已发送，请查看 IM 消息");
+        const res = await testVortflowReminder(selectedProjectIds.value, scene) as any;
+        const sent = res?.sent ?? 0;
+        if (sent > 0) {
+            message.success(`测试提醒已发送给 ${sent} 人，请查看 IM 消息`);
+        } else {
+            message.warning("未找到可发送的成员（可能项目无成员或全被过滤）");
+        }
     } catch {
         message.error("发送测试提醒失败");
     } finally {

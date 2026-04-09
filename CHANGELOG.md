@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.11.0] - 2026-04-08
+
+### Added
+
+- Review detail drawer showing review status, reviewers, and review opinions
+- Report publication system: unified templates and rules into a flexible publication feature
+- Enhanced daily report generation with identity guidance and Git commit matching
+- Report edit notification with auto-generated share links
+- Recipient filtering for submitted reports
+- Project-level work item reminder settings with customizable rules
+- Multi-condition participant filtering (assignee, creator, collaborator)
+- Multi-type work item selection in work item editing
+- Member validation middleware for JWT member_id database verification
+- Test case, test plan, and test report management tools
+
+### Improved
+
+- VortEditor now supports Markdown text paste and auto-parsing
+- Optimized version and work item creation flow with loading state control
+- Simplified status mapping logic
+
+### Fixed
+
+- Dockerfile PostgreSQL GPG key handling issue
+
 ## [0.10.5] - 2026-04-03
 
 ### Added

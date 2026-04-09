@@ -32,6 +32,7 @@ class ReportPublication(Base):
     description: Mapped[str] = mapped_column(String(512), default="")
     report_type: Mapped[str] = mapped_column(String(16), default="daily")
     content_schema: Mapped[str] = mapped_column(Text, default="{}")
+    content_template: Mapped[str] = mapped_column(Text, default="")
 
     # Reporting schedule
     repeat_cycle: Mapped[str] = mapped_column(String(16), default="daily")
@@ -120,6 +121,18 @@ class ReportReceiverFilter(Base):
     receiver_id: Mapped[str] = mapped_column(String(32), ForeignKey("members.id"), primary_key=True)
     submitter_id: Mapped[str] = mapped_column(String(32), ForeignKey("members.id"), primary_key=True)
     publication: Mapped["ReportPublication"] = relationship(back_populates="receiver_filters")
+
+
+class ReportRead(Base):
+    """已读记录：接收人阅读了哪些汇报"""
+
+    __tablename__ = "report_reads"
+
+    report_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("reports.id", ondelete="CASCADE"), primary_key=True
+    )
+    reader_id: Mapped[str] = mapped_column(String(32), ForeignKey("members.id"), primary_key=True)
+    read_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
 class Report(Base):

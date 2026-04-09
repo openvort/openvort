@@ -30,6 +30,9 @@ class ManageTestPlanTool(BaseTool):
         "action=update_review 更新评审状态/评审人，需提供 plan_id 和 review_id。"
         "action=remove_review 移除评审项。"
         "action=list_reviews 列出计划的代码评审项。"
+        "action=available_prs 从 Git 仓库拉取可评审的 open PR 列表，需提供 repo_id，可选 plan_id 标记已添加。"
+        "action=list_review_history 查询评审项的变更历史，需提供 plan_id 和 review_id。"
+        "action=ai_review 使用 AI 对 PR 代码变更进行评审，需提供 plan_id 和 review_id。"
         "action=list 查询测试计划列表，可按 project_id/status/keyword 过滤。"
         "action=detail 查询单个测试计划详情（含统计信息）。"
     )
@@ -48,6 +51,7 @@ class ManageTestPlanTool(BaseTool):
                         "create", "update", "delete", "copy",
                         "add_cases", "remove_case", "execute",
                         "add_review", "update_review", "remove_review", "list_reviews",
+                        "available_prs", "list_review_history", "ai_review",
                         "list", "detail",
                     ],
                     "description": "操作类型",
@@ -139,6 +143,14 @@ class ManageTestPlanTool(BaseTool):
             return await self._remove_review(params, sf, FlowTestPlanReview)
         elif action == "list_reviews":
             return await self._list_reviews(params, sf, Member, FlowTestPlanReview)
+        elif action == "available_prs":
+            return await self._available_prs(params, sf, FlowTestPlanReview)
+        elif action == "list_review_history":
+            return await self._list_review_history(params, sf, Member,
+                                                   FlowTestPlanReview, FlowTestPlanReviewHistory)
+        elif action == "ai_review":
+            return await self._ai_review(params, sf, member_id,
+                                         FlowTestPlanReview, FlowTestPlanReviewHistory)
         elif action == "list":
             return await self._list(params, sf, Member, FlowTestPlan, FlowTestPlanCase,
                                     FlowTestPlanExecution, FlowIteration, FlowVersion)
@@ -432,6 +444,201 @@ class ManageTestPlanTool(BaseTool):
                 "created_at": r.created_at.isoformat() if r.created_at else None,
             } for r in rows]
         return json.dumps({"ok": True, "count": len(items), "reviews": items}, ensure_ascii=False)
+
+    # ---- available_prs ----
+
+    async def _available_prs(self, params, sf, FlowTestPlanReview):
+        repo_id = params.get("repo_id", "")
+        if not repo_id:
+            return json.dumps({"ok": False, "message": "available_prs 需要提供 repo_id"})
+
+        from openvort.plugins.vortgit.crypto import decrypt_token
+        from openvort.plugins.vortgit.models import GitProvider, GitRepo
+        from openvort.plugins.vortgit.providers import create_provider
+
+        async with sf() as session:
+            repo = await session.get(GitRepo, repo_id)
+            if not repo:
+                return json.dumps({"ok": False, "message": "仓库不存在"})
+            provider = await session.get(GitProvider, repo.provider_id)
+            if not provider:
+                return json.dumps({"ok": False, "message": "Git 平台配置不存在"})
+
+            already_set: set[int] = set()
+            plan_id = params.get("plan_id", "")
+            if plan_id:
+                already = (await session.execute(
+                    select(FlowTestPlanReview.pr_number)
+                    .where(FlowTestPlanReview.plan_id == plan_id,
+                           FlowTestPlanReview.repo_id == repo_id)
+                )).scalars().all()
+                already_set = set(already)
+
+        token = decrypt_token(provider.access_token) if provider.access_token else ""
+        client = create_provider(provider.platform, access_token=token, api_base=provider.api_base)
+        try:
+            prs = await client.list_pull_requests(repo.full_name, state="open", per_page=50)
+        except Exception as e:
+            log.error(f"Failed to fetch PRs from repo {repo.full_name}: {e}")
+            return json.dumps({"ok": False, "message": f"获取 PR 列表失败: {e}"}, ensure_ascii=False)
+        finally:
+            await client.close()
+
+        items = [{**pr, "already_added": pr.get("number", 0) in already_set} for pr in prs]
+        return json.dumps({"ok": True, "count": len(items), "pull_requests": items}, ensure_ascii=False)
+
+    # ---- list_review_history ----
+
+    async def _list_review_history(self, params, sf, Member, FlowTestPlanReview, FlowTestPlanReviewHistory):
+        plan_id = params.get("plan_id", "")
+        review_id = params.get("review_id", "")
+        if not plan_id or not review_id:
+            return json.dumps({"ok": False, "message": "list_review_history 需要 plan_id 和 review_id"})
+        async with sf() as session:
+            review = await session.get(FlowTestPlanReview, review_id)
+            if not review or review.plan_id != plan_id:
+                return json.dumps({"ok": False, "message": "评审项不存在"})
+            rows = (await session.execute(
+                select(FlowTestPlanReviewHistory)
+                .where(FlowTestPlanReviewHistory.review_id == review_id)
+                .order_by(FlowTestPlanReviewHistory.created_at.desc())
+            )).scalars().all()
+
+            member_ids = {r.actor_id for r in rows if r.actor_id}
+            member_map: dict[str, str] = {}
+            if member_ids:
+                members = (await session.execute(
+                    select(Member).where(Member.id.in_(list(member_ids)))
+                )).scalars().all()
+                member_map = {m.id: m.name for m in members}
+
+            items = [{
+                "id": r.id, "action": r.action,
+                "old_status": r.old_status, "new_status": r.new_status,
+                "notes": r.notes[:500] if r.notes else "",
+                "actor_name": member_map.get(r.actor_id, "") if r.actor_id else "",
+                "is_ai": r.is_ai,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            } for r in rows]
+        return json.dumps({"ok": True, "count": len(items), "history": items}, ensure_ascii=False)
+
+    # ---- ai_review ----
+
+    async def _ai_review(self, params, sf, member_id, FlowTestPlanReview, FlowTestPlanReviewHistory):
+        plan_id = params.get("plan_id", "")
+        review_id = params.get("review_id", "")
+        if not plan_id or not review_id:
+            return json.dumps({"ok": False, "message": "ai_review 需要 plan_id 和 review_id"})
+
+        from openvort.plugins.vortgit.crypto import decrypt_token
+        from openvort.plugins.vortgit.models import GitProvider, GitRepo
+        from openvort.plugins.vortgit.providers import create_provider
+
+        async with sf() as session:
+            review = await session.get(FlowTestPlanReview, review_id)
+            if not review or review.plan_id != plan_id:
+                return json.dumps({"ok": False, "message": "评审项不存在"})
+            repo = await session.get(GitRepo, review.repo_id)
+            if not repo:
+                return json.dumps({"ok": False, "message": "仓库不存在"})
+            provider = await session.get(GitProvider, repo.provider_id)
+            if not provider:
+                return json.dumps({"ok": False, "message": "Git 平台配置不存在"})
+            pr_title = review.pr_title
+            pr_number = review.pr_number
+            head_branch = review.head_branch
+            base_branch = review.base_branch
+
+        token = decrypt_token(provider.access_token) if provider.access_token else ""
+        client = create_provider(provider.platform, access_token=token, api_base=provider.api_base)
+        try:
+            files = await client.get_pull_request_files(repo.full_name, pr_number)
+            pr_detail = await client.get_pull_request_detail(repo.full_name, pr_number)
+        except Exception as e:
+            log.error(f"Failed to fetch PR data for AI review: {e}")
+            return json.dumps({"ok": False, "message": f"获取 PR 数据失败: {e}"}, ensure_ascii=False)
+        finally:
+            await client.close()
+
+        diff_parts = []
+        for f in files[:30]:
+            header = f"--- {f.get('filename', '')}\n"
+            patch = f.get("patch", "")
+            if patch and isinstance(patch, str):
+                diff_parts.append(header + patch)
+            elif isinstance(patch, dict):
+                diff_parts.append(header + str(patch.get("diff", patch)))
+        diff_text = "\n".join(diff_parts)
+        if len(diff_text) > 30000:
+            diff_text = diff_text[:30000] + "\n... (diff truncated)"
+
+        pr_body = pr_detail.get("body", "") or ""
+        prompt = (
+            "你是一名资深代码评审员。请审查以下 Pull Request 的代码变更。\n\n"
+            f"## PR 信息\n"
+            f"标题：{pr_title}\n"
+            f"描述：{pr_body[:500]}\n"
+            f"分支：{head_branch} → {base_branch}\n\n"
+            f"## 代码变更\n```diff\n{diff_text}\n```\n\n"
+            "请从以下维度评审：\n"
+            "1. 代码逻辑正确性\n"
+            "2. 安全隐患\n"
+            "3. 性能问题\n"
+            "4. 代码风格和可维护性\n"
+            "5. 是否有遗漏的边界情况\n\n"
+            "请用中文回复。先给出评审结论（通过 / 需修改），然后逐条列出发现的问题（如果有）。\n"
+            "格式：\n"
+            "评审结论：通过 或 需修改\n"
+            "评审意见：\n（逐条列出发现的问题，没有问题则写'代码质量良好，无明显问题'）"
+        )
+
+        from openvort.config.settings import get_settings
+        from openvort.core.engine.llm import LLMClient
+        settings = get_settings()
+        llm = LLMClient(settings.llm.get_model_chain())
+        try:
+            result = await llm.create(
+                system="你是一名专业的代码评审员，擅长发现代码中的逻辑错误、安全隐患和性能问题。",
+                messages=[{"role": "user", "content": prompt}],
+            )
+        except Exception as e:
+            log.error(f"AI review LLM call failed: {e}")
+            return json.dumps({"ok": False, "message": f"AI 评审调用失败: {e}"}, ensure_ascii=False)
+
+        ai_text = ""
+        if hasattr(result, "content"):
+            for block in result.content:
+                if hasattr(block, "text"):
+                    ai_text += block.text
+        if not ai_text:
+            ai_text = str(result)
+
+        ai_status = "approved"
+        if "需修改" in ai_text or "需要修改" in ai_text:
+            ai_status = "changes_requested"
+        elif "已驳回" in ai_text:
+            ai_status = "rejected"
+
+        async with sf() as session:
+            review = await session.get(FlowTestPlanReview, review_id)
+            if not review:
+                return json.dumps({"ok": False, "message": "评审项不存在"})
+            old_status = review.review_status
+            review.review_status = ai_status
+            review.review_notes = ai_text
+            session.add(FlowTestPlanReviewHistory(
+                review_id=review_id, action="status_changed",
+                old_status=old_status, new_status=ai_status,
+                notes=ai_text, actor_id=member_id or None, is_ai=True,
+            ))
+            await session.commit()
+
+        return json.dumps({
+            "ok": True,
+            "message": f"AI 评审完成，结论: {ai_status}",
+            "review_status": ai_status,
+            "review_notes": ai_text[:1000],
+        }, ensure_ascii=False)
 
     # ---- list ----
 

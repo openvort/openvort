@@ -16,18 +16,52 @@
 - **月报**（monthly）：月度工作总结
 - **季报**（quarterly）：季度工作总结
 
-### 自动生成日报
+### 自动生成日报 / 工作汇总
 
 使用 `report_submit` 的 `generate` 功能时，系统会自动采集：
-- **VortFlow 工作数据**：今日完成的任务（标题、所属项目）、修复的缺陷（标题、严重程度）、进行中的任务和需求
+- **VortFlow 工作数据**：今日完成的任务、新增的缺陷、关闭的缺陷、再次打开的缺陷、进行中的任务和需求
 - **VortFlow 事件日志**：今日的状态变更、指派、创建等操作记录
 - **Git 提交数据**：从 VortGit 获取代码提交记录（提交数、活跃仓库、仓库分布）
+
+**generate 参数说明：**
+- `reporter_name`（必填）：用户姓名
+- `report_type`：日报 daily / 周报 weekly / 月报 monthly / 季报 quarterly
+- `report_date`：日期（YYYY-MM-DD），默认今天
+- `project_id`（可选）：项目 ID，传入后只统计该项目的工作数据。当用户指定了项目时必须传入
 
 **generate 返回值说明：**
 - `has_system_data: true` — 采集到工作记录，草稿已包含具体工作项明细
 - `has_system_data: false` — 未采集到数据，需要引导用户手动描述工作内容
-- `collected_data.vortflow` — 包含 tasks_completed、bugs_fixed、tasks_in_progress、stories_in_progress、events 等详细数据
+- `collected_data.vortflow` — 包含以下分类数据（**严格按分类展示，不要混淆**）：
+  - `bugs_created` — 用户今日**新建**的缺陷（按 bug 创建时间统计）
+  - `bugs_fixed` — 用户今日**关闭/验证通过**的缺陷（按操作事件时间统计）
+  - `bugs_reopened` — 用户今日**再次打开**的缺陷（按操作事件时间统计）
+  - `tasks_completed` — 今日完成的任务
+  - `tasks_in_progress` — 进行中的任务
+  - `stories_in_progress` — 进行中的需求
+  - `events` — 今日操作事件时间线
+  - `summary` — 各分类的数量统计（bugs_created_count、bugs_fixed_count、bugs_reopened_count 等）
 - `collected_data.git` — 包含 total_commits、active_repos、repo_breakdown
+
+**重要：展示统计数据时，必须严格使用 summary 中的数字，不要自行计算或混淆分类。**
+例如"新建 bug 数"只能取 `bugs_created_count`，"关闭 bug 数"只能取 `bugs_fixed_count`。
+
+**适用场景：**
+- 用户要求"生成日报"、"汇总今日工作"、"统计 bug 数据"等 → 使用 `report_submit` 的 `generate`
+- 如果用户指定了项目（如"佰消安项目的工作"），需先通过 `vortflow_query` 查到 project_id，再传入 generate
+
+### 查询成员每日工作统计
+
+当用户询问"今天新建了多少 bug"、"帮我统计今日的 bug 数"、"汇总某某的测试工作"等需要**按日期统计工作量**的场景时：
+
+**必须使用** `vortflow_query` 的 `query_type=member_daily`，参数：
+- `assignee_id`：成员 ID（必填）
+- `date`：日期 YYYY-MM-DD（必填）
+- `project_id`：项目 ID（可选，按项目过滤）
+
+返回值包含已分类的完整数据：`bugs_created`（新建）、`bugs_fixed`（关闭）、`bugs_reopened`（再次打开）、`tasks_completed`（完成的任务）等，以及 `summary` 中的精确计数。
+
+**禁止**使用 `query_type=bugs` 查询 bug 列表后自行按日期/状态分类统计，这样会导致数据不准确。
 
 **生成后的流程：**
 1. 当 `has_system_data=true` 时，基于 collected_data 用自然语言重新组织日报内容，使其像人写的

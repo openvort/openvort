@@ -223,7 +223,7 @@ const toolbarItems: ToolItem[] = [
     transition: border-color 0.2s;
 }
 .vort-editor:focus-within {
-    border-color: #3b82f6;
+    border-color: var(--vort-primary);
     box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
 }
 .vort-editor--readonly {

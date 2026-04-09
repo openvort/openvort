@@ -248,7 +248,27 @@ export function useWorkItemInlineEdit(options: UseWorkItemInlineEditOptions) {
     // --- Plan time ---
     const onPlanTimeChange = async (record: RowItem, value?: any) => {
         const workNo = record.workNo;
-        if (!value || value.length !== 2) return;
+        const isClearing = !value || value.length === 0 || (value.length === 2 && !value[0] && !value[1]);
+        if (isClearing) {
+            planTimeCommitted.value = true;
+            const prev = [...planTimePrevValue.value] as DateRange;
+            planTimeModel[workNo] = ["", ""];
+            record.planTime = ["", ""];
+            openPlanTimeFor.value = null;
+            try {
+                if (record.type === "缺陷") {
+                    message.warning("缺陷暂不支持计划时间同步到后端");
+                } else {
+                    await syncRecordUpdateToApi(record, { plan_start: "", deadline: "" });
+                }
+            } catch (error: any) {
+                planTimeModel[workNo] = prev;
+                record.planTime = prev;
+                message.error(error?.message || "计划时间清空失败");
+            }
+            return;
+        }
+        if (value.length !== 2) return;
         const start = normalizeDateValue(value[0]);
         const end = normalizeDateValue(value[1]);
         if (!start || !end) return;
@@ -261,7 +281,7 @@ export function useWorkItemInlineEdit(options: UseWorkItemInlineEditOptions) {
             if (record.type === "缺陷") {
                 message.warning("缺陷暂不支持计划时间同步到后端");
             } else {
-                await syncRecordUpdateToApi(record, { deadline: end });
+                await syncRecordUpdateToApi(record, { plan_start: start, deadline: end });
             }
         } catch (error: any) {
             planTimeModel[workNo] = prev;

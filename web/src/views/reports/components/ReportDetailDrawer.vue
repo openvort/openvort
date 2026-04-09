@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, computed } from "vue";
-import { getReportDetail, updateReport } from "@/api";
-import { Clock, Pencil } from "lucide-vue-next";
+import { getReportDetail, updateReport, withdrawReport } from "@/api";
+import { Clock, Pencil, Undo2 } from "lucide-vue-next";
 import { message } from "@openvort/vort-ui";
 import { MarkdownView, VortEditor } from "@/components/vort-biz/editor";
 import { useUserStore } from "@/stores";
@@ -43,22 +43,34 @@ const editTitle = ref("");
 const typeLabels: Record<string, string> = { daily: "日报", weekly: "周报", monthly: "月报", quarterly: "季报" };
 const typeColors: Record<string, string> = { daily: "blue", weekly: "purple", monthly: "orange", quarterly: "cyan" };
 
+const isOwner = computed(() => report.value?.reporter_id === userStore.userInfo.member_id);
+
 const canEdit = computed(() => {
     if (!report.value) return false;
-    const isOwner = report.value.reporter_id === userStore.userInfo.member_id;
-    return isOwner && report.value.allow_edit !== false;
+    return isOwner.value && report.value.allow_edit !== false;
 });
 
-watch(() => props.open, async (val) => {
-    if (val && props.reportId) {
-        editing.value = false;
-        loading.value = true;
-        try {
-            const res: any = await getReportDetail(props.reportId);
-            report.value = res;
-        } catch { report.value = null; }
-        finally { loading.value = false; }
-    }
+const canWithdraw = computed(() => {
+    if (!report.value) return false;
+    return isOwner.value && report.value.status === "submitted";
+});
+
+async function loadReport(id: string) {
+    editing.value = false;
+    loading.value = true;
+    try {
+        const res: any = await getReportDetail(id);
+        report.value = res;
+    } catch { report.value = null; }
+    finally { loading.value = false; }
+}
+
+watch(() => props.open, (val) => {
+    if (val && props.reportId) loadReport(props.reportId);
+});
+
+watch(() => props.reportId, (id) => {
+    if (props.open && id) loadReport(id);
 });
 
 function startEdit() {
@@ -70,6 +82,25 @@ function startEdit() {
 
 function cancelEdit() {
     editing.value = false;
+}
+
+const withdrawing = ref(false);
+
+async function handleWithdraw() {
+    if (!report.value) return;
+    withdrawing.value = true;
+    try {
+        const res: any = await withdrawReport(report.value.id);
+        if (res?.success) {
+            message.success("已撤回");
+            report.value.status = "draft";
+            report.value.submitted_at = null;
+            emit("updated");
+        } else {
+            message.error(res?.error || "撤回失败");
+        }
+    } catch { message.error("撤回失败"); }
+    finally { withdrawing.value = false; }
 }
 
 async function saveEdit() {
@@ -95,7 +126,7 @@ async function saveEdit() {
 </script>
 
 <template>
-    <vort-drawer :open="open" title="汇报详情" :width="560" @update:open="emit('update:open', $event)">
+    <vort-drawer :open="open" title="汇报详情" :width="560" :mask="false" @update:open="emit('update:open', $event)">
         <vort-spin :spinning="loading">
             <template v-if="report">
                 <div class="space-y-5">
@@ -106,18 +137,24 @@ async function saveEdit() {
                             </vort-tag>
                             <vort-tag v-if="report.auto_generated" color="cyan">AI 生成</vort-tag>
                         </div>
-                        <vort-button v-if="canEdit && !editing" size="small" @click="startEdit">
-                            <Pencil :size="13" class="mr-1" /> 编辑
-                        </vort-button>
+                        <div class="flex items-center gap-2">
+                            <vort-popconfirm v-if="canWithdraw && !editing" title="确认撤回此汇报？撤回后状态将变为草稿。" @confirm="handleWithdraw">
+                                <vort-button size="small" :loading="withdrawing">
+                                    <Undo2 :size="13" class="mr-1" /> 撤回
+                                </vort-button>
+                            </vort-popconfirm>
+                            <vort-button v-if="canEdit && !editing" size="small" @click="startEdit">
+                                <Pencil :size="13" class="mr-1" /> 编辑
+                            </vort-button>
+                        </div>
                     </div>
 
                     <div>
                         <h3 class="text-lg font-medium text-gray-800">{{ report.title || '无标题' }}</h3>
                         <div class="flex items-center gap-3 mt-2 text-xs text-gray-400">
                             <span>{{ report.reporter_name }}</span>
-                            <span>{{ report.report_date }}</span>
                             <span v-if="report.submitted_at" class="flex items-center gap-1">
-                                <Clock :size="12" /> {{ report.submitted_at }}
+                                <Clock :size="12" /> {{ report.submitted_at.slice(0, 19).replace('T', ' ') }}
                             </span>
                         </div>
                     </div>

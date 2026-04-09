@@ -94,6 +94,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
     const mapBackendItemToRow = (item: any, typeValue: WorkItemType, index: number): RowItem => {
         const created = item?.created_at ? new Date(item.created_at) : new Date();
         const createdAt = formatCnTime(created);
+        const planStart = item?.plan_start ? String(item.plan_start).split("T")[0] : "";
         const deadline = item?.deadline ? String(item.deadline).split("T")[0] : "";
         const backendId = String(item?.id || index + 1);
         const workNo = `#${backendId.replace(/-/g, "").slice(0, 6).toUpperCase().padEnd(6, "X")}`;
@@ -115,7 +116,8 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
             ? (item.tags as any[]).map((x) => String(x || "").trim()).filter(Boolean)
             : [];
 
-        const planDate = deadline || formatDate(created);
+        const planStartDate = planStart || deadline || "";
+        const planEndDate = deadline || "";
         const updated = item?.updated_at ? new Date(item.updated_at) : null;
         const updatedAt = updated ? formatCnTime(updated) : "";
         const estimateHours = item?.estimate_hours != null ? item.estimate_hours : undefined;
@@ -144,9 +146,9 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
             updatedAt,
             collaborators: collaboratorsFromBackend,
             type: typeValue,
-            planTime: [planDate, planDate],
-            planStartDate: planDate,
-            planEndDate: planDate,
+            planTime: [planStartDate, planEndDate],
+            planStartDate,
+            planEndDate,
             description: item?.description || "",
             ownerId: ownerSourceId,
             owner: ownerName,
@@ -165,6 +167,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
             repo: "",
             branch: item?.branch ? String(item.branch) : "",
             attachments: Array.isArray(item?.attachments) ? item.attachments : [],
+            isArchived: Boolean(item?.is_archived),
             startAt,
             endAt,
             _prevIteration: iterationId,
@@ -452,6 +455,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
             const viewCreator = vf.creator || undefined;
             const viewParticipant = vf.participant || undefined;
             const effectiveAssignee = ownerMemberId || viewOwner || undefined;
+            const archivedParam = vf.archived === true ? true : false;
             const sortParams = backendSortBy ? { sort_by: backendSortBy, sort_order: backendSortOrder } : {};
             const requestByState = async (state?: string, page = current, size = pageSize) => {
                 if (workType === "需求") {
@@ -462,6 +466,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
                         assignee_id: ownerMemberId || viewOwner || undefined,
                         submitter_id: viewCreator,
                         participant_id: viewParticipant,
+                        archived: archivedParam,
                         ...sortParams,
                         page, page_size: size
                     });
@@ -476,6 +481,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
                         iteration_id: iterationIdParam,
                         creator_id: viewCreator,
                         participant_id: viewParticipant,
+                        archived: archivedParam,
                         ...sortParams,
                         page,
                         page_size: size
@@ -489,6 +495,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
                     iteration_id: iterationIdParam,
                     reporter_id: viewCreator,
                     participant_id: viewParticipant,
+                    archived: archivedParam,
                     ...sortParams,
                     page,
                     page_size: size

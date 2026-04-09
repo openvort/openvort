@@ -70,7 +70,7 @@ const props = defineProps<{
 
 const html = computed(() => {
     if (!props.content) return "";
-    return marked.parse(props.content, { async: false, renderer }) as string;
+    return marked.parse(props.content, { async: false, renderer, breaks: true }) as string;
 });
 
 const renderMermaid = async () => {

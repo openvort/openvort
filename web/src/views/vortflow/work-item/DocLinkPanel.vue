@@ -218,6 +218,7 @@ interface Props {
 }
 
 const props = defineProps<Props>();
+const emit = defineEmits<{ countChange: [count: number] }>();
 
 interface LinkedDoc {
     link_id: string;
@@ -284,6 +285,7 @@ const loadLinks = async () => {
         linkedDocs.value = [];
     } finally {
         loading.value = false;
+        emit("countChange", linkedDocs.value.length);
     }
 };
 

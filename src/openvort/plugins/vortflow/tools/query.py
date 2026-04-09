@@ -20,6 +20,8 @@ class QueryTool(BaseTool):
         "查询 VortFlow 中的项目、需求、任务、缺陷、迭代、版本信息。"
         "支持按项目列表、需求列表、任务列表、缺陷列表、迭代列表、版本列表、项目成员查询，可按状态和负责人过滤。"
         "也可查询单个实体的详情。"
+        "当需要统计某成员在某段时间内的工作情况（如今日新建/关闭/再次打开的 Bug 数）时，"
+        "必须使用 query_type=member_daily，不要用 bugs 列表自行统计。"
     )
     required_permission = "vortflow.story"
 
@@ -29,14 +31,19 @@ class QueryTool(BaseTool):
             "properties": {
                 "query_type": {
                     "type": "string",
-                    "description": "查询类型",
-                    "enum": ["projects", "stories", "tasks", "bugs", "iterations", "versions", "detail", "project_members"],
+                    "description": (
+                        "查询类型。member_daily 用于统计成员某日的工作明细（新建/关闭/再次打开的 Bug、完成的任务等），"
+                        "需要 assignee_id 和 date 参数，可选 project_id 按项目过滤"
+                    ),
+                    "enum": ["projects", "stories", "tasks", "bugs", "iterations", "versions", "detail", "project_members", "member_daily"],
                 },
                 "project_id": {"type": "string", "description": "按项目过滤（可选）", "default": ""},
                 "story_id": {"type": "string", "description": "按需求过滤任务/缺陷（可选）", "default": ""},
                 "state": {"type": "string", "description": "按状态过滤（可选）", "default": ""},
                 "assignee_id": {"type": "string", "description": "按负责人过滤（可选）", "default": ""},
+                "reporter_id": {"type": "string", "description": "按报告人/创建人过滤缺陷（可选）", "default": ""},
                 "keyword": {"type": "string", "description": "按名称搜索（iterations/versions 可选）", "default": ""},
+                "date": {"type": "string", "description": "日期 YYYY-MM-DD（member_daily 必填）", "default": ""},
                 "entity_type": {"type": "string", "description": "detail 模式下的实体类型", "default": ""},
                 "entity_id": {"type": "string", "description": "detail 模式下的实体 ID", "default": ""},
             },
@@ -94,17 +101,29 @@ class QueryTool(BaseTool):
 
             elif query_type == "bugs":
                 stmt = select(FlowBug).order_by(FlowBug.created_at.desc()).limit(50)
+                if params.get("project_id"):
+                    stmt = stmt.where(FlowBug.project_id == params["project_id"])
                 if params.get("story_id"):
                     stmt = stmt.where(FlowBug.story_id == params["story_id"])
                 if params.get("state"):
                     stmt = stmt.where(FlowBug.state == params["state"])
                 if params.get("assignee_id"):
                     stmt = stmt.where(FlowBug.assignee_id == params["assignee_id"])
+                if params.get("reporter_id"):
+                    stmt = stmt.where(FlowBug.reporter_id == params["reporter_id"])
                 result = await session.execute(stmt)
                 rows = result.scalars().all()
                 data = [{"id": r.id, "title": r.title, "state": r.state, "severity": r.severity,
-                          "assignee_id": r.assignee_id} for r in rows]
-                return json.dumps({"ok": True, "count": len(data), "bugs": data}, ensure_ascii=False)
+                          "assignee_id": r.assignee_id, "reporter_id": r.reporter_id,
+                          "project_id": r.project_id,
+                          "created_at": r.created_at.isoformat() if r.created_at else None} for r in rows]
+                resp: dict = {"ok": True, "count": len(data), "bugs": data}
+                resp["warning"] = (
+                    "此列表为全量缺陷（不限日期），count 是列表总条数而非某日新建数。"
+                    "如需统计某成员某日的新建/关闭/再次打开数量，"
+                    "请改用 query_type=member_daily（传入 assignee_id 和 date）。"
+                )
+                return json.dumps(resp, ensure_ascii=False)
 
             elif query_type == "iterations":
                 stmt = select(FlowIteration).order_by(FlowIteration.start_date.desc().nulls_last()).limit(50)
@@ -152,6 +171,31 @@ class QueryTool(BaseTool):
                           "role": pm.role, "joined_at": pm.joined_at.isoformat() if pm.joined_at else None}
                          for pm, m in rows]
                 return json.dumps({"ok": True, "count": len(data), "members": data}, ensure_ascii=False)
+
+            elif query_type == "member_daily":
+                from datetime import date as date_cls, datetime
+                from openvort.plugins.vortflow.provider import VortFlowProjectProvider
+
+                member_id = params.get("assignee_id", "")
+                if not member_id:
+                    return json.dumps({"ok": False, "message": "member_daily 需要 assignee_id（成员 ID）"})
+                date_str = params.get("date", "")
+                if not date_str:
+                    return json.dumps({"ok": False, "message": "member_daily 需要 date（YYYY-MM-DD）"})
+                try:
+                    d = date_cls.fromisoformat(date_str)
+                except ValueError:
+                    return json.dumps({"ok": False, "message": f"date 格式错误: {date_str}，需要 YYYY-MM-DD"})
+
+                since = datetime.combine(d, datetime.min.time())
+                until = datetime.combine(d, datetime.max.time())
+                project_id = params.get("project_id", "")
+
+                provider = VortFlowProjectProvider(lambda: sf)
+                result_data = await provider.get_member_daily_details(
+                    member_id, since, until, project_id=project_id,
+                )
+                return json.dumps({"ok": True, **result_data}, ensure_ascii=False, default=str)
 
             elif query_type == "detail":
                 entity_type = params.get("entity_type", "")

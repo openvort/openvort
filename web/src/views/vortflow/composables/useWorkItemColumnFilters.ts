@@ -83,7 +83,8 @@ export function useWorkItemColumnFilters(options: UseWorkItemColumnFiltersOption
         options: currentStatusFilterOptions.value.map(o => ({
             label: o.label,
             value: o.value,
-            dotColor: o.iconColor || STATUS_DOT_COLOR_MAP[o.label] || "#9ca3af",
+            icon: o.icon,
+            iconClass: o.iconClass,
         })),
     }));
 

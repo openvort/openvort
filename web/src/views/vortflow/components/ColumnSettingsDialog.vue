@@ -298,6 +298,7 @@ const getTitle = (key: string) => fieldTitleMap.value.get(key) || key;
 /* Left panel */
 .field-section {
     margin-bottom: 16px;
+    overflow: hidden;
 }
 
 .section-label {

@@ -22,8 +22,8 @@ export function deletePublication(id: string) {
     return request.delete(`/reports/publications/${id}`);
 }
 
-export function sendReminders(id: string) {
-    return request.post(`/reports/publications/${id}/remind`);
+export function sendReminders(id: string, data?: { report_date?: string }) {
+    return request.post(`/reports/publications/${id}/remind`, data || {});
 }
 
 export function sendSummary(id: string) {
@@ -52,6 +52,26 @@ export function updateReport(id: string, data: { title?: string; content?: strin
     return request.put(`/reports/${id}`, data);
 }
 
+export function withdrawReport(id: string) {
+    return request.post(`/reports/${id}/withdraw`);
+}
+
 export function getReportStats(params?: Record<string, any>) {
     return request.get("/reports/stats", { params });
+}
+
+export function getSubmissionStats(params?: Record<string, any>) {
+    return request.get("/reports/submission-stats", { params });
+}
+
+export function getSubmissionDetail(params: { publication_id: string; report_date: string }) {
+    return request.get("/reports/submission-detail", { params });
+}
+
+export function markReportRead(id: string) {
+    return request.post(`/reports/${id}/read`);
+}
+
+export function markAllReportsRead(params?: Record<string, any>) {
+    return request.post("/reports/read-all", null, { params });
 }

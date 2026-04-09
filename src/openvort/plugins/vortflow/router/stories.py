@@ -1,7 +1,7 @@
 import json
 
 from fastapi import APIRouter, Query, Request
-from sqlalchemy import func, select, delete as sa_delete, or_
+from sqlalchemy import func, select, delete as sa_delete, update as sa_update, or_
 
 from openvort.db.engine import get_session_factory
 from openvort.web.app import require_auth
@@ -25,7 +25,13 @@ from openvort.plugins.vortflow.models import (
     FlowTask,
     FlowBug,
     FlowIterationStory,
+    FlowIterationTask,
+    FlowIterationBug,
     FlowVersionStory,
+    FlowVersionBug,
+    FlowWorkItemLink,
+    FlowComment,
+    FlowTestCaseWorkItem,
 )
 from openvort.plugins.vortflow.engine import (
     STORY_TRANSITIONS,
@@ -50,6 +56,7 @@ async def list_stories(
     pm_id: str = Query("", description="按产品经理过滤"),
     participant_id: str = Query("", description="按参与者过滤（负责人/创建人/协作者）"),
     iteration_id: str = Query("", description="按迭代过滤"),
+    archived: bool = Query(False, description="是否查看已归档"),
     sort_by: str = Query("", description="排序字段"),
     sort_order: str = Query("desc", description="排序方向 asc/desc"),
     page: int = Query(1, ge=1),
@@ -59,6 +66,9 @@ async def list_stories(
     async with sf() as session:
         stmt = _apply_sort(select(FlowStory), FlowStory, sort_by, sort_order, FlowStory.created_at)
         count_stmt = select(func.count()).select_from(FlowStory)
+        archived_cond = FlowStory.is_archived.is_(True) if archived else FlowStory.is_archived.is_not(True)
+        stmt = stmt.where(archived_cond)
+        count_stmt = count_stmt.where(archived_cond)
         if iteration_id == "__unplanned__":
             planned_ids = select(FlowIterationStory.story_id)
             stmt = stmt.where(~FlowStory.id.in_(planned_ids))
@@ -193,6 +203,7 @@ async def create_story(body: StoryCreate, request: Request):
             tags_json=json.dumps(body.tags or [], ensure_ascii=False),
             collaborators_json=json.dumps(body.collaborators or [], ensure_ascii=False),
             attachments_json=json.dumps(body.attachments or [], ensure_ascii=False),
+            plan_start=_parse_dt(body.plan_start),
             deadline=_parse_dt(body.deadline),
         )
         session.add(s)
@@ -223,6 +234,8 @@ async def update_story(story_id: str, body: StoryUpdate, request: Request):
         s = await session.get(FlowStory, story_id)
         if not s:
             return {"error": "需求不存在"}
+        if getattr(s, "is_archived", False):
+            return {"error": "操作失败，当前工作项已归档！"}
         old_pm_id = s.pm_id
         old_assignee_id = getattr(s, "assignee_id", None)
         old_priority = s.priority
@@ -257,6 +270,10 @@ async def update_story(story_id: str, body: StoryUpdate, request: Request):
         if body.attachments is not None:
             s.attachments_json = json.dumps(body.attachments, ensure_ascii=False)
             changes["attachments"] = body.attachments
+        if body.plan_start is not None:
+            old_val = str(s.plan_start) if s.plan_start else None
+            s.plan_start = _parse_dt(body.plan_start)
+            changes["plan_start"] = {"from": old_val, "to": body.plan_start}
         if body.deadline is not None:
             s.deadline = _parse_dt(body.deadline)
             changes["deadline"] = {"from": old_deadline, "to": body.deadline}
@@ -325,8 +342,48 @@ async def delete_story(story_id: str):
             return {"error": "需求不存在"}
         descendant_ids = await _collect_story_descendant_ids(session, [story_id])
         target_story_ids = [story_id, *descendant_ids]
+
+        # collect task/bug ids under these stories
+        task_ids = list(
+            (await session.execute(select(FlowTask.id).where(FlowTask.story_id.in_(target_story_ids)))).scalars().all()
+        )
+        bug_ids = list(
+            (await session.execute(select(FlowBug.id).where(FlowBug.story_id.in_(target_story_ids)))).scalars().all()
+        )
+
+        # clean up story associations
         await session.execute(sa_delete(FlowIterationStory).where(FlowIterationStory.story_id.in_(target_story_ids)))
         await session.execute(sa_delete(FlowVersionStory).where(FlowVersionStory.story_id.in_(target_story_ids)))
+
+        # clean up task associations before deleting tasks
+        if task_ids:
+            await session.execute(sa_delete(FlowIterationTask).where(FlowIterationTask.task_id.in_(task_ids)))
+
+        # clean up bug associations before deleting bugs
+        if bug_ids:
+            await session.execute(sa_delete(FlowIterationBug).where(FlowIterationBug.bug_id.in_(bug_ids)))
+            await session.execute(sa_delete(FlowVersionBug).where(FlowVersionBug.bug_id.in_(bug_ids)))
+
+        # clean up work item links (story/task/bug as source or target)
+        all_entity_ids = [*target_story_ids, *task_ids, *bug_ids]
+        await session.execute(sa_delete(FlowWorkItemLink).where(
+            or_(FlowWorkItemLink.source_id.in_(all_entity_ids), FlowWorkItemLink.target_id.in_(all_entity_ids))
+        ))
+
+        # clean up comments and test case associations
+        await session.execute(sa_delete(FlowComment).where(
+            FlowComment.entity_type.in_(["story", "task", "bug"]),
+            FlowComment.entity_id.in_(all_entity_ids),
+        ))
+        await session.execute(sa_delete(FlowTestCaseWorkItem).where(
+            FlowTestCaseWorkItem.entity_id.in_(all_entity_ids),
+        ))
+
+        # nullify task.story_id for tasks referencing bugs (bug.task_id FK)
+        if task_ids:
+            await session.execute(sa_update(FlowBug).where(FlowBug.task_id.in_(task_ids)).values(task_id=None))
+
+        # delete tasks, bugs, child stories, main story
         await session.execute(sa_delete(FlowTask).where(FlowTask.story_id.in_(target_story_ids)))
         await session.execute(sa_delete(FlowBug).where(FlowBug.story_id.in_(target_story_ids)))
         await session.execute(sa_delete(FlowStory).where(FlowStory.id.in_(descendant_ids)))
@@ -350,6 +407,8 @@ async def transition_story(story_id: str, body: TransitionBody, request: Request
         s = await session.get(FlowStory, story_id)
         if not s:
             return {"error": "需求不存在"}
+        if getattr(s, "is_archived", False):
+            return {"error": "操作失败，当前工作项已归档！"}
         try:
             current = StoryState(s.state)
             target = StoryState(body.target_state)

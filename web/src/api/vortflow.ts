@@ -54,7 +54,7 @@ export function removeVortflowProjectMember(projectId: string, memberId: string)
 
 // ---- Stories ----
 
-export function getVortflowStories(params: { project_id?: string; state?: string; keyword?: string; priority?: number; parent_id?: string; submitter_id?: string; assignee_id?: string; pm_id?: string; participant_id?: string; iteration_id?: string; sort_by?: string; sort_order?: string; page?: number; page_size?: number }) {
+export function getVortflowStories(params: { project_id?: string; state?: string; keyword?: string; priority?: number; parent_id?: string; submitter_id?: string; assignee_id?: string; pm_id?: string; participant_id?: string; iteration_id?: string; archived?: boolean; sort_by?: string; sort_order?: string; page?: number; page_size?: number }) {
     return request.get("/vortflow/stories", { params });
 }
 
@@ -62,7 +62,7 @@ export function getVortflowStory(id: string) {
     return request.get(`/vortflow/stories/${id}`);
 }
 
-export function createVortflowStory(data: { project_id: string; title: string; description?: string; priority?: number; parent_id?: string; assignee_id?: string; tags?: string[]; collaborators?: string[]; attachments?: { name: string; url: string; size: number }[]; deadline?: string }) {
+export function createVortflowStory(data: { project_id: string; title: string; description?: string; priority?: number; parent_id?: string; assignee_id?: string; tags?: string[]; collaborators?: string[]; attachments?: { name: string; url: string; size: number }[]; plan_start?: string; deadline?: string }) {
     return request.post("/vortflow/stories", data);
 }
 
@@ -76,6 +76,7 @@ export function updateVortflowStory(id: string, data: {
     tags?: string[];
     collaborators?: string[];
     attachments?: { name: string; url: string; size: number }[];
+    plan_start?: string;
     deadline?: string;
     pm_id?: string | null;
     project_id?: string | null;
@@ -106,7 +107,7 @@ export function getVortflowStoryTransitions(id: string) {
 
 // ---- Tasks ----
 
-export function getVortflowTasks(params: { story_id?: string; parent_id?: string; state?: string; task_type?: string; assignee_id?: string; keyword?: string; project_id?: string; creator_id?: string; participant_id?: string; iteration_id?: string; sort_by?: string; sort_order?: string; page?: number; page_size?: number }) {
+export function getVortflowTasks(params: { story_id?: string; parent_id?: string; state?: string; task_type?: string; assignee_id?: string; keyword?: string; project_id?: string; creator_id?: string; participant_id?: string; iteration_id?: string; archived?: boolean; sort_by?: string; sort_order?: string; page?: number; page_size?: number }) {
     return request.get("/vortflow/tasks", { params });
 }
 
@@ -114,7 +115,7 @@ export function getVortflowTask(id: string) {
     return request.get(`/vortflow/tasks/${id}`);
 }
 
-export function createVortflowTask(data: { project_id?: string; story_id?: string; parent_id?: string; title: string; description?: string; task_type?: string; assignee_id?: string; tags?: string[]; collaborators?: string[]; attachments?: { name: string; url: string; size: number }[]; estimate_hours?: number; deadline?: string }) {
+export function createVortflowTask(data: { project_id?: string; story_id?: string; parent_id?: string; title: string; description?: string; task_type?: string; assignee_id?: string; tags?: string[]; collaborators?: string[]; attachments?: { name: string; url: string; size: number }[]; estimate_hours?: number; plan_start?: string; deadline?: string }) {
     return request.post("/vortflow/tasks", data);
 }
 
@@ -130,6 +131,7 @@ export function updateVortflowTask(id: string, data: {
     attachments?: { name: string; url: string; size: number }[];
     estimate_hours?: number;
     actual_hours?: number;
+    plan_start?: string;
     deadline?: string;
     start_at?: string;
     end_at?: string;
@@ -158,7 +160,7 @@ export function getVortflowTaskTransitions(id: string) {
 
 // ---- Bugs ----
 
-export function getVortflowBugs(params: { story_id?: string; state?: string; severity?: number; assignee_id?: string; keyword?: string; project_id?: string; reporter_id?: string; participant_id?: string; iteration_id?: string; sort_by?: string; sort_order?: string; page?: number; page_size?: number }) {
+export function getVortflowBugs(params: { story_id?: string; state?: string; severity?: number; assignee_id?: string; keyword?: string; project_id?: string; reporter_id?: string; participant_id?: string; iteration_id?: string; archived?: boolean; sort_by?: string; sort_order?: string; page?: number; page_size?: number }) {
     return request.get("/vortflow/bugs", { params });
 }
 
@@ -166,7 +168,7 @@ export function getVortflowBug(id: string) {
     return request.get(`/vortflow/bugs/${id}`);
 }
 
-export function createVortflowBug(data: { project_id?: string; story_id?: string; task_id?: string; title: string; description?: string; severity?: number; assignee_id?: string; tags?: string[]; collaborators?: string[]; attachments?: { name: string; url: string; size: number }[]; deadline?: string }) {
+export function createVortflowBug(data: { project_id?: string; story_id?: string; task_id?: string; title: string; description?: string; severity?: number; assignee_id?: string; tags?: string[]; collaborators?: string[]; attachments?: { name: string; url: string; size: number }[]; plan_start?: string; deadline?: string }) {
     return request.post("/vortflow/bugs", data);
 }
 
@@ -182,6 +184,7 @@ export function updateVortflowBug(id: string, data: {
     attachments?: { name: string; url: string; size: number }[];
     estimate_hours?: number;
     actual_hours?: number;
+    plan_start?: string;
     deadline?: string;
     start_at?: string;
     end_at?: string;
@@ -205,6 +208,12 @@ export function transitionVortflowBug(id: string, target_state: string) {
 
 export function getVortflowBugTransitions(id: string) {
     return request.get(`/vortflow/bugs/${id}/transitions`);
+}
+
+// ---- Archive ----
+
+export function batchArchiveWorkItems(data: { ids: string[]; type: string; archived: boolean }) {
+    return request.post("/vortflow/work-items/batch-archive", data);
 }
 
 // ---- Work Item Links ----
@@ -816,8 +825,9 @@ export function updateVortflowReminderSettings(projectId: string, data: any) {
     return request.put(`/vortflow/reminder-settings/${projectId}`, data);
 }
 
-export function testVortflowReminder(projectId: string, scene: string = "morning") {
-    return request.post(`/vortflow/reminder-settings/${projectId}/test`, null, {
-        params: { scene },
+export function testVortflowReminder(projectIds: string[], scene: string = "morning") {
+    return request.post("/vortflow/reminder-settings/test", {
+        project_ids: projectIds,
+        scene,
     });
 }

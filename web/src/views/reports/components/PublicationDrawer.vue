@@ -5,6 +5,7 @@ import { message } from "@openvort/vort-ui";
 import { Settings, X, Plus } from "lucide-vue-next";
 import { createPublication, updatePublication, getMembersSimple } from "@/api";
 import { MemberPicker } from "@/components/vort-biz/member-picker";
+import { VortEditor } from "@/components/vort-biz/editor";
 
 interface ReceiverFilters {
     [receiverId: string]: string[];
@@ -15,6 +16,7 @@ interface PublicationData {
     name: string;
     description: string;
     report_type: string;
+    content_template: string;
     repeat_cycle: string;
     deadline_time: string;
     reminder_enabled: boolean;
@@ -53,6 +55,7 @@ const memberMap = ref<Record<string, string>>({});
 
 const defaultForm = (): PublicationData => ({
     name: "", description: "", report_type: "daily",
+    content_template: "",
     repeat_cycle: "daily", deadline_time: "次日 10:00",
     reminder_enabled: true, reminder_time: "10:00",
     skip_weekends: true, skip_holidays: true,
@@ -279,6 +282,9 @@ function avatarBg(name: string): string {
                         <vort-select-option value="weekly">周报</vort-select-option>
                         <vort-select-option value="monthly">月报</vort-select-option>
                     </vort-select>
+                </vort-form-item>
+                <vort-form-item label="内容模板" name="content_template">
+                    <VortEditor v-model="form.content_template" placeholder="设置汇报默认内容，如：&#10;## 今日工作&#10;&#10;## 遇到的问题&#10;&#10;## 明日计划" min-height="200px" />
                 </vort-form-item>
             </vort-form>
         </div>

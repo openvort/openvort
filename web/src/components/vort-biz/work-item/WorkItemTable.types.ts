@@ -34,6 +34,7 @@ export interface ViewFilters {
     parentOnly?: boolean;
     creator?: string;
     participant?: string;
+    archived?: boolean;
 }
 
 export interface WorkItemTableProps {
@@ -117,6 +118,7 @@ export interface RowItem {
     attachments?: AttachmentItem[];
     startAt?: string;
     endAt?: string;
+    isArchived?: boolean;
     children?: RowItem[];
     _prevIteration?: string;
     _prevVersion?: string;

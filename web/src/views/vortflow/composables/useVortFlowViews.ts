@@ -49,6 +49,12 @@ export const SYSTEM_VIEWS: VortFlowView[] = [
         scope: "system",
         getFilters: () => ({ parentOnly: true }),
     },
+    {
+        id: "archived",
+        name: "已归档",
+        scope: "system",
+        getFilters: () => ({ archived: true }),
+    },
 ];
 
 export function useVortFlowViews(type: WorkItemType) {

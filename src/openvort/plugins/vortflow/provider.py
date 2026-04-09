@@ -96,6 +96,7 @@ class VortFlowProjectProvider:
         since: datetime | None = None,
         until: datetime | None = None,
     ) -> TasksSummary:
+        from openvort.plugins.vortflow.engine import BUG_CLOSED_STATES
         from openvort.plugins.vortflow.models import FlowBug, FlowTask
 
         sf = self._sf()
@@ -108,7 +109,7 @@ class VortFlowProjectProvider:
                 bug_q = bug_q.where(FlowBug.project_id == project_id)
 
             task_done_q = task_q.where(FlowTask.state == "done")
-            bug_fixed_q = bug_q.where(FlowBug.state == "closed")
+            bug_fixed_q = bug_q.where(FlowBug.state.in_(BUG_CLOSED_STATES))
 
             if member_id:
                 task_q = task_q.where(FlowTask.assignee_id == member_id)
@@ -145,46 +146,102 @@ class VortFlowProjectProvider:
         member_id: str,
         since: datetime,
         until: datetime,
+        project_id: str = "",
     ) -> dict:
         """Get detailed work items and activity events for a member in a time range.
 
         Returns structured dict with tasks_completed, bugs_fixed, tasks_in_progress,
         stories_in_progress, events timeline, and summary counts.
+        If project_id is provided, only items in that project are included.
         """
+        import json as _json
+
+        from openvort.plugins.vortflow.engine import BUG_CLOSED_STATES
         from openvort.plugins.vortflow.models import (
             FlowBug, FlowEvent, FlowProject, FlowStory, FlowTask,
         )
 
         sf = self._sf()
         async with sf() as session:
+            task_where = [FlowTask.assignee_id == member_id]
+            bug_where = [FlowBug.reporter_id == member_id]
+            story_where = [FlowStory.assignee_id == member_id]
+            if project_id:
+                task_where.append(FlowTask.project_id == project_id)
+                bug_where.append(FlowBug.project_id == project_id)
+                story_where.append(FlowStory.project_id == project_id)
+
             tasks_done = (await session.execute(
                 select(FlowTask).where(
-                    FlowTask.assignee_id == member_id,
+                    *task_where,
                     FlowTask.state == "done",
                     FlowTask.updated_at >= since,
                     FlowTask.updated_at <= until,
                 )
             )).scalars().all()
 
-            bugs_fixed = (await session.execute(
+            bugs_created = (await session.execute(
                 select(FlowBug).where(
-                    FlowBug.assignee_id == member_id,
-                    FlowBug.state.in_(("closed", "resolved")),
-                    FlowBug.updated_at >= since,
-                    FlowBug.updated_at <= until,
+                    *bug_where,
+                    FlowBug.created_at >= since,
+                    FlowBug.created_at <= until,
                 )
             )).scalars().all()
 
+            bug_state_events = (await session.execute(
+                select(FlowEvent).where(
+                    FlowEvent.entity_type == "bug",
+                    FlowEvent.action.in_(("state_changed", "updated")),
+                    FlowEvent.actor_id == member_id,
+                    FlowEvent.created_at >= since,
+                    FlowEvent.created_at <= until,
+                )
+            )).scalars().all()
+
+            closed_bug_ids: set[str] = set()
+            reopened_bug_ids: set[str] = set()
+            for ev in bug_state_events:
+                try:
+                    detail = _json.loads(ev.detail) if isinstance(ev.detail, str) else {}
+                except (ValueError, TypeError):
+                    continue
+                # "state_changed": {"from": "x", "to": "y"}
+                # "updated":       {"state": {"from": "x", "to": "y"}, ...}
+                state_change = detail if "to" in detail else detail.get("state", {})
+                if not isinstance(state_change, dict):
+                    continue
+                to_state = state_change.get("to", "")
+                if not to_state:
+                    continue
+                if to_state in BUG_CLOSED_STATES:
+                    closed_bug_ids.add(ev.entity_id)
+                elif to_state == "reopened":
+                    reopened_bug_ids.add(ev.entity_id)
+
+            bugs_fixed: list = []
+            if closed_bug_ids:
+                q = select(FlowBug).where(FlowBug.id.in_(list(closed_bug_ids)))
+                if project_id:
+                    q = q.where(FlowBug.project_id == project_id)
+                bugs_fixed = (await session.execute(q)).scalars().all()
+
+            bugs_reopened: list = []
+            if reopened_bug_ids:
+                q = select(FlowBug).where(FlowBug.id.in_(list(reopened_bug_ids)))
+                if project_id:
+                    q = q.where(FlowBug.project_id == project_id)
+                bugs_reopened = (await session.execute(q)).scalars().all()
+
             tasks_doing = (await session.execute(
                 select(FlowTask).where(
-                    FlowTask.assignee_id == member_id,
+                    *task_where,
                     FlowTask.state.in_(("doing", "in_progress")),
                 )
             )).scalars().all()
 
             stories = (await session.execute(
                 select(FlowStory).where(
-                    FlowStory.assignee_id == member_id,
+                    *story_where,
                     FlowStory.state.in_(("developing", "reviewing", "testing")),
                 )
             )).scalars().all()
@@ -198,7 +255,7 @@ class VortFlowProjectProvider:
             )).scalars().all()
 
             project_ids = set()
-            for items in (tasks_done, bugs_fixed, tasks_doing, stories):
+            for items in (tasks_done, bugs_fixed, bugs_created, bugs_reopened, tasks_doing, stories):
                 for item in items:
                     pid = getattr(item, "project_id", None)
                     if pid:
@@ -259,18 +316,25 @@ class VortFlowProjectProvider:
                 "time": ev.created_at.strftime("%H:%M") if ev.created_at else "",
             })
 
-        has_data = bool(tasks_done or bugs_fixed or tasks_doing or stories or events)
+        has_data = bool(
+            tasks_done or bugs_fixed or bugs_created or bugs_reopened
+            or tasks_doing or stories or events
+        )
 
         return {
             "has_data": has_data,
             "tasks_completed": [_item_dict(t, "task") for t in tasks_done],
             "bugs_fixed": [_item_dict(b, "bug") for b in bugs_fixed],
+            "bugs_created": [_item_dict(b, "bug") for b in bugs_created],
+            "bugs_reopened": [_item_dict(b, "bug") for b in bugs_reopened],
             "tasks_in_progress": [_item_dict(t, "task") for t in tasks_doing],
             "stories_in_progress": [_item_dict(s, "story") for s in stories],
             "events": events_list,
             "summary": {
                 "tasks_completed_count": len(tasks_done),
                 "bugs_fixed_count": len(bugs_fixed),
+                "bugs_created_count": len(bugs_created),
+                "bugs_reopened_count": len(bugs_reopened),
                 "tasks_in_progress_count": len(tasks_doing),
                 "stories_in_progress_count": len(stories),
                 "events_count": len(events),

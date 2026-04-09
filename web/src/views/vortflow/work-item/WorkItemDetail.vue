@@ -14,7 +14,7 @@ import WorkItemLinkPanel from "./WorkItemLinkPanel.vue";
 import TestCaseLinkPanel from "./TestCaseLinkPanel.vue";
 import DocLinkPanel from "./DocLinkPanel.vue";
 import NotifyDialog from "./NotifyDialog.vue";
-import { getVortflowProjects, getVortflowIterations, getVortflowVersions, getVortgitRepos, getVortgitRepoBranches, getVortflowComments, createVortflowComment, updateVortflowComment, deleteVortflowComment, getVortflowActivity, uploadVortflowFile } from "@/api";
+import { getVortflowProjects, getVortflowIterations, getVortflowVersions, getVortgitRepos, getVortgitRepoBranches, getVortflowComments, createVortflowComment, updateVortflowComment, deleteVortflowComment, getVortflowActivity, uploadVortflowFile, getVortflowDocLinks } from "@/api";
 import { useUserStore } from "@/stores";
 import { formatFileSize } from "@/utils/format";
 import type { WorkItemType, Status, DateRange, RowItem, DetailComment, DetailLog, AttachmentItem, Priority } from "@/components/vort-biz/work-item/WorkItemTable.types";
@@ -60,6 +60,7 @@ const loading = ref(false);
 const record = ref<RowItem | null>(props.initialData || null);
 const detailActiveTab = ref("detail");
 const detailBottomTab = ref<"comments" | "logs">("comments");
+const docLinkCount = ref(0);
 const detailStatusDropdownOpen = ref(false);
 const detailStatusKeyword = ref("");
 const detailAssigneeDropdownOpen = ref(false);
@@ -787,11 +788,14 @@ const detailPlanTimeModel = computed<any>({
     set: (value) => {
         if (!record.value) return;
         if (Array.isArray(value) && value.length === 2) {
-            record.value.planTime = [String(value[0] || ""), String(value[1] || "")] as DateRange;
+            const start = normalizeDateValue(value[0]);
+            const end = normalizeDateValue(value[1]);
+            record.value.planTime = [start, end] as DateRange;
+            emit("update", { planTime: record.value.planTime });
         } else {
             record.value.planTime = ["", ""];
+            emit("update", { planTime: record.value.planTime });
         }
-        emit("update", { planTime: record.value.planTime });
         appendDetailLog("修改了计划时间");
     },
 });
@@ -934,7 +938,8 @@ const detailType = computed({
     get: () => record.value?.type || "缺陷",
     set: (val: string) => {
         if (!record.value || val === record.value.type) return;
-        record.value.type = val as WorkItemType;
+        // Do NOT mutate record.type before emit — the parent needs
+        // the original type to detect the change and call convert API.
         emit("update", { type: val as WorkItemType });
         appendDetailLog(`修改类型为"${val}"`);
     },
@@ -1063,9 +1068,23 @@ onMounted(async () => {
     await ensureDetailPanelsData();
 });
 
+async function loadDocLinkCount() {
+    if (!record.value?.backendId) { docLinkCount.value = 0; return; }
+    try {
+        const res = await getVortflowDocLinks({
+            entity_type: linkEntityType.value,
+            entity_id: record.value.backendId,
+        }) as any;
+        docLinkCount.value = res?.items?.length || 0;
+    } catch { docLinkCount.value = 0; }
+}
+
 watch(() => props.initialData, (value) => {
     record.value = value || null;
-    if (value) loadFieldOptions();
+    if (value) {
+        loadFieldOptions();
+        loadDocLinkCount();
+    }
 }, { immediate: true });
 </script>
 
@@ -1168,7 +1187,7 @@ watch(() => props.initialData, (value) => {
             </p>
             <div class="bug-detail-tabs">
                 <button :class="{ active: detailActiveTab === 'detail' }" @click="detailActiveTab = 'detail'">详情</button>
-                <button :class="{ active: detailActiveTab === 'docs' }" @click="detailActiveTab = 'docs'">关联文档</button>
+                <button :class="{ active: detailActiveTab === 'docs' }" @click="detailActiveTab = 'docs'">关联文档<span v-if="docLinkCount > 0" class="tab-count">{{ docLinkCount }}</span></button>
                 <button :class="{ active: detailActiveTab === 'worklog' }" @click="detailActiveTab = 'worklog'">工作日志</button>
                 <button :class="{ active: detailActiveTab === 'related' }" @click="detailActiveTab = 'related'">关联工作项</button>
                 <button :class="{ active: detailActiveTab === 'test' }" @click="detailActiveTab = 'test'">关联测试用例</button>
@@ -1257,6 +1276,7 @@ watch(() => props.initialData, (value) => {
                                     value-format="YYYY-MM-DD"
                                     format="YYYY-MM-DD"
                                     separator="~"
+                                    allow-clear
                                     :placeholder="['未设置', '未设置']"
                                     class="detail-field-picker"
                                     @change="stopEditing"
@@ -1744,6 +1764,7 @@ watch(() => props.initialData, (value) => {
                     :entity-type="linkEntityType"
                     :entity-id="record.backendId"
                     :project-id="record.projectId || ''"
+                    @count-change="docLinkCount = $event"
                 />
                 <p v-else class="bug-detail-empty">暂无关联文档</p>
             </div>
@@ -2025,6 +2046,26 @@ watch(() => props.initialData, (value) => {
 .bug-detail-tabs button.active {
     color: var(--vort-primary);
     border-bottom-color: var(--vort-primary);
+}
+
+.bug-detail-tabs .tab-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    margin-left: 4px;
+    font-size: 12px;
+    line-height: 1;
+    border-radius: 9px;
+    background: var(--vort-bg-hover, #f0f0f0);
+    color: var(--vort-text-secondary);
+}
+
+.bug-detail-tabs button.active .tab-count {
+    background: var(--vort-primary-bg, #eff6ff);
+    color: var(--vort-primary);
 }
 
 .bug-detail-top-grid {

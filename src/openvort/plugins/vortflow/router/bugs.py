@@ -25,6 +25,9 @@ from openvort.plugins.vortflow.models import (
     FlowIterationStory,
     FlowIterationBug,
     FlowVersionBug,
+    FlowWorkItemLink,
+    FlowComment,
+    FlowTestCaseWorkItem,
 )
 from openvort.plugins.vortflow.engine import (
     BUG_TRANSITIONS,
@@ -48,6 +51,7 @@ async def list_bugs(
     reporter_id: str = Query("", description="按报告者过滤"),
     participant_id: str = Query("", description="按参与者过滤（负责人/创建人/协作者）"),
     iteration_id: str = Query("", description="按迭代过滤（通过迭代关联的需求）"),
+    archived: bool = Query(False, description="是否查看已归档"),
     sort_by: str = Query("", description="排序字段"),
     sort_order: str = Query("desc", description="排序方向 asc/desc"),
     page: int = Query(1, ge=1),
@@ -57,6 +61,9 @@ async def list_bugs(
     async with sf() as session:
         stmt = _apply_sort(select(FlowBug), FlowBug, sort_by, sort_order, FlowBug.created_at)
         count_stmt = select(func.count()).select_from(FlowBug)
+        archived_cond = FlowBug.is_archived.is_(True) if archived else FlowBug.is_archived.is_not(True)
+        stmt = stmt.where(archived_cond)
+        count_stmt = count_stmt.where(archived_cond)
         if iteration_id == "__unplanned__":
             planned_story_ids = select(FlowIterationStory.story_id)
             planned_bug_ids = select(FlowIterationBug.bug_id)
@@ -179,6 +186,7 @@ async def create_bug(body: BugCreate, request: Request):
             title=body.title, description=body.description,
             severity=body.severity, assignee_id=body.assignee_id,
             reporter_id=member_id or None,
+            plan_start=_parse_dt(body.plan_start) if body.plan_start else None,
             deadline=_parse_dt(body.deadline) if body.deadline else None,
             tags_json=json.dumps(body.tags or [], ensure_ascii=False),
             collaborators_json=json.dumps(body.collaborators or [], ensure_ascii=False),
@@ -205,6 +213,8 @@ async def update_bug(bug_id: str, body: BugUpdate, request: Request):
         b = await session.get(FlowBug, bug_id)
         if not b:
             return {"error": "缺陷不存在"}
+        if getattr(b, "is_archived", False):
+            return {"error": "操作失败，当前工作项已归档！"}
         old_assignee_id = b.assignee_id
         old_severity = b.severity
         old_collaborators = _parse_json_list(b.collaborators_json)
@@ -230,6 +240,10 @@ async def update_bug(bug_id: str, body: BugUpdate, request: Request):
         if body.attachments is not None:
             b.attachments_json = json.dumps(body.attachments, ensure_ascii=False)
             changes["attachments"] = body.attachments
+        if body.plan_start is not None:
+            old_val = str(b.plan_start) if b.plan_start else None
+            b.plan_start = _parse_dt(body.plan_start)
+            changes["plan_start"] = {"from": old_val, "to": body.plan_start}
         if body.deadline is not None:
             b.deadline = _parse_dt(body.deadline)
             changes["deadline"] = {"from": old_deadline, "to": body.deadline}
@@ -288,6 +302,16 @@ async def delete_bug(bug_id: str):
             return {"error": "缺陷不存在"}
         await session.execute(delete(FlowIterationBug).where(FlowIterationBug.bug_id == bug_id))
         await session.execute(delete(FlowVersionBug).where(FlowVersionBug.bug_id == bug_id))
+        # clean up work item links, comments, test case associations
+        await session.execute(delete(FlowWorkItemLink).where(
+            or_(FlowWorkItemLink.source_id == bug_id, FlowWorkItemLink.target_id == bug_id)
+        ))
+        await session.execute(delete(FlowComment).where(
+            FlowComment.entity_type == "bug", FlowComment.entity_id == bug_id,
+        ))
+        await session.execute(delete(FlowTestCaseWorkItem).where(
+            FlowTestCaseWorkItem.entity_id == bug_id,
+        ))
         await session.delete(b)
         await _log_event(session, "bug", bug_id, "deleted", {"title": b.title})
         await session.commit()
@@ -302,6 +326,8 @@ async def transition_bug(bug_id: str, body: TransitionBody, request: Request):
         b = await session.get(FlowBug, bug_id)
         if not b:
             return {"error": "缺陷不存在"}
+        if getattr(b, "is_archived", False):
+            return {"error": "操作失败，当前工作项已归档！"}
         try:
             current = BugState(b.state)
             target = BugState(body.target_state)

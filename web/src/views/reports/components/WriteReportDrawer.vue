@@ -5,7 +5,7 @@ import { message } from "@openvort/vort-ui";
 import { submitReport, getMyPublications } from "@/api";
 import { VortEditor } from "@/components/vort-biz/editor";
 
-interface PubItem { id: string; name: string; description: string; report_type: string; }
+interface PubItem { id: string; name: string; description: string; report_type: string; content_template?: string; }
 
 const props = defineProps<{
     open: boolean;
@@ -39,6 +39,9 @@ watch(() => props.open, async (val) => {
         form.value = { content: "", report_date: "" };
         if (props.preselectedPub) {
             selectedPub.value = props.preselectedPub;
+            if (props.preselectedPub.content_template) {
+                form.value.content = props.preselectedPub.content_template;
+            }
             step.value = "write";
         } else {
             selectedPub.value = null;
@@ -59,6 +62,9 @@ async function loadPublications() {
 
 function selectTemplate(pub: PubItem) {
     selectedPub.value = pub;
+    if (pub.content_template) {
+        form.value.content = pub.content_template;
+    }
     step.value = "write";
 }
 
@@ -131,7 +137,7 @@ const typeLabels: Record<string, string> = { daily: "日报", weekly: "周报", 
                     <vort-date-picker v-model="form.report_date" value-format="YYYY-MM-DD" placeholder="默认今天" style="width: 100%" />
                 </vort-form-item>
                 <vort-form-item label="内容" name="content" required>
-                    <VortEditor v-model="form.content" placeholder="## 今日工作&#10;&#10;## 遇到的问题&#10;&#10;## 明日计划" min-height="300px" />
+                    <VortEditor v-model="form.content" placeholder="请输入汇报内容" min-height="300px" />
                 </vort-form-item>
             </vort-form>
         </div>

@@ -141,13 +141,14 @@ class ReminderService:
     # Execution entry
     # ------------------------------------------------------------------
 
-    async def _run(self, scene: str, project_id: str) -> None:
+    async def _run(self, scene: str, project_id: str, *, test_mode: bool = False) -> int:
         try:
-            await self._execute(scene, project_id)
+            return await self._execute(scene, project_id, test_mode=test_mode)
         except Exception:
             log.exception("Reminder execution failed: scene=%s project=%s", scene, project_id)
+            return 0
 
-    async def _execute(self, scene: str, project_id: str) -> None:
+    async def _execute(self, scene: str, project_id: str, *, test_mode: bool = False) -> int:
         sf = get_session_factory()
         log.info("[reminder] _execute start: scene=%s project=%s", scene, project_id)
 
@@ -155,14 +156,17 @@ class ReminderService:
             setting = (await session.execute(
                 select(FlowReminderSettings).where(FlowReminderSettings.project_id == project_id)
             )).scalar_one_or_none()
-            if not setting or not setting.enabled:
-                log.info("[reminder] skip: setting not found or disabled")
-                return
+            if not setting:
+                log.info("[reminder] skip: setting not found")
+                return 0
+            if not test_mode and not setting.enabled:
+                log.info("[reminder] skip: disabled")
+                return 0
 
             project = await session.get(FlowProject, project_id)
             if not project:
                 log.info("[reminder] skip: project not found")
-                return
+                return 0
             project_name = project.name
 
             # Collect members from multiple sources: project members + owner + work item assignees
@@ -188,7 +192,7 @@ class ReminderService:
             member_id_set.discard(None)
             if not member_id_set:
                 log.info("[reminder] skip: no related members")
-                return
+                return 0
 
             member_ids = list(member_id_set)
             log.info("[reminder] project=%s members=%d", project_name, len(member_ids))
@@ -200,6 +204,7 @@ class ReminderService:
                 select(FlowStory).where(
                     FlowStory.project_id == project_id,
                     FlowStory.state.not_in(STORY_DONE_STATES),
+                    FlowStory.is_archived.is_not(True),
                 )
             )).scalars().all()
 
@@ -207,6 +212,7 @@ class ReminderService:
                 select(FlowTask).where(
                     FlowTask.project_id == project_id,
                     FlowTask.state.not_in(TASK_DONE_STATES),
+                    FlowTask.is_archived.is_not(True),
                 )
             )).scalars().all()
 
@@ -214,6 +220,7 @@ class ReminderService:
                 select(FlowBug).where(
                     FlowBug.project_id == project_id,
                     FlowBug.state.not_in(BUG_CLOSED_STATES),
+                    FlowBug.is_archived.is_not(True),
                 )
             )).scalars().all()
 
@@ -344,14 +351,17 @@ class ReminderService:
                 log.info("[reminder] notification delivered to %s", mid)
 
         log.info("Reminder [%s] for project %s: sent to %d members", scene, project_id, sent)
+        return sent
 
     # ------------------------------------------------------------------
     # Manual trigger (for testing / API)
     # ------------------------------------------------------------------
 
-    async def run_now(self, project_id: str, scene: str = "morning") -> dict:
-        await self._run(scene, project_id)
-        return {"ok": True, "scene": scene, "project_id": project_id}
+    async def run_now(self, project_ids: list[str], scene: str = "morning") -> dict:
+        total_sent = 0
+        for pid in project_ids:
+            total_sent += await self._run(scene, pid, test_mode=True)
+        return {"ok": True, "scene": scene, "sent": total_sent}
 
 
 # ======================================================================

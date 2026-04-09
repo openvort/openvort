@@ -36,6 +36,7 @@ class PublicationRequest(BaseModel):
     description: str = ""
     report_type: str = "daily"
     content_schema: dict | None = None
+    content_template: str = ""
     repeat_cycle: str = "daily"
     deadline_time: str = "次日 10:00"
     reminder_enabled: bool = True
@@ -57,6 +58,7 @@ class PublicationUpdateRequest(BaseModel):
     description: str | None = None
     report_type: str | None = None
     content_schema: dict | None = None
+    content_template: str | None = None
     repeat_cycle: str | None = None
     deadline_time: str | None = None
     reminder_enabled: bool | None = None
@@ -87,7 +89,8 @@ async def create_publication(req: PublicationRequest, request: Request):
     owner_id = _member_id(request) or None
     result = await service.create_publication(
         name=req.name, description=req.description, report_type=req.report_type,
-        content_schema=req.content_schema, repeat_cycle=req.repeat_cycle,
+        content_schema=req.content_schema, content_template=req.content_template,
+        repeat_cycle=req.repeat_cycle,
         deadline_time=req.deadline_time, reminder_enabled=req.reminder_enabled,
         reminder_time=req.reminder_time, skip_weekends=req.skip_weekends,
         skip_holidays=req.skip_holidays, allow_multiple=req.allow_multiple,
@@ -125,10 +128,15 @@ async def delete_publication(pub_id: str):
     return {"success": ok}
 
 
+class ReminderRequest(BaseModel):
+    report_date: str | None = None
+
+
 @router.post("/publications/{pub_id}/remind")
-async def send_reminders(pub_id: str):
+async def send_reminders(pub_id: str, req: ReminderRequest | None = None):
     service = _get_service()
-    result = await service.send_fill_reminders(pub_id)
+    report_date = date.fromisoformat(req.report_date) if req and req.report_date else None
+    result = await service.send_fill_reminders(pub_id, report_date=report_date)
     return result
 
 
@@ -202,6 +210,41 @@ async def list_reports(
     return {"items": reports, "total": len(reports)}
 
 
+@router.get("/submission-detail")
+async def submission_detail(
+    request: Request,
+    publication_id: str,
+    report_date: str,
+):
+    service = _get_service()
+    member_id = _member_id(request)
+    rd = date.fromisoformat(report_date)
+    result = await service.get_submission_detail(publication_id, rd, receiver_id=member_id)
+    if not result:
+        return {"success": False, "error": "发布不存在"}
+    return result
+
+
+@router.get("/submission-stats")
+async def submission_stats(
+    request: Request,
+    publication_id: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
+):
+    service = _get_service()
+    member_id = _member_id(request)
+    kwargs: dict = {}
+    if publication_id:
+        kwargs["publication_id"] = publication_id
+    if since:
+        kwargs["since"] = date.fromisoformat(since)
+    if until:
+        kwargs["until"] = date.fromisoformat(until)
+    stats = await service.get_submission_stats(member_id, **kwargs)
+    return {"items": stats}
+
+
 @router.get("/stats")
 async def report_stats(
     request: Request,
@@ -249,6 +292,34 @@ async def get_report(report_id: str):
     if not report:
         return {"success": False, "error": "汇报不存在"}
     return report
+
+
+@router.post("/{report_id}/read")
+async def mark_read(report_id: str, request: Request):
+    service = _get_service()
+    member_id = _member_id(request)
+    await service.mark_report_read(report_id, member_id)
+    return {"success": True}
+
+
+@router.post("/read-all")
+async def mark_all_read(request: Request, publication_id: str | None = None):
+    service = _get_service()
+    member_id = _member_id(request)
+    count = await service.mark_all_reports_read(member_id, publication_id=publication_id)
+    return {"success": True, "count": count}
+
+
+@router.post("/{report_id}/withdraw")
+async def withdraw_report(report_id: str, request: Request):
+    service = _get_service()
+    member_id = _member_id(request)
+    result = await service.withdraw_report(report_id, member_id)
+    if not result:
+        return {"success": False, "error": "汇报不存在"}
+    if "error" in result:
+        return {"success": False, "error": result["error"]}
+    return {"success": True, "report": result}
 
 
 @router.put("/{report_id}")

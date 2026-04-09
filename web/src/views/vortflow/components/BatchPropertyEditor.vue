@@ -192,8 +192,10 @@ const buildPatch = (change: PropertyChange, row: RowItem): Record<string, any> =
             break;
         case "planTime":
             if (val && Array.isArray(val) && val.length === 2) {
+                patch.plan_start = val[0] || null;
                 patch.deadline = val[1] || null;
             } else {
+                patch.plan_start = null;
                 patch.deadline = null;
             }
             break;

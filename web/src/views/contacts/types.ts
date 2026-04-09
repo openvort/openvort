@@ -4,6 +4,7 @@ export interface MemberItem {
     email: string;
     phone: string;
     position: string;
+    avatar_url: string;
     status: string;
     is_account: boolean;
     has_password: boolean;

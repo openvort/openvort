@@ -166,13 +166,15 @@ async def update_reminder_settings(project_id: str, body: ReminderSettingsBody):
     return _setting_dict(setting)
 
 
-@sub_router.post("/reminder-settings/{project_id}/test")
-async def test_reminder(project_id: str, scene: str = Query("morning", alias="scene")):
-    """Trigger a test reminder for the given project and scene."""
-    sf = get_session_factory()
-    async with sf() as session:
-        proj = await session.get(FlowProject, project_id)
-        if not proj:
-            return {"error": "项目不存在"}
-    result = await reminder_service.run_now(project_id, scene)
+class TestReminderBody(BaseModel):
+    project_ids: list[str] = []
+    scene: str = "morning"
+
+
+@sub_router.post("/reminder-settings/test")
+async def test_reminder(body: TestReminderBody):
+    """Trigger a test reminder for the given projects and scene."""
+    if not body.project_ids:
+        return {"error": "请选择至少一个项目"}
+    result = await reminder_service.run_now(body.project_ids, body.scene)
     return result

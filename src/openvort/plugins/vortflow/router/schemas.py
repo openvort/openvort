@@ -37,6 +37,7 @@ class StoryCreate(BaseModel):
     tags: list[str] = []
     collaborators: list[str] = []
     attachments: list[dict] = []
+    plan_start: str | None = None
     deadline: str | None = None
 
 class StoryUpdate(BaseModel):
@@ -49,6 +50,7 @@ class StoryUpdate(BaseModel):
     tags: list[str] | None = None
     collaborators: list[str] | None = None
     attachments: list[dict] | None = None
+    plan_start: str | None = None
     deadline: str | None = None
     pm_id: str | None = None
     project_id: str | None = None
@@ -71,6 +73,7 @@ class TaskCreate(BaseModel):
     collaborators: list[str] = []
     attachments: list[dict] = []
     estimate_hours: float | None = None
+    plan_start: str | None = None
     deadline: str | None = None
 
 class TaskUpdate(BaseModel):
@@ -85,6 +88,7 @@ class TaskUpdate(BaseModel):
     attachments: list[dict] | None = None
     estimate_hours: float | None = None
     actual_hours: float | None = None
+    plan_start: str | None = None
     deadline: str | None = None
     start_at: str | None = None
     end_at: str | None = None
@@ -103,6 +107,7 @@ class BugCreate(BaseModel):
     collaborators: list[str] = []
     attachments: list[dict] = []
     assignee_id: str | None = None
+    plan_start: str | None = None
     deadline: str | None = None
 
 class BugUpdate(BaseModel):
@@ -117,6 +122,7 @@ class BugUpdate(BaseModel):
     attachments: list[dict] | None = None
     estimate_hours: float | None = None
     actual_hours: float | None = None
+    plan_start: str | None = None
     deadline: str | None = None
     start_at: str | None = None
     end_at: str | None = None
@@ -300,3 +306,9 @@ class TestCaseWorkItemBody(BaseModel):
 
 class DescriptionTemplateUpdate(BaseModel):
     content: str = ""
+
+
+class BatchArchiveBody(BaseModel):
+    ids: list[str]
+    type: str  # story/task/bug
+    archived: bool

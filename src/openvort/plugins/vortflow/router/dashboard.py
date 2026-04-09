@@ -18,9 +18,9 @@ async def dashboard_stats(
 ):
     sf = get_session_factory()
     async with sf() as session:
-        story_where = []
-        task_where = []
-        bug_where = []
+        story_where = [FlowStory.is_archived.is_not(True)]
+        task_where = [FlowTask.is_archived.is_not(True)]
+        bug_where = [FlowBug.is_archived.is_not(True)]
 
         if project_id:
             story_where.append(FlowStory.project_id == project_id)

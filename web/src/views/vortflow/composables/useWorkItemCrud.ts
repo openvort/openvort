@@ -10,6 +10,7 @@ import {
     addVortflowVersionStory, removeVortflowVersionStory,
     addVortflowVersionBug, removeVortflowVersionBug,
     convertWorkItem,
+    batchArchiveWorkItems,
 } from "@/api";
 import type {
     WorkItemType,
@@ -148,6 +149,7 @@ export function useWorkItemCrud(options: UseWorkItemCrudOptions) {
             estimate_hours?: number;
             tags?: string[];
             collaborators?: string[];
+            plan_start?: string;
             deadline?: string;
             pm_id?: string | null;
             project_id?: string | null;
@@ -172,6 +174,7 @@ export function useWorkItemCrud(options: UseWorkItemCrudOptions) {
                 assignee_id: patch.assignee_id === undefined ? undefined : (patch.assignee_id || undefined),
                 tags: patch.tags,
                 collaborators: patch.collaborators,
+                plan_start: patch.plan_start,
                 deadline: patch.deadline,
                 pm_id: patch.pm_id,
                 project_id: patch.project_id,
@@ -194,6 +197,7 @@ export function useWorkItemCrud(options: UseWorkItemCrudOptions) {
                 estimate_hours: patch.estimate_hours,
                 tags: patch.tags,
                 collaborators: patch.collaborators,
+                plan_start: patch.plan_start,
                 deadline: patch.deadline,
                 actual_hours: patch.actual_hours,
                 start_at: patch.start_at,
@@ -217,6 +221,7 @@ export function useWorkItemCrud(options: UseWorkItemCrudOptions) {
             actual_hours: patch.actual_hours,
             tags: patch.tags,
             collaborators: patch.collaborators,
+            plan_start: patch.plan_start,
             deadline: patch.deadline,
             start_at: patch.start_at,
             end_at: patch.end_at,
@@ -260,6 +265,27 @@ export function useWorkItemCrud(options: UseWorkItemCrudOptions) {
         tableRef.value?.refresh?.();
     };
 
+    // --- Archive ---
+
+    const _batchArchive = async (archived: boolean) => {
+        if (!selectedRows.value.length) return;
+        const rows = [...selectedRows.value];
+        const backendType = _TYPE_TO_BACKEND[propType] || "story";
+        const ids = rows.map((r) => r.backendId).filter(Boolean) as string[];
+        if (!ids.length) return;
+        try {
+            await batchArchiveWorkItems({ ids, type: backendType, archived });
+            message.success(archived ? `已归档 ${ids.length} 条` : `已取消归档 ${ids.length} 条`);
+        } catch {
+            message.error(archived ? "批量归档失败" : "批量取消归档失败");
+        }
+        clearSelection();
+        tableRef.value?.refresh?.();
+    };
+
+    const handleBatchArchive = () => _batchArchive(true);
+    const handleBatchUnarchive = () => _batchArchive(false);
+
     // --- Create ---
 
     const handleCreateSuccess = async (formData: NewBugForm, keepCreating = false) => {
@@ -287,6 +313,7 @@ export function useWorkItemCrud(options: UseWorkItemCrudOptions) {
                         tags: [...formData.tags],
                         collaborators: [...formData.collaborators],
                         attachments: [...(formData.attachments || [])],
+                        plan_start: formData.planTime?.[0] || undefined,
                         deadline: formData.planTime?.[1] || undefined,
                     });
                     if (createdItem?.id && ownerId) {
@@ -308,6 +335,7 @@ export function useWorkItemCrud(options: UseWorkItemCrudOptions) {
                         tags: [...formData.tags],
                         collaborators: [...formData.collaborators],
                         attachments: [...(formData.attachments || [])],
+                        plan_start: formData.planTime?.[0] || undefined,
                         deadline: formData.planTime?.[1] || undefined,
                     });
                 } else {
@@ -321,6 +349,7 @@ export function useWorkItemCrud(options: UseWorkItemCrudOptions) {
                         tags: [...formData.tags],
                         collaborators: [...formData.collaborators],
                         attachments: [...(formData.attachments || [])],
+                        plan_start: formData.planTime?.[0] || undefined,
                         deadline: formData.planTime?.[1] || undefined,
                     });
                 }
@@ -411,6 +440,10 @@ export function useWorkItemCrud(options: UseWorkItemCrudOptions) {
                 try {
                     const res: any = await convertWorkItem({ from_type: fromBackend, id: record.backendId, to_type: toBackend });
                     if (res?.error) { message.error(res.error); return; }
+                    // Clear stale cache for old record (backend creates new ID, deletes old)
+                    delete itemRowsById[record.backendId];
+                    delete itemChildrenMap[record.backendId];
+                    delete expandedItemIds[record.backendId];
                     message.success(res?.message || "类型转换成功");
                     tableRef.value?.refresh?.();
                     return "close";
@@ -428,6 +461,15 @@ export function useWorkItemCrud(options: UseWorkItemCrudOptions) {
         if (data.title !== undefined) {
             await syncRecordUpdateToApi(record, { title: data.title });
         }
+        if (data.priority !== undefined) {
+            const pMap: Record<string, number> = { urgent: 1, high: 2, medium: 3, low: 4, none: 4 };
+            const level = pMap[data.priority] ?? 4;
+            if (record.type === "缺陷") {
+                await syncRecordUpdateToApi(record, { severity: level });
+            } else {
+                await syncRecordUpdateToApi(record, { priority: level });
+            }
+        }
         if (data.status !== undefined) {
             await syncRecordStatusToApi(record, data.status);
         }
@@ -444,8 +486,9 @@ export function useWorkItemCrud(options: UseWorkItemCrudOptions) {
         }
         if (data.planTime !== undefined) {
             const pt = data.planTime;
-            const deadline = (pt && pt[1]) ? pt[1] : undefined;
-            await syncRecordUpdateToApi(record, { deadline: deadline || undefined });
+            const planStart = (pt && pt[0]) ? pt[0] : "";
+            const deadline = (pt && pt[1]) ? pt[1] : "";
+            await syncRecordUpdateToApi(record, { plan_start: planStart, deadline });
         }
         if (data.progress !== undefined) {
             await syncRecordUpdateToApi(record, { progress: data.progress });
@@ -582,6 +625,8 @@ export function useWorkItemCrud(options: UseWorkItemCrudOptions) {
         syncRecordStatusToApi,
         deleteOne,
         handleBatchDelete,
+        handleBatchArchive,
+        handleBatchUnarchive,
         handleCreateSuccess,
         handleSubmitCreateBug,
         handleCopyWorkItem,
