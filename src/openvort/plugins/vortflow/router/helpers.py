@@ -100,6 +100,9 @@ def _story_dict(r: FlowStory) -> dict:
         "deadline": r.deadline.isoformat() if r.deadline else None,
         "start_at": r.start_at.isoformat() if getattr(r, "start_at", None) else None,
         "end_at": r.end_at.isoformat() if getattr(r, "end_at", None) else None,
+        "test_time": r.test_time.isoformat() if getattr(r, "test_time", None) else None,
+        "draft_time": r.draft_time.isoformat() if getattr(r, "draft_time", None) else None,
+        "release_time": r.release_time.isoformat() if getattr(r, "release_time", None) else None,
         "repo_id": getattr(r, "repo_id", None) or "",
         "branch": getattr(r, "branch", None) or "",
         "is_archived": getattr(r, "is_archived", False) or False,
@@ -587,6 +590,7 @@ _STATUS_DEFAULTS: list[dict] = [
     {"name": "意向", "icon": "○", "icon_color": "#64748b", "command": "intake,review", "work_item_types": ["需求"]},
     {"name": "已拒绝", "icon": "⊗", "icon_color": "#ef4444", "command": "rejected", "work_item_types": []},
     {"name": "设计中", "icon": "✎", "icon_color": "#6366f1", "command": "pm_refine,design", "work_item_types": ["需求"]},
+    {"name": "设计完成", "icon": "✓", "icon_color": "#0284c7", "command": "design_done", "work_item_types": ["需求"]},
     {"name": "开发中", "icon": "◔", "icon_color": "#3b82f6", "command": "breakdown,dev_assign,in_progress,bugfix", "work_item_types": ["需求"]},
     {"name": "开发完成", "icon": "✓", "icon_color": "#22c55e", "command": "", "work_item_types": ["需求"]},
     {"name": "测试中", "icon": "⊠", "icon_color": "#ef4444", "command": "", "work_item_types": ["需求"]},
@@ -611,11 +615,16 @@ _STATUS_DEFAULTS: list[dict] = [
     {"name": "延期修复", "icon": "▷", "icon_color": "#3b82f6", "command": "deferred", "work_item_types": ["缺陷"]},
 ]
 
+_STATUS_DEFAULTS_BY_NAME: dict[str, dict] = {s["name"]: s for s in _STATUS_DEFAULTS}
 _STATUS_COMMAND_MAP: dict[str, str] = {s["name"]: s["command"] for s in _STATUS_DEFAULTS}
+_STATUS_LEGACY_COMMANDS: dict[str, set[str]] = {
+    "设计完成": {"", "breakdown"},
+    "开发中": {"", "dev_assign,in_progress,bugfix"},
+}
 
 
 async def _ensure_default_statuses(session):
-    """Seed default statuses if table is empty; sync command field for existing records."""
+    """Seed default statuses if table is empty; repair missing defaults for existing records."""
     count_result = await session.execute(
         select(func.count()).select_from(FlowStatus)
     )
@@ -633,13 +642,68 @@ async def _ensure_default_statuses(session):
         await session.flush()
         return
 
-    result = await session.execute(
-        select(FlowStatus).where(FlowStatus.command == "")
-    )
-    for status in result.scalars().all():
+    result = await session.execute(select(FlowStatus))
+    statuses = result.scalars().all()
+    existing_by_name = {status.name: status for status in statuses}
+
+    design_status = existing_by_name.get("设计中")
+    design_done_status = existing_by_name.get("设计完成")
+    if not design_done_status:
+        insert_order = (
+            (design_status.sort_order or 0) + 1
+            if design_status
+            else next(
+                (idx for idx, item in enumerate(_STATUS_DEFAULTS) if item["name"] == "设计完成"),
+                len(statuses),
+            )
+        )
+        for status in statuses:
+            if (status.sort_order or 0) >= insert_order:
+                status.sort_order = (status.sort_order or 0) + 1
+
+        default_status = _STATUS_DEFAULTS_BY_NAME["设计完成"]
+        design_done_status = FlowStatus(
+            name=default_status["name"],
+            icon=default_status["icon"],
+            icon_color=default_status["icon_color"],
+            command=default_status["command"],
+            work_item_types_json=json.dumps(default_status["work_item_types"], ensure_ascii=False),
+            sort_order=insert_order,
+        )
+        session.add(design_done_status)
+        statuses.append(design_done_status)
+        existing_by_name["设计完成"] = design_done_status
+
+    if design_status and design_done_status and (design_done_status.sort_order or 0) <= (design_status.sort_order or 0):
+        old_order = design_done_status.sort_order or 0
+        target_order = (design_status.sort_order or 0) + 1
+        for status in statuses:
+            if status is design_done_status:
+                continue
+            current_order = status.sort_order or 0
+            if old_order < target_order and old_order < current_order <= target_order:
+                status.sort_order = current_order - 1
+            elif target_order <= current_order < old_order:
+                status.sort_order = current_order + 1
+        design_done_status.sort_order = target_order
+
+    for status in statuses:
         expected = _STATUS_COMMAND_MAP.get(status.name, "")
-        if expected:
+        default_meta = _STATUS_DEFAULTS_BY_NAME.get(status.name)
+        legacy_commands = _STATUS_LEGACY_COMMANDS.get(status.name, set())
+
+        if status.command == "" and expected:
             status.command = expected
+        elif expected and status.command in legacy_commands and status.command != expected:
+            status.command = expected
+
+        if status.name == "设计完成" and default_meta:
+            if not status.icon:
+                status.icon = default_meta["icon"]
+            if not status.icon_color:
+                status.icon_color = default_meta["icon_color"]
+            if not _parse_json_list(status.work_item_types_json):
+                status.work_item_types_json = json.dumps(default_meta["work_item_types"], ensure_ascii=False)
 
 
 # ---------------------------------------------------------------------------

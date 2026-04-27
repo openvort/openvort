@@ -22,10 +22,13 @@ export const SORT_FIELD_MAP: Record<string, string> = {
     planTime: "deadline",
     owner: "assignee_id",
     creator: "creator_id",
+    testTime: "test_time",
+    draftTime: "draft_time",
+    releaseTime: "release_time",
 };
 
 export const SORT_FIELD_OVERRIDES: Record<string, Record<string, string>> = {
-    "需求": { owner: "assignee_id", creator: "submitter_id" },
+    "需求": { owner: "pm_id", creator: "submitter_id" },
     "缺陷": { creator: "reporter_id" },
 };
 
@@ -91,6 +94,16 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
         collectEnumOptions,
     } = options;
 
+    const getOwnerSourceId = (item: any, typeValue: WorkItemType): string => {
+        if (typeValue === "需求") {
+            return String(item?.pm_id || item?.assignee_id || "").trim();
+        }
+        if (typeValue === "缺陷") {
+            return String(item?.assignee_id || item?.developer_id || "").trim();
+        }
+        return String(item?.assignee_id || "").trim();
+    };
+
     const mapBackendItemToRow = (item: any, typeValue: WorkItemType, index: number): RowItem => {
         const created = item?.created_at ? new Date(item.created_at) : new Date();
         const createdAt = formatCnTime(created);
@@ -98,7 +111,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
         const deadline = item?.deadline ? String(item.deadline).split("T")[0] : "";
         const backendId = String(item?.id || index + 1);
         const workNo = `#${backendId.replace(/-/g, "").slice(0, 6).toUpperCase().padEnd(6, "X")}`;
-        const ownerSourceId = String(item?.assignee_id || item?.pm_id || item?.developer_id || "").trim();
+        const ownerSourceId = getOwnerSourceId(item, typeValue);
         const ownerSourceName = getMemberNameById(ownerSourceId);
         const ownerName = ownerSourceName || (ownerSourceId ? ownerSourceId : "未指派");
 
@@ -130,6 +143,9 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
         const progress = item?.progress != null ? Number(item.progress) : 0;
         const startAt = item?.start_at ? String(item.start_at).split("T")[0] : "";
         const endAt = item?.end_at ? String(item.end_at).split("T")[0] : "";
+        const testTime = item?.test_time ? String(item.test_time).split("T")[0] : "";
+        const draftTime = item?.draft_time ? String(item.draft_time).split("T")[0] : "";
+        const releaseTime = item?.release_time ? String(item.release_time).split("T")[0] : "";
         return {
             backendId,
             workNo,
@@ -170,6 +186,9 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
             isArchived: Boolean(item?.is_archived),
             startAt,
             endAt,
+            testTime,
+            draftTime,
+            releaseTime,
             _prevIteration: iterationId,
             _prevVersion: versionId,
             _createdAtRaw: item?.created_at ? String(item.created_at) : "",
@@ -327,13 +346,16 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
                 } else if (field === "type") {
                     const vals = fv.value as string[];
                     if (vals?.length && !vals.includes(row.type || "")) return false;
-                } else if (field === "createdAt" || field === "planTime" || field === "updatedAt" || field === "startAt" || field === "endAt") {
+                } else if (field === "createdAt" || field === "planTime" || field === "updatedAt" || field === "startAt" || field === "endAt" || field === "testTime" || field === "draftTime" || field === "releaseTime") {
                     const dateFieldMap: Record<string, string> = {
                         createdAt: row._createdAtRaw || row.createdAt,
                         planTime: row.planStartDate || row.planEndDate || "",
                         updatedAt: row._updatedAtRaw || row.updatedAt || "",
                         startAt: row.startAt || "",
                         endAt: row.endAt || "",
+                        testTime: row.testTime || "",
+                        draftTime: row.draftTime || "",
+                        releaseTime: row.releaseTime || "",
                     };
                     const rowVal = dateFieldMap[field] || "";
                     if (!rowVal) return false;
@@ -407,6 +429,15 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
             } else if (field === "endAt") {
                 va = a.endAt || "";
                 vb = b.endAt || "";
+            } else if (field === "testTime") {
+                va = a.testTime || "";
+                vb = b.testTime || "";
+            } else if (field === "draftTime") {
+                va = a.draftTime || "";
+                vb = b.draftTime || "";
+            } else if (field === "releaseTime") {
+                va = a.releaseTime || "";
+                vb = b.releaseTime || "";
             } else {
                 return 0;
             }
@@ -455,6 +486,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
             const viewCreator = vf.creator || undefined;
             const viewParticipant = vf.participant || undefined;
             const effectiveAssignee = ownerMemberId || viewOwner || undefined;
+            const shouldFetchAllStoryOwner = workType === "需求" && Boolean(ownerMemberId || viewOwner);
             const archivedParam = vf.archived === true ? true : false;
             const sortParams = backendSortBy ? { sort_by: backendSortBy, sort_order: backendSortOrder } : {};
             const requestByState = async (state?: string, page = current, size = pageSize) => {
@@ -463,7 +495,6 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
                         keyword: kw, state, parent_id: "root",
                         project_id: projectIdParam,
                         iteration_id: iterationIdParam,
-                        assignee_id: ownerMemberId || viewOwner || undefined,
                         submitter_id: viewCreator,
                         participant_id: viewParticipant,
                         archived: archivedParam,
@@ -517,9 +548,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
             };
             const buildRowsFromItems = (items: any[]): RowItem[] => {
                 const rows = items.map((item: any, idx: number) => mapBackendItemToRow(item, workType, idx));
-                if (workType === "需求" || workType === "任务") {
-                    cacheItemRows(rows);
-                }
+                cacheItemRows(rows);
                 return rows;
             };
 
@@ -529,6 +558,7 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
             const combinedState = backendStates?.join(",");
             const hasColumnFilters = Object.keys(columnFilters).some(k => columnFilters[k] != null);
             const needFetchAll = hasColumnFilters
+                || shouldFetchAllStoryOwner
                 || (hasOwnerFilter && (workType === "需求" || ownerValues.includes("未指派") || !ownerMemberId));
 
             if (needFetchAll) {
@@ -618,6 +648,9 @@ export function useWorkItemDataSource(options: UseWorkItemDataSourceOptions) {
         const list = pinnedRowsByType[typeValue] || [];
         const rowId = row.backendId || row.workNo;
         pinnedRowsByType[typeValue] = [row, ...list.filter((x) => (x.backendId || x.workNo) !== rowId)];
+        if (row.backendId) {
+            itemRowsById[row.backendId] = row;
+        }
     };
 
     return {

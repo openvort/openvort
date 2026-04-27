@@ -7,7 +7,7 @@ import ChatView from "@/views/chat/Index.vue";
 import { useAiFloat } from "@/composables/useAiFloat";
 
 const route = useRoute();
-const { pendingPrompt, consumePrompt } = useAiFloat();
+const { pendingPrompt, consumePrompt, docked } = useAiFloat();
 
 const panelOpen = ref(false);
 const everOpened = ref(false);
@@ -21,6 +21,9 @@ const isOnChatPage = computed(() => route.path === "/chat");
 const BTN_SIZE = 44;
 const EDGE_MARGIN = 12;
 const SNAP_MARGIN = 24;
+const HEADER_HEIGHT = 56;
+const DOCK_BTN_SIZE = 34;
+const DOCK_RIGHT = 12;
 const POS_KEY = "ai-float-corner";
 
 type Corner = "br" | "bl" | "tr" | "tl";
@@ -39,7 +42,7 @@ function cornerToPos(c: Corner): { right: number; bottom: number } {
     switch (c) {
         case "br": return { right: SNAP_MARGIN, bottom: SNAP_MARGIN };
         case "bl": return { right: w - BTN_SIZE - SNAP_MARGIN, bottom: SNAP_MARGIN };
-        case "tr": return { right: SNAP_MARGIN, bottom: h - BTN_SIZE - SNAP_MARGIN };
+        case "tr": return { right: DOCK_RIGHT, bottom: h - (HEADER_HEIGHT + DOCK_BTN_SIZE) / 2 };
         case "tl": return { right: w - BTN_SIZE - SNAP_MARGIN, bottom: h - BTN_SIZE - SNAP_MARGIN };
     }
 }
@@ -133,11 +136,16 @@ const panelStyle = computed(() => {
     return style;
 });
 
+const _savedCorner = localStorage.getItem(POS_KEY);
+if (_savedCorner && CORNERS.includes(_savedCorner as Corner)) {
+    currentCorner.value = _savedCorner as Corner;
+}
+
+watch(currentCorner, (c) => {
+    docked.value = c === "tr";
+}, { immediate: true });
+
 onMounted(() => {
-    const saved = localStorage.getItem(POS_KEY);
-    if (saved && CORNERS.includes(saved as Corner)) {
-        currentCorner.value = saved as Corner;
-    }
     syncPosToCorner();
     window.addEventListener("resize", syncPosToCorner);
 });
@@ -217,13 +225,13 @@ watch(pendingPrompt, (prompt) => {
         <button
             v-if="!expanded"
             class="ai-float-btn"
-            :class="{ 'ai-float-btn-active': panelOpen, 'ai-float-btn-dragging': dragging }"
+            :class="{ 'ai-float-btn-active': panelOpen, 'ai-float-btn-dragging': dragging, 'ai-float-btn-docked': docked && !dragging }"
             @pointerdown="onDragStart"
             @click="handleBtnClick"
         >
             <transition name="ai-float-icon" mode="out-in">
-                <X v-if="panelOpen" :size="18" class="text-white" key="close" />
-                <AiIcon v-else key="ai" :size="38" :animated="true" />
+                <X v-if="panelOpen" :size="docked ? 14 : 18" class="text-white" key="close" />
+                <AiIcon v-else key="ai" :size="docked && !dragging ? 28 : 38" :animated="true" />
             </transition>
         </button>
     </div>
@@ -252,7 +260,7 @@ watch(pendingPrompt, (prompt) => {
     border: none;
     touch-action: none;
     user-select: none;
-    transition: transform 0.3s ease, box-shadow 0.3s ease, background 0.3s ease;
+    transition: transform 0.3s ease, box-shadow 0.3s ease, background 0.3s ease, width 0.25s ease, height 0.25s ease;
     position: relative;
     overflow: visible;
 }
@@ -297,6 +305,15 @@ watch(pendingPrompt, (prompt) => {
 }
 .ai-float-btn-active::before,
 .ai-float-btn-active::after { display: none; }
+.ai-float-btn-docked {
+    width: 34px;
+    height: 34px;
+    box-shadow: 0 2px 12px rgba(99, 102, 241, 0.2), 0 0 20px rgba(139, 92, 246, 0.08);
+}
+.ai-float-btn-docked.ai-float-btn-active {
+    width: 32px;
+    height: 32px;
+}
 .ai-float-btn-dragging {
     cursor: grabbing !important;
     transition: none !important;

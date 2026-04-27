@@ -6,6 +6,7 @@ import { LogOut, User, Menu, RefreshCw, ArrowUpCircle, X, Download, Loader2 } fr
 import { getHealthStatus, getUpgradeStreamUrl } from "@/api";
 import ActiveTaskIndicator from "@/components/ActiveTaskIndicator.vue";
 import NotificationPopover from "./NotificationPopover.vue";
+import { useAiFloat } from "@/composables/useAiFloat";
 
 defineProps<{ isScrolled: boolean; isMobile?: boolean }>();
 
@@ -22,6 +23,7 @@ const updateAvailable = ref(false);
 const latestVersion = ref("");
 const releaseNotes = ref("");
 
+const { docked: aiFloatDocked } = useAiFloat();
 const isAdmin = computed(() => userStore.isAdmin);
 
 const checkVersionUpdate = (serverVersion: string) => {
@@ -189,8 +191,8 @@ const stepLabel = computed(() => {
 
 <template>
     <header
-        class="flex items-center justify-between h-[56px] px-4 md:px-6 bg-white border-b border-gray-100 flex-shrink-0 transition-shadow"
-        :class="{ 'shadow-sm': isScrolled }"
+        class="flex items-center justify-between h-[56px] px-4 md:px-6 bg-white border-b border-gray-100 flex-shrink-0 header-bar"
+        :class="{ 'shadow-sm': isScrolled, 'header-docked': aiFloatDocked }"
     >
         <!-- 左侧 -->
         <div class="flex items-center gap-3 flex-1 min-w-0">
@@ -363,6 +365,12 @@ const stepLabel = computed(() => {
 </template>
 
 <style scoped>
+.header-bar {
+    transition: box-shadow 0.15s ease, padding-right 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+}
+.header-docked {
+    padding-right: 56px !important;
+}
 .dropdown-enter-active, .dropdown-leave-active { transition: opacity 0.15s, transform 0.15s; }
 .dropdown-enter-from, .dropdown-leave-to { opacity: 0; transform: translateY(-4px); }
 .fade-enter-active, .fade-leave-active { transition: opacity 0.2s; }

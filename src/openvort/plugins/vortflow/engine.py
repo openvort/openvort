@@ -18,6 +18,7 @@ class StoryState(str, Enum):
     REJECTED = "rejected"
     PM_REFINE = "pm_refine"
     DESIGN = "design"
+    DESIGN_DONE = "design_done"
     BREAKDOWN = "breakdown"
     DEV_ASSIGN = "dev_assign"
     IN_PROGRESS = "in_progress"
@@ -65,7 +66,8 @@ STORY_TRANSITIONS: dict[StoryState, list[StoryState]] = {
     StoryState.REVIEW: [StoryState.PM_REFINE, StoryState.REJECTED],
     StoryState.REJECTED: [StoryState.SUBMITTED],
     StoryState.PM_REFINE: [StoryState.DESIGN],
-    StoryState.DESIGN: [StoryState.BREAKDOWN],
+    StoryState.DESIGN: [StoryState.DESIGN_DONE],
+    StoryState.DESIGN_DONE: [StoryState.BREAKDOWN],
     StoryState.BREAKDOWN: [StoryState.DEV_ASSIGN],
     StoryState.DEV_ASSIGN: [StoryState.IN_PROGRESS],
     StoryState.IN_PROGRESS: [StoryState.TESTING],

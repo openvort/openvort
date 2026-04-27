@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "openvort"
-version = "0.12.0"
+version = "0.13.0"
 description = "Open-source AI-powered R&D workflow engine — interact with AI agents via IM or Web to automate project management, code repositories, and team collaboration"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
@@ -52,6 +52,7 @@ dependencies = [
     "lark-oapi>=1.4",
     "mcp>=1.9",
     "Pillow>=10.0",
+    "alibabacloud-cdn20180510>=3.0",
 ]
 
 [project.optional-dependencies]
@@ -83,6 +84,7 @@ system = "openvort.plugins.system:SystemPlugin"
 browser = "openvort.plugins.browser:BrowserPlugin"
 knowledge = "openvort.plugins.knowledge:KnowledgePlugin"
 vortsketch = "openvort.plugins.vortsketch:VortSketchPlugin"
+vortcert = "openvort.plugins.vortcert:VortCertPlugin"
 
 [project.urls]
 Homepage = "https://github.com/openvort/openvort"

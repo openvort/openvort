@@ -105,8 +105,14 @@ async def list_stories(
             stmt = stmt.where(FlowStory.submitter_id == submitter_id)
             count_stmt = count_stmt.where(FlowStory.submitter_id == submitter_id)
         if assignee_id:
-            stmt = stmt.where(FlowStory.assignee_id == assignee_id)
-            count_stmt = count_stmt.where(FlowStory.assignee_id == assignee_id)
+            # 前端"负责人"列显示 assignee_id || pm_id，此处按相同语义过滤：
+            # 优先匹配 assignee_id；当 assignee_id 为空时回退匹配 pm_id。
+            effective_owner_cond = or_(
+                FlowStory.assignee_id == assignee_id,
+                (FlowStory.assignee_id.is_(None)) & (FlowStory.pm_id == assignee_id),
+            )
+            stmt = stmt.where(effective_owner_cond)
+            count_stmt = count_stmt.where(effective_owner_cond)
         if pm_id:
             stmt = stmt.where(FlowStory.pm_id == pm_id)
             count_stmt = count_stmt.where(FlowStory.pm_id == pm_id)
@@ -205,6 +211,9 @@ async def create_story(body: StoryCreate, request: Request):
             attachments_json=json.dumps(body.attachments or [], ensure_ascii=False),
             plan_start=_parse_dt(body.plan_start),
             deadline=_parse_dt(body.deadline),
+            test_time=_parse_dt(body.test_time),
+            draft_time=_parse_dt(body.draft_time),
+            release_time=_parse_dt(body.release_time),
         )
         session.add(s)
         await session.flush()
@@ -285,6 +294,18 @@ async def update_story(story_id: str, body: StoryUpdate, request: Request):
             old_val = str(s.end_at) if s.end_at else None
             s.end_at = _parse_dt(body.end_at)
             changes["end_at"] = {"from": old_val, "to": body.end_at}
+        if body.test_time is not None:
+            old_val = str(s.test_time) if s.test_time else None
+            s.test_time = _parse_dt(body.test_time)
+            changes["test_time"] = {"from": old_val, "to": body.test_time}
+        if body.draft_time is not None:
+            old_val = str(s.draft_time) if s.draft_time else None
+            s.draft_time = _parse_dt(body.draft_time)
+            changes["draft_time"] = {"from": old_val, "to": body.draft_time}
+        if body.release_time is not None:
+            old_val = str(s.release_time) if s.release_time else None
+            s.release_time = _parse_dt(body.release_time)
+            changes["release_time"] = {"from": old_val, "to": body.release_time}
         if body.repo_id is not None:
             old_val = s.repo_id
             s.repo_id = body.repo_id or None

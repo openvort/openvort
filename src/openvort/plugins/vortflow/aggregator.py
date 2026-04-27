@@ -89,6 +89,10 @@ class NotificationAggregator:
     Enqueued notifications are held in memory and flushed every FLUSH_INTERVAL
     seconds.  All pending items for a given user are merged into a single IM
     message to avoid flooding the channel.
+
+    实时通知（如评论、@提及）应使用 ``immediate=True`` 绕过批量窗口，
+    以保证用户能第一时间看到，并且 IM 文本里携带的工作项链接不会因聚合
+    格式被丢弃。
     """
 
     FLUSH_INTERVAL = 30  # seconds
@@ -118,7 +122,16 @@ class NotificationAggregator:
             self._task = None
         await self._flush()  # drain remaining
 
-    async def enqueue(self, member_id: str, payload: NotificationPayload):
+    async def enqueue(
+        self,
+        member_id: str,
+        payload: NotificationPayload,
+        *,
+        immediate: bool = False,
+    ):
+        if immediate:
+            await self._send_one(member_id, payload)
+            return
         async with self._lock:
             self._buffer[member_id].append(payload)
 
@@ -145,16 +158,26 @@ class NotificationAggregator:
             except Exception:
                 log.warning("Failed to send IM notification to %s", member_id, exc_info=True)
 
+    async def _send_one(self, member_id: str, payload: NotificationPayload):
+        text = payload.im_text or f"【{payload.title}】\n{payload.summary}"
+        try:
+            if self._channel_sender:
+                await self._channel_sender(member_id, text)
+        except Exception:
+            log.warning("Failed to send IM notification to %s", member_id, exc_info=True)
+
     @staticmethod
     def _format_batch(payloads: list[NotificationPayload]) -> str:
         if len(payloads) == 1:
             p = payloads[0]
             return p.im_text or f"【{p.title}】\n{p.summary}"
-        lines = [f"你有 {len(payloads)} 条新通知：", ""]
+        lines = [f"你有 {len(payloads)} 条新通知："]
         limit = min(len(payloads), 5)
         for i, p in enumerate(payloads[:limit], 1):
-            lines.append(f"{i}.【{p.title}】{p.summary}")
+            lines.append("")
+            lines.append(f"{i}. {p.im_text or f'【{p.title}】{p.summary}'}")
         if len(payloads) > 5:
+            lines.append("")
             lines.append(f"... 还有 {len(payloads) - 5} 条通知")
         return "\n".join(lines)
 

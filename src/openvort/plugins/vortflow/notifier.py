@@ -118,14 +118,20 @@ class Notifier:
     @staticmethod
     def _build_item_url(entity_type: str, entity_id: str, project_id: str) -> str:
         from openvort.config.settings import get_settings
-        site_url = (get_settings().web.site_url or "").rstrip("/")
-        if not site_url:
-            return ""
+
         path_map = {"story": "stories", "task": "tasks", "bug": "bugs"}
         path = path_map.get(entity_type, "")
         if not path:
             return ""
-        return f"{site_url}/vortflow/{path}?project={project_id}&action=detail&id={entity_id}"
+
+        settings = get_settings()
+        site_url = (settings.web.site_url or "").rstrip("/")
+        if not site_url:
+            host = settings.web.host or "localhost"
+            if host in ("0.0.0.0", "::", ""):
+                host = "localhost"
+            site_url = f"http://{host}:{settings.web.port}"
+        return f"{site_url}/vortflow/{path}?project_id={project_id}&action=detail&id={entity_id}"
 
     # ------------------------------------------------------------------
     # Public notification helpers
@@ -305,9 +311,11 @@ class Notifier:
             im_lines.append(f"{actor} 在{label}「{title}」中评论:")
             im_lines.append(f'"{content_preview}"')
             im_text = "\n".join(im_lines)
-            await self._fan_out(non_mention, "新评论", summary, entity_id, data, im_text=im_text)
+            await self._fan_out(
+                non_mention, "新评论", summary, entity_id, data,
+                im_text=im_text, immediate=True,
+            )
 
-        extra_mentions = [m for m in mention_set if m not in base_recipients]
         all_mentions = list(mention_set)
         if all_mentions:
             summary = f"{actor} 在{label}「{title}」中提到了你"
@@ -315,7 +323,10 @@ class Notifier:
             im_lines.append(f"{actor} 在{label}「{title}」中提到了你:")
             im_lines.append(f'"{content_preview}"')
             im_text = "\n".join(im_lines)
-            await self._fan_out(all_mentions, "你被提及", summary, entity_id, data, im_text=im_text)
+            await self._fan_out(
+                all_mentions, "你被提及", summary, entity_id, data,
+                im_text=im_text, immediate=True,
+            )
 
     async def notify_collaborator_added(
         self,
@@ -504,6 +515,7 @@ class Notifier:
         data: dict,
         *,
         im_text: str = "",
+        immediate: bool = False,
     ) -> None:
         entity_type = data.get("entity_type", "")
         entity_id = data.get("entity_id", "")
@@ -532,6 +544,7 @@ class Notifier:
                     entity_type=entity_type,
                     entity_id=entity_id,
                 ),
+                immediate=immediate,
             )
 
     async def _persist(

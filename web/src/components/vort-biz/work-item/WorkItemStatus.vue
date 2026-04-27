@@ -43,6 +43,7 @@ const statusClassMap: Record<string, string> = {
     意向: "bg-slate-100 text-slate-600",
     暂搁置: "bg-slate-100 text-slate-500",
     设计中: "bg-indigo-100 text-indigo-600",
+    设计完成: "bg-sky-100 text-sky-700",
     开发中: "bg-blue-100 text-blue-600",
     开发完成: "bg-cyan-100 text-cyan-700",
     测试完成: "bg-violet-100 text-violet-700",

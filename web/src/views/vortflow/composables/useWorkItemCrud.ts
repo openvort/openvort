@@ -32,6 +32,7 @@ export interface UseWorkItemCrudOptions {
     formatCnTime: (date: Date) => string;
     mapBackendItemToRow: (item: any, type: WorkItemType, index: number) => RowItem;
     prependPinnedRow: (type: WorkItemType, row: RowItem) => void;
+    pinnedRowsByType: Record<WorkItemType, RowItem[]>;
     findItemRowById: (id: string | undefined) => RowItem | null;
     apiProjects: Ref<Array<{ id: string; name: string }>>;
     apiIterations: Ref<Array<{ id: string; name: string }>>;
@@ -56,6 +57,7 @@ export function useWorkItemCrud(options: UseWorkItemCrudOptions) {
         formatCnTime,
         mapBackendItemToRow,
         prependPinnedRow,
+        pinnedRowsByType,
         findItemRowById,
         apiProjects,
         apiIterations,
@@ -69,6 +71,12 @@ export function useWorkItemCrud(options: UseWorkItemCrudOptions) {
         loadDraft,
         clearDraft,
     } = options;
+
+    const removePinnedRow = (type: WorkItemType, backendId: string) => {
+        const list = pinnedRowsByType[type];
+        if (!list) return;
+        pinnedRowsByType[type] = list.filter((r) => r.backendId !== backendId);
+    };
 
     const selectedRowKeys = ref<Array<string | number>>([]);
     const selectedRows = ref<RowItem[]>([]);
@@ -156,6 +164,9 @@ export function useWorkItemCrud(options: UseWorkItemCrudOptions) {
             actual_hours?: number;
             start_at?: string;
             end_at?: string;
+            test_time?: string;
+            draft_time?: string;
+            release_time?: string;
             repo_id?: string | null;
             branch?: string;
             progress?: number;
@@ -180,6 +191,9 @@ export function useWorkItemCrud(options: UseWorkItemCrudOptions) {
                 project_id: patch.project_id,
                 start_at: patch.start_at,
                 end_at: patch.end_at,
+                test_time: patch.test_time,
+                draft_time: patch.draft_time,
+                release_time: patch.release_time,
                 repo_id: patch.repo_id,
                 branch: patch.branch,
                 progress: patch.progress,
@@ -251,6 +265,7 @@ export function useWorkItemCrud(options: UseWorkItemCrudOptions) {
         if (itemType === "需求") await deleteVortflowStory(id);
         else if (itemType === "任务") await deleteVortflowTask(id);
         else await deleteVortflowBug(id);
+        removePinnedRow(itemType, id);
     };
 
     const handleBatchDelete = async () => {
@@ -440,10 +455,10 @@ export function useWorkItemCrud(options: UseWorkItemCrudOptions) {
                 try {
                     const res: any = await convertWorkItem({ from_type: fromBackend, id: record.backendId, to_type: toBackend });
                     if (res?.error) { message.error(res.error); return; }
-                    // Clear stale cache for old record (backend creates new ID, deletes old)
                     delete itemRowsById[record.backendId];
                     delete itemChildrenMap[record.backendId];
                     delete expandedItemIds[record.backendId];
+                    removePinnedRow(record.type as WorkItemType, record.backendId);
                     message.success(res?.message || "类型转换成功");
                     tableRef.value?.refresh?.();
                     return "close";
@@ -477,7 +492,13 @@ export function useWorkItemCrud(options: UseWorkItemCrudOptions) {
             const ownerId = data.owner ? getMemberIdByName(data.owner) || data.owner : undefined;
             const collabIds = data.collaborators?.map(n => getMemberIdByName(n) || n);
             const patch: any = {};
-            if (ownerId !== undefined) patch.assignee_id = ownerId || null;
+            if (data.owner !== undefined) {
+                record.ownerId = ownerId || "";
+            }
+            if (ownerId !== undefined) {
+                if (record.type === "需求") patch.pm_id = ownerId || null;
+                else patch.assignee_id = ownerId || null;
+            }
             if (collabIds) patch.collaborators = collabIds;
             await syncRecordUpdateToApi(record, patch);
         }
@@ -504,6 +525,15 @@ export function useWorkItemCrud(options: UseWorkItemCrudOptions) {
         }
         if (data.endAt !== undefined) {
             await syncRecordUpdateToApi(record, { end_at: data.endAt || "" });
+        }
+        if (data.testTime !== undefined) {
+            await syncRecordUpdateToApi(record, { test_time: data.testTime || "" });
+        }
+        if (data.draftTime !== undefined) {
+            await syncRecordUpdateToApi(record, { draft_time: data.draftTime || "" });
+        }
+        if (data.releaseTime !== undefined) {
+            await syncRecordUpdateToApi(record, { release_time: data.releaseTime || "" });
         }
         if (data.repoId !== undefined || data.branch !== undefined) {
             await syncRecordUpdateToApi(record, {

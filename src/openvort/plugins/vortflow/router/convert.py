@@ -30,7 +30,7 @@ _DEFAULT_STATE = {"story": "submitted", "task": "todo", "bug": "open"}
 _SHARED_FIELDS = [
     "title", "description", "project_id", "tags_json",
     "collaborators_json", "deadline", "start_at", "end_at",
-    "repo_id", "branch", "attachments_json", "created_at",
+    "repo_id", "branch", "attachments_json",
 ]
 
 

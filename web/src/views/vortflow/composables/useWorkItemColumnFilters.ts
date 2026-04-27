@@ -12,6 +12,7 @@ export const STATUS_DOT_COLOR_MAP: Record<string, string> = {
     "收集中": "#94a3b8",
     "意向": "#64748b",
     "设计中": "#6366f1",
+    "设计完成": "#0284c7",
     "开发中": "#3b82f6",
     "测试完成": "#7c3aed",
     "已完成": "#059669",

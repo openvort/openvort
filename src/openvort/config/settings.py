@@ -239,6 +239,9 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     data_dir: Path = Field(default_factory=lambda: Path.home() / ".openvort")
 
+    # 演示模式（OPENVORT_IS_DEMO=1 启用）：登录页会显示默认账号/密码提示
+    is_demo: bool = False
+
     # 数据库
     database_url: str = "postgresql+asyncpg://openvort:openvort@localhost:5432/openvort"
 

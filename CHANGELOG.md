@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.12.0] - 2026-04-09
+
+### Added
+
+- Gantt chart view mode for work items with drag-and-drop scheduling, timeline navigation, date preview, and pagination
+- Archive/unarchive support for stories, tasks, and bugs with batch operations
+- Planned start time field for tasks, bugs, and stories
+- Daily work statistics per member with date-based queries
+- Report read tracking with read status marking and submission statistics
+- Report withdrawal allowing submitters to retract submitted reports
+- Batch project reminder notifications with member count feedback
+- Period-based reminder scheduling with enhanced Markdown rendering
+- PR review list, review history, and AI-powered code review
+- Auto-generated member avatars
+
+### Improved
+
+- Enhanced deletion with automatic cleanup of related data for bugs, stories, and tasks
+- Improved status change handling with multiple update types
+- Enhanced report filtering by receiver with auto-parsing of publication IDs
+- Optimized Gantt chart request logic with first-load state management
+
+### Fixed
+
+- Fixed work item detail type modification to avoid direct record mutation
+- Fixed bug query to include created_at field, preventing misinterpretation of full lists as daily stats
+
 ## [0.11.0] - 2026-04-08
 
 ### Added

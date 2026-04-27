@@ -133,10 +133,11 @@ class ReminderRequest(BaseModel):
 
 
 @router.post("/publications/{pub_id}/remind")
-async def send_reminders(pub_id: str, req: ReminderRequest | None = None):
+async def send_reminders(pub_id: str, request: Request, req: ReminderRequest | None = None):
     service = _get_service()
+    member_id = _member_id(request)
     report_date = date.fromisoformat(req.report_date) if req and req.report_date else None
-    result = await service.send_fill_reminders(pub_id, report_date=report_date)
+    result = await service.send_fill_reminders(pub_id, report_date=report_date, receiver_id=member_id or None)
     return result
 
 
@@ -197,9 +198,8 @@ async def list_reports(
             limit=page_size,
         )
     else:
-        rid = reporter_id or member_id
         reports = await service.list_reports(
-            reporter_id=rid,
+            reporter_id=member_id,
             publication_id=publication_id,
             report_type=report_type,
             status=status,
@@ -286,11 +286,14 @@ async def submit_report(req: ReportSubmitRequest, request: Request):
 
 
 @router.get("/{report_id}")
-async def get_report(report_id: str):
+async def get_report(report_id: str, request: Request):
     service = _get_service()
-    report = await service.get_report(report_id)
+    member_id = _member_id(request)
+    report = await service.get_report(report_id, member_id=member_id)
     if not report:
         return {"success": False, "error": "汇报不存在"}
+    if "error" in report:
+        return {"success": False, "error": report["error"]}
     return report
 
 
@@ -323,14 +326,17 @@ async def withdraw_report(report_id: str, request: Request):
 
 
 @router.put("/{report_id}")
-async def update_report(report_id: str, req: ReportSubmitRequest):
+async def update_report(report_id: str, req: ReportSubmitRequest, request: Request):
     service = _get_service()
+    member_id = _member_id(request)
     fields: dict = {}
     if req.title:
         fields["title"] = req.title
     if req.content:
         fields["content"] = req.content
-    result = await service.update_report(report_id, **fields)
+    result = await service.update_report(report_id, member_id=member_id, **fields)
     if not result:
         return {"success": False, "error": "汇报不存在"}
+    if "error" in result:
+        return {"success": False, "error": result["error"]}
     return {"success": True, "report": result}

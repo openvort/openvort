@@ -24,7 +24,20 @@ const emit = defineEmits<{
     progressDragStart: [e: PointerEvent];
     clickCreate: [e: MouseEvent];
     clearDate: [type: "start" | "end" | "both"];
+    addIconTime: [field: "testTime" | "draftTime" | "releaseTime", date: string];
 }>();
+
+const contextMenuDate = ref("");
+
+function onBarContextMenu(e: MouseEvent) {
+    if (!props.xToDate) return;
+    const barEl = barRef.value;
+    if (!barEl) return;
+    const rect = barEl.getBoundingClientRect();
+    const clickX = props.left + (e.clientX - rect.left);
+    const date = dayjs(props.xToDate(clickX)).format("YYYY-MM-DD");
+    contextMenuDate.value = date;
+}
 
 const textRef = ref<HTMLElement | null>(null);
 const barRef = ref<HTMLElement | null>(null);
@@ -142,6 +155,7 @@ function onEmptyMouseMove(e: MouseEvent) {
             @mouseenter="hovered = true"
             @mouseleave="hovered = false"
             @pointerdown="emit('moveStart', $event)"
+            @contextmenu="onBarContextMenu"
         >
             <!-- Progress fill -->
             <div
@@ -225,6 +239,18 @@ function onEmptyMouseMove(e: MouseEvent) {
         <template #overlay>
             <VortDropdownMenuItem @click="emit('clearDate', 'start')">删除开始日期</VortDropdownMenuItem>
             <VortDropdownMenuItem @click="emit('clearDate', 'end')">删除结尾日期</VortDropdownMenuItem>
+            <template v-if="bar.row.type === '需求'">
+                <VortDropdownMenuSeparator />
+                <VortDropdownMenuItem @click="emit('addIconTime', 'draftTime', contextMenuDate)">
+                    {{ bar.row.draftTime ? '修改出稿时间至此' : '添加出稿时间' }}
+                </VortDropdownMenuItem>
+                <VortDropdownMenuItem @click="emit('addIconTime', 'testTime', contextMenuDate)">
+                    {{ bar.row.testTime ? '修改提测时间至此' : '添加提测时间' }}
+                </VortDropdownMenuItem>
+                <VortDropdownMenuItem @click="emit('addIconTime', 'releaseTime', contextMenuDate)">
+                    {{ bar.row.releaseTime ? '修改发布时间至此' : '添加发布时间' }}
+                </VortDropdownMenuItem>
+            </template>
             <VortDropdownMenuSeparator />
             <VortDropdownMenuItem danger @click="emit('clearDate', 'both')">删除两个日期</VortDropdownMenuItem>
         </template>
@@ -286,6 +312,7 @@ function onEmptyMouseMove(e: MouseEvent) {
 
 .gantt-bar .gantt-bar-progress {
     background: var(--bar-fill, #9ca3af);
+    opacity: 0.35;
 }
 
 .gantt-bar .gantt-bar-text {

@@ -106,8 +106,14 @@ async def list_bugs(
             stmt = stmt.where(FlowBug.severity == severity)
             count_stmt = count_stmt.where(FlowBug.severity == severity)
         if assignee_id:
-            stmt = stmt.where(FlowBug.assignee_id == assignee_id)
-            count_stmt = count_stmt.where(FlowBug.assignee_id == assignee_id)
+            # 前端"负责人"列显示 assignee_id || developer_id，此处按相同语义过滤：
+            # 优先匹配 assignee_id；当 assignee_id 为空时回退匹配 developer_id。
+            effective_owner_cond = or_(
+                FlowBug.assignee_id == assignee_id,
+                (FlowBug.assignee_id.is_(None)) & (FlowBug.developer_id == assignee_id),
+            )
+            stmt = stmt.where(effective_owner_cond)
+            count_stmt = count_stmt.where(effective_owner_cond)
         if reporter_id:
             stmt = stmt.where(FlowBug.reporter_id == reporter_id)
             count_stmt = count_stmt.where(FlowBug.reporter_id == reporter_id)

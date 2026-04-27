@@ -17,6 +17,7 @@ export type Status =
     | "意向"
     | "暂搁置"
     | "设计中"
+    | "设计完成"
     | "开发中"
     | "开发完成"
     | "测试完成"
@@ -118,6 +119,9 @@ export interface RowItem {
     attachments?: AttachmentItem[];
     startAt?: string;
     endAt?: string;
+    testTime?: string;
+    draftTime?: string;
+    releaseTime?: string;
     isArchived?: boolean;
     children?: RowItem[];
     _prevIteration?: string;

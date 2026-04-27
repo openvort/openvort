@@ -14,7 +14,8 @@ from passlib.hash import bcrypt as _bcrypt
 
 from openvort.config.settings import get_settings
 
-TOKEN_EXPIRE_HOURS = 24
+TOKEN_EXPIRE_HOURS = 24 * 7  # 7 days
+TOKEN_REMEMBER_EXPIRE_HOURS = 24 * 30  # 30 days
 
 
 def _get_secret_key() -> str:

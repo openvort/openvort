@@ -24,6 +24,10 @@ log = get_logger("core.notification")
 DEFAULT_DELAY_SECONDS = 60
 DEFAULT_IM_PRIORITY = ["wecom", "dingtalk", "feishu"]
 
+RECOVER_MAX_AGE_HOURS = 24
+RECOVER_MAX_BATCH = 50
+RECOVER_SEND_INTERVAL = 0.2
+
 
 class NotificationCenter:
     def __init__(self, session_factory, channel_registry=None):
@@ -263,28 +267,64 @@ class NotificationCenter:
             log.warning(f"Failed to update notification status: {e}")
 
     async def recover_on_startup(self):
-        """Re-evaluate pending notifications after service restart."""
+        """Schedule pending-notification recovery in the background.
+
+        Old behavior blocked the startup main flow on hundreds of IM sends,
+        which prevented the web server from starting and caused deploy
+        health checks to time out. We now return immediately and run the
+        actual recovery in a background task.
+        """
+        asyncio.create_task(self._recover_loop())
+        log.info("NotificationCenter recovery scheduled in background")
+
+    async def _recover_loop(self):
         try:
-            from sqlalchemy import select
+            from sqlalchemy import select, update
             from openvort.db.models import Notification
             now = datetime.utcnow()
+            expire_cutoff = now - timedelta(hours=RECOVER_MAX_AGE_HOURS)
 
             async with self._sf() as db:
-                stmt = select(Notification).where(Notification.status == "pending")
+                expired_result = await db.execute(
+                    update(Notification)
+                    .where(
+                        Notification.status == "pending",
+                        Notification.created_at < expire_cutoff,
+                    )
+                    .values(status="expired")
+                )
+                await db.commit()
+                expired_count = expired_result.rowcount or 0
+
+            if expired_count:
+                log.info(f"Marked {expired_count} stale pending notifications as expired (>{RECOVER_MAX_AGE_HOURS}h)")
+
+            async with self._sf() as db:
+                stmt = (
+                    select(Notification)
+                    .where(Notification.status == "pending")
+                    .order_by(Notification.created_at.asc())
+                    .limit(RECOVER_MAX_BATCH)
+                )
                 result = await db.execute(stmt)
                 pending = result.scalars().all()
 
+            if not pending:
+                return
+
+            log.info(f"Recovering {len(pending)} pending notifications (capped at {RECOVER_MAX_BATCH})")
             for notif in pending:
                 age = (now - notif.created_at).total_seconds() if notif.created_at else 0
                 if age >= DEFAULT_DELAY_SECONDS:
-                    await self._send_im(notif.id, notif.recipient_id, notif.title, notif.summary)
+                    try:
+                        await self._send_im(notif.id, notif.recipient_id, notif.title, notif.summary)
+                    except Exception as e:
+                        log.warning(f"Recover send failed for notif {notif.id}: {e}")
+                    await asyncio.sleep(RECOVER_SEND_INTERVAL)
                 else:
                     remaining = max(1, int(DEFAULT_DELAY_SECONDS - age))
                     task = asyncio.create_task(self._delayed_check(notif.id, remaining, notif.recipient_id))
                     self._pending_tasks[notif.id] = task
-
-            if pending:
-                log.info(f"Recovered {len(pending)} pending notifications on startup")
         except Exception as e:
             log.warning(f"Failed to recover pending notifications: {e}")
 

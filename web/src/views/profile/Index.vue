@@ -1303,6 +1303,7 @@ function handleMenuClick(key: string) {
                     :options="field.options"
                     :placeholder="field.placeholder"
                 />
+                <VortSwitch v-else-if="field.type === 'boolean'" :checked="pluginForm[field.key] === true || pluginForm[field.key] === 'true'" @update:checked="pluginForm[field.key] = $event" />
                 <VortInput v-else v-model="pluginForm[field.key]" :placeholder="field.placeholder" />
                 <div v-if="field.description" class="text-xs text-gray-400 mt-1">{{ field.description }}</div>
             </VortFormItem>

@@ -6,6 +6,7 @@ Publication CRUD + Report CRUD + IM 通知
 
 import json
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import delete, select, func as sa_func
 from sqlalchemy.orm import selectinload
@@ -25,6 +26,13 @@ log = get_logger("plugins.report.service")
 
 CYCLE_LABELS = {"daily": "按日", "weekly": "按周", "monthly": "按月"}
 TYPE_LABELS = {"daily": "日报", "weekly": "周报", "monthly": "月报", "quarterly": "季报"}
+
+
+def _local_now() -> datetime:
+    """Return current time in configured org timezone as a naive datetime."""
+    from openvort.config.settings import get_settings
+    tz = ZoneInfo(get_settings().org.timezone)
+    return datetime.now(tz).replace(tzinfo=None)
 
 
 class ReportService:
@@ -166,7 +174,7 @@ class ReportService:
             title=title, content=content, status=status, auto_generated=auto_generated,
         )
         if status == "submitted":
-            report.submitted_at = datetime.now()
+            report.submitted_at = _local_now()
         async with self._sf() as session:
             session.add(report)
             await session.commit()
@@ -177,13 +185,16 @@ class ReportService:
 
         return self._report_to_dict(report)
 
-    async def update_report(self, report_id: str, **fields) -> dict | None:
+    async def update_report(self, report_id: str, member_id: str | None = None, **fields) -> dict | None:
         async with self._sf() as session:
             stmt = select(Report).where(Report.id == report_id)
             result = await session.execute(stmt)
             report = result.scalar_one_or_none()
             if not report:
                 return None
+
+            if member_id and report.reporter_id != member_id:
+                return {"error": "只能修改自己的汇报"}
 
             old_status = report.status
             has_content_change = "content" in fields or "title" in fields
@@ -192,7 +203,7 @@ class ReportService:
                     setattr(report, key, fields[key])
 
             if fields.get("status") == "submitted" and old_status != "submitted":
-                report.submitted_at = datetime.now()
+                report.submitted_at = _local_now()
 
             await session.commit()
             await session.refresh(report)
@@ -223,13 +234,27 @@ class ReportService:
             await session.refresh(report)
             return self._report_to_dict(report)
 
-    async def get_report(self, report_id: str) -> dict | None:
+    async def get_report(self, report_id: str, member_id: str | None = None) -> dict | None:
         async with self._sf() as session:
             stmt = select(Report).where(Report.id == report_id)
             result = await session.execute(stmt)
             report = result.scalar_one_or_none()
             if not report:
                 return None
+
+            if member_id:
+                is_reporter = report.reporter_id == member_id
+                is_receiver = False
+                if report.publication_id:
+                    recv_stmt = select(ReportPublicationReceiver).where(
+                        ReportPublicationReceiver.publication_id == report.publication_id,
+                        ReportPublicationReceiver.member_id == member_id,
+                    )
+                    recv_result = await session.execute(recv_stmt)
+                    is_receiver = recv_result.scalar_one_or_none() is not None
+                if not is_reporter and not is_receiver:
+                    return {"error": "无权查看此汇报"}
+
             info = await self._resolve_member_info(session, [report.reporter_id])
             d = self._report_to_dict(report)
             mi = info.get(report.reporter_id, {})
@@ -717,8 +742,10 @@ class ReportService:
             log.warning(f"发送编辑通知失败: {e}")
 
     async def send_fill_reminders(self, publication_id: str, *,
-                                   report_date: date | None = None) -> dict:
-        """Send IM reminders to submitters who haven't submitted for the given date."""
+                                   report_date: date | None = None,
+                                   receiver_id: str | None = None) -> dict:
+        """Send IM reminders to submitters who haven't submitted for the given date.
+        If receiver_id is provided, only remind submitters visible to that receiver."""
         from openvort.plugins.vortflow.aggregator import send_im_to_member
 
         async with self._sf() as session:
@@ -730,6 +757,11 @@ class ReportService:
             submitter_ids = [s.member_id for s in pub.submitters]
             whitelist_ids = {w.member_id for w in pub.whitelist}
             effective_ids = [sid for sid in submitter_ids if sid not in whitelist_ids]
+
+            if receiver_id:
+                filter_ids = {f.submitter_id for f in pub.receiver_filters if f.receiver_id == receiver_id}
+                if filter_ids:
+                    effective_ids = [sid for sid in effective_ids if sid in filter_ids]
 
             if not effective_ids:
                 return {"ok": True, "sent": 0, "total": 0}

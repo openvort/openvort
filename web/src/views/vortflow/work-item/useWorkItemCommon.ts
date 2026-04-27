@@ -134,6 +134,7 @@ const FALLBACK_DEMAND: StatusOption[] = [
     { label: "收集中", value: "收集中", icon: "diamond", iconClass: "text-gray-400" },
     { label: "意向", value: "意向", icon: "circle", iconClass: "text-gray-500" },
     { label: "设计中", value: "设计中", icon: "pencil", iconClass: "text-indigo-500" },
+    { label: "设计完成", value: "设计完成", icon: "check", iconClass: "text-sky-600" },
     { label: "开发中", value: "开发中", icon: "circle-dot", iconClass: "text-blue-500" },
     { label: "测试完成", value: "测试完成", icon: "check", iconClass: "text-violet-600" },
     { label: "已完成", value: "已完成", icon: "circle-check", iconClass: "text-emerald-500" },
@@ -285,7 +286,7 @@ export function useWorkItemCommon() {
     const FALLBACK_STATE_MAP: Record<WorkItemType, Record<string, Status>> = {
         需求: {
             submitted: "收集中", intake: "意向", review: "意向", rejected: "已取消",
-            pm_refine: "设计中", design: "设计中", breakdown: "开发中",
+            pm_refine: "设计中", design: "设计中", design_done: "设计完成", breakdown: "开发中",
             dev_assign: "开发中", in_progress: "开发中", testing: "测试完成",
             bugfix: "开发中", done: "已完成",
         },
@@ -351,7 +352,7 @@ export function useWorkItemCommon() {
     };
 
     const FALLBACK_STATUS_TO_STATES: Record<WorkItemType, Partial<Record<Status, string[]>>> = {
-        需求: { 已取消: ["rejected"], 意向: ["intake", "review"], 设计中: ["pm_refine", "design"], 开发中: ["breakdown", "dev_assign", "in_progress", "bugfix"], 测试完成: ["testing"], 已完成: ["done"] },
+        需求: { 已取消: ["rejected"], 意向: ["intake", "review"], 设计中: ["pm_refine", "design"], 设计完成: ["design_done"], 开发中: ["breakdown", "dev_assign", "in_progress", "bugfix"], 测试完成: ["testing"], 已完成: ["done"] },
         任务: { 待办的: ["todo"], 进行中: ["in_progress"], 已完成: ["done"], 已取消: ["closed"] },
         缺陷: { 待确认: ["open", "confirmed"], 修复中: ["fixing"], 已修复: ["resolved"], 已关闭: ["verified", "closed"] },
     };

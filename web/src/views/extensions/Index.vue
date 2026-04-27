@@ -643,12 +643,13 @@ onMounted(loadAll);
         <!-- Plugin config drawer -->
         <vort-drawer :open="pluginDrawerOpen" title="插件配置" :width="480" @update:open="pluginDrawerOpen = $event">
             <vort-spin :spinning="pluginDrawerLoading">
-                <vort-form v-if="configSchema.length" label-width="100px">
+                <vort-form v-if="configSchema.length" label-width="140px">
                     <vort-form-item v-for="field in configSchema" :key="field.key" :label="field.label" :required="field.required">
                         <vort-input-password v-if="field.secret" v-model="configForm[field.key]" :placeholder="field.placeholder" />
                         <vort-select v-else-if="field.type === 'select' && field.options" v-model="configForm[field.key]" :placeholder="field.placeholder">
                             <vort-select-option v-for="opt in field.options" :key="opt.value" :value="opt.value">{{ opt.label }}</vort-select-option>
                         </vort-select>
+                        <VortSwitch v-else-if="field.type === 'boolean'" :checked="configForm[field.key] === true || configForm[field.key] === 'true'" @update:checked="configForm[field.key] = $event" />
                         <vort-input v-else v-model="configForm[field.key]" :placeholder="field.placeholder" />
                     </vort-form-item>
                 </vort-form>

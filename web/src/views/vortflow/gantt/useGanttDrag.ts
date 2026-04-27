@@ -9,6 +9,7 @@ export interface UseGanttDragOptions {
     onTimeChange: (rowId: string, startDate: string, endDate: string) => void;
     onProgressChange: (rowId: string, progress: number) => void;
     onCreateTime: (rowId: string, startDate: string, endDate: string) => void;
+    onIconTimeChange?: (rowId: string, field: "testTime" | "draftTime" | "releaseTime", date: string) => void;
 }
 
 function snapToDay(date: Date): string {
@@ -20,9 +21,10 @@ function endOfDay(date: Date): Date {
 }
 
 export function useGanttDrag(options: UseGanttDragOptions) {
-    const { xToDate, dateToX, scrollContainer, onTimeChange, onProgressChange, onCreateTime } = options;
+    const { xToDate, dateToX, scrollContainer, onTimeChange, onProgressChange, onCreateTime, onIconTimeChange } = options;
     const dragState = ref<GanttDragState | null>(null);
     const dragPreview = ref<{ left: number; width: number; progress?: number } | null>(null);
+    const iconDragPreviewX = ref<number | null>(null);
 
     function startResizeLeft(e: PointerEvent, bar: GanttBarData) {
         if (e.button !== 0 || !bar.startDate || !bar.endDate) return;
@@ -108,6 +110,31 @@ export function useGanttDrag(options: UseGanttDragOptions) {
         dragPreview.value = { left, width: right - left, progress: bar.progress };
     }
 
+    function startIconDrag(e: PointerEvent, bar: GanttBarData, field: "testTime" | "draftTime" | "releaseTime") {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const target = e.currentTarget as HTMLElement;
+        target.setPointerCapture(e.pointerId);
+
+        const dateStr = bar.row[field];
+        if (!dateStr) return;
+        const iconDate = dayjs(dateStr).startOf("day").toDate();
+
+        const iconTypeMap: Record<string, string> = { testTime: "icon-test", draftTime: "icon-draft", releaseTime: "icon-release" };
+        dragState.value = {
+            type: iconTypeMap[field] as any,
+            rowId: bar.row.backendId || bar.row.workNo,
+            startX: e.clientX,
+            initialStartDate: bar.startDate || new Date(),
+            initialEndDate: bar.endDate || new Date(),
+            initialProgress: bar.progress,
+            initialIconDate: iconDate,
+        };
+
+        iconDragPreviewX.value = dateToX(dayjs(iconDate).add(12, "hour").toDate());
+    }
+
     function snapStartX(x: number): number {
         return dateToX(dayjs(xToDate(x)).add(1, "ms").startOf("day").toDate());
     }
@@ -143,13 +170,35 @@ export function useGanttDrag(options: UseGanttDragOptions) {
             const clampedX = Math.max(initialLeft, Math.min(progressX, initialRight));
             const newProgress = barWidth > 0 ? Math.round(((clampedX - initialLeft) / barWidth) * 100) : 0;
             dragPreview.value = { left: initialLeft, width: barWidth, progress: newProgress };
+        } else if ((state.type === "icon-test" || state.type === "icon-draft" || state.type === "icon-release") && state.initialIconDate) {
+            const initialIconX = dateToX(dayjs(state.initialIconDate).add(12, "hour").toDate());
+            const newX = initialIconX + deltaX;
+            let snappedDate = dayjs(xToDate(newX)).startOf("day");
+            const minDate = dayjs(state.initialStartDate).startOf("day");
+            if (snappedDate.isBefore(minDate)) snappedDate = minDate;
+            iconDragPreviewX.value = dateToX(snappedDate.add(12, "hour").toDate());
         }
     }
 
     function onPointerUp(_e: PointerEvent) {
         const state = dragState.value;
+        if (!state) return;
+
+        if ((state.type === "icon-test" || state.type === "icon-draft" || state.type === "icon-release") && iconDragPreviewX.value !== null) {
+            let newDate = dayjs(xToDate(iconDragPreviewX.value)).startOf("day");
+            const minDate = dayjs(state.initialStartDate).startOf("day");
+            if (newDate.isBefore(minDate)) newDate = minDate;
+            const fieldMap: Record<string, string> = { "icon-test": "testTime", "icon-draft": "draftTime", "icon-release": "releaseTime" };
+            const field = fieldMap[state.type];
+            onIconTimeChange?.(state.rowId, field as "testTime" | "draftTime" | "releaseTime", newDate.format("YYYY-MM-DD"));
+            iconDragPreviewX.value = null;
+            dragState.value = null;
+            dragPreview.value = null;
+            return;
+        }
+
         const preview = dragPreview.value;
-        if (!state || !preview) {
+        if (!preview) {
             dragState.value = null;
             dragPreview.value = null;
             return;
@@ -202,10 +251,12 @@ export function useGanttDrag(options: UseGanttDragOptions) {
     return {
         dragState,
         dragPreview,
+        iconDragPreviewX,
         startMove,
         startResizeLeft,
         startResizeRight,
         startProgressDrag,
+        startIconDrag,
         onPointerMove,
         onPointerUp,
         handleClickCreate,

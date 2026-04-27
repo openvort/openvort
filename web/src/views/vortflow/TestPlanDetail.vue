@@ -16,6 +16,8 @@ import TestPlanEditDialog from "./components/TestPlanEditDialog.vue";
 import TestPlanAddCasesDialog from "./components/TestPlanAddCasesDialog.vue";
 import TestPlanAddPRDialog from "./components/TestPlanAddPRDialog.vue";
 import TestCaseDetailDrawer from "./components/TestCaseDetailDrawer.vue";
+import TestCaseEditDrawer from "./components/TestCaseEditDrawer.vue";
+import TestPlanExecutionDrawer from "./components/TestPlanExecutionDrawer.vue";
 import WorkItemMemberPicker from "@/components/vort-biz/work-item/WorkItemMemberPicker.vue";
 import {
     getVortflowTestPlan,
@@ -384,6 +386,33 @@ const latestResultDisplay = (item: any) => {
     return resultIcons[item.latest_result] || null;
 };
 
+const formatLatestExecTime = (iso?: string | null) => {
+    if (!iso) return "";
+    return iso.replace("T", " ").slice(0, 16);
+};
+
+// ============ Execution Drawer ============
+
+const execDrawerOpen = ref(false);
+const execDrawerTarget = ref<any>(null);
+const execDrawerDefaultResult = ref<string>("");
+
+const handleOpenExecDrawer = (row: any, defaultResult = "") => {
+    execDrawerTarget.value = row;
+    execDrawerDefaultResult.value = defaultResult;
+    execDrawerOpen.value = true;
+};
+
+const handleOpenExecDrawerWithNotes = (row: any) => {
+    executionDropdownOpen.value[row.plan_case_id] = false;
+    handleOpenExecDrawer(row);
+};
+
+const handleExecSaved = () => {
+    loadCases();
+    loadPlan();
+};
+
 // ============ Result distribution bar ============
 
 const resultBarStyle = computed(() => {
@@ -442,10 +471,27 @@ const handleFinishPlan = async () => {
 
 const caseDetailDrawerOpen = ref(false);
 const caseDetailId = ref("");
+const caseDetailPlanCaseId = ref("");
 
 const handleViewCase = (row: any) => {
     caseDetailId.value = row.test_case_id;
+    caseDetailPlanCaseId.value = row.plan_case_id;
     caseDetailDrawerOpen.value = true;
+};
+
+const caseEditDrawerOpen = ref(false);
+const caseEditId = ref("");
+
+const handleEditCase = (id: string) => {
+    caseDetailDrawerOpen.value = false;
+    caseEditId.value = id;
+    caseEditDrawerOpen.value = true;
+};
+
+const handleCaseEditSaved = () => {
+    loadCases();
+    loadModuleCaseCounts();
+    loadPlan();
 };
 
 // ============ Add Cases Dialog ============
@@ -507,6 +553,73 @@ const handleSubmitFileBug = async () => {
 const handleCancelFileBug = () => {
     fileBugDrawerOpen.value = false;
     fileBugCaseRow.value = null;
+};
+
+// ============ Batch File Bug ============
+
+const batchBugDialogOpen = ref(false);
+const batchBugCases = ref<any[]>([]);
+const batchBugLoading = ref(false);
+const batchBugSubmitting = ref(false);
+
+const failedCaseCount = computed(() => plan.value?.failed || 0);
+
+const handleOpenBatchBug = async () => {
+    if (!failedCaseCount.value) {
+        message.warning("当前没有失败的用例");
+        return;
+    }
+    batchBugLoading.value = true;
+    batchBugDialogOpen.value = true;
+    try {
+        const res = await getVortflowTestPlanCases(planId.value, { latest_result: "failed", page_size: 200 });
+        batchBugCases.value = (res as any).items || [];
+    } finally {
+        batchBugLoading.value = false;
+    }
+};
+
+const handleConfirmBatchBug = async () => {
+    if (!batchBugCases.value.length) return;
+    batchBugSubmitting.value = true;
+    let successCount = 0;
+    let failCount = 0;
+    try {
+        for (const c of batchBugCases.value) {
+            try {
+                const assigneeId = c.maintainer_name ? getMemberIdByName(c.maintainer_name) : undefined;
+                const createdBug: any = await createVortflowBug({
+                    project_id: plan.value?.project_id || undefined,
+                    title: `[测试失败] ${c.title}`,
+                    description: `测试计划「${plan.value?.title}」中用例「${c.title}」执行失败，自动创建缺陷。`,
+                    severity: c.priority <= 1 ? 2 : 3,
+                    assignee_id: assigneeId || undefined,
+                });
+                const bugId = createdBug?.id;
+                if (bugId && c.test_case_id) {
+                    try {
+                        await createVortflowTestCaseLink({
+                            test_case_id: c.test_case_id,
+                            entity_type: "bug",
+                            entity_id: String(bugId),
+                        });
+                    } catch { /* link failed silently */ }
+                }
+                successCount++;
+            } catch {
+                failCount++;
+            }
+        }
+        if (failCount > 0) {
+            message.warning(`成功创建 ${successCount} 个缺陷，${failCount} 个失败`);
+        } else {
+            message.success(`成功创建 ${successCount} 个缺陷并关联测试用例`);
+        }
+        batchBugDialogOpen.value = false;
+        batchBugCases.value = [];
+    } finally {
+        batchBugSubmitting.value = false;
+    }
 };
 
 // ============ Code Reviews ============
@@ -1109,6 +1222,9 @@ watch(planId, async () => {
                                     </div>
                                 </template>
                             </Dropdown>
+                            <vort-button v-if="failedCaseCount > 0" size="small" danger @click="handleOpenBatchBug">
+                                <Bug :size="14" class="mr-1" /> 一键提 Bug ({{ failedCaseCount }})
+                            </vort-button>
                             <vort-button variant="primary" size="small" @click="addCasesDialogOpen = true">
                                 <Plus :size="14" class="mr-1" /> 添加用例
                             </vort-button>
@@ -1204,21 +1320,33 @@ watch(planId, async () => {
                             </template>
                         </vort-table-column>
 
-                        <vort-table-column label="最新执行结果" :width="120">
+                        <vort-table-column label="最新执行结果" :min-width="180">
                             <template #default="{ row }">
                                 <template v-if="latestResultDisplay(row)">
-                                    <div class="flex items-center gap-1">
+                                    <a
+                                        class="exec-cell-trigger group"
+                                        @click="handleOpenExecDrawer(row)"
+                                    >
                                         <component
                                             :is="latestResultDisplay(row)!.icon"
                                             :size="14"
                                             :class="latestResultDisplay(row)!.color"
+                                            class="shrink-0"
                                         />
-                                        <span class="text-sm" :class="latestResultDisplay(row)!.color">
+                                        <span class="text-sm shrink-0" :class="latestResultDisplay(row)!.color">
                                             {{ latestResultDisplay(row)!.label }}
                                         </span>
-                                    </div>
+                                        <span v-if="row.latest_executed_at" class="exec-cell-time">
+                                            {{ formatLatestExecTime(row.latest_executed_at) }}
+                                        </span>
+                                        <vort-tooltip v-if="row.latest_notes" :title="row.latest_notes">
+                                            <FileText :size="12" class="exec-cell-notes-icon shrink-0" />
+                                        </vort-tooltip>
+                                    </a>
                                 </template>
-                                <span v-else class="text-sm text-gray-400">未执行</span>
+                                <a v-else class="text-sm text-gray-400 hover:text-blue-600 cursor-pointer" @click="handleOpenExecDrawer(row)">
+                                    未执行
+                                </a>
                             </template>
                         </vort-table-column>
 
@@ -1236,6 +1364,11 @@ watch(planId, async () => {
                                         >
                                             <component :is="opt.icon" :size="14" :class="opt.color" />
                                             <span>{{ opt.label }}</span>
+                                        </DropdownMenuItem>
+                                        <div class="exec-dropdown-divider" />
+                                        <DropdownMenuItem @click="handleOpenExecDrawerWithNotes(row)">
+                                            <FileText :size="14" class="text-gray-500" />
+                                            <span>带备注新增…</span>
                                         </DropdownMenuItem>
                                     </template>
                                 </Dropdown>
@@ -1659,7 +1792,71 @@ watch(planId, async () => {
         </vort-drawer>
 
         <!-- Case Detail Drawer -->
-        <TestCaseDetailDrawer v-model:open="caseDetailDrawerOpen" :case-id="caseDetailId" />
+        <TestCaseDetailDrawer
+            v-model:open="caseDetailDrawerOpen"
+            :case-id="caseDetailId"
+            :plan-id="planId"
+            :plan-case-id="caseDetailPlanCaseId"
+            @edit="handleEditCase"
+        />
+
+        <!-- Case Edit Drawer -->
+        <TestCaseEditDrawer
+            v-model:open="caseEditDrawerOpen"
+            mode="edit"
+            :case-id="caseEditId"
+            :project-id="plan.project_id || ''"
+            @saved="handleCaseEditSaved"
+        />
+
+        <!-- Execution Result Drawer -->
+        <TestPlanExecutionDrawer
+            v-model:open="execDrawerOpen"
+            :plan-id="planId"
+            :plan-case-id="execDrawerTarget?.plan_case_id || ''"
+            :case-title="execDrawerTarget?.title || ''"
+            :module-path="execDrawerTarget?.module_path || execDrawerTarget?.module_name || ''"
+            :default-result="execDrawerDefaultResult"
+            @saved="handleExecSaved"
+        />
+
+        <!-- Batch File Bug Dialog -->
+        <Dialog
+            :open="batchBugDialogOpen"
+            title="一键提 Bug"
+            :width="560"
+            :confirm-loading="batchBugSubmitting"
+            ok-text="确认创建"
+            @ok="handleConfirmBatchBug"
+            @update:open="batchBugDialogOpen = $event"
+        >
+            <vort-spin :spinning="batchBugLoading">
+                <div class="space-y-3">
+                    <div class="text-sm text-gray-600">
+                        将为以下 <span class="font-semibold text-red-500">{{ batchBugCases.length }}</span> 个失败用例创建缺陷：
+                    </div>
+                    <div class="max-h-[360px] overflow-y-auto space-y-2">
+                        <div
+                            v-for="c in batchBugCases"
+                            :key="c.plan_case_id"
+                            class="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg text-sm"
+                        >
+                            <XCircle :size="14" class="text-red-500 shrink-0" />
+                            <span class="text-gray-700 truncate flex-1">{{ c.title }}</span>
+                            <vort-tag v-if="c.priority !== undefined" :color="priorityColors[c.priority]" size="small" class="shrink-0">
+                                {{ priorityLabels[c.priority] || `P${c.priority}` }}
+                            </vort-tag>
+                        </div>
+                    </div>
+                    <div v-if="!batchBugLoading && batchBugCases.length === 0" class="text-center py-6 text-sm text-gray-400">
+                        没有找到失败的用例
+                    </div>
+                    <div v-if="batchBugCases.length > 0" class="text-xs text-gray-400 pt-1">
+                        缺陷标题将以「[测试失败]」为前缀，自动关联对应测试用例
+                    </div>
+                </div>
+            </vort-spin>
+        </Dialog>
 
         <!-- File Bug Drawer -->
         <vort-drawer
@@ -1718,5 +1915,41 @@ watch(planId, async () => {
 .exec-badge-skipped {
     color: #2563eb;
     background: #eff6ff;
+}
+
+.exec-cell-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 6px;
+    margin: -2px -6px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s;
+    max-width: 100%;
+}
+
+.exec-cell-trigger:hover {
+    background: #f3f4f6;
+}
+
+.exec-cell-time {
+    font-size: 12px;
+    color: #9ca3af;
+}
+
+.exec-cell-notes-icon {
+    color: #9ca3af;
+    transition: color 0.15s;
+}
+
+.exec-cell-trigger:hover .exec-cell-notes-icon {
+    color: #3b82f6;
+}
+
+.exec-dropdown-divider {
+    height: 1px;
+    margin: 4px 0;
+    background: #f0f0f0;
 }
 </style>

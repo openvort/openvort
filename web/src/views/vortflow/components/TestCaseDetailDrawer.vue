@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
-import { Pencil } from "lucide-vue-next";
-import { getVortflowTestCase, getVortflowComments, getVortflowActivity } from "@/api";
+import { Pencil, CheckCircle, XCircle, AlertCircle, SkipForward, Bug } from "lucide-vue-next";
+import { getVortflowTestCase, getVortflowComments, getVortflowActivity, getVortflowTestPlanExecutions } from "@/api";
+import MarkdownView from "@/components/vort-biz/editor/MarkdownView.vue";
+import { useWorkItemCommon } from "../work-item/useWorkItemCommon";
 
 interface Props {
     open: boolean;
     caseId: string;
+    planId?: string;
+    planCaseId?: string;
 }
 
 const props = defineProps<Props>();
@@ -44,6 +48,17 @@ const activeTab = ref("detail");
 
 const comments = ref<any[]>([]);
 const activities = ref<any[]>([]);
+const executions = ref<any[]>([]);
+const executionsLoading = ref(false);
+
+const { getAvatarBg, getAvatarLabel, getMemberAvatarUrl, loadMemberOptions } = useWorkItemCommon();
+
+const RESULT_CONFIG: Record<string, { icon: any; color: string; label: string }> = {
+    passed: { icon: CheckCircle, color: "text-green-500", label: "通过" },
+    blocked: { icon: AlertCircle, color: "text-orange-400", label: "受阻" },
+    failed: { icon: XCircle, color: "text-red-500", label: "失败" },
+    skipped: { icon: SkipForward, color: "text-blue-400", label: "跳过" },
+};
 
 const loadDetail = async () => {
     if (!props.caseId) return;
@@ -80,6 +95,16 @@ const loadActivities = async () => {
     } catch { activities.value = []; }
 };
 
+const loadExecutions = async () => {
+    if (!props.planId || !props.planCaseId) return;
+    executionsLoading.value = true;
+    try {
+        const res = await getVortflowTestPlanExecutions(props.planId, props.planCaseId) as any;
+        executions.value = res?.items || [];
+    } catch { executions.value = []; }
+    finally { executionsLoading.value = false; }
+};
+
 const handleClose = () => { emit("update:open", false); };
 const handleEdit = () => { if (detail.value) emit("edit", detail.value.id); };
 
@@ -87,6 +112,7 @@ watch(() => props.open, (val) => {
     if (val && props.caseId) {
         activeTab.value = "detail";
         loadDetail();
+        loadMemberOptions();
     }
 });
 </script>
@@ -111,6 +137,10 @@ watch(() => props.open, (val) => {
                     <!-- Tabs -->
                     <div class="tc-detail-tabs">
                         <button :class="{ active: activeTab === 'detail' }" @click="activeTab = 'detail'">用例详情</button>
+                        <button v-if="planId && planCaseId" :class="{ active: activeTab === 'executions' }" @click="activeTab = 'executions'; loadExecutions()">
+                            执行历史
+                            <span v-if="executions.length" class="text-blue-500 ml-0.5">{{ executions.length }}</span>
+                        </button>
                         <button :class="{ active: activeTab === 'comments' }" @click="activeTab = 'comments'; loadComments()">评论</button>
                         <button :class="{ active: activeTab === 'activity' }" @click="activeTab = 'activity'; loadActivities()">操作日志</button>
                     </div>
@@ -155,6 +185,55 @@ watch(() => props.open, (val) => {
                             <span class="tc-comment-time">{{ c.created_at?.slice(0, 16) }}</span>
                             <p class="tc-comment-content">{{ c.content }}</p>
                         </div>
+                    </div>
+
+                    <!-- Executions Tab -->
+                    <div v-else-if="activeTab === 'executions'" class="tc-detail-section">
+                        <vort-spin :spinning="executionsLoading">
+                            <p v-if="!executionsLoading && executions.length === 0" class="tc-detail-empty">暂无执行记录</p>
+                            <div v-else class="space-y-3">
+                                <div v-for="ex in executions" :key="ex.id" class="tc-exec-item">
+                                    <div class="tc-exec-header">
+                                        <div class="flex items-center gap-1.5 min-w-0">
+                                            <component
+                                                v-if="RESULT_CONFIG[ex.result]"
+                                                :is="RESULT_CONFIG[ex.result].icon"
+                                                :size="14"
+                                                :class="RESULT_CONFIG[ex.result].color"
+                                            />
+                                            <span class="text-sm font-medium" :class="RESULT_CONFIG[ex.result]?.color || 'text-gray-500'">
+                                                {{ RESULT_CONFIG[ex.result]?.label || ex.result }}
+                                            </span>
+                                            <template v-if="ex.executor_name">
+                                                <span class="tc-exec-dot">·</span>
+                                                <span
+                                                    class="tc-exec-avatar"
+                                                    :style="{ backgroundColor: getAvatarBg(ex.executor_name) }"
+                                                >
+                                                    <img
+                                                        v-if="getMemberAvatarUrl(ex.executor_name)"
+                                                        :src="getMemberAvatarUrl(ex.executor_name)"
+                                                        class="w-full h-full object-cover"
+                                                    >
+                                                    <template v-else>{{ getAvatarLabel(ex.executor_name) }}</template>
+                                                </span>
+                                                <span class="text-xs text-gray-500">{{ ex.executor_name }}</span>
+                                            </template>
+                                        </div>
+                                        <div class="flex items-center gap-3 text-xs text-gray-400 shrink-0">
+                                            <span v-if="ex.bug_id" class="inline-flex items-center gap-1 text-orange-500">
+                                                <Bug :size="12" /> 已关联缺陷
+                                            </span>
+                                            <span>{{ ex.created_at?.replace('T', ' ')?.slice(0, 19) }}</span>
+                                        </div>
+                                    </div>
+                                    <div v-if="ex.notes" class="tc-exec-notes">
+                                        <MarkdownView :content="ex.notes" />
+                                    </div>
+                                    <div v-else class="tc-exec-notes-empty">无备注</div>
+                                </div>
+                            </div>
+                        </vort-spin>
                     </div>
 
                     <!-- Activity Tab -->
@@ -414,6 +493,79 @@ watch(() => props.open, (val) => {
     font-size: 13px;
     color: var(--vort-text);
     margin-top: 4px;
+}
+
+/* Executions */
+.tc-exec-item {
+    border: 1px solid var(--vort-border-secondary, #f0f0f0);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.tc-exec-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: var(--vort-bg-secondary, #fafafa);
+}
+
+.tc-exec-notes {
+    padding: 12px 14px;
+    font-size: 13px;
+    color: var(--vort-text);
+    line-height: 1.6;
+}
+
+.tc-exec-notes :deep(img) {
+    max-width: 100%;
+    border-radius: 4px;
+    border: 1px solid var(--vort-border-secondary, #f0f0f0);
+}
+
+.tc-exec-notes :deep(pre) {
+    background: var(--vort-bg-secondary, #f8fafc);
+    padding: 12px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 12px;
+}
+
+.tc-exec-notes :deep(code) {
+    background: var(--vort-bg-secondary, #f3f4f6);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 12px;
+}
+
+.tc-exec-notes :deep(pre code) {
+    background: transparent;
+    padding: 0;
+}
+
+.tc-exec-notes-empty {
+    padding: 10px 14px;
+    font-size: 12px;
+    color: var(--vort-text-tertiary);
+    font-style: italic;
+}
+
+.tc-exec-dot {
+    color: var(--vort-text-tertiary);
+    font-size: 12px;
+}
+
+.tc-exec-avatar {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    color: #fff;
+    font-size: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    flex-shrink: 0;
 }
 
 /* Activity */

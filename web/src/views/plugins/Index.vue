@@ -480,7 +480,7 @@ onMounted(loadPlugins);
         <!-- Config drawer -->
         <VortDrawer :open="drawerOpen" title="插件配置" :width="480" @update:open="drawerOpen = $event">
             <VortSpin :spinning="drawerLoading">
-                <VortForm v-if="configSchema.length" label-width="100px">
+                <VortForm v-if="configSchema.length" label-width="140px">
                     <VortFormItem
                         v-for="field in configSchema"
                         :key="field.key"
@@ -499,6 +499,11 @@ onMounted(loadPlugins);
                         >
                             <VortSelectOption v-for="opt in field.options" :key="opt.value" :value="opt.value">{{ opt.label }}</VortSelectOption>
                         </VortSelect>
+                        <VortSwitch
+                            v-else-if="field.type === 'boolean'"
+                            :checked="configForm[field.key] === true || configForm[field.key] === 'true'"
+                            @update:checked="configForm[field.key] = $event"
+                        />
                         <VortInput
                             v-else
                             v-model="configForm[field.key]"
@@ -613,12 +618,13 @@ onMounted(loadPlugins);
 
                         <!-- Config tab -->
                         <div v-if="detailTab === 'config' && detailData.config_schema?.length">
-                            <vort-form label-width="100px">
+                            <vort-form label-width="140px">
                                 <vort-form-item v-for="field in configSchema" :key="field.key" :label="field.label" :required="field.required">
                                     <vort-input-password v-if="field.secret" v-model="configForm[field.key]" :placeholder="field.placeholder" />
                                     <vort-select v-else-if="field.type === 'select' && field.options" v-model="configForm[field.key]" :placeholder="field.placeholder">
                                         <vort-select-option v-for="opt in field.options" :key="opt.value" :value="opt.value">{{ opt.label }}</vort-select-option>
                                     </vort-select>
+                                    <VortSwitch v-else-if="field.type === 'boolean'" :checked="configForm[field.key] === true || configForm[field.key] === 'true'" @update:checked="configForm[field.key] = $event" />
                                     <vort-input v-else v-model="configForm[field.key]" :placeholder="field.placeholder" />
                                 </vort-form-item>
                             </vort-form>

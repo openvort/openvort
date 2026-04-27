@@ -80,7 +80,7 @@ const repoTypeLabels: Record<string, string> = {
 
 const stateColorMap: Record<string, string> = {
     submitted: "default", intake: "default", review: "processing", rejected: "red", pm_refine: "orange",
-    design: "cyan", breakdown: "purple", dev_assign: "geekblue", in_progress: "blue",
+    design: "cyan", design_done: "cyan", breakdown: "purple", dev_assign: "geekblue", in_progress: "blue",
     testing: "orange", bugfix: "volcano", done: "green",
     todo: "default", closed: "default",
     open: "red", confirmed: "orange", fixing: "processing",
@@ -88,7 +88,7 @@ const stateColorMap: Record<string, string> = {
 };
 const stateLabels: Record<string, string> = {
     submitted: "收集中", intake: "意向", review: "评审", rejected: "已驳回", pm_refine: "产品完善",
-    design: "UI 设计", breakdown: "拆分估时", dev_assign: "分配开发",
+    design: "UI 设计", design_done: "设计完成", breakdown: "拆分估时", dev_assign: "分配开发",
     in_progress: "进行中", testing: "测试中", bugfix: "Bug 修复", done: "已完成",
     todo: "待办", closed: "已关闭",
     open: "打开", confirmed: "已确认", fixing: "修复中",

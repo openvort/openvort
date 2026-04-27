@@ -40,6 +40,8 @@ const SYSTEM_FIELDS: { key: string; title: string }[] = [
     { key: "version", title: "版本" },
     { key: "startAt", title: "实际开始时间" },
     { key: "endAt", title: "实际结束时间" },
+    { key: "testTime", title: "提测时间" },
+    { key: "releaseTime", title: "发布时间" },
     { key: "estimateHours", title: "预估工时" },
     { key: "loggedHours", title: "登记工时" },
     { key: "remainHours", title: "剩余工时" },

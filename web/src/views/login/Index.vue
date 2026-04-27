@@ -1,23 +1,47 @@
 <script setup lang="ts">
-import { ref, reactive } from "vue";
+import { ref, reactive, onMounted } from "vue";
 import { z } from "zod";
 import { useRouter } from "vue-router";
 import { useUserStore } from "@/stores";
 import openvortLogo from "@/assets/brand/openvort-logo.png";
 import { User, Lock } from "lucide-vue-next";
 import { message } from "@openvort/vort-ui";
-import { login } from "@/api";
+import { login, getSiteInfo } from "@/api";
 
 const router = useRouter();
 const userStore = useUserStore();
 
-const isDemo = import.meta.env.VITE_IS_DEMO === "1";
+// Demo flag comes from backend at runtime (OPENVORT_IS_DEMO in .env), with
+// build-time VITE_IS_DEMO kept as a fallback for local development.
+const isDemo = ref(import.meta.env.VITE_IS_DEMO === "1");
 
 const loading = ref(false);
 const formRef = ref();
 const formData = reactive({
-    userId: isDemo ? "demo" : "",
-    password: isDemo ? "openvort" : "",
+    userId: "",
+    password: "",
+});
+const rememberMe = ref(false);
+
+const fillDemoCredentials = () => {
+    formData.userId = "demo";
+    formData.password = "openvort";
+};
+
+if (isDemo.value) {
+    fillDemoCredentials();
+}
+
+onMounted(async () => {
+    try {
+        const info = await getSiteInfo();
+        if (info?.is_demo) {
+            isDemo.value = true;
+            fillDemoCredentials();
+        }
+    } catch {
+        // Older backends may not expose /auth/site-info; silently fall back to env flag.
+    }
 });
 
 const loginValidationSchema = z.object({
@@ -29,7 +53,7 @@ const handleLogin = async () => {
     try { await formRef.value?.validate(); } catch { return; }
     loading.value = true;
     try {
-        const res: any = await login(formData.userId, formData.password);
+        const res: any = await login(formData.userId, formData.password, rememberMe.value);
         userStore.setToken(res.token);
         userStore.setUserInfo({
             member_id: res.user.member_id,
@@ -100,6 +124,9 @@ const handleLogin = async () => {
                         </template>
                     </VortInputPassword>
                 </VortFormItem>
+                <div class="flex items-center mb-2 -mt-4">
+                    <VortCheckbox v-model:checked="rememberMe">保持登录</VortCheckbox>
+                </div>
                 <VortFormItem class="login-form-item !mb-0 !mt-4">
                     <VortButton type="primary" block size="large" :loading="loading" class="!text-base font-medium" @click="handleLogin">
                         登录

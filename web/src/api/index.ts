@@ -15,3 +15,4 @@ export * from "./ai-employees";
 export * from "./uploads";
 export * from "./channel-bots";
 export * from "./vortsketch";
+export * from "./vortcert";

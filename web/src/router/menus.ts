@@ -5,6 +5,7 @@ import reportsConfig from "@/views/reports/plugin";
 import knowledgeConfig from "@/views/knowledge/plugin";
 import schedulesConfig from "@/views/schedules/plugin";
 import vortsketchConfig from "@/views/vortsketch/plugin";
+import vortcertConfig from "@/views/vortcert/plugin";
 
 /** 侧边栏菜单配置 */
 export interface MenuConfig {
@@ -28,6 +29,7 @@ export const menuConfig: MenuConfig[] = [
     ...vortgitConfig.menus,
     ...jenkinsConfig.menus,
     ...vortsketchConfig.menus,
+    ...vortcertConfig.menus,
     { title: "组织管理", icon: "users", path: "/contacts", label: "团队效率", requiredRole: "admin" },
     ...reportsConfig.menus,
     ...schedulesConfig.menus,

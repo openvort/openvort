@@ -225,24 +225,62 @@ export function useWorkItemFieldEditors(options: UseWorkItemFieldEditorsOptions)
         }
     };
 
-    // --- Date fields (startAt / endAt) ---
-    const startAtPickerOpenMap = reactive<Record<string, boolean>>({});
-    const endAtPickerOpenMap = reactive<Record<string, boolean>>({});
+    // --- Date fields (startAt / endAt / testTime / releaseTime) ---
+    const openDateFieldFor = ref<string | null>(null);
+    const dateFieldPickerOpen = ref(false);
 
-    const selectRowDateField = async (record: RowItem, field: "startAt" | "endAt", value?: string) => {
+    const dateFieldApiKeyMap: Record<string, string> = {
+        startAt: "start_at",
+        endAt: "end_at",
+        testTime: "test_time",
+        draftTime: "draft_time",
+        releaseTime: "release_time",
+    };
+
+    const dateFieldLabelMap: Record<string, string> = {
+        startAt: "实际开始时间",
+        endAt: "实际结束时间",
+        testTime: "提测时间",
+        draftTime: "出稿时间",
+        releaseTime: "发布时间",
+    };
+
+    const toggleDateFieldPicker = (record: RowItem, field: string) => {
+        const key = getInteractiveCellKey(record);
+        const cellId = `${key}:${field}`;
+        const willOpen = openDateFieldFor.value !== cellId;
+        if (willOpen) {
+            dateFieldPickerOpen.value = false;
+            openDateFieldFor.value = cellId;
+            nextTick(() => {
+                dateFieldPickerOpen.value = true;
+            });
+        } else {
+            dateFieldPickerOpen.value = false;
+            openDateFieldFor.value = null;
+        }
+    };
+
+    const onDateFieldPickerOpenChange = (_record: RowItem, _field: string, open: boolean) => {
+        if (!open && openDateFieldFor.value) {
+            dateFieldPickerOpen.value = false;
+            openDateFieldFor.value = null;
+        }
+    };
+
+    const selectRowDateField = async (record: RowItem, field: "startAt" | "endAt" | "testTime" | "draftTime" | "releaseTime", value?: string) => {
         const prev = record[field] || "";
         const next = normalizeDateValue(value || "");
         record[field] = next;
-        const cellKey = getInteractiveCellKey(record);
-        if (field === "startAt") startAtPickerOpenMap[cellKey] = false;
-        else endAtPickerOpenMap[cellKey] = false;
+        dateFieldPickerOpen.value = false;
+        openDateFieldFor.value = null;
         try {
             await syncRecordUpdateToApi(record, {
-                [field === "startAt" ? "start_at" : "end_at"]: next || "",
+                [dateFieldApiKeyMap[field]]: next || "",
             });
         } catch (error: any) {
             record[field] = prev;
-            message.error(error?.message || `${field === "startAt" ? "实际开始时间" : "实际结束时间"}同步失败`);
+            message.error(error?.message || `${dateFieldLabelMap[field]}同步失败`);
         }
     };
 
@@ -268,8 +306,10 @@ export function useWorkItemFieldEditors(options: UseWorkItemFieldEditorsOptions)
         branchPickerOpenMap,
         openBranchPicker,
         selectRowBranch,
-        startAtPickerOpenMap,
-        endAtPickerOpenMap,
+        openDateFieldFor,
+        dateFieldPickerOpen,
+        toggleDateFieldPicker,
+        onDateFieldPickerOpenChange,
         selectRowDateField,
     };
 }

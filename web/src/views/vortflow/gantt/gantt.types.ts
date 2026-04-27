@@ -37,10 +37,11 @@ export interface GanttTimelineConfig {
 }
 
 export interface GanttDragState {
-    type: "move" | "resize-left" | "resize-right" | "progress";
+    type: "move" | "resize-left" | "resize-right" | "progress" | "icon-test" | "icon-draft" | "icon-release";
     rowId: string;
     startX: number;
     initialStartDate: Date;
     initialEndDate: Date;
     initialProgress: number;
+    initialIconDate?: Date;
 }

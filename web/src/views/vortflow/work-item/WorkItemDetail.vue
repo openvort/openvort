@@ -311,7 +311,7 @@ const LONG_TEXT_FIELDS = new Set(["description"]);
 
 const STATE_LABEL_MAP: Record<string, string> = {
     submitted: "收集中", intake: "意向", review: "评审", rejected: "已取消",
-    pm_refine: "需求细化", design: "设计中", breakdown: "任务拆解",
+    pm_refine: "需求细化", design: "设计中", design_done: "设计完成", breakdown: "任务拆解",
     dev_assign: "待分配", in_progress: "进行中", testing: "测试中",
     bugfix: "修复缺陷", done: "已完成",
     todo: "待办的", closed: "已关闭",
@@ -934,6 +934,39 @@ const detailActualTimeModel = computed<any>({
     },
 });
 
+const detailTestTime = computed({
+    get: () => record.value?.testTime || undefined,
+    set: (val: string | undefined) => {
+        if (!record.value) return;
+        const v = val ? normalizeDateValue(val) : "";
+        record.value.testTime = v;
+        emit("update", { testTime: v });
+        appendDetailLog(`修改提测时间为"${v || "未设置"}"`);
+    },
+});
+
+const detailDraftTime = computed({
+    get: () => record.value?.draftTime || undefined,
+    set: (val: string | undefined) => {
+        if (!record.value) return;
+        const v = val ? normalizeDateValue(val) : "";
+        record.value.draftTime = v;
+        emit("update", { draftTime: v });
+        appendDetailLog(`修改出稿时间为"${v || "未设置"}"`);
+    },
+});
+
+const detailReleaseTime = computed({
+    get: () => record.value?.releaseTime || undefined,
+    set: (val: string | undefined) => {
+        if (!record.value) return;
+        const v = val ? normalizeDateValue(val) : "";
+        record.value.releaseTime = v;
+        emit("update", { releaseTime: v });
+        appendDetailLog(`修改发布时间为"${v || "未设置"}"`);
+    },
+});
+
 const detailType = computed({
     get: () => record.value?.type || "缺陷",
     set: (val: string) => {
@@ -974,6 +1007,9 @@ const loadProjectLinkedOptions = async (projectId?: string) => {
 type EditableField =
     | "title"
     | "planTime"
+    | "testTime"
+    | "draftTime"
+    | "releaseTime"
     | "iteration"
     | "type"
     | "project"
@@ -1278,6 +1314,63 @@ watch(() => props.initialData, (value) => {
                                     separator="~"
                                     allow-clear
                                     :placeholder="['未设置', '未设置']"
+                                    class="detail-field-picker"
+                                    @change="stopEditing"
+                                    @open-change="(v: boolean) => { if (!v) stopEditing() }"
+                                />
+                            </div>
+                        </div>
+                        <div v-if="record?.type === '需求'" class="bug-detail-info-item bug-detail-info-item-row">
+                            <label>提测时间</label>
+                            <div
+                                class="detail-field-shell"
+                                :class="{ 'is-editing': isEditing('testTime') }"
+                                @mousedown.capture="startEditing('testTime')"
+                            >
+                                <vort-date-picker
+                                    v-model="detailTestTime"
+                                    value-format="YYYY-MM-DD"
+                                    format="YYYY-MM-DD"
+                                    allow-clear
+                                    placeholder="未设置"
+                                    class="detail-field-picker"
+                                    @change="stopEditing"
+                                    @open-change="(v: boolean) => { if (!v) stopEditing() }"
+                                />
+                            </div>
+                        </div>
+                        <div v-if="record?.type === '需求'" class="bug-detail-info-item bug-detail-info-item-row">
+                            <label>出稿时间</label>
+                            <div
+                                class="detail-field-shell"
+                                :class="{ 'is-editing': isEditing('draftTime') }"
+                                @mousedown.capture="startEditing('draftTime')"
+                            >
+                                <vort-date-picker
+                                    v-model="detailDraftTime"
+                                    value-format="YYYY-MM-DD"
+                                    format="YYYY-MM-DD"
+                                    allow-clear
+                                    placeholder="未设置"
+                                    class="detail-field-picker"
+                                    @change="stopEditing"
+                                    @open-change="(v: boolean) => { if (!v) stopEditing() }"
+                                />
+                            </div>
+                        </div>
+                        <div v-if="record?.type === '需求'" class="bug-detail-info-item bug-detail-info-item-row">
+                            <label>发布时间</label>
+                            <div
+                                class="detail-field-shell"
+                                :class="{ 'is-editing': isEditing('releaseTime') }"
+                                @mousedown.capture="startEditing('releaseTime')"
+                            >
+                                <vort-date-picker
+                                    v-model="detailReleaseTime"
+                                    value-format="YYYY-MM-DD"
+                                    format="YYYY-MM-DD"
+                                    allow-clear
+                                    placeholder="未设置"
                                     class="detail-field-picker"
                                     @change="stopEditing"
                                     @open-change="(v: boolean) => { if (!v) stopEditing() }"
@@ -2937,18 +3030,19 @@ watch(() => props.initialData, (value) => {
 .detail-field-shell:not(.is-editing) :deep(.vort-select-arrow-wrapper),
 .detail-field-shell:not(.is-editing) :deep(.vort-select-clear),
 .detail-field-shell:not(.is-editing) :deep(.vort-rangepicker-prefix),
- .detail-field-shell:not(.is-editing) :deep(.vort-rangepicker-suffix),
- .detail-field-shell:not(.is-editing) :deep(.vort-date-picker-prefix),
- .detail-field-shell:not(.is-editing) :deep(.vort-date-picker-suffix),
- .detail-field-shell:not(.is-editing) :deep(.vort-input-number-handler-wrap) {
+.detail-field-shell:not(.is-editing) :deep(.vort-rangepicker-suffix),
+.detail-field-shell:not(.is-editing) :deep(.vort-datepicker-prefix),
+.detail-field-shell:not(.is-editing) :deep(.vort-datepicker-suffix),
+.detail-field-shell:not(.is-editing) :deep(.vort-datepicker-clear),
+.detail-field-shell:not(.is-editing) :deep(.vort-input-number-handler-wrap) {
     display: none !important;
 }
 
 .detail-field-shell:not(.is-editing) :deep(.vort-select-placeholder),
 .detail-field-shell:not(.is-editing) :deep(.vort-rangepicker-placeholder),
- .detail-field-shell:not(.is-editing) :deep(.vort-rangepicker-input-placeholder),
- .detail-field-shell:not(.is-editing) :deep(.vort-date-picker-input::placeholder),
- .detail-field-shell:not(.is-editing) :deep(.vort-input-number-input::placeholder) {
+.detail-field-shell:not(.is-editing) :deep(.vort-rangepicker-input-placeholder),
+.detail-field-shell:not(.is-editing) :deep(.vort-datepicker-placeholder),
+.detail-field-shell:not(.is-editing) :deep(.vort-input-number-input::placeholder) {
     color: var(--vort-text-tertiary) !important;
 }
 
@@ -2975,15 +3069,19 @@ watch(() => props.initialData, (value) => {
     font-size: 14px;
 }
 
-.detail-field-shell :deep(.vort-date-picker) {
+.detail-field-shell :deep(.vort-datepicker-selector) {
     width: auto;
 }
 
-.detail-field-shell:not(.is-editing) :deep(.vort-date-picker) {
+.detail-field-shell:not(.is-editing) :deep(.vort-datepicker-selector) {
     border-color: transparent !important;
     background: transparent !important;
     box-shadow: none !important;
     padding: 4px 8px !important;
+}
+
+.detail-field-picker :deep(.vort-datepicker-value) {
+    font-size: 14px;
 }
 
 .detail-field-shell :deep(.vort-input-number) {

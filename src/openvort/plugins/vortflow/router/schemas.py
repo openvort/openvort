@@ -39,6 +39,9 @@ class StoryCreate(BaseModel):
     attachments: list[dict] = []
     plan_start: str | None = None
     deadline: str | None = None
+    test_time: str | None = None
+    draft_time: str | None = None
+    release_time: str | None = None
 
 class StoryUpdate(BaseModel):
     title: str | None = None
@@ -52,6 +55,9 @@ class StoryUpdate(BaseModel):
     attachments: list[dict] | None = None
     plan_start: str | None = None
     deadline: str | None = None
+    test_time: str | None = None
+    draft_time: str | None = None
+    release_time: str | None = None
     pm_id: str | None = None
     project_id: str | None = None
     start_at: str | None = None

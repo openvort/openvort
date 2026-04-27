@@ -1,6 +1,8 @@
 import { ref } from "vue";
 
 const pendingPrompt = ref("");
+const _savedCorner = typeof window !== "undefined" ? localStorage.getItem("ai-float-corner") : null;
+const docked = ref(_savedCorner === "tr");
 
 export function useAiFloat() {
     function openWithPrompt(prompt: string) {
@@ -13,5 +15,5 @@ export function useAiFloat() {
         return p;
     }
 
-    return { pendingPrompt, openWithPrompt, consumePrompt };
+    return { pendingPrompt, docked, openWithPrompt, consumePrompt };
 }

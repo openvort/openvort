@@ -74,13 +74,13 @@ defineProps<{
     box-sizing: border-box;
 }
 
+.gantt-header-tick.is-weekend {
+    background: #f9fafb;
+}
 .gantt-header-tick.is-today {
     background: var(--vort-primary, #1456f0);
     color: #fff;
     font-weight: 600;
 }
 
-.gantt-header-tick.is-weekend {
-    background: #f9fafb;
-}
 </style>

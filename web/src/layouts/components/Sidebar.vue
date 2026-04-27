@@ -10,7 +10,8 @@ import {
     MessageSquare, Puzzle, Radio, Users, Clock, BookOpen, Webhook, GitBranch, Cpu,
     Kanban, LayoutDashboard, ListChecks, CheckSquare, Bug,
     Wrench, FolderGit2, Server, Shield, Sparkles, Library, Bot, Store, Bell,
-    BookMarked, ExternalLink, HardDrive, ClipboardCheck, Blocks, PencilRuler
+    BookMarked, ExternalLink, HardDrive, ClipboardCheck, Blocks, PencilRuler,
+    ShieldCheck, Globe, Rocket
 } from "lucide-vue-next";
 
 const props = defineProps<{ isMobile?: boolean }>();
@@ -89,6 +90,7 @@ const iconMap: Record<string, any> = {
     sparkles: Sparkles, library: Library, bot: Bot, store: Store, bell: Bell,
     "book-marked": BookMarked, "external-link": ExternalLink, "hard-drive": HardDrive,
     "clipboard-check": ClipboardCheck, blocks: Blocks, "pencil-ruler": PencilRuler,
+    "shield-check": ShieldCheck, globe: Globe, rocket: Rocket,
 };
 
 const filterByRole = (items: MenuConfig[]) => {

@@ -425,7 +425,7 @@ async def list_plan_cases(
 
         # Latest execution per plan_case
         exec_map: dict[str, list[dict]] = {}
-        latest_exec_map: dict[str, str] = {}
+        latest_exec_map: dict[str, dict] = {}
         if plan_case_ids:
             latest_sq = (
                 select(
@@ -442,7 +442,11 @@ async def list_plan_cases(
                       & (FlowTestPlanExecution.created_at == latest_sq.c.max_ts))
             )).scalars().all()
             for ex in latest_execs:
-                latest_exec_map[ex.plan_case_id] = ex.result
+                latest_exec_map[ex.plan_case_id] = {
+                    "result": ex.result,
+                    "notes": ex.notes or "",
+                    "executed_at": ex.created_at.isoformat() if ex.created_at else None,
+                }
 
             # All executions grouped by plan_case_id (for distribution)
             all_execs = (await session.execute(
@@ -463,7 +467,8 @@ async def list_plan_cases(
         # Filter by latest_result after computing
         items = []
         for pc, tc in rows:
-            lr = latest_exec_map.get(pc.id, "")
+            latest_info = latest_exec_map.get(pc.id, {})
+            lr = latest_info.get("result", "") if latest_info else ""
             if latest_result and lr != latest_result:
                 continue
             module = module_map.get(tc.module_id) if tc.module_id else None
@@ -488,6 +493,8 @@ async def list_plan_cases(
                 "maintainer_id": tc.maintainer_id,
                 "maintainer_name": member_map.get(tc.maintainer_id, "") if tc.maintainer_id else "",
                 "latest_result": lr,
+                "latest_notes": latest_info.get("notes", "") if latest_info else "",
+                "latest_executed_at": latest_info.get("executed_at") if latest_info else None,
                 "execution_count": len(execs),
                 "execution_distribution": exec_dist,
             })

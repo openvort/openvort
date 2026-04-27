@@ -1,7 +1,7 @@
 {
   "name": "openvort-web",
   "private": true,
-  "version": "0.12.0",
+  "version": "0.13.0",
   "type": "module",
   "description": "OpenVort Web Management Panel",
   "author": "Yang Qiang",
@@ -22,7 +22,7 @@
   },
   "dependencies": {
     "@babel/runtime": "^7.28.0",
-    "@openvort/vort-ui": "^1.1.1",
+    "@openvort/vort-ui": "^1.3.0",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/vue-virtual": "^3.13.21",
     "@tiptap/extension-image": "^3.20.0",

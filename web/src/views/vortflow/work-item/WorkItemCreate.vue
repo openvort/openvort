@@ -15,6 +15,7 @@ import {
     getVortflowIterations,
     getVortflowVersions,
     getVortflowDescriptionTemplates,
+    getVortflowTags,
     uploadVortflowFile,
 } from "@/api";
 import { useWorkItemCommon } from "./useWorkItemCommon";
@@ -56,6 +57,7 @@ const {
     getMemberAvatarUrl,
     loadMemberOptions,
     ownerGroups,
+    getMemberNameById,
     getWorkItemTypeIconClass,
     getWorkItemTypeIcon,
 } = useWorkItemCommon();
@@ -88,7 +90,7 @@ const createInitialBugForm = (): NewBugForm => ({
     owner: "",
     collaborators: [],
     type: props.type,
-    planTime: [todayStr(), todayStr()],
+    planTime: [],
     project: "VortMall",
     projectId: props.projectId || "",
     iteration: "",
@@ -106,10 +108,25 @@ const createInitialBugForm = (): NewBugForm => ({
     description: getDescriptionTemplate(props.type)
 });
 
+// Iteration prop wins over draft value, so switching sidebar iteration before
+// reopening the create drawer always reflects the current iteration context.
+const resolveInitialIteration = (draftIteration?: string): string => {
+    if (props.iterationId && props.iterationId !== "__unplanned__") {
+        return props.iterationId;
+    }
+    return draftIteration || "";
+};
+
+const mergeDraftIntoForm = (draft: NewBugForm): NewBugForm => ({
+    ...createInitialBugForm(),
+    ...draft,
+    projectId: props.projectId || draft.projectId || "",
+    parentId: props.parentId || draft.parentId || "",
+    iteration: resolveInitialIteration(draft.iteration),
+});
+
 const createBugForm = reactive<NewBugForm>(
-    props.initialDraft
-        ? { ...createInitialBugForm(), ...props.initialDraft, projectId: props.projectId || props.initialDraft.projectId || "", parentId: props.parentId || props.initialDraft.parentId || "" }
-        : createInitialBugForm()
+    props.initialDraft ? mergeDraftIntoForm(props.initialDraft) : createInitialBugForm()
 );
 
 const createBugPriorityDropdownOpen = ref(false);
@@ -161,7 +178,7 @@ const apiProjects = ref<Array<{ id: string; name: string }>>([]);
 const parentStoryOptions = ref<Array<{ id: string; title: string }>>([]);
 const apiRepos = ref<Array<{ id: string; name: string }>>([]);
 const apiBranches = ref<Array<{ name: string }>>([]);
-const apiIterations = ref<Array<{ id: string; name: string }>>([]);
+const apiIterations = ref<Array<{ id: string; name: string; start_date?: string; end_date?: string; owner_id?: string; owner_name?: string }>>([]);
 const apiVersions = ref<Array<{ id: string; name: string }>>([]);
 const branchLoading = ref(false);
 
@@ -265,6 +282,34 @@ const getMemberKeywordScore = (name: string, keyword: string): number => {
     return initialsBestScore;
 };
 
+const SUGGESTED_OWNER_GROUP_LABEL = "迭代负责人";
+
+const currentIterationOwnerName = computed(() => {
+    const iterId = createBugForm.iteration;
+    if (!iterId || iterId === "__unplanned__") return "";
+    const iter = apiIterations.value.find((item) => item.id === iterId);
+    if (!iter) return "";
+    if (iter.owner_name) return iter.owner_name;
+    return getMemberNameById(iter.owner_id || "") || "";
+});
+
+const prioritizedOwnerGroups = computed(() => {
+    const suggested = currentIterationOwnerName.value;
+    if (!suggested) return ownerGroups.value;
+    const baseGroups = ownerGroups.value
+        .map((group) => ({
+            label: group.label,
+            members: group.members.filter((member) => member !== suggested),
+        }))
+        .filter((group) => group.members.length > 0);
+    const hasSuggested = ownerGroups.value.some((group) => group.members.includes(suggested));
+    if (!hasSuggested) return ownerGroups.value;
+    return [
+        { label: SUGGESTED_OWNER_GROUP_LABEL, members: [suggested] },
+        ...baseGroups,
+    ];
+});
+
 const filteredCreateAssigneeGroups = computed(() => {
     const kw = createAssigneeKeyword.value.trim();
     if (!kw) return ownerGroups.value;
@@ -334,19 +379,35 @@ const toggleCreateBugPriorityMenu = () => {
     createBugPriorityDropdownOpen.value = !createBugPriorityDropdownOpen.value;
 };
 
+const tagDefinitions = ref<Array<{ id: string; name: string; color: string }>>([]);
+const tagOptions = computed(() => tagDefinitions.value.map((t) => t.name));
+
+const tagColorFallback = ["#3b82f6", "#8b5cf6", "#ec4899", "#f59e0b", "#10b981", "#06b6d4"];
 const getTagColor = (tag: string): string => {
-    const colors = ["#3b82f6", "#8b5cf6", "#ec4899", "#f59e0b", "#10b981", "#06b6d4"];
+    const def = tagDefinitions.value.find((t) => t.name === tag);
+    if (def?.color) return def.color;
     let hash = 0;
     for (let i = 0; i < tag.length; i++) hash = (hash * 31 + tag.charCodeAt(i)) >>> 0;
-    return colors[hash % colors.length]!;
+    return tagColorFallback[hash % tagColorFallback.length]!;
 };
 
-const tagOptions = ["功能", "Bug", "优化", "文档", "前端", "后端", "移动端", "API", "数据库", "安全"];
+const loadTagDefinitions = async () => {
+    try {
+        const res: any = await getVortflowTags();
+        tagDefinitions.value = ((res?.items || []) as any[]).map((t) => ({
+            id: String(t.id || ""),
+            name: String(t.name || ""),
+            color: String(t.color || ""),
+        })).filter((t) => t.name);
+    } catch {
+        tagDefinitions.value = [];
+    }
+};
 
 const filteredTagOptions = computed(() => {
     const kw = createTagKeyword.value.trim();
-    if (!kw) return tagOptions;
-    return tagOptions.filter((t) => t.includes(kw));
+    if (!kw) return tagOptions.value;
+    return tagOptions.value.filter((t) => t.includes(kw));
 });
 
 const currentCreateType = computed(() => props.type || createBugForm.type);
@@ -494,6 +555,10 @@ const loadIterations = async () => {
         .map((item) => ({
             id: String(item.id || ""),
             name: String(item.name || item.id || ""),
+            start_date: item.start_date || "",
+            end_date: item.end_date || "",
+            owner_id: String(item.owner_id || ""),
+            owner_name: String(item.owner_name || ""),
         }))
         .filter((item) => item.id && item.name);
     if (createBugForm.iteration && !apiIterations.value.some((item) => item.id === createBugForm.iteration)) {
@@ -603,6 +668,20 @@ const resetForm = () => {
     }
 };
 
+const resolvePlanTime = (): NewBugForm["planTime"] => {
+    const pt = createBugForm.planTime;
+    if (pt.length === 2 && pt[0] && pt[1]) return [...pt] as NewBugForm["planTime"];
+    if (createBugForm.iteration && createBugForm.iteration !== "__unplanned__") {
+        const iter = apiIterations.value.find((item) => item.id === createBugForm.iteration);
+        if (iter) {
+            const s = iter.start_date?.split("T")[0] || "";
+            const e = iter.end_date?.split("T")[0] || "";
+            if (s || e) return [s || e, e || s] as NewBugForm["planTime"];
+        }
+    }
+    return [...pt] as NewBugForm["planTime"];
+};
+
 const submitForm = (): NewBugForm | null => {
     const title = createBugForm.title.trim();
     if (!title) {
@@ -612,7 +691,7 @@ const submitForm = (): NewBugForm | null => {
     return {
         ...createBugForm,
         collaborators: [...createBugForm.collaborators],
-        planTime: [...createBugForm.planTime] as NewBugForm["planTime"],
+        planTime: resolvePlanTime(),
         tags: [...createBugForm.tags],
         attachments: [...createBugForm.attachments],
     };
@@ -626,7 +705,7 @@ const handleCancel = () => {
 const getFormData = (): NewBugForm => ({
     ...createBugForm,
     collaborators: [...createBugForm.collaborators],
-    planTime: [...createBugForm.planTime] as NewBugForm["planTime"],
+    planTime: resolvePlanTime(),
     tags: [...createBugForm.tags],
     attachments: [...createBugForm.attachments],
 });
@@ -643,12 +722,7 @@ defineExpose({
 
 watch(() => props.initialDraft, (draft) => {
     if (draft) {
-        Object.assign(createBugForm, {
-            ...createInitialBugForm(),
-            ...draft,
-            projectId: props.projectId || draft.projectId || "",
-            parentId: props.parentId || draft.parentId || "",
-        });
+        Object.assign(createBugForm, mergeDraftIntoForm(draft));
     }
 });
 
@@ -664,6 +738,7 @@ onMounted(async () => {
     } catch { /* use fallback */ }
 
     await loadMemberOptions();
+    await loadTagDefinitions();
     if (props.useApi) {
         await loadApiProjects();
         await loadProjectLinkedOptions();
@@ -720,6 +795,22 @@ watch(() => createBugForm.type, async (value, oldValue) => {
     parentStoryOptions.value = [];
 });
 
+const fillPlanTimeFromIteration = (iterationId: string) => {
+    if (!iterationId || iterationId === "__unplanned__") return;
+    if (createBugForm.planTime.length === 2 && createBugForm.planTime[0] && createBugForm.planTime[1]) return;
+    const iter = apiIterations.value.find((item) => item.id === iterationId);
+    if (!iter) return;
+    const startDate = iter.start_date?.split("T")[0] || "";
+    const endDate = iter.end_date?.split("T")[0] || "";
+    if (startDate || endDate) {
+        createBugForm.planTime = [startDate || endDate, endDate || startDate];
+    }
+};
+
+watch(() => createBugForm.iteration, (iterationId) => {
+    fillPlanTimeFromIteration(iterationId);
+});
+
 watch(() => createBugForm.repo, async (value, oldValue) => {
     if (!props.useApi) return;
     if (value === oldValue) return;
@@ -751,7 +842,7 @@ watch(() => createBugForm.repo, async (value, oldValue) => {
                             mode="assignee"
                             :owner="createBugForm.owner"
                             :collaborators="createBugForm.collaborators"
-                            :groups="ownerGroups"
+                            :groups="prioritizedOwnerGroups"
                             :open="createAssigneeDropdownOpen"
                             v-model:keyword="createAssigneeKeyword"
                             :dropdown-width="280"

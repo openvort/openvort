@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import dayjs from "dayjs";
 import { useRoute, useRouter } from "vue-router";
 import { ProTable, TableCell } from "@/components/vort-biz";
 import { message, Pagination } from "@openvort/vort-ui";
@@ -24,6 +25,8 @@ import NewTagDialog from "./components/NewTagDialog.vue";
 import { GanttTimeline, GanttDivider } from "./gantt";
 import ViewModeToggle from "./gantt/ViewModeToggle.vue";
 import type { GanttZoomLevel } from "./gantt";
+import { useGanttUndo } from "./gantt/useGanttUndo";
+import type { GanttUndoSnapshot } from "./gantt/useGanttUndo";
 import type { ViewMode } from "./gantt/ViewModeToggle.vue";
 import { useVortFlowStore } from "@/stores";
 import { useVortFlowViews, SYSTEM_VIEWS } from "./composables/useVortFlowViews";
@@ -246,7 +249,7 @@ const {
 } = useWorkItemCrud({
     useApi: computed(() => props.useApi), propType: props.type || "",
     getDescriptionTemplate, getMemberIdByName, getBackendStatesByDisplayStatus, formatCnTime,
-    mapBackendItemToRow, prependPinnedRow, findItemRowById,
+    mapBackendItemToRow, prependPinnedRow, pinnedRowsByType, findItemRowById,
     apiProjects, apiIterations, dynamicVersionOptions,
     itemRowsById, itemChildrenMap, expandedItemIds, tableRef, createWorkItemRef,
     saveDraft, loadDraft, clearDraft,
@@ -281,7 +284,7 @@ const {
     projectPickerOpenMap, selectRowProject, iterationPickerOpenMap, selectRowIteration,
     repoPickerOpenMap, openRepoPicker, selectRowRepo,
     branchPickerOpenMap, openBranchPicker, selectRowBranch,
-    startAtPickerOpenMap, endAtPickerOpenMap, selectRowDateField,
+    openDateFieldFor, dateFieldPickerOpen, toggleDateFieldPicker, onDateFieldPickerOpenChange, selectRowDateField,
 } = useWorkItemFieldEditors({
     syncRecordUpdateToApi, getInteractiveCellKey, isCellBackgroundClick, openCellPickerOnBackgroundClick,
     normalizeDateValue, apiProjects, apiIterations, getRepoNameById, loadRepoOptions, loadBranchOptions,
@@ -320,6 +323,7 @@ const ganttTablePaneRef = ref<HTMLElement | null>(null);
 const ganttTimelineRef = ref<InstanceType<typeof GanttTimeline> | null>(null);
 const ganttNeedScrollToToday = ref(false);
 const GANTT_ROW_HEIGHT = 50;
+const { canUndo: ganttCanUndo, canRedo: ganttCanRedo, pushRecord: ganttPushUndo, undo: ganttUndo, redo: ganttRedo, reset: ganttResetUndo } = useGanttUndo();
 
 const ganttRows = computed<RowItem[]>(() => {
     if (!tableRef.value) return [];
@@ -376,7 +380,7 @@ function setupGanttObserver() {
 
 watch(isGanttMode, (v) => {
     if (v) nextTick(() => { setupGanttObserver(); measureGanttPositions(); });
-    else ganttResizeObs?.disconnect();
+    else { ganttResizeObs?.disconnect(); ganttResetUndo(); }
 });
 
 watch(ganttRows, () => {
@@ -413,39 +417,139 @@ function onGanttDividerDragEnd() {
     if (totalW > 0) vortFlowStore.ganttDividerRatio = ganttLeftWidth.value / totalW;
 }
 
+function snapshotRow(rowId: string, record: RowItem): GanttUndoSnapshot {
+    return {
+        rowId,
+        planStartDate: record.planStartDate || "",
+        planEndDate: record.planEndDate || "",
+        progress: record.progress ?? 0,
+        testTime: record.testTime || "",
+        draftTime: record.draftTime || "",
+        releaseTime: record.releaseTime || "",
+    };
+}
+
+function applyGanttSnapshot(s: GanttUndoSnapshot) {
+    const record = findItemRowByIdentifier(s.rowId);
+    if (!record) return;
+    record.planStartDate = s.planStartDate;
+    record.planEndDate = s.planEndDate;
+    record.planTime = [s.planStartDate, s.planEndDate];
+    record.progress = s.progress;
+    const patch: any = {
+        plan_start: s.planStartDate || "",
+        deadline: s.planEndDate || "",
+        progress: s.progress,
+    };
+    if (record.type === "需求") {
+        record.testTime = s.testTime || "";
+        record.draftTime = s.draftTime || "";
+        record.releaseTime = s.releaseTime || "";
+        patch.test_time = s.testTime || "";
+        patch.draft_time = s.draftTime || "";
+        patch.release_time = s.releaseTime || "";
+    }
+    syncRecordUpdateToApi(record, patch);
+}
+
+function handleGanttUndoAction() {
+    const snapshot = ganttUndo();
+    if (snapshot) applyGanttSnapshot(snapshot);
+}
+
+function handleGanttRedoAction() {
+    const snapshot = ganttRedo();
+    if (snapshot) applyGanttSnapshot(snapshot);
+}
+
 function handleGanttTimeChange(rowId: string, startDate: string, endDate: string) {
     const record = findItemRowByIdentifier(rowId);
     if (!record) return;
+    const prev = snapshotRow(rowId, record);
     const patch: any = {};
-    if (record.planTime?.[0] !== startDate || record.planTime?.[1] !== endDate) {
+    const oldEnd = record.planTime?.[1] || "";
+    if (record.planTime?.[0] !== startDate || oldEnd !== endDate) {
         record.planTime = [startDate, endDate];
         record.planStartDate = startDate;
         record.planEndDate = endDate;
         patch.plan_start = startDate;
         patch.deadline = endDate;
     }
-    if (Object.keys(patch).length) syncRecordUpdateToApi(record, patch);
+    if (oldEnd && endDate && record.type === "需求") {
+        const deltaDays = dayjs(endDate).diff(dayjs(oldEnd), "day");
+        if (deltaDays !== 0) {
+            const minDate = dayjs(startDate);
+            if (record.testTime) {
+                let newTestTime = dayjs(record.testTime).add(deltaDays, "day");
+                if (newTestTime.isBefore(minDate)) newTestTime = minDate;
+                record.testTime = newTestTime.format("YYYY-MM-DD");
+                patch.test_time = record.testTime;
+            }
+            if (record.draftTime) {
+                let newDraftTime = dayjs(record.draftTime).add(deltaDays, "day");
+                if (newDraftTime.isBefore(minDate)) newDraftTime = minDate;
+                record.draftTime = newDraftTime.format("YYYY-MM-DD");
+                patch.draft_time = record.draftTime;
+            }
+            if (record.releaseTime) {
+                let newReleaseTime = dayjs(record.releaseTime).add(deltaDays, "day");
+                if (newReleaseTime.isBefore(minDate)) newReleaseTime = minDate;
+                record.releaseTime = newReleaseTime.format("YYYY-MM-DD");
+                patch.release_time = record.releaseTime;
+            }
+        }
+    }
+    if (Object.keys(patch).length) {
+        syncRecordUpdateToApi(record, patch);
+        ganttPushUndo({ prev, next: snapshotRow(rowId, record) });
+    }
 }
+
+function handleGanttIconTimeChange(rowId: string, field: "testTime" | "draftTime" | "releaseTime", date: string) {
+    const record = findItemRowByIdentifier(rowId);
+    if (!record || record.type !== "需求") return;
+    const prev = snapshotRow(rowId, record);
+    record[field] = date;
+    const apiFieldMap: Record<string, string> = { testTime: "test_time", draftTime: "draft_time", releaseTime: "release_time" };
+    syncRecordUpdateToApi(record, { [apiFieldMap[field]]: date });
+    ganttPushUndo({ prev, next: snapshotRow(rowId, record) });
+}
+
+function handleGanttClearIconTime(rowId: string, field: "testTime" | "draftTime" | "releaseTime") {
+    const record = findItemRowByIdentifier(rowId);
+    if (!record || record.type !== "需求") return;
+    const prev = snapshotRow(rowId, record);
+    record[field] = "";
+    const apiFieldMap: Record<string, string> = { testTime: "test_time", draftTime: "draft_time", releaseTime: "release_time" };
+    syncRecordUpdateToApi(record, { [apiFieldMap[field]]: "" });
+    ganttPushUndo({ prev, next: snapshotRow(rowId, record) });
+}
+
 
 function handleGanttProgressChange(rowId: string, progress: number) {
     const record = findItemRowByIdentifier(rowId);
     if (!record) return;
+    const prev = snapshotRow(rowId, record);
     record.progress = progress;
     syncRecordUpdateToApi(record, { progress });
+    ganttPushUndo({ prev, next: snapshotRow(rowId, record) });
 }
 
 function handleGanttCreateTime(rowId: string, startDate: string, endDate: string) {
     const record = findItemRowByIdentifier(rowId);
     if (!record) return;
+    const prev = snapshotRow(rowId, record);
     record.planTime = [startDate, endDate];
     record.planStartDate = startDate;
     record.planEndDate = endDate;
     syncRecordUpdateToApi(record, { plan_start: startDate, deadline: endDate });
+    ganttPushUndo({ prev, next: snapshotRow(rowId, record) });
 }
 
 function handleGanttClearDate(rowId: string, type: "start" | "end" | "both") {
     const record = findItemRowByIdentifier(rowId);
     if (!record) return;
+    const prev = snapshotRow(rowId, record);
     const patch: Record<string, any> = {};
     if (type === "start" || type === "both") {
         record.planStartDate = "";
@@ -457,6 +561,7 @@ function handleGanttClearDate(rowId: string, type: "start" | "end" | "both") {
     }
     record.planTime = [record.planStartDate || "", record.planEndDate || ""];
     syncRecordUpdateToApi(record, patch);
+    ganttPushUndo({ prev, next: snapshotRow(rowId, record) });
 }
 
 const ganttPaginationTotal = computed(() => tableRef.value?.total ?? 0);
@@ -467,6 +572,7 @@ function handleGanttPageChange(page: number) {
     if (!tableRef.value) return;
     tableRef.value.current = page;
     ganttNeedScrollToToday.value = true;
+    ganttResetUndo();
     tableRef.value.refresh();
 }
 
@@ -476,6 +582,7 @@ function handleGanttPageSizeChange(size: number) {
     tableRef.value.current = 1;
     vortFlowStore.tablePageSize = size;
     ganttNeedScrollToToday.value = true;
+    ganttResetUndo();
     tableRef.value.refresh();
 }
 
@@ -493,7 +600,7 @@ const queryParams = computed(() => ({
     type: props.type || type.value, status: status.value, _rk: refreshKey.value,
 }));
 const refreshTable = () => { refreshKey.value++; };
-const onReset = () => { keyword.value = ""; owner.value = []; type.value = props.type ?? ""; status.value = []; };
+const onReset = () => { keyword.value = ""; owner.value = []; type.value = props.type ?? ""; status.value = []; ganttResetUndo(); };
 
 watch(() => props.projectId, () => { loadRepoOptions(); loadIterationOptions(); tableRef.value?.refresh?.(); });
 watch(() => props.viewFilters, () => { if (mountedReady.value) tableRef.value?.refresh?.(); }, { deep: true });
@@ -503,7 +610,9 @@ const rowKeyGetter = (record: RowItem) => record.backendId || record.workNo;
 
 // --- Drawer state ---
 
-const createBugDrawerMode = ref<"create" | "detail">("create");
+const createBugDrawerMode = ref<"create" | "detail">(
+    route.query.action === "detail" ? "detail" : "create",
+);
 
 const createBugDrawerOpen = computed({
     get: () => {
@@ -662,6 +771,28 @@ const getTagRenderInfo = (record: RowItem, text: string[] | undefined, resolvedW
 
 // --- Lifecycle ---
 
+async function openDetailFromRoute(id: string) {
+    const urlTab = route.query.tab as string;
+    const tabTypeMap: Record<string, WorkItemType> = { story: "需求", task: "任务", bug: "缺陷" };
+    const tabRouteMap: Record<string, string> = { story: "/vortflow/stories", task: "/vortflow/tasks", bug: "/vortflow/bugs" };
+    const urlType = tabTypeMap[urlTab];
+    if (urlType && urlType !== props.type) {
+        const targetPath = tabRouteMap[urlTab];
+        if (targetPath) {
+            const urlProjectId = (route.query.project_id || route.query.project) as string;
+            router.replace({ path: targetPath, query: { project_id: urlProjectId || undefined, action: "detail", id, tab: urlTab } });
+        }
+        return;
+    }
+    let record = findItemRowByIdentifier(id) || await loadItemById(id, props.type);
+    if (!record && !urlType) {
+        const otherTypes = (["需求", "任务", "缺陷"] as WorkItemType[]).filter(t => t !== props.type);
+        for (const t of otherTypes) { record = await loadItemById(id, t); if (record) break; }
+    }
+    if (record) { handleOpenBugDetail(record); }
+    else { router.replace({ query: { ...route.query, action: undefined, id: undefined, parentId: undefined, tab: undefined } }); }
+}
+
 onBeforeUnmount(() => { ganttResizeObs?.disconnect(); });
 
 onMounted(async () => {
@@ -709,22 +840,7 @@ onMounted(async () => {
             createProjectId.value = findItemRowById(parentId)?.projectId || "";
         }
     } else if (action === "detail" && id) {
-        const urlTab = route.query.tab as string;
-        const tabTypeMap: Record<string, WorkItemType> = { story: "需求", task: "任务", bug: "缺陷" };
-        const tabRouteMap: Record<string, string> = { story: "/vortflow/stories", task: "/vortflow/tasks", bug: "/vortflow/bugs" };
-        const urlType = tabTypeMap[urlTab];
-        if (urlType && urlType !== props.type) {
-            const targetPath = tabRouteMap[urlTab];
-            if (targetPath) { router.replace({ path: targetPath, query: { project_id: urlProjectId || undefined, action: "detail", id, tab: urlTab } }); }
-            return;
-        }
-        let record = findItemRowByIdentifier(id) || await loadItemById(id, props.type);
-        if (!record && !urlType) {
-            const otherTypes = (["需求", "任务", "缺陷"] as WorkItemType[]).filter(t => t !== props.type);
-            for (const t of otherTypes) { record = await loadItemById(id, t); if (record) break; }
-        }
-        if (record) { handleOpenBugDetail(record); }
-        else { router.replace({ query: { ...route.query, action: undefined, id: undefined, parentId: undefined, tab: undefined } }); }
+        await openDetailFromRoute(id);
     }
 
     if (urlProjectId || urlAssignee || urlStatus) {
@@ -736,6 +852,19 @@ onMounted(async () => {
         router.replace({ query: cleaned });
     }
 });
+
+watch(
+    () => ({ action: route.query.action as string, id: route.query.id as string, project: (route.query.project_id || route.query.project) as string }),
+    async (cur, prev) => {
+        if (!mountedReady.value) return;
+        if (cur.action === "detail" && cur.id && (cur.id !== prev?.id || prev?.action !== "detail")) {
+            if (cur.project && cur.project !== vortFlowStore.selectedProjectId) {
+                vortFlowStore.setProjectId(cur.project);
+            }
+            await openDetailFromRoute(cur.id);
+        }
+    },
+);
 </script>
 
 <template>
@@ -914,6 +1043,18 @@ onMounted(async () => {
 
                 <template #header-endAt="{ column }">
                     <ColumnFilterPopover field="endAt" :title="column.title || ''" :config="dateFilterConfig" :sort-order="columnSortField === 'endAt' ? columnSortOrder : null" :filter-value="columnFilters['endAt']" @sort="(o) => handleColumnSort('endAt', o)" @filter="(v) => handleColumnFilter('endAt', v)">{{ column.title }}</ColumnFilterPopover>
+                </template>
+
+                <template #header-testTime="{ column }">
+                    <ColumnFilterPopover field="testTime" :title="column.title || ''" :config="dateFilterConfig" :sort-order="columnSortField === 'testTime' ? columnSortOrder : null" :filter-value="columnFilters['testTime']" @sort="(o) => handleColumnSort('testTime', o)" @filter="(v) => handleColumnFilter('testTime', v)">{{ column.title }}</ColumnFilterPopover>
+                </template>
+
+                <template #header-draftTime="{ column }">
+                    <ColumnFilterPopover field="draftTime" :title="column.title || ''" :config="dateFilterConfig" :sort-order="columnSortField === 'draftTime' ? columnSortOrder : null" :filter-value="columnFilters['draftTime']" @sort="(o) => handleColumnSort('draftTime', o)" @filter="(v) => handleColumnFilter('draftTime', v)">{{ column.title }}</ColumnFilterPopover>
+                </template>
+
+                <template #header-releaseTime="{ column }">
+                    <ColumnFilterPopover field="releaseTime" :title="column.title || ''" :config="dateFilterConfig" :sort-order="columnSortField === 'releaseTime' ? columnSortOrder : null" :filter-value="columnFilters['releaseTime']" @sort="(o) => handleColumnSort('releaseTime', o)" @filter="(v) => handleColumnFilter('releaseTime', v)">{{ column.title }}</ColumnFilterPopover>
                 </template>
 
                 <template #header-creator="{ column }">
@@ -1230,7 +1371,7 @@ onMounted(async () => {
                             />
                             <span
                                 v-else-if="text != null && text !== ''"
-                                class="text-sm text-blue-600 cursor-pointer"
+                                class="text-sm cursor-pointer"
                             >
                                 {{ text }}h
                             </span>
@@ -1259,48 +1400,130 @@ onMounted(async () => {
                 </template>
 
                 <template #startAt="{ text, record }">
-                    <TableCell @click.stop="startAtPickerOpenMap[getInteractiveCellKey(record)] = true">
-                        <div class="relative inline-block min-w-[120px]" @click.stop>
+                    <TableCell @click.stop="toggleDateFieldPicker(record, 'startAt')">
+                        <div class="relative inline-block" @click.stop>
                             <span
-                                v-if="!startAtPickerOpenMap[getInteractiveCellKey(record)]"
-                                class="text-sm text-blue-600 cursor-pointer"
+                                v-if="openDateFieldFor !== `${getInteractiveCellKey(record)}:startAt`"
+                                class="text-sm cursor-pointer"
+                                @click.stop="toggleDateFieldPicker(record, 'startAt')"
                             >
                                 {{ text || "-" }}
                             </span>
                             <vort-date-picker
                                 v-else
                                 v-model="record.startAt"
-                                v-model:open="startAtPickerOpenMap[getInteractiveCellKey(record)]"
+                                :open="dateFieldPickerOpen"
                                 value-format="YYYY-MM-DD"
                                 format="YYYY-MM-DD"
                                 allow-clear
-                                size="small"
-                                class="w-[128px]"
+                                class="date-field-picker"
                                 @change="(value: any) => selectRowDateField(record, 'startAt', value || '')"
+                                @open-change="(open: boolean) => onDateFieldPickerOpenChange(record, 'startAt', open)"
+                                @click.stop
                             />
                         </div>
                     </TableCell>
                 </template>
 
                 <template #endAt="{ text, record }">
-                    <TableCell @click.stop="endAtPickerOpenMap[getInteractiveCellKey(record)] = true">
-                        <div class="relative inline-block min-w-[120px]" @click.stop>
+                    <TableCell @click.stop="toggleDateFieldPicker(record, 'endAt')">
+                        <div class="relative inline-block" @click.stop>
                             <span
-                                v-if="!endAtPickerOpenMap[getInteractiveCellKey(record)]"
-                                class="text-sm text-blue-600 cursor-pointer"
+                                v-if="openDateFieldFor !== `${getInteractiveCellKey(record)}:endAt`"
+                                class="text-sm cursor-pointer"
+                                @click.stop="toggleDateFieldPicker(record, 'endAt')"
                             >
                                 {{ text || "-" }}
                             </span>
                             <vort-date-picker
                                 v-else
                                 v-model="record.endAt"
-                                v-model:open="endAtPickerOpenMap[getInteractiveCellKey(record)]"
+                                :open="dateFieldPickerOpen"
                                 value-format="YYYY-MM-DD"
                                 format="YYYY-MM-DD"
                                 allow-clear
-                                size="small"
-                                class="w-[128px]"
+                                class="date-field-picker"
                                 @change="(value: any) => selectRowDateField(record, 'endAt', value || '')"
+                                @open-change="(open: boolean) => onDateFieldPickerOpenChange(record, 'endAt', open)"
+                                @click.stop
+                            />
+                        </div>
+                    </TableCell>
+                </template>
+
+                <template #testTime="{ text, record }">
+                    <TableCell @click.stop="toggleDateFieldPicker(record, 'testTime')">
+                        <div class="relative inline-block" @click.stop>
+                            <span
+                                v-if="openDateFieldFor !== `${getInteractiveCellKey(record)}:testTime`"
+                                class="text-sm cursor-pointer"
+                                @click.stop="toggleDateFieldPicker(record, 'testTime')"
+                            >
+                                {{ text || "-" }}
+                            </span>
+                            <vort-date-picker
+                                v-else
+                                v-model="record.testTime"
+                                :open="dateFieldPickerOpen"
+                                value-format="YYYY-MM-DD"
+                                format="YYYY-MM-DD"
+                                allow-clear
+                                class="date-field-picker"
+                                @change="(value: any) => selectRowDateField(record, 'testTime', value || '')"
+                                @open-change="(open: boolean) => onDateFieldPickerOpenChange(record, 'testTime', open)"
+                                @click.stop
+                            />
+                        </div>
+                    </TableCell>
+                </template>
+
+                <template #draftTime="{ text, record }">
+                    <TableCell @click.stop="toggleDateFieldPicker(record, 'draftTime')">
+                        <div class="relative inline-block" @click.stop>
+                            <span
+                                v-if="openDateFieldFor !== `${getInteractiveCellKey(record)}:draftTime`"
+                                class="text-sm cursor-pointer"
+                                @click.stop="toggleDateFieldPicker(record, 'draftTime')"
+                            >
+                                {{ text || "-" }}
+                            </span>
+                            <vort-date-picker
+                                v-else
+                                v-model="record.draftTime"
+                                :open="dateFieldPickerOpen"
+                                value-format="YYYY-MM-DD"
+                                format="YYYY-MM-DD"
+                                allow-clear
+                                class="date-field-picker"
+                                @change="(value: any) => selectRowDateField(record, 'draftTime', value || '')"
+                                @open-change="(open: boolean) => onDateFieldPickerOpenChange(record, 'draftTime', open)"
+                                @click.stop
+                            />
+                        </div>
+                    </TableCell>
+                </template>
+
+                <template #releaseTime="{ text, record }">
+                    <TableCell @click.stop="toggleDateFieldPicker(record, 'releaseTime')">
+                        <div class="relative inline-block" @click.stop>
+                            <span
+                                v-if="openDateFieldFor !== `${getInteractiveCellKey(record)}:releaseTime`"
+                                class="text-sm cursor-pointer"
+                                @click.stop="toggleDateFieldPicker(record, 'releaseTime')"
+                            >
+                                {{ text || "-" }}
+                            </span>
+                            <vort-date-picker
+                                v-else
+                                v-model="record.releaseTime"
+                                :open="dateFieldPickerOpen"
+                                value-format="YYYY-MM-DD"
+                                format="YYYY-MM-DD"
+                                allow-clear
+                                class="date-field-picker"
+                                @change="(value: any) => selectRowDateField(record, 'releaseTime', value || '')"
+                                @open-change="(open: boolean) => onDateFieldPickerOpenChange(record, 'releaseTime', open)"
+                                @click.stop
                             />
                         </div>
                     </TableCell>
@@ -1358,11 +1581,17 @@ onMounted(async () => {
                         :table-header-height="ganttTableHeaderHeight"
                         :row-height="GANTT_ROW_HEIGHT"
                         :zoom-level="ganttZoomLevel"
+                        :can-undo="ganttCanUndo"
+                        :can-redo="ganttCanRedo"
                         @update:zoom-level="(v: GanttZoomLevel) => ganttZoomLevel = v"
                         @time-change="handleGanttTimeChange"
                         @progress-change="handleGanttProgressChange"
                         @create-time="handleGanttCreateTime"
                         @clear-date="handleGanttClearDate"
+                        @icon-time-change="handleGanttIconTimeChange"
+                        @clear-icon-time="handleGanttClearIconTime"
+                        @undo="handleGanttUndoAction"
+                        @redo="handleGanttRedoAction"
                     />
                 </template>
             </div>
@@ -1648,6 +1877,28 @@ onMounted(async () => {
     }
 }
 
+:deep(.date-field-picker) {
+    max-width: 160px;
+    border-color: transparent !important;
+    box-shadow: none !important;
+    padding-left: 0;
+    margin-left: -1px;
+    background-color: transparent !important;
+    .vort-datepicker-selector {
+        border-color: transparent !important;
+        box-shadow: none !important;
+    }
+    .vort-datepicker-value{
+        font-size: 14px !important;
+    }
+    .vort-datepicker-prefix {
+        display: none;
+    }
+    .vort-datepicker-value {
+        font-size: 13px;
+    }
+}
+
 .create-bug-footer {
     display: flex;
     gap: 12px;
@@ -1814,9 +2065,10 @@ onMounted(async () => {
     border-top: 1px solid #e5e7eb;
 }
 
-/* Disable horizontal scroll for the table wrapper (shared scroll manages vertical) */
+/* Keep horizontal scroll for the table, only disable vertical */
 .gantt-table-pane :deep(.vort-pro-table-scroll) {
-    overflow: hidden !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
 }
 
 </style>

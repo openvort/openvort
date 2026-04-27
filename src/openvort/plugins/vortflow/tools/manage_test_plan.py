@@ -265,8 +265,12 @@ class ManageTestPlanTool(BaseTool):
                                              sort_order=pc.sort_order, created_by=member_id or None))
             await session.commit()
             await session.refresh(new_plan)
+            new_pcs = (await session.execute(
+                select(FlowTestPlanCase.id, FlowTestPlanCase.test_case_id)
+                .where(FlowTestPlanCase.plan_id == new_plan.id))).all()
+            case_id_map = {tc_id: pc_id for pc_id, tc_id in new_pcs}
         return json.dumps({"ok": True, "message": f"测试计划已复制为「{new_plan.title}」，包含 {len(case_rows)} 条用例",
-                           "plan_id": new_plan.id}, ensure_ascii=False)
+                           "plan_id": new_plan.id, "case_id_map": case_id_map}, ensure_ascii=False)
 
     # ---- add_cases ----
 
@@ -293,11 +297,16 @@ class ManageTestPlanTool(BaseTool):
                                              sort_order=max_order, created_by=member_id or None))
                 added += 1
             await session.commit()
+            all_pcs = (await session.execute(
+                select(FlowTestPlanCase.id, FlowTestPlanCase.test_case_id)
+                .where(FlowTestPlanCase.plan_id == plan_id))).all()
+            case_id_map = {tc_id: pc_id for pc_id, tc_id in all_pcs}
         skipped = len(test_case_ids) - added
         msg = f"已添加 {added} 条用例到计划「{plan.title}」"
         if skipped > 0:
             msg += f"，{skipped} 条已存在被跳过"
-        return json.dumps({"ok": True, "message": msg, "added": added, "skipped": skipped}, ensure_ascii=False)
+        return json.dumps({"ok": True, "message": msg, "added": added, "skipped": skipped,
+                           "case_id_map": case_id_map}, ensure_ascii=False)
 
     # ---- remove_case ----
 
@@ -715,6 +724,35 @@ class ManageTestPlanTool(BaseTool):
                 elif r == "failed": failed = cnt
                 elif r == "blocked": blocked = cnt
                 elif r == "skipped": skipped = cnt
+
+            from openvort.plugins.vortflow.models import FlowTestCase
+            plan_cases = (await session.execute(
+                select(FlowTestPlanCase.id, FlowTestPlanCase.test_case_id,
+                       FlowTestPlanCase.sort_order)
+                .where(FlowTestPlanCase.plan_id == plan_id)
+                .order_by(FlowTestPlanCase.sort_order))).all()
+            case_items = []
+            for pc_id, tc_id, sort_order in plan_cases:
+                tc = await session.get(FlowTestCase, tc_id)
+                latest_ex = (await session.execute(
+                    select(FlowTestPlanExecution)
+                    .where(FlowTestPlanExecution.plan_case_id == pc_id)
+                    .order_by(FlowTestPlanExecution.created_at.desc()).limit(1)
+                )).scalar_one_or_none()
+                item = {
+                    "plan_case_id": pc_id, "test_case_id": tc_id,
+                    "title": tc.title if tc else "", "priority": tc.priority if tc else 2,
+                }
+                if latest_ex:
+                    item["result"] = latest_ex.result
+                    item["notes"] = latest_ex.notes
+                    item["executed_at"] = latest_ex.created_at.isoformat() if latest_ex.created_at else None
+                else:
+                    item["result"] = "pending"
+                    item["notes"] = ""
+                    item["executed_at"] = None
+                case_items.append(item)
+
         return json.dumps({"ok": True, "test_plan": {
             "id": plan.id, "project_id": plan.project_id, "title": plan.title,
             "description": plan.description, "status": plan.status, "owner_name": owner_name,
@@ -723,4 +761,5 @@ class ManageTestPlanTool(BaseTool):
             "total_cases": total_cases, "executed": passed + failed + blocked + skipped,
             "passed": passed, "failed": failed, "blocked": blocked, "skipped": skipped,
             "created_at": plan.created_at.isoformat() if plan.created_at else None,
+            "cases": case_items,
         }}, ensure_ascii=False)

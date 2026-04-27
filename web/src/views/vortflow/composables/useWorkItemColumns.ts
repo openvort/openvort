@@ -30,6 +30,9 @@ const ALL_COLUMN_DEFS: Array<ProTableColumn<RowItem> & { key: string }> = [
     { key: "project", title: "关联项目", dataIndex: "projectName", width: 140, sorter: true, align: "left", slot: "project" },
     { key: "startAt", title: "实际开始时间", dataIndex: "startAt", width: 150, align: "left", slot: "startAt" },
     { key: "endAt", title: "实际结束时间", dataIndex: "endAt", width: 150, align: "left", slot: "endAt" },
+    { key: "testTime", title: "提测时间", dataIndex: "testTime", width: 150, align: "left", slot: "testTime" },
+    { key: "draftTime", title: "出稿时间", dataIndex: "draftTime", width: 150, align: "left", slot: "draftTime" },
+    { key: "releaseTime", title: "发布时间", dataIndex: "releaseTime", width: 150, align: "left", slot: "releaseTime" },
 ];
 
 const DEFAULT_VISIBLE_KEYS = new Set([

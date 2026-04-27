@@ -81,8 +81,15 @@ let searchTimer: ReturnType<typeof setTimeout> | null = null;
 const toWorkNo = (id: string) =>
     `#${id.replace(/-/g, "").slice(0, 6).toUpperCase().padEnd(6, "X")}`;
 
-const getOwnerId = (item: any): string =>
-    String(item?.assignee_id || item?.pm_id || item?.developer_id || "").trim();
+const getOwnerId = (item: any): string => {
+    if (item?.link_type === "story") {
+        return String(item?.pm_id || item?.assignee_id || "").trim();
+    }
+    if (item?.link_type === "bug") {
+        return String(item?.assignee_id || item?.developer_id || "").trim();
+    }
+    return String(item?.assignee_id || "").trim();
+};
 
 const loadLinks = async () => {
     if (!props.entityId) return;

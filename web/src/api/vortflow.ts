@@ -62,7 +62,7 @@ export function getVortflowStory(id: string) {
     return request.get(`/vortflow/stories/${id}`);
 }
 
-export function createVortflowStory(data: { project_id: string; title: string; description?: string; priority?: number; parent_id?: string; assignee_id?: string; tags?: string[]; collaborators?: string[]; attachments?: { name: string; url: string; size: number }[]; plan_start?: string; deadline?: string }) {
+export function createVortflowStory(data: { project_id: string; title: string; description?: string; priority?: number; parent_id?: string; assignee_id?: string; tags?: string[]; collaborators?: string[]; attachments?: { name: string; url: string; size: number }[]; plan_start?: string; deadline?: string; test_time?: string; draft_time?: string; release_time?: string }) {
     return request.post("/vortflow/stories", data);
 }
 
@@ -78,6 +78,9 @@ export function updateVortflowStory(id: string, data: {
     attachments?: { name: string; url: string; size: number }[];
     plan_start?: string;
     deadline?: string;
+    test_time?: string;
+    draft_time?: string;
+    release_time?: string;
     pm_id?: string | null;
     project_id?: string | null;
     start_at?: string;

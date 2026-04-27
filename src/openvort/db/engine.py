@@ -65,9 +65,18 @@ async def init_db(database_url: str) -> None:
     except ImportError:
         pass
 
+    try:
+        import openvort.plugins.vortcert.models  # noqa: F401
+    except ImportError:
+        pass
+
     _engine = create_async_engine(
         database_url,
         echo=False,
+        pool_size=20,
+        max_overflow=40,
+        pool_pre_ping=True,
+        pool_recycle=1800,
         connect_args={"ssl": False},
     )
     _session_factory = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)

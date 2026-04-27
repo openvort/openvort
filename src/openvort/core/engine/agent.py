@@ -9,8 +9,10 @@ Agent Runtime
 import asyncio
 import json
 import re
+from datetime import datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from openvort.config.settings import LLMSettings
+from openvort.config.settings import LLMSettings, get_settings
 from openvort.core.engine.context import RequestContext
 from openvort.core.engine.llm import (
     LLMClient, LLMResponse, TextBlock, ThinkingBlock, ThinkingDelta, ToolUseBlock, Usage,
@@ -214,6 +216,7 @@ class AgentRuntime:
         for _ in range(max_rounds):
             try:
                 system = self._system_prompt + sender_context
+                system += f"\n\n{self._build_time_context_prompt()}"
                 if channel_prompt:
                     system += f"\n\n# 渠道回复规范\n\n{channel_prompt}"
                 action_hint = self._build_action_hint(content)
@@ -497,6 +500,7 @@ class AgentRuntime:
                     system = await self._build_member_chat_context(ctx.target_member_id)
                 else:
                     system = self._system_prompt + sender_context
+                system += f"\n\n{self._build_time_context_prompt()}"
                 if channel_prompt:
                     system += f"\n\n# 渠道回复规范\n\n{channel_prompt}"
                 if ctx.group_prompt:
@@ -728,6 +732,8 @@ class AgentRuntime:
             system = await self._build_member_chat_context(target_id)
         else:
             system = self._system_prompt + sender_context
+
+        system += f"\n\n{self._build_time_context_prompt()}"
 
         action_hint = self._build_action_hint(content)
         if action_hint:
@@ -1294,6 +1300,41 @@ class AgentRuntime:
     def _detect_empty_action(self, response: LLMResponse) -> bool:
         """Check if LLM response claims completion without having called tools."""
         return self._text_claims_action(self._extract_text(response))
+
+    _WEEKDAY_CN = ("星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日")
+
+    @classmethod
+    def _build_time_context_prompt(cls) -> str:
+        """构建"当前系统时间"段落，注入到 system prompt。
+
+        LLM 训练数据有截止日期，自己算不出"今天"——必须由程序在每次请求
+        时注入当前时间（按 OPENVORT_ORG_TIMEZONE 配置的时区），AI 才能在
+        回答"今天"、"本周"、"最近"、"明天"等相对时间问题时与真实日期一致。
+        """
+        tz_name = "Asia/Shanghai"
+        try:
+            tz_name = get_settings().org.timezone or tz_name
+        except Exception:
+            pass
+        try:
+            tz = ZoneInfo(tz_name)
+        except ZoneInfoNotFoundError:
+            tz = ZoneInfo("Asia/Shanghai")
+            tz_name = "Asia/Shanghai"
+
+        now = datetime.now(tz)
+        weekday_cn = cls._WEEKDAY_CN[now.weekday()]
+        return (
+            "# 当前系统时间\n\n"
+            f"- 当前日期时间: {now.strftime('%Y-%m-%d %H:%M:%S')} ({tz_name} {now.strftime('%z')})\n"
+            f"- 今天: {now.strftime('%Y-%m-%d')} ({weekday_cn})\n"
+            f"- ISO 时间戳: {now.isoformat(timespec='seconds')}\n\n"
+            "规则：\n"
+            "- 回答任何涉及日期/时间的问题（如「今天」「昨天」「本周」「本月」「最近」「明天」等）时，"
+            "必须以上方系统时间为准，不要使用训练数据的默认日期。\n"
+            "- 生成日报/周报/月报、创建任务截止日期、查询时间范围等，默认使用上方时间作为基准。\n"
+            "- 用户提到相对时间（如「三天后」「下周一」）时，基于上方的「今天」进行换算后再使用。"
+        )
 
     @staticmethod
     def _build_thinking_param(level: str) -> dict | None:

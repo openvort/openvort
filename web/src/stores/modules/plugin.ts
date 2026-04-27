@@ -26,7 +26,7 @@ export const usePluginStore = defineStore("plugin", () => {
         }
     };
 
-    const BUILTIN_PLUGINS = new Set(["vortflow", "vortgit", "vortsketch"]);
+    const BUILTIN_PLUGINS = new Set(["vortflow", "vortgit", "vortsketch", "vortcert"]);
 
     /** 获取第三方插件声明的侧边栏菜单（内置插件已静态定义在 menus.ts） */
     const pluginMenus = () => {

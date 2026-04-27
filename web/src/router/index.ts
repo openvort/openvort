@@ -10,6 +10,7 @@ import reportsConfig from "@/views/reports/plugin";
 import knowledgeConfig from "@/views/knowledge/plugin";
 import schedulesConfig from "@/views/schedules/plugin";
 import vortsketchConfig from "@/views/vortsketch/plugin";
+import vortcertConfig from "@/views/vortcert/plugin";
 
 const BasicLayout = () => import("@/layouts/BasicLayout.vue");
 const BlankLayout = () => import("@/layouts/BlankLayout.vue");
@@ -22,6 +23,7 @@ const moduleConfigs = [
     knowledgeConfig,
     schedulesConfig,
     vortsketchConfig,
+    vortcertConfig,
 ];
 
 const routes: RouteRecordRaw[] = [
