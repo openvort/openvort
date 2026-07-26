@@ -27,7 +27,7 @@ RUN if [ "$MIRROR" = "cn" ]; then \
        | gpg --dearmor -o /usr/share/keyrings/pgdg.gpg \
     && PGDG_MIRROR="http://apt.postgresql.org/pub/repos/apt" \
     && if [ "$MIRROR" = "cn" ]; then \
-         PGDG_MIRROR="https://mirrors.tuna.tsinghua.edu.cn/postgresql/repos/apt"; \
+         PGDG_MIRROR="https://mirrors.cloud.tencent.com/postgresql/repos/apt"; \
        fi \
     && echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] $PGDG_MIRROR $(. /etc/os-release && echo $VERSION_CODENAME)-pgdg main" \
        > /etc/apt/sources.list.d/pgdg.list \
