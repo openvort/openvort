@@ -35,11 +35,13 @@ RUN if [ "$MIRROR" = "cn" ]; then \
     && apt-get update && apt-get install -y --no-install-recommends postgresql-client-18 \
     && rm -rf /var/lib/apt/lists/*
 
+# Node 22: required by the bundled coding CLIs (Claude Code >=22, Pi >=22.19); Node 20
+# ships an undici that crashes Pi ("webidl.util.markAsUncloneable is not a function").
 RUN if [ "$MIRROR" = "cn" ]; then \
-      curl -fsSL https://npmmirror.com/mirrors/node/v20.18.0/node-v20.18.0-linux-x64.tar.xz \
+      curl -fsSL https://npmmirror.com/mirrors/node/v22.20.0/node-v22.20.0-linux-x64.tar.xz \
         | tar -xJ -C /usr/local --strip-components=1; \
     else \
-      curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+      curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
         && apt-get install -y --no-install-recommends nodejs \
         && rm -rf /var/lib/apt/lists/*; \
     fi
