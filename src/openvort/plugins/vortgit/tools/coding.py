@@ -214,6 +214,51 @@ def _extract_codex_text(line: str) -> str:
     return ""
 
 
+def _extract_pi_text(line: str) -> str:
+    """Extract human-readable text from a Pi CLI `--mode json` line.
+
+    Pi emits newline-delimited JSON events. We surface assistant text and a short note
+    for tool calls, reading from `message_end` events (and streaming deltas when present)
+    to avoid duplicating the transcript that terminal aggregate events also carry.
+    """
+    line = line.strip()
+    if not line:
+        return ""
+    try:
+        obj = json.loads(line)
+    except (json.JSONDecodeError, ValueError):
+        return line
+
+    event_type = obj.get("type", "")
+
+    if event_type in ("text_delta", "content_block_delta"):
+        return obj.get("text", "") or obj.get("delta", "") or ""
+
+    if event_type != "message_end":
+        return ""
+
+    msg = obj.get("message")
+    if not isinstance(msg, dict):
+        return ""
+
+    parts: list[str] = []
+    for block in msg.get("content", []) or []:
+        if not isinstance(block, dict):
+            continue
+        block_type = block.get("type")
+        if block_type == "text":
+            parts.append(block.get("text", ""))
+        elif block_type == "toolCall":
+            parts.append(f"[调用工具: {block.get('name', '?')}]")
+    if msg.get("role") == "toolResult":
+        for block in msg.get("content", []) or []:
+            if isinstance(block, dict) and block.get("type") == "text":
+                text = block.get("text", "")
+                if text:
+                    parts.append(f"✅ {text[:200]}")
+    return "".join(parts)
+
+
 def _get_coding_env():
     """Create CodingEnvironment from VortGit settings."""
     from openvort.core.execution.coding_env import CodingEnvironment
@@ -304,7 +349,7 @@ class CodeTaskTool(BaseTool):
                 },
                 "cli_tool": {
                     "type": "string",
-                    "enum": ["", "claude-code", "aider", "codex"],
+                    "enum": ["", "claude-code", "aider", "codex", "pi"],
                     "description": (
                         "使用的 CLI 编码工具（可选，留空则使用系统设置中配置的默认工具）。"
                         "不要自行指定此参数，除非用户明确要求使用某个特定工具"
@@ -463,6 +508,8 @@ class CodeTaskTool(BaseTool):
                 text = _extract_stream_text(line)
             elif cli_tool == "codex":
                 text = _extract_codex_text(line)
+            elif cli_tool == "pi":
+                text = _extract_pi_text(line)
             else:
                 text = line.rstrip("\n\r")
             if text:

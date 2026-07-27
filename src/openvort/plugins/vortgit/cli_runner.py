@@ -46,6 +46,11 @@ PROVIDER_DEFAULT_API_BASE: dict[str, str] = {
     "zhipu": "https://open.bigmodel.cn/api/paas/v4",
 }
 
+# Pi (pi.dev) routes every model through a custom provider registered by this bundled
+# extension; the provider name below must match the one it calls pi.registerProvider() with.
+PI_EXTENSION_PATH = str(Path(__file__).with_name("pi_extension.js"))
+PI_PROVIDER_NAME = "openvort"
+
 
 @dataclass
 class CLIToolSpec:
@@ -115,6 +120,30 @@ BUILTIN_CLI_TOOLS: dict[str, CLIToolSpec] = {
             "{prompt}",
         ],
         model_arg="--model",
+        supported_providers=["openai", "custom", "deepseek", "moonshot", "qwen", "zhipu"],
+        docker_available=True,
+    ),
+    "pi": CLIToolSpec(
+        name="pi",
+        display_name="Pi Coding Agent",
+        binary="pi",
+        install_cmd="npm install -g --ignore-scripts @earendil-works/pi-coding-agent",
+        detect_cmd="pi --version",
+        uninstall_cmd="npm uninstall -g @earendil-works/pi-coding-agent",
+        # Endpoint/model/key are handed to the bundled extension via these env vars
+        # (see _inject_pi_env), not via provider-specific vars.
+        env_keys=["OPENVORT_PI_BASE_URL", "OPENVORT_PI_MODEL", "OPENVORT_PI_API_KEY"],
+        run_args=[
+            "-p",
+            "--mode",
+            "json",
+            "--no-session",
+            "--extension",
+            PI_EXTENSION_PATH,
+            "{prompt}",
+        ],
+        model_arg="--model",
+        # Any OpenAI-compatible endpoint works; "custom" is the common OpenVort case.
         supported_providers=["openai", "custom", "deepseek", "moonshot", "qwen", "zhipu"],
         docker_available=True,
     ),
@@ -223,7 +252,10 @@ class CLIRunner:
 
         merged_env = dict(env or {})
         if model_config:
-            self._inject_model_env(model_config, merged_env)
+            if spec.name == "pi":
+                self._inject_pi_env(model_config, merged_env)
+            else:
+                self._inject_model_env(model_config, merged_env)
         else:
             self._inject_api_keys_legacy(spec, merged_env)
 
@@ -304,6 +336,11 @@ class CLIRunner:
         model = model_config.get("model", "")
         provider = model_config.get("provider", "")
 
+        # Pi selects the model as "<provider>/<id>"; our bundled extension always
+        # registers the endpoint under PI_PROVIDER_NAME.
+        if spec.name == "pi":
+            return model if "/" in model else f"{PI_PROVIDER_NAME}/{model}"
+
         if spec.name != "aider":
             return model
 
@@ -331,6 +368,25 @@ class CLIRunner:
             value = template.replace("{api_key}", api_key).replace("{api_base}", effective_base)
             if value:
                 env[env_key] = value
+
+    @staticmethod
+    def _inject_pi_env(model_config: dict[str, Any], env: dict[str, str]) -> None:
+        """Inject the endpoint/model/key for Pi's bundled custom-provider extension.
+
+        Pi reaches the model through PI_EXTENSION_PATH, which reads these three env
+        vars (see pi_extension.js). Works for any OpenAI-compatible endpoint.
+        """
+        provider = model_config.get("provider", "")
+        api_key = model_config.get("api_key", "")
+        api_base = model_config.get("api_base", "") or PROVIDER_DEFAULT_API_BASE.get(provider, "")
+        model = model_config.get("model", "")
+
+        if not api_key or not model or not api_base:
+            return
+
+        env.setdefault("OPENVORT_PI_BASE_URL", api_base)
+        env.setdefault("OPENVORT_PI_MODEL", model)
+        env.setdefault("OPENVORT_PI_API_KEY", api_key)
 
     @staticmethod
     def _inject_api_keys_legacy(spec: CLIToolSpec, env: dict[str, str]) -> None:

@@ -11,6 +11,7 @@ This is a core infrastructure module (not a plugin). It provides:
 from __future__ import annotations
 
 import asyncio
+import os
 import shutil
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -113,11 +114,23 @@ class CodingEnvironment:
         """Auto-detect the best execution mode.
 
         Detection rules:
+        - Explicit override via OPENVORT_CODING_ENV_MODE=local|docker
+        - When OpenVort itself runs inside a container and local CLI tools are present,
+          prefer LOCAL. The coding tools are baked into the image, and spawning a sibling
+          sandbox over a host (docker-out-of-docker) daemon cannot reliably bind-mount the
+          workspace: the in-container workspace path does not exist on the host, so the
+          sandbox would run against an empty /workspace.
         - If Docker is available AND image is pulled, use DOCKER mode
         - If Docker is available but image not pulled, try to pull - if fails, fall back to LOCAL
         - If no Docker but local CLI tools available, use LOCAL mode
         - Otherwise UNAVAILABLE
         """
+        forced = os.environ.get("OPENVORT_CODING_ENV_MODE", "").strip().lower()
+        if forced == "local":
+            return EnvMode.LOCAL if self._has_any_cli_locally() else EnvMode.UNAVAILABLE
+        if forced != "docker" and self._is_running_in_docker() and self._has_any_cli_locally():
+            return EnvMode.LOCAL
+
         if self._is_docker_available():
             # Check if image is available
             image_pulled = await self._is_image_pulled(self._image)
