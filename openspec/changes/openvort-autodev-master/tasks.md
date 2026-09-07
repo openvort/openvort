@@ -55,7 +55,7 @@
 
 ## 8. 上线（cpic）
 
-- [ ] 8.1 `update.sh feat/autodev-master` 部署；cpic 填配置，`deliver=false`；启用同步任务 · 验证：story 数量 = `jira --json issue list -p TPYBX --jql <同 JQL> | jq length`
+- [ ] 8.1 `update.sh feat/autodev-master` 部署（✅ 2026-09-07 已部署 `11756d5`：插件加载、`autodev_*` 表建成、探活 200；GitHub 不通时用 `git bundle` 传分支绕过第 1 步）；cpic 填配置，`deliver=false`；启用同步任务 · 验证：story 数量 = `jira --json issue list -p TPYBX --jql <同 JQL> | jq length`
 - [ ] 8.2 指派 1 张 story → 立即派发 → 回收 exit 15 与用量 · 验证：运行记录 outcome=verified，token > 0，story=dev_assign 未变（verified 不动状态）
 - [ ] 8.3 启用全局派发任务跑 3 张（仍 `deliver=false`）· 验证：三条记录 trigger=schedule；无同单重复；slot 从未超 1
 - [ ] 8.4 翻 `deliver=true` 跑 1 张真交付 · 验证：记录 outcome=delivered，MR 链接可打开，Jira 单状态「已修复」且经办人为建单人，story=testing
