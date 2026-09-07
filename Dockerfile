@@ -49,12 +49,13 @@ RUN if [ "$MIRROR" = "cn" ]; then \
 WORKDIR /app
 COPY pyproject.toml README.md LICENSE ./
 COPY src/ src/
-RUN pip install --no-cache-dir --upgrade pip && \
-    if [ "$MIRROR" = "cn" ]; then \
-      pip install --no-cache-dir . -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com; \
+RUN if [ "$MIRROR" = "cn" ]; then \
+      PIP_INDEX="-i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com"; \
     else \
-      pip install --no-cache-dir .; \
-    fi
+      PIP_INDEX=""; \
+    fi && \
+    pip install --no-cache-dir --upgrade pip $PIP_INDEX && \
+    pip install --no-cache-dir . $PIP_INDEX
 COPY --from=frontend /app/web/dist web/dist
 ENV PYTHONUNBUFFERED=1
 EXPOSE 8090
