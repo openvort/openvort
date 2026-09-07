@@ -16,3 +16,4 @@ export * from "./uploads";
 export * from "./channel-bots";
 export * from "./vortsketch";
 export * from "./vortcert";
+export * from "./autodev";

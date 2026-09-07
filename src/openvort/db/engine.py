@@ -70,6 +70,11 @@ async def init_db(database_url: str) -> None:
     except ImportError:
         pass
 
+    try:
+        import openvort.plugins.autodev.models  # noqa: F401
+    except ImportError:
+        pass
+
     _engine = create_async_engine(
         database_url,
         echo=False,

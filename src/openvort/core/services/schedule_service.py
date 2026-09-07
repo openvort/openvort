@@ -21,6 +21,15 @@ from openvort.utils.logging import get_logger
 
 log = get_logger("core.schedule_service")
 
+# 非 agent 类 action_type 的处理器：async (job, action_config) -> 结果文本。
+# 插件在 activate 时注册；分发在 _execute_job 里先查这张表，查不到才走 agent_chat。
+ACTION_HANDLERS: dict = {}
+
+
+def register_action_handler(action_type: str, handler) -> None:
+    ACTION_HANDLERS[action_type] = handler
+    log.info(f"注册 ScheduleJob action handler: {action_type}")
+
 
 class ScheduleService:
     """定时任务管理服务"""
@@ -346,10 +355,11 @@ class ScheduleService:
         return job.owner_id
 
     async def _execute_job(self, job: ScheduleJob) -> str:
-        """执行任务 — 目前只支持 agent_chat"""
+        """执行任务 — agent_chat 走 Agent；其余 action_type 走 ACTION_HANDLERS 里注册的确定性处理器"""
         config = json.loads(job.action_config) if job.action_config else {}
         prompt = config.get("prompt", "")
-        if not prompt:
+        handler = ACTION_HANDLERS.get(job.action_type)
+        if handler is None and not prompt:
             raise ValueError("action_config 缺少 prompt")
 
         notify_target = self._get_notify_target(job)
@@ -398,7 +408,9 @@ class ScheduleService:
 
         tool_messages = None
         try:
-            if self._agent and job.action_type == "agent_chat":
+            if handler is not None:
+                result_text = await handler(job, config)
+            elif self._agent and job.action_type == "agent_chat":
                 result_text = await self._agent.process(ctx, sched_context)
                 # Extract tool_use/tool_result from scheduler session for screenshot passthrough
                 try:

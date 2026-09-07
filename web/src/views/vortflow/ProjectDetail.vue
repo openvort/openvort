@@ -17,6 +17,7 @@ import {
 } from "@/api";
 import { useVortFlowStore } from "@/stores";
 import { useWorkItemCommon } from "./work-item/useWorkItemCommon";
+import ProjectAutodevPanel from "@/views/autodev/ProjectAutodevPanel.vue";
 import * as echarts from "echarts";
 
 const route = useRoute();
@@ -418,6 +419,7 @@ onBeforeUnmount(() => {
                     <VortTabPane tab-key="overview" tab="概览" />
                     <VortTabPane tab-key="workitems" tab="工作项" />
                     <VortTabPane tab-key="iterations" tab="迭代" />
+                    <VortTabPane tab-key="autodev" tab="自动交付" />
                 </VortTabs>
             </div>
 
@@ -795,6 +797,11 @@ onBeforeUnmount(() => {
                         </vort-table-column>
                     </vort-table>
                 </div>
+            </template>
+
+            <template v-if="activeTab === 'autodev'">
+                <ProjectAutodevPanel :project-id="projectId" />
+
             </template>
 
             </div>

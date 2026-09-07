@@ -78,8 +78,14 @@ class DockerExecutor:
         context: dict | None = None,
         timeout: int = 300,
         on_text: "Callable[[str], None] | None" = None,
+        extra_system_prompt: str = "",
     ) -> dict:
-        """Execute instruction inside the Docker container via `docker exec`."""
+        """Execute instruction inside the Docker container via `docker exec`.
+
+        ``extra_system_prompt`` is part of the ``RemoteNodeExecutor`` protocol for
+        agent-backed nodes; a docker node runs ``instruction`` as a shell command,
+        so there is no system prompt to extend and the value is intentionally ignored.
+        """
         container_id = gateway_url
         if not container_id:
             return {"ok": False, "error": "node_not_configured", "message": "容器 ID 未设置"}

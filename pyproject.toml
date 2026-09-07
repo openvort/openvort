@@ -85,6 +85,7 @@ browser = "openvort.plugins.browser:BrowserPlugin"
 knowledge = "openvort.plugins.knowledge:KnowledgePlugin"
 vortsketch = "openvort.plugins.vortsketch:VortSketchPlugin"
 vortcert = "openvort.plugins.vortcert:VortCertPlugin"
+autodev = "openvort.plugins.autodev:AutoDevPlugin"
 
 [project.urls]
 Homepage = "https://github.com/openvort/openvort"

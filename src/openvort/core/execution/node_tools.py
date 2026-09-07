@@ -14,6 +14,7 @@ import shlex
 from typing import TYPE_CHECKING
 
 from openvort.plugin.base import BaseTool
+from openvort.core.execution import node_guard
 from openvort.utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -153,6 +154,7 @@ async def _resolve_container(params: dict) -> tuple[str, str]:
         )
 
     config = node.get("config") or {}
+    params["_node_config"] = config  # 供 master 黑名单（node_guard）判定
     container_id = config.get("container_id", "")
     if not container_id:
         return "", "工作节点未关联 Docker 容器，请管理员检查节点配置。"
@@ -225,6 +227,9 @@ class NodeShellTool(BaseTool):
         command = params.get("command", "").strip()
         if not command:
             return "请提供要执行的命令"
+        denied = node_guard.check_shell(params.get("_node_config"), command)
+        if denied:
+            return denied
 
         working_dir = params.get("working_dir", "/workspace").strip() or "/workspace"
         timeout = min(max(params.get("timeout", 120), 5), 600)
@@ -310,6 +315,9 @@ class NodeFileReadTool(BaseTool):
         path = params.get("path", "").strip()
         if not path:
             return "请提供文件路径"
+        denied = node_guard.check_path(params.get("_node_config"), path, write=False)
+        if denied:
+            return denied
 
         offset = params.get("offset")
         limit = params.get("limit", 200) or 200
@@ -421,6 +429,9 @@ class NodeFileWriteTool(BaseTool):
 
         if not path:
             return "请提供文件路径"
+        denied = node_guard.check_path(params.get("_node_config"), path, write=True)
+        if denied:
+            return denied
 
         from openvort.core.execution.docker_executor import DockerExecutor
 
