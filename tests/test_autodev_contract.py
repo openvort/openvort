@@ -52,7 +52,7 @@ def test_jira_sync_cmd_default_and_quoting():
 
 
 JIRA_SAMPLE = json.dumps([
-    {"key": "TPYBX-24", "fields": {
+    {"key": "TPYBX-24", "self": "https://jira.x.cn/rest/api/2/issue/1", "fields": {
         "summary": "权限体系改造", "description": "正文", "status": {"name": "OPEN"}, "priority": {"name": "High"},
         "assignee": {"displayName": "顾问甲", "name": "ga"}, "issuetype": {"name": "需求"}}},
     {"key": "TPYBX-35",
@@ -63,9 +63,11 @@ JIRA_SAMPLE = json.dumps([
 def test_parse_jira_issues_flattens_list_shape():
     items = ct.parse_jira_issues(JIRA_SAMPLE)
     assert [i["key"] for i in items] == ["TPYBX-24", "TPYBX-35"]
-    assert items[0] == {"key": "TPYBX-24", "summary": "权限体系改造", "description": "正文", "status": "OPEN",
-                        "priority": "High", "assignee": "顾问甲", "type": "需求"}
+    assert items[0] == {"key": "TPYBX-24", "url": "https://jira.x.cn/browse/TPYBX-24", "summary": "权限体系改造",
+                        "description": "正文", "status": "OPEN", "priority": "High",
+                        "assignee": "顾问甲", "type": "需求"}
     assert items[1]["priority"] == "" and items[1]["assignee"] == "" and items[1]["description"] == ""
+    assert items[1]["url"] == ""  # 没有 self 就没有地址，不猜
     assert len(ct.parse_jira_issues(json.dumps({"issues": json.loads(JIRA_SAMPLE)}))) == 2
     assert ct.parse_jira_issues("[]") == []
 
@@ -233,3 +235,17 @@ def test_node_max_slots_parsing():
     assert ct.node_max_slots({"max_slots": "3"}) == 3
     assert ct.node_max_slots({"max_slots": 0}) == 1
     assert ct.node_max_slots({"max_slots": "x"}) == 1
+
+
+def test_story_title_and_description_carry_jira_key():
+    self_link = "https://jira.hcmcloud.cn/rest/api/2/issue/357017"
+    url = ct.browse_url(self_link, "TPYBX-730")
+    assert url == "https://jira.hcmcloud.cn/browse/TPYBX-730"
+    assert ct.browse_url("", "TPYBX-730") == "" and ct.browse_url(self_link, "") == ""
+    # 每轮重建，重复同步不会把单号叠加成 "K K 标题"
+    t = ct.story_title("TPYBX-730", "培训设置-供应商信息")
+    assert t == "TPYBX-730 培训设置-供应商信息"
+    assert ct.story_title("TPYBX-730", "") == "TPYBX-730"
+    d = ct.story_description(url, "正文")
+    assert d.startswith("Jira: " + url) and d.endswith("正文")
+    assert ct.story_description("", "正文") == "正文"

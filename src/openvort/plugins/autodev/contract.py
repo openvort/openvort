@@ -179,6 +179,24 @@ def jira_sync_cmd(jira_project_key: str, jql: str, max_results: int) -> str:
     )
 
 
+def browse_url(self_link: str, key: str) -> str:
+    """从 issue 的 `self`（…/rest/api/2/issue/357017）推出人看的地址（…/browse/TPYBX-730）。"""
+    if not self_link or not key:
+        return ""
+    head = self_link.split("/rest/", 1)[0]
+    return f"{head}/browse/{key}" if head.startswith("http") else ""
+
+
+def story_title(key: str, summary: str) -> str:
+    """标题前缀单号——列表、看板、评论、员工回话里都能看见，不必额外读映射表。每轮重建，不会叠加。"""
+    return f"{key} {summary}".strip() if summary else key
+
+
+def story_description(url: str, description: str) -> str:
+    """正文顶上挂一行 Jira 地址，方便点回原单。每轮重建。"""
+    return f"Jira: {url}\n\n{description}".strip() if url else description
+
+
 def parse_jira_issues(text: str) -> list[dict]:
     """把 `jira --json issue list` 的输出压成扁平结构。返回体是 issue 列表（无外层容器）。"""
     data = json.loads(text)
@@ -194,6 +212,7 @@ def parse_jira_issues(text: str) -> list[dict]:
             assignee_name = str(assignee)
         items.append({
             "key": it.get("key", ""),
+            "url": browse_url(it.get("self", ""), it.get("key", "")),
             "summary": f.get("summary", "") or "",
             "description": f.get("description", "") or "",
             "status": (f.get("status") or {}).get("name", ""),

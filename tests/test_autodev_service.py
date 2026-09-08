@@ -23,8 +23,9 @@ TABLES = ("members", "flow_projects", "flow_stories", "flow_external_mappings", 
 
 def jira_out(*rows):
     return json.dumps([
-        {"key": k, "fields": {"summary": s, "description": "d", "status": {"name": st}, "priority": {"name": pr}}}
-        for k, s, st, pr in rows
+        {"key": k, "self": f"https://jira.x.cn/rest/api/2/issue/{i}",
+         "fields": {"summary": s, "description": "d", "status": {"name": st}, "priority": {"name": pr}}}
+        for i, (k, s, st, pr) in enumerate(rows)
     ])
 
 
@@ -180,7 +181,9 @@ async def test_sync_creates_stories_and_mappings_once(service, sf):
         m = (await db.execute(stmt)).scalar_one()
         assert m.adapter == "jira" and m.local_type == "story" and m.sync_cursor == "新增"
     s = await _story(sf, "TPYBX-1")
-    assert s.project_id == "fp1" and s.state == ct.STATE_SUBMITTED and s.priority == 2 and s.title == "a"
+    assert s.project_id == "fp1" and s.state == ct.STATE_SUBMITTED and s.priority == 2
+    assert s.title == "TPYBX-1 a"  # 标题带单号，列表里能直接认出是哪张 Jira 单
+    assert s.description.startswith("Jira: https://jira.x.cn/browse/TPYBX-1")
 
 
 async def test_sync_keeps_human_dev_assign_when_jira_unchanged(service, sf):

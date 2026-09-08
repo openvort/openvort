@@ -221,8 +221,10 @@ class AutodevService:
                     log.warning(f"autodev sync: Jira 状态「{it['status']}」不在映射表，{it['key']} 保留 story 状态")
                 if decision.create:
                     story = FlowStory(
-                        id=uuid.uuid4().hex, project_id=p.project_id, title=it["summary"] or it["key"],
-                        description=it["description"], priority=ct.map_priority(it["priority"]),
+                        id=uuid.uuid4().hex, project_id=p.project_id,
+                        title=ct.story_title(it["key"], it["summary"]),
+                        description=ct.story_description(it["url"], it["description"]),
+                        priority=ct.map_priority(it["priority"]),
                         state=decision.set_state or ct.STATE_SUBMITTED,
                     )
                     db.add(story)
@@ -235,8 +237,8 @@ class AutodevService:
                         ))
                     counts["created"] += 1
                 else:
-                    story.title = it["summary"] or story.title
-                    story.description = it["description"]
+                    story.title = ct.story_title(it["key"], it["summary"])
+                    story.description = ct.story_description(it["url"], it["description"])
                     story.priority = ct.map_priority(it["priority"])
                     if decision.set_state and story.state != decision.set_state:
                         story.state = decision.set_state
