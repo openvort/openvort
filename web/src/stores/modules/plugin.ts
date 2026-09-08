@@ -13,18 +13,25 @@ export interface PluginExtension {
 export const usePluginStore = defineStore("plugin", () => {
     const extensions = ref<PluginExtension[]>([]);
     const loaded = ref(false);
+    /** 上次拉取是否成功。失败时不能把「拉不到」当成「都禁用了」，否则一次网络抖动就清空半个侧边栏。 */
+    const ok = ref(false);
 
-    /** 从后端拉取所有插件 UI 扩展 */
+    /** 从后端拉取所有插件 UI 扩展（接口只返回已启用的插件） */
     const fetchExtensions = async () => {
         try {
             const res: any = await request.get("/platform/ui-extensions");
             extensions.value = res?.extensions || [];
-            loaded.value = true;
+            ok.value = true;
         } catch {
             extensions.value = [];
-            loaded.value = true;
+            ok.value = false;
         }
+        loaded.value = true;
     };
+
+    /** 插件是否启用。只对声明了 UI 扩展的插件有意义；拉取失败时一律放行。 */
+    const isPluginEnabled = (name: string) =>
+        !ok.value || extensions.value.some(e => e.plugin === name);
 
     const BUILTIN_PLUGINS = new Set(["vortflow", "vortgit", "vortsketch", "vortcert"]);
 
@@ -53,5 +60,5 @@ export const usePluginStore = defineStore("plugin", () => {
         return menus;
     };
 
-    return { extensions, loaded, fetchExtensions, pluginMenus };
+    return { extensions, loaded, ok, fetchExtensions, pluginMenus, isPluginEnabled };
 });

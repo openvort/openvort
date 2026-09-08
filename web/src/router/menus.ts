@@ -9,6 +9,8 @@ import vortcertConfig from "@/views/vortcert/plugin";
 
 /** 侧边栏菜单配置 */
 export interface MenuConfig {
+    /** 声明这组菜单属于哪个插件；插件被卸载时整组隐藏。内置插件的菜单静态写在下面，用它跟启用状态对上。 */
+    plugin?: string;
     title: string;
     icon: string;
     path?: string;
@@ -19,17 +21,21 @@ export interface MenuConfig {
     children?: MenuConfig[];
 }
 
+/** 给内置插件的静态菜单打上插件名，供侧边栏按启用状态过滤 */
+const own = (cfg: { id: string; menus: MenuConfig[] }): MenuConfig[] =>
+    cfg.menus.map(m => ({ ...m, plugin: cfg.id }));
+
 export const menuConfig: MenuConfig[] = [
     { title: "AI 助手", icon: "message-square", path: "/chat", position: "top" },
     { title: "工作台", icon: "home", path: "/overview" },
     { title: "AI 员工", icon: "bot", path: "/ai-employees", label: "AI 能力", requiredRole: "admin" },
     ...knowledgeConfig.menus,
     { title: "技能管理", icon: "book-open", path: "/skills", requiredRole: "admin" },
-    ...vortflowConfig.menus,
-    ...vortgitConfig.menus,
+    ...own(vortflowConfig),
+    ...own(vortgitConfig),
     ...jenkinsConfig.menus,
-    ...vortsketchConfig.menus,
-    ...vortcertConfig.menus,
+    ...own(vortsketchConfig),
+    ...own(vortcertConfig),
     { title: "组织管理", icon: "users", path: "/contacts", label: "团队效率", requiredRole: "admin" },
     ...reportsConfig.menus,
     ...schedulesConfig.menus,

@@ -95,6 +95,7 @@ const iconMap: Record<string, any> = {
 
 const filterByRole = (items: MenuConfig[]) => {
     return items.filter(item => {
+        if (item.plugin && !pluginStore.isPluginEnabled(item.plugin)) return false;
         if (!item.requiredRole) return true;
         return userStore.hasRole(item.requiredRole);
     });
