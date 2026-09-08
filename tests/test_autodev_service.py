@@ -410,3 +410,11 @@ async def test_schedule_handlers_call_global_paths(service, sf):
     assert "TPYBX: 命中 2 · 新建 2" in await svc_mod.schedule_sync_handler(None, {})
     await _assign(sf, "TPYBX-1")
     assert "TPYBX: 已派发：TPYBX-1" in await svc_mod.schedule_dispatch_handler(None, {"max_starts": 1})
+
+
+async def test_member_choices_snapshot_feeds_config_picker(service):
+    choices = await service.refresh_member_choices()
+    by_id = {c["id"]: c for c in choices}
+    assert by_id[AI]["name"] == "交付员" and by_id[AI]["node_id"] == "node1"
+    assert by_id["ai-unbound"]["node_id"] == ""  # 未绑机的也列出，界面上标注
+    assert "human" not in by_id  # 真人不进候选

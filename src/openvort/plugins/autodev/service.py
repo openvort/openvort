@@ -79,6 +79,8 @@ class AutodevService:
         self._dispatch_lock = asyncio.Lock()
         self._poll_task: asyncio.Task | None = None
         self.ai_member_id: str = ""  # 全局唯一 AI 员工，插件配置注入
+        # 数字员工快照，供插件配置下拉用；由后台循环刷新
+        self.member_choices: list[dict] = []
 
     # ---------- master 节点 ----------
 
@@ -546,9 +548,24 @@ class AutodevService:
                     await self.poll_once()
                 except Exception as e:
                     log.warning(f"autodev poll 异常: {e}")
+                try:
+                    await self.refresh_member_choices()
+                except Exception as e:
+                    log.warning(f"autodev 刷新员工列表异常: {e}")
                 await asyncio.sleep(POLL_INTERVAL)
 
         self._poll_task = asyncio.get_running_loop().create_task(loop())
+
+    async def refresh_member_choices(self) -> list[dict]:
+        """把可选的数字员工刷进快照。插件配置表单是同步的、取不到 DB，只能读这份快照。"""
+        async with self._sf() as db:
+            rows = (await db.execute(
+                select(Member).where(Member.is_virtual.is_(True)).order_by(Member.name)
+            )).scalars().all()
+        self.member_choices = [
+            {"id": m.id, "name": m.name, "node_id": m.remote_node_id or ""} for m in rows
+        ]
+        return self.member_choices
 
     # ---------- 查询 ----------
 

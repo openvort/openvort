@@ -9,6 +9,6 @@
   `queue_unmapped` 是指派给你但没有 Jira 映射、因此不会被派发的 story，遇到要提醒用户。
 - 结果四态：delivered（已推分支、开 MR、回写工单）· verified（验证通过但按设置停在交付前）·
   no_change（模型判断无需改动）· failed（其余退出码，含超时与停滞）。
-- 费用 = token × 项目配置的单价；`priced=false` 时只报 token，不报金额。
+- 费用 = token × 固定价目表里该模型的单价；`priced=false` 时只报 token，不报金额。
 - 派发由机械闸门决定（节点 slot / 日上限 / 熔断 / 暂停），你没有派发工具，也不要在工作机上直接跑
   worker.sh 或 docker 命令——那会被拒绝。用户要派单、同步或改配置时，请他到项目页「自动交付」标签操作。

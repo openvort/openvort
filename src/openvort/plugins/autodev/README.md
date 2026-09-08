@@ -34,7 +34,7 @@ docker exec autodev-master sh -c 'id -u; docker --version; jira --version'   # �
 
 ## 2. 插件配置
 
-系统设置 → 插件 → AutoDev：`ai_member_id` = 全公司唯一的自动交付 AI 员工的成员 ID。它有三个作用：队列判据（story 指派给它）、两条全局定时任务的 owner、**master 的来源**——派发与同步用的节点就是这位员工绑定的工作机（成员的 `remote_node_id`），项目里不再单独选 master。员工没绑机时派发与同步直接报「AI 员工未绑定工作机」。
+插件管理 → 已安装 → AutoDev → 设置：从下拉里选那位自动交付 AI 员工（候选 = 全部数字员工，未绑工作机的会标注；列表由服务每 60 s 刷新一次快照）。它有三个作用：队列判据（story 指派给它）、两条全局定时任务的 owner、**master 的来源**——派发与同步用的节点就是这位员工绑定的工作机（成员的 `remote_node_id`），项目里不再单独选 master。员工没绑机时派发与同步直接报「AI 员工未绑定工作机」。
 
 ## 3. 项目配置（项目详情页 → 自动交付）
 

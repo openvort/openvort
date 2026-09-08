@@ -46,8 +46,9 @@ class AutoDevPlugin(BasePlugin):
         register_action_handler(ACTION_DISPATCH, schedule_dispatch_handler)
         register_action_handler(ACTION_SYNC, schedule_sync_handler)
         try:
-            asyncio.get_running_loop()
+            loop = asyncio.get_running_loop()
             svc.start_background()
+            loop.create_task(svc.refresh_member_choices())  # 首屏就有下拉，不等第一轮轮询
         except RuntimeError:
             log.warning("autodev: 无运行中的事件循环，回收循环未启动（测试或 CLI 环境）")
 
@@ -75,18 +76,25 @@ class AutoDevPlugin(BasePlugin):
     # ---- 插件配置：全局唯一 AI 员工 ----
 
     def get_config_schema(self) -> list[dict]:
-        return [
-            {
-                "key": "ai_member_id",
-                "label": "自动交付 AI 员工（成员 ID）",
-                "type": "string",
-                "required": True,
-                "secret": False,
-                "placeholder": "members.id",
-                "description": "全公司唯一的自动交付 AI 员工。story 指派给它并处于 dev_assign 即进入派发队列；"
-                               "它也是两条全局定时任务的 owner。",
-            },
+        choices = list(getattr(self._svc, "member_choices", []) or [])
+        options = [
+            {"value": c["id"], "label": c["name"] + ("" if c["node_id"] else "（未绑定工作机）")}
+            for c in choices
         ]
+        field: dict = {
+            "key": "ai_member_id",
+            "label": "自动交付 AI 员工",
+            "required": True,
+            "secret": False,
+            "description": "全公司唯一的自动交付 AI 员工。需求指派给它并处于「已分配」即进入派发队列；"
+                           "派发用的工作机取自它绑定的节点；它也是两条全局定时任务的负责人。",
+        }
+        if options:
+            field.update(type="select", options=options, placeholder="选择一位数字员工")
+        else:
+            # 还没建数字员工，或快照未就绪：退回手填，别把人卡死在空下拉里
+            field.update(type="string", placeholder="members.id（先去组织管理建一位数字员工）")
+        return [field]
 
     def get_current_config(self) -> dict:
         return {"ai_member_id": self._ai_member_id}
