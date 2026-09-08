@@ -33,10 +33,8 @@ class AutodevProject(Base):
     # 交付仓在宿主上的绝对路径（主仓，不是 worktree）；kit 仓须在同父目录
     repo_path: Mapped[str] = mapped_column(String(512), default="")
     jira_project_key: Mapped[str] = mapped_column(String(64), default="")
-    # 同步：追加在 project = <key> 之后的 JQL；空则用 contract.default_sync_jql(window_days)
+    # 同步：追加在 project = <key> 之后的 JQL；空则用 contract.DEFAULT_SYNC_JQL
     sync_jql: Mapped[str] = mapped_column(Text, default="")
-    sync_window_days: Mapped[int] = mapped_column(Integer, default=30)
-    sync_first_window_days: Mapped[int] = mapped_column(Integer, default=365)
     sync_max_results: Mapped[int] = mapped_column(Integer, default=200)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # 项目级开关（镜像 / 模型 / 超时 / 日上限 / 熔断 / 单价 / 状态映射都是 contract 里的固定常量）

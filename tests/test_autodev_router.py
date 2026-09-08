@@ -97,15 +97,16 @@ def test_config_roundtrip_masks_password_and_rejects_secret_env(client):
     assert "daily_cap" not in cfg and "master_node_id" not in cfg and "status_map" not in cfg
     assert client.get("/api/autodev/projects/fp1").json()["config"]["hcm_password"] == "****pass"
     # 原样提交脱敏值：不覆盖
-    client.put("/api/autodev/projects/fp1", json={"hcm_password": "****pass", "sync_window_days": 5}, headers=ADMIN)
+    client.put("/api/autodev/projects/fp1", json={"hcm_password": "****pass", "sync_max_results": 5}, headers=ADMIN)
     svc = svc_mod.get_service()
     import asyncio
     p = asyncio.get_event_loop().run_until_complete(svc.get_project("fp1"))
-    assert svc.hcm_values(p)["HCM_PASSWORD"] == "secret-pass" and p.sync_window_days == 5
+    assert svc.hcm_values(p)["HCM_PASSWORD"] == "secret-pass" and p.sync_max_results == 5
     # 固定参数与 master 从 /global 读
     g = client.get("/api/autodev/global").json()
     assert g["master"]["node_id"] == "node1" and g["master"]["max_slots"] == 2
     assert g["fixed"]["daily_cap"] == 3 and g["fixed"]["status_map"]["OPEN"] == "in_progress"
+    assert "currentUser()" in g["fixed"]["default_sync_jql"]
     bad = client.put("/api/autodev/projects/fp1", json={"env": {"GITLAB_TOKEN": "x"}}, headers=ADMIN)
     assert bad.status_code == 400 and "密钥" in bad.json()["detail"]
 

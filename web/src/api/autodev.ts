@@ -6,8 +6,6 @@ export interface AutodevProjectConfig {
     repo_path: string;
     jira_project_key: string;
     sync_jql: string;
-    sync_window_days: number;
-    sync_first_window_days: number;
     sync_max_results: number;
     last_synced_at: string | null;
     deliver: boolean;

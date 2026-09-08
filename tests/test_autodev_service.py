@@ -170,10 +170,10 @@ async def test_sync_creates_stories_and_mappings_once(service, sf):
     p = await service.get_project("fp1")
     c1 = await service.sync_project(p)
     assert c1 == {"seen": 2, "created": 2, "updated": 0, "state_changed": 0, "unmapped": 0}
-    assert "updated >= -365d" in service.fake.calls[0]  # 首次全量窗口
+    assert "currentUser()" in service.fake.calls[0]  # 默认只同步机器人自己的单
     c2 = await service.sync_project(await service.get_project("fp1"))
     assert c2["created"] == 0 and c2["updated"] == 2
-    assert "updated >= -30d" in service.fake.calls[1]  # 之后增量窗口
+    assert service.fake.calls[1] == service.fake.calls[0]  # 无窗口概念，每轮同一条 JQL
     async with sf() as db:
         assert len((await db.execute(select(FlowStory))).scalars().all()) == 2
         stmt = select(FlowExternalMapping).where(FlowExternalMapping.external_id == "TPYBX-1")

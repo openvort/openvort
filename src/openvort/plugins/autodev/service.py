@@ -29,8 +29,8 @@ from openvort.utils.logging import get_logger
 log = get_logger("plugins.autodev.service")
 
 PROJECT_FIELDS = (
-    "repo_path", "jira_project_key", "sync_jql", "sync_window_days", "sync_first_window_days",
-    "sync_max_results", "deliver", "enabled", "paused", "env_json", "hcm_base_url", "hcm_username",
+    "repo_path", "jira_project_key", "sync_jql", "sync_max_results",
+    "deliver", "enabled", "paused", "env_json", "hcm_base_url", "hcm_username",
 )
 # 超过这个时长仍没有 rc，判 lost（worker 自身 6h 超时 + 收口余量）
 LOST_AFTER = timedelta(hours=9)
@@ -189,10 +189,9 @@ class AutodevService:
 
     async def sync_project(self, p: AutodevProject) -> dict:
         """一轮同步：经 master 列单 → 创建/更新 story + 映射。返回计数。Jira 是真相，本方法不写 Jira。"""
-        window = p.sync_window_days if p.last_synced_at else p.sync_first_window_days
         text = await self.exec_on(
             await self.master_node_id(),
-            ct.jira_sync_cmd(p.jira_project_key, p.sync_jql, window, p.sync_max_results), timeout=120,
+            ct.jira_sync_cmd(p.jira_project_key, p.sync_jql, p.sync_max_results), timeout=120,
         )
         issues = ct.parse_jira_issues(text)
         table = ct.STATUS_MAP

@@ -46,8 +46,6 @@ def project_dict(p: AutodevProject) -> dict:
         "repo_path": p.repo_path,
         "jira_project_key": p.jira_project_key,
         "sync_jql": p.sync_jql,
-        "sync_window_days": p.sync_window_days,
-        "sync_first_window_days": p.sync_first_window_days,
         "sync_max_results": p.sync_max_results,
         "last_synced_at": p.last_synced_at.isoformat() if p.last_synced_at else None,
         "deliver": p.deliver,
@@ -97,8 +95,6 @@ class ProjectConfigIn(BaseModel):
     repo_path: str | None = None
     jira_project_key: str | None = None
     sync_jql: str | None = None
-    sync_window_days: int | None = None
-    sync_first_window_days: int | None = None
     sync_max_results: int | None = None
     deliver: bool | None = None
     enabled: bool | None = None

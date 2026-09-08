@@ -52,6 +52,9 @@ STATE_TESTING = "testing"
 STATE_REJECTED = "rejected"
 STATE_DONE = "done"
 
+# worker 收口后把工单流转到这个状态；默认同步 JQL 也靠它认出「我们交付过的单」
+STATUS_FIXED = "已修复"
+
 # Jira 状态名 → story state（固定表，不按项目覆盖）
 # 取自 jira.hcmcloud.cn 的实际工作流：TPYBX 与 HC 两个项目共 9 个状态名，这里全覆盖。
 # 表外状态一律保留 story 现状并记一次告警——发现新状态名往这里加，别改成猜。
@@ -61,7 +64,7 @@ STATUS_MAP: dict[str, str] = {
     "待确认": STATE_SUBMITTED,
     "转支持确认中": STATE_SUBMITTED,
     "OPEN": STATE_IN_PROGRESS,
-    "已修复": STATE_TESTING,
+    STATUS_FIXED: STATE_TESTING,
     "测试中": STATE_TESTING,
     "不处理": STATE_REJECTED,
     "CLOSE": STATE_DONE,
@@ -92,6 +95,7 @@ def fixed_params() -> dict:
         "worker_script": WORKER_SCRIPT, "worker_image": WORKER_IMAGE, "model": MODEL,
         "dispatch_root": DISPATCH_ROOT, "usage_report": USAGE_REPORT, "timeout_seconds": TIMEOUT_SECONDS,
         "daily_cap": DAILY_CAP, "failure_threshold": FAILURE_THRESHOLD,
+        "default_sync_jql": DEFAULT_SYNC_JQL,
         "price_in_per_m": price[0] if price else None, "price_out_per_m": price[1] if price else None,
         "status_map": dict(STATUS_MAP),
     }
@@ -156,15 +160,19 @@ def validate_env(env: dict) -> dict[str, str]:
 # ---------- Jira 同步 ----------
 
 
-def default_sync_jql(window_days: int) -> str:
-    return f"updated >= -{int(window_days)}d ORDER BY updated DESC"
+# 默认同步范围 = 这条流水线自己的足迹：当前挂在机器人账号名下的，加上历史上由它流转到「已修复」的。
+# 用 currentUser() 而不是写死账号名——它就是 master 上 jira CLI 登录的那个账号，换 token 自动跟着走。
+DEFAULT_SYNC_JQL = (
+    f"(assignee = currentUser() OR status changed to {STATUS_FIXED} by currentUser()) "
+    "ORDER BY updated DESC"
+)
 
 
-def jira_sync_cmd(jira_project_key: str, jql: str, window_days: int, max_results: int) -> str:
-    """`jira --json issue list -p KEY --jql '<jql>' --max N`——jql 空则按窗口天数取增量。"""
+def jira_sync_cmd(jira_project_key: str, jql: str, max_results: int) -> str:
+    """`jira --json issue list -p KEY --jql '<jql>' --max N`——jql 空则用 DEFAULT_SYNC_JQL。"""
     if not jira_project_key:
         raise ValueError("jira_project_key 未配置")
-    effective = (jql or "").strip() or default_sync_jql(window_days)
+    effective = (jql or "").strip() or DEFAULT_SYNC_JQL
     return (
         f"jira --json issue list -p {shlex.quote(jira_project_key)} "
         f"--jql {shlex.quote(effective)} --max {int(max_results)}"

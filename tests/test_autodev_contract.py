@@ -36,15 +36,19 @@ def test_validate_env_accepts_plain_vars_and_stringifies():
 # ---------- Jira 同步 ----------
 
 
-def test_jira_sync_cmd_windows_and_quoting():
-    first = ct.jira_sync_cmd("TPYBX", "", 365, 200)
-    assert first.startswith("jira --json issue list -p TPYBX --jql ")
-    assert shlex.quote("updated >= -365d ORDER BY updated DESC") in first and first.endswith("--max 200")
-    custom = ct.jira_sync_cmd("TPYBX", "labels = auto AND status = OPEN", 30, 50)
+def test_jira_sync_cmd_default_and_quoting():
+    default = ct.jira_sync_cmd("TPYBX", "", 200)
+    assert default.startswith("jira --json issue list -p TPYBX --jql ") and default.endswith("--max 200")
+    parts = shlex.split(default)
+    jql = parts[parts.index("--jql") + 1]
+    # 默认范围 = 机器人自己的足迹：在办的 + 历史上由它流转到「已修复」的。不写死账号名。
+    assert jql == ct.DEFAULT_SYNC_JQL
+    assert "currentUser()" in jql and ct.STATUS_FIXED in jql and "assignee" in jql
+    custom = ct.jira_sync_cmd("TPYBX", "labels = auto AND status = OPEN", 50)
     parts = shlex.split(custom)
     assert parts[parts.index("--jql") + 1] == "labels = auto AND status = OPEN"
     with pytest.raises(ValueError):
-        ct.jira_sync_cmd("", "", 30, 50)
+        ct.jira_sync_cmd("", "", 50)
 
 
 JIRA_SAMPLE = json.dumps([
@@ -163,6 +167,7 @@ def test_compute_cost_fixed_price_table(monkeypatch):
     assert ct.MODEL in ct.MODEL_PRICES  # 当前固定模型必须有价，否则统计只报 token
     fixed = ct.fixed_params()
     assert fixed["model"] == ct.MODEL and fixed["price_out_per_m"] == ct.MODEL_PRICES[ct.MODEL][1]
+    assert fixed["default_sync_jql"] == ct.DEFAULT_SYNC_JQL
 
 
 # ---------- .env 三行合并 ----------

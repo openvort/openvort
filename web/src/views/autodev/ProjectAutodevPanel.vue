@@ -29,8 +29,7 @@ let timer: number | null = null;
 
 function defaultForm() {
     return {
-        repo_path: "", jira_project_key: "", sync_jql: "", sync_window_days: 30,
-        sync_first_window_days: 365, sync_max_results: 200,
+        repo_path: "", jira_project_key: "", sync_jql: "", sync_max_results: 200,
         deliver: false, enabled: true, hcm_base_url: "", hcm_username: "", hcm_password: "",
     };
 }
@@ -72,8 +71,7 @@ async function loadAll() {
             const c = config.value;
             form.value = {
                 repo_path: c.repo_path, jira_project_key: c.jira_project_key,
-                sync_jql: c.sync_jql, sync_window_days: c.sync_window_days,
-                sync_first_window_days: c.sync_first_window_days, sync_max_results: c.sync_max_results,
+                sync_jql: c.sync_jql, sync_max_results: c.sync_max_results,
                 deliver: c.deliver, enabled: c.enabled, hcm_base_url: c.hcm_base_url,
                 hcm_username: c.hcm_username, hcm_password: c.hcm_password,
             };
@@ -245,13 +243,10 @@ onBeforeUnmount(() => { if (timer) window.clearInterval(timer); });
                         </VortFormItem>
                         <VortFormItem label="Jira 项目 key" required><VortInput v-model="form.jira_project_key" placeholder="TPYBX" /></VortFormItem>
                         <VortFormItem label="同步 JQL">
-                            <VortInput v-model="form.sync_jql" placeholder="留空 = updated >= -窗口 天" />
+                            <VortInput v-model="form.sync_jql" placeholder="留空用默认（见下方固定参数）" />
+                            <div class="text-xs text-gray-400 mt-1">留空即只同步这条流水线自己的单，通常不用填</div>
                         </VortFormItem>
-                        <div class="grid grid-cols-3 gap-3">
-                            <VortFormItem label="增量窗口(天)"><VortInput v-model.number="form.sync_window_days" /></VortFormItem>
-                            <VortFormItem label="首次窗口(天)"><VortInput v-model.number="form.sync_first_window_days" /></VortFormItem>
-                            <VortFormItem label="每次最多"><VortInput v-model.number="form.sync_max_results" /></VortFormItem>
-                        </div>
+                        <VortFormItem label="每次最多同步"><VortInput v-model.number="form.sync_max_results" /></VortFormItem>
                     </VortForm>
                     <VortForm layout="vertical" class="autodev-form">
                         <div class="grid grid-cols-2 gap-3">
@@ -292,6 +287,9 @@ onBeforeUnmount(() => { if (timer) window.clearInterval(timer); });
                         <span>熔断 {{ fixed.failure_threshold }} 连败</span>
                         <span>单价 {{ fixed.price_in_per_m === null ? '未定价' : `¥${fixed.price_in_per_m} / ¥${fixed.price_out_per_m} 每百万 token` }}</span>
                         <span>状态映射 {{ Object.entries(fixed.status_map).map(([k, v]) => `${k}→${v}`).join('、') }}</span>
+                    </div>
+                    <div class="mt-2 text-xs text-gray-600">
+                        默认同步 JQL <code class="font-mono">{{ fixed.default_sync_jql }}</code>
                     </div>
                 </div>
             </div>

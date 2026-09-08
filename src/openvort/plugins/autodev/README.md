@@ -44,7 +44,7 @@ docker exec autodev-master sh -c 'id -u; docker --version; jira --version'   # �
 |---|---|
 | 仓路径 | 宿主上交付仓的绝对路径（主仓，不是 worktree）；kit 仓须在同父目录 |
 | Jira 项目 key | 同步与派发都限定在这个项目 |
-| 同步 JQL / 窗口 | 空则 `updated >= -<窗口>d`；首次用大窗口全量 |
+| 同步 JQL | 留空即用默认（见 §3.1），只同步这条流水线自己的单；填了就整条替换 |
 | 真交付 | `deliver=false` 时 worker 以 `AUTODEV_DELIVER=0` 跑，验证通过即停（退出码 15）；上线先跑几张再翻 |
 | 启用派发 | 关掉即不进全局派发轮转 |
 | 平台系统用户 | `HCM_BASE_URL / HCM_USERNAME / HCM_PASSWORD`，密码加密存储；派发前写进仓内 `03_config/.env` 的这三行，其余行（含 hcmo 自刷的 `HCM_TOKEN`）逐字保留，内容相同不写 |
@@ -64,6 +64,7 @@ docker exec autodev-master sh -c 'id -u; docker --version; jira --version'   # �
 | `TIMEOUT_SECONDS` | 21600（6 h） | worker 墙钟上限调整 |
 | `DAILY_CAP` / `FAILURE_THRESHOLD` | 3 / 3 | 闸门策略调整 |
 | `MODEL_PRICES` | deepseek-v4-pro = ¥9 / ¥27 每百万 token（高峰价） | 价目变动，源见 vault `codebuddy-本机模型价格` |
+| `DEFAULT_SYNC_JQL` | `(assignee = currentUser() OR status changed to 已修复 by currentUser()) ORDER BY updated DESC`——在办的加历史交付过的，账号取 master 上 jira CLI 的登录身份 | 取单口径变了 |
 | `STATUS_MAP` | 新增·补充说明·待确认·转支持确认中→submitted、OPEN→in_progress、已修复·测试中→testing、不处理→rejected、CLOSE→done | Jira 工作流出现新状态名 |
 
 费用按运行记录里的模型查价；模型不在价目表则费用为 0，页面显示「未配单价」。并发上限 `max_slots` 仍在 master 节点 config 里（同机共享，不是项目属性）。
