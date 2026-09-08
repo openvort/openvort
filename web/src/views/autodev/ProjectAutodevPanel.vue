@@ -238,7 +238,7 @@ onBeforeUnmount(() => { if (timer) window.clearInterval(timer); });
                     <VortButton size="small" variant="primary" :loading="saving" :disabled="!isAdmin" @click="handleSave"><Save :size="14" class="mr-1" />保存</VortButton>
                 </div>
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-x-8">
-                    <VortForm layout="vertical">
+                    <VortForm layout="vertical" class="autodev-form">
                         <VortFormItem label="交付仓路径" required>
                             <VortInput v-model="form.repo_path" placeholder="/data/autodev/repos/cpic" />
                             <div class="text-xs text-gray-400 mt-1">宿主绝对路径，主仓不是 worktree</div>
@@ -253,7 +253,7 @@ onBeforeUnmount(() => { if (timer) window.clearInterval(timer); });
                             <VortFormItem label="每次最多"><VortInput v-model.number="form.sync_max_results" /></VortFormItem>
                         </div>
                     </VortForm>
-                    <VortForm layout="vertical">
+                    <VortForm layout="vertical" class="autodev-form">
                         <div class="grid grid-cols-2 gap-3">
                             <VortFormItem label="真交付">
                                 <VortSwitch v-model:checked="form.deliver" />
@@ -298,3 +298,13 @@ onBeforeUnmount(() => { if (timer) window.clearInterval(timer); });
         </template>
     </div>
 </template>
+
+<style scoped>
+/* vort-ui 的 vertical 表单标签是 height:32px + box-sizing:border-box + padding-bottom:8px + overflow:hidden，
+   内层文字仍按 32px 行高排，中文字形底部被切掉。这里放开高度与溢出。 */
+.autodev-form :deep(.vort-form-item-vertical .vort-form-item-label),
+.autodev-form :deep(.vort-form-item-vertical .vort-form-item-label-text) {
+    height: auto;
+    overflow: visible;
+}
+</style>
