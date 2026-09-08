@@ -239,9 +239,14 @@ onBeforeUnmount(() => { if (timer) window.clearInterval(timer); });
                 </div>
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-x-8">
                     <VortForm layout="vertical">
-                        <VortFormItem label="交付仓路径（宿主绝对路径，主仓）" required><VortInput v-model="form.repo_path" placeholder="/data/autodev/repos/cpic" /></VortFormItem>
+                        <VortFormItem label="交付仓路径" required>
+                            <VortInput v-model="form.repo_path" placeholder="/data/autodev/repos/cpic" />
+                            <div class="text-xs text-gray-400 mt-1">宿主绝对路径，主仓不是 worktree</div>
+                        </VortFormItem>
                         <VortFormItem label="Jira 项目 key" required><VortInput v-model="form.jira_project_key" placeholder="TPYBX" /></VortFormItem>
-                        <VortFormItem label="同步 JQL（空 = updated >= -窗口 天）"><VortInput v-model="form.sync_jql" placeholder="留空用默认" /></VortFormItem>
+                        <VortFormItem label="同步 JQL">
+                            <VortInput v-model="form.sync_jql" placeholder="留空 = updated >= -窗口 天" />
+                        </VortFormItem>
                         <div class="grid grid-cols-3 gap-3">
                             <VortFormItem label="增量窗口(天)"><VortInput v-model.number="form.sync_window_days" /></VortFormItem>
                             <VortFormItem label="首次窗口(天)"><VortInput v-model.number="form.sync_first_window_days" /></VortFormItem>
@@ -250,15 +255,29 @@ onBeforeUnmount(() => { if (timer) window.clearInterval(timer); });
                     </VortForm>
                     <VortForm layout="vertical">
                         <div class="grid grid-cols-2 gap-3">
-                            <VortFormItem label="真交付（推分支 / 开 MR / 回写 Jira）"><VortSwitch v-model:checked="form.deliver" /></VortFormItem>
-                            <VortFormItem label="启用派发"><VortSwitch v-model:checked="form.enabled" /></VortFormItem>
+                            <VortFormItem label="真交付">
+                                <VortSwitch v-model:checked="form.deliver" />
+                                <div class="text-xs text-gray-400 mt-1">推分支 / 开 MR / 回写 Jira</div>
+                            </VortFormItem>
+                            <VortFormItem label="启用派发">
+                                <VortSwitch v-model:checked="form.enabled" />
+                                <div class="text-xs text-gray-400 mt-1">关掉即退出全局轮转</div>
+                            </VortFormItem>
                         </div>
-                        <VortFormItem label="平台地址（HCM_BASE_URL）"><VortInput v-model="form.hcm_base_url" /></VortFormItem>
+                        <VortFormItem label="平台地址">
+                            <VortInput v-model="form.hcm_base_url" placeholder="HCM_BASE_URL" />
+                        </VortFormItem>
                         <div class="grid grid-cols-2 gap-3">
                             <VortFormItem label="系统用户"><VortInput v-model="form.hcm_username" /></VortFormItem>
-                            <VortFormItem label="密码（**** 开头 = 不修改）"><VortInput v-model="form.hcm_password" type="password" /></VortFormItem>
+                            <VortFormItem label="密码">
+                                <VortInput v-model="form.hcm_password" type="password" />
+                                <div class="text-xs text-gray-400 mt-1">**** 开头 = 不修改</div>
+                            </VortFormItem>
                         </div>
-                        <VortFormItem label="非密环境变量（JSON；含 TOKEN/SECRET/PASSWORD 的键会被拒绝）"><VortTextarea v-model="envText" :rows="3" /></VortFormItem>
+                        <VortFormItem label="非密环境变量">
+                            <VortTextarea v-model="envText" :rows="3" />
+                            <div class="text-xs text-gray-400 mt-1">JSON；含 TOKEN / SECRET / PASSWORD 的键会被拒绝</div>
+                        </VortFormItem>
                     </VortForm>
                 </div>
 
