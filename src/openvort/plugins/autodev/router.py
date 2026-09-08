@@ -6,9 +6,7 @@ import json
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
-from sqlalchemy import select
 
-from openvort.db.engine import get_session_factory
 from openvort.db.models import RemoteNode
 from openvort.plugins.autodev import contract as ct
 from openvort.plugins.autodev.models import AutodevProject, AutodevRun
@@ -45,7 +43,6 @@ def project_dict(p: AutodevProject) -> dict:
     return {
         "id": p.id,
         "project_id": p.project_id,
-        "master_node_id": p.master_node_id,
         "repo_path": p.repo_path,
         "jira_project_key": p.jira_project_key,
         "sync_jql": p.sync_jql,
@@ -53,16 +50,6 @@ def project_dict(p: AutodevProject) -> dict:
         "sync_first_window_days": p.sync_first_window_days,
         "sync_max_results": p.sync_max_results,
         "last_synced_at": p.last_synced_at.isoformat() if p.last_synced_at else None,
-        "status_map": ct.status_map(p.status_map_json),
-        "status_map_is_default": not (p.status_map_json or "").strip(),
-        "worker_script": p.worker_script,
-        "worker_image": p.worker_image,
-        "model": p.model,
-        "dispatch_root": p.dispatch_root,
-        "usage_report": p.usage_report,
-        "daily_cap": p.daily_cap,
-        "failure_threshold": p.failure_threshold,
-        "timeout_seconds": p.timeout_seconds,
         "deliver": p.deliver,
         "enabled": p.enabled,
         "paused": p.paused,
@@ -71,8 +58,6 @@ def project_dict(p: AutodevProject) -> dict:
         "hcm_username": p.hcm_username,
         "hcm_password": mask(_decrypt(p.hcm_password_enc)),
         "env": json.loads(p.env_json or "{}"),
-        "price_in_per_m": p.price_in_per_m,
-        "price_out_per_m": p.price_out_per_m,
         "updated_at": p.updated_at.isoformat() if p.updated_at else None,
     }
 
@@ -109,30 +94,18 @@ def run_dict(r: AutodevRun) -> dict:
 
 
 class ProjectConfigIn(BaseModel):
-    master_node_id: str | None = None
     repo_path: str | None = None
     jira_project_key: str | None = None
     sync_jql: str | None = None
     sync_window_days: int | None = None
     sync_first_window_days: int | None = None
     sync_max_results: int | None = None
-    status_map: dict | None = None
-    worker_script: str | None = None
-    worker_image: str | None = None
-    model: str | None = None
-    dispatch_root: str | None = None
-    usage_report: str | None = None
-    daily_cap: int | None = None
-    failure_threshold: int | None = None
-    timeout_seconds: int | None = None
     deliver: bool | None = None
     enabled: bool | None = None
     hcm_base_url: str | None = None
     hcm_username: str | None = None
     hcm_password: str | None = None
     env: dict | None = None
-    price_in_per_m: float | None = None
-    price_out_per_m: float | None = None
 
 
 class DispatchIn(BaseModel):
@@ -150,29 +123,19 @@ async def exit_codes():
     return {"codes": [{"code": k, "meaning": v, "outcome": ct.outcome_for(k)} for k, v in ct.EXIT_CODES.items()]}
 
 
-@router.get("/nodes")
-async def list_master_nodes():
-    """可选作 master 的 docker 节点（config.autodev_master=true 的优先展示）。"""
-    sf = get_session_factory()
-    async with sf() as db:
-        rows = (await db.execute(select(RemoteNode).where(RemoteNode.node_type == "docker"))).scalars().all()
-    out = []
-    for n in rows:
-        try:
-            cfg = json.loads(n.config) if n.config else {}
-        except Exception:
-            cfg = {}
-        out.append({
-            "id": n.id, "name": n.name, "status": n.status, "container_id": cfg.get("container_id", ""),
-            "autodev_master": bool(cfg.get("autodev_master")), "max_slots": ct.node_max_slots(cfg),
-        })
-    out.sort(key=lambda d: (not d["autodev_master"], d["name"]))
-    return {"nodes": out}
-
-
 @router.get("/global")
 async def global_state():
+    """全局状态：AI 员工、它绑定的 master（含 slot）、固定参数、两条全局任务。"""
     svc = get_service()
+    master: dict = {"node_id": "", "name": "", "max_slots": 0, "error": ""}
+    try:
+        node_id = await svc.master_node_id()
+        _, cfg = await svc._node(node_id)
+        async with svc._sf() as db:
+            node = await db.get(RemoteNode, node_id)
+        master.update(node_id=node_id, name=node.name if node else node_id, max_slots=ct.node_max_slots(cfg))
+    except AutodevError as e:
+        master["error"] = str(e)
     jobs = {}
     for action in (ACTION_DISPATCH, ACTION_SYNC):
         job = await svc.find_global_job(action)
@@ -181,7 +144,7 @@ async def global_state():
             "last_run_at": job.last_run_at.isoformat() if job.last_run_at else None,
             "last_status": job.last_status, "last_result": job.last_result,
         }
-    return {"ai_member_id": svc.ai_member_id, "jobs": jobs}
+    return {"ai_member_id": svc.ai_member_id, "master": master, "fixed": ct.fixed_params(), "jobs": jobs}
 
 
 @router.put("/global/{action}")
@@ -209,8 +172,6 @@ async def put_project(project_id: str, body: ProjectConfigIn, request: Request):
     data = body.model_dump(exclude_none=True)
     if "env" in data:
         data["env_json"] = data.pop("env")
-    if "status_map" in data:
-        data["status_map_json"] = data.pop("status_map")
     try:
         p = await get_service().upsert_project(project_id, data)
     except (ValueError, AutodevError) as e:

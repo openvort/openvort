@@ -5,7 +5,7 @@ import { RefreshCw, Play, Pause, Save, ExternalLink } from "lucide-vue-next";
 import {
     getAutodevProject, saveAutodevProject, pauseAutodevProject, resumeAutodevProject,
     getAutodevQueue, syncAutodevProject, dispatchAutodev, getAutodevRuns, getAutodevStats,
-    getAutodevNodes, getAutodevGlobal, setAutodevGlobalJob,
+    getAutodevGlobal, setAutodevGlobalJob,
 } from "@/api";
 import type { AutodevProjectConfig, AutodevRun, AutodevQueueItem } from "@/api/autodev";
 import { useUserStore } from "@/stores";
@@ -19,30 +19,25 @@ const saving = ref(false);
 const busy = ref("");
 const config = ref<AutodevProjectConfig | null>(null);
 const form = ref<any>(defaultForm());
-const nodes = ref<any[]>([]);
 const queue = ref<AutodevQueueItem[]>([]);
 const queueUnmapped = ref(0);
 const runs = ref<AutodevRun[]>([]);
 const stats = ref<any>(null);
 const globalState = ref<any>(null);
 const envText = ref("{}");
-const statusMapText = ref("");
 let timer: number | null = null;
 
 function defaultForm() {
     return {
-        master_node_id: "", repo_path: "", jira_project_key: "", sync_jql: "", sync_window_days: 30,
-        sync_first_window_days: 365, sync_max_results: 200, worker_image: "autodev-worker:current",
-        model: "custom-local:deepseek-v4-pro", timeout_seconds: 21600, daily_cap: 3, failure_threshold: 3,
+        repo_path: "", jira_project_key: "", sync_jql: "", sync_window_days: 30,
+        sync_first_window_days: 365, sync_max_results: 200,
         deliver: false, enabled: true, hcm_base_url: "", hcm_username: "", hcm_password: "",
-        price_in_per_m: 0, price_out_per_m: 0,
     };
 }
 
-const nodeOptions = computed(() => nodes.value.map((n) => ({
-    value: n.id,
-    label: `${n.name}${n.autodev_master ? "" : "（未标记 autodev_master）"} · slot ${n.max_slots} · ${n.status}`,
-})));
+// 固定参数（镜像 / 模型 / 超时 / 日上限 / 熔断 / 单价 / 状态映射）来自后端 contract，不可改
+const fixed = computed<any>(() => globalState.value?.fixed || null);
+const master = computed<any>(() => globalState.value?.master || null);
 
 const outcomeColor: Record<string, string> = {
     delivered: "green", verified: "blue", no_change: "default", failed: "red", running: "orange",
@@ -68,25 +63,21 @@ function fmtDuration(ms: number) {
 async function loadAll() {
     loading.value = true;
     try {
-        const [cfgRes, nodesRes, globalRes] = await Promise.all([
-            getAutodevProject(props.projectId), getAutodevNodes(), getAutodevGlobal().catch(() => null),
+        const [cfgRes, globalRes] = await Promise.all([
+            getAutodevProject(props.projectId), getAutodevGlobal().catch(() => null),
         ]);
-        nodes.value = (nodesRes as any).nodes || [];
         globalState.value = globalRes;
         config.value = (cfgRes as any).config;
         if (config.value) {
             const c = config.value;
             form.value = {
-                master_node_id: c.master_node_id, repo_path: c.repo_path, jira_project_key: c.jira_project_key,
+                repo_path: c.repo_path, jira_project_key: c.jira_project_key,
                 sync_jql: c.sync_jql, sync_window_days: c.sync_window_days,
                 sync_first_window_days: c.sync_first_window_days, sync_max_results: c.sync_max_results,
-                worker_image: c.worker_image, model: c.model, timeout_seconds: c.timeout_seconds,
-                daily_cap: c.daily_cap, failure_threshold: c.failure_threshold, deliver: c.deliver,
-                enabled: c.enabled, hcm_base_url: c.hcm_base_url, hcm_username: c.hcm_username,
-                hcm_password: c.hcm_password, price_in_per_m: c.price_in_per_m, price_out_per_m: c.price_out_per_m,
+                deliver: c.deliver, enabled: c.enabled, hcm_base_url: c.hcm_base_url,
+                hcm_username: c.hcm_username, hcm_password: c.hcm_password,
             };
             envText.value = JSON.stringify(c.env || {}, null, 2);
-            statusMapText.value = c.status_map_is_default ? "" : JSON.stringify(c.status_map, null, 2);
             await refreshLive();
         }
     } catch (e: any) {
@@ -111,19 +102,15 @@ async function refreshLive() {
 
 async function handleSave() {
     let env: Record<string, string> = {};
-    let statusMap: Record<string, string> | undefined;
     try {
         env = envText.value.trim() ? JSON.parse(envText.value) : {};
-        statusMap = statusMapText.value.trim() ? JSON.parse(statusMapText.value) : undefined;
     } catch {
-        message.warning("非密变量 / 状态映射必须是合法 JSON 对象");
+        message.warning("非密变量必须是合法 JSON 对象");
         return;
     }
     saving.value = true;
     try {
-        const payload: any = { ...form.value, env };
-        if (statusMap) payload.status_map = statusMap;
-        const res = await saveAutodevProject(props.projectId, payload);
+        const res = await saveAutodevProject(props.projectId, { ...form.value, env });
         config.value = (res as any).config;
         message.success("已保存");
         await refreshLive();
@@ -209,6 +196,8 @@ onBeforeUnmount(() => { if (timer) window.clearInterval(timer); });
                         </span>
                     </template>
                     <span v-if="!globalState.ai_member_id" class="text-orange-500">未配置全局 AI 员工（系统设置 → 插件 → AutoDev）</span>
+                    <span v-else-if="master?.error" class="text-orange-500">master：{{ master.error }}</span>
+                    <span v-else-if="master" class="text-gray-400">master {{ master.name }} · slot {{ master.max_slots }}</span>
                 </div>
             </div>
 
@@ -250,9 +239,6 @@ onBeforeUnmount(() => { if (timer) window.clearInterval(timer); });
                 </div>
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-x-8">
                     <VortForm layout="vertical">
-                        <VortFormItem label="master 工作机" required>
-                            <VortSelect v-model="form.master_node_id" :options="nodeOptions" placeholder="选择 docker 节点（config.autodev_master=true）" />
-                        </VortFormItem>
                         <VortFormItem label="交付仓路径（宿主绝对路径，主仓）" required><VortInput v-model="form.repo_path" placeholder="/data/autodev/repos/cpic" /></VortFormItem>
                         <VortFormItem label="Jira 项目 key" required><VortInput v-model="form.jira_project_key" placeholder="TPYBX" /></VortFormItem>
                         <VortFormItem label="同步 JQL（空 = updated >= -窗口 天）"><VortInput v-model="form.sync_jql" placeholder="留空用默认" /></VortFormItem>
@@ -261,18 +247,8 @@ onBeforeUnmount(() => { if (timer) window.clearInterval(timer); });
                             <VortFormItem label="首次窗口(天)"><VortInput v-model.number="form.sync_first_window_days" /></VortFormItem>
                             <VortFormItem label="每次最多"><VortInput v-model.number="form.sync_max_results" /></VortFormItem>
                         </div>
-                        <VortFormItem label="状态映射（JSON，空 = 默认）"><VortTextarea v-model="statusMapText" :rows="4" :placeholder="JSON.stringify(config?.status_map || {}, null, 2)" /></VortFormItem>
                     </VortForm>
                     <VortForm layout="vertical">
-                        <div class="grid grid-cols-2 gap-3">
-                            <VortFormItem label="worker 镜像"><VortInput v-model="form.worker_image" /></VortFormItem>
-                            <VortFormItem label="模型"><VortInput v-model="form.model" /></VortFormItem>
-                        </div>
-                        <div class="grid grid-cols-3 gap-3">
-                            <VortFormItem label="日上限"><VortInput v-model.number="form.daily_cap" /></VortFormItem>
-                            <VortFormItem label="熔断阈值"><VortInput v-model.number="form.failure_threshold" /></VortFormItem>
-                            <VortFormItem label="超时(秒)"><VortInput v-model.number="form.timeout_seconds" /></VortFormItem>
-                        </div>
                         <div class="grid grid-cols-2 gap-3">
                             <VortFormItem label="真交付（推分支 / 开 MR / 回写 Jira）"><VortSwitch v-model:checked="form.deliver" /></VortFormItem>
                             <VortFormItem label="启用派发"><VortSwitch v-model:checked="form.enabled" /></VortFormItem>
@@ -282,12 +258,22 @@ onBeforeUnmount(() => { if (timer) window.clearInterval(timer); });
                             <VortFormItem label="系统用户"><VortInput v-model="form.hcm_username" /></VortFormItem>
                             <VortFormItem label="密码（**** 开头 = 不修改）"><VortInput v-model="form.hcm_password" type="password" /></VortFormItem>
                         </div>
-                        <div class="grid grid-cols-2 gap-3">
-                            <VortFormItem label="input 单价（元 / 百万 token）"><VortInput v-model.number="form.price_in_per_m" /></VortFormItem>
-                            <VortFormItem label="output 单价（元 / 百万 token）"><VortInput v-model.number="form.price_out_per_m" /></VortFormItem>
-                        </div>
                         <VortFormItem label="非密环境变量（JSON；含 TOKEN/SECRET/PASSWORD 的键会被拒绝）"><VortTextarea v-model="envText" :rows="3" /></VortFormItem>
                     </VortForm>
+                </div>
+
+                <!-- 固定参数：部署级常量，只读 -->
+                <div v-if="fixed" class="mt-4 border-t pt-4">
+                    <div class="text-xs text-gray-400 mb-2">固定参数（部署级常量，改需动 contract.py + 服务器 build/v4）</div>
+                    <div class="flex flex-wrap gap-x-6 gap-y-1 text-xs text-gray-600">
+                        <span>镜像 {{ fixed.worker_image }}</span>
+                        <span>模型 {{ fixed.model }}</span>
+                        <span>超时 {{ Math.round(fixed.timeout_seconds / 3600) }}h</span>
+                        <span>日上限 {{ fixed.daily_cap }}</span>
+                        <span>熔断 {{ fixed.failure_threshold }} 连败</span>
+                        <span>单价 {{ fixed.price_in_per_m === null ? '未定价' : `¥${fixed.price_in_per_m} / ¥${fixed.price_out_per_m} 每百万 token` }}</span>
+                        <span>状态映射 {{ Object.entries(fixed.status_map).map(([k, v]) => `${k}→${v}`).join('、') }}</span>
+                    </div>
                 </div>
             </div>
         </template>

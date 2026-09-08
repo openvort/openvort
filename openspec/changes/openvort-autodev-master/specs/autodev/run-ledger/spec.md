@@ -22,8 +22,12 @@ worker 的退出码与日志 MUST 落在 master 可读的文件上；回收 SHAL
 - WHEN 退出码已落但 worker 摘要文件不存在
 - THEN 记录 MUST 仍以该退出码收口，并在错误文本里注明摘要缺失
 
-### Requirement: 用量按运行归属、费用按项目单价
-收口时 MUST 读取 `usage-report.py` 的机读输出并取 `run` 等于本次运行目录名的那条，记录 input / output / total / cached token、调用次数、耗时。费用 = input 百万 token × 项目 input 单价 + output 百万 token × 项目 output 单价；单价均为 0 时费用为 0 且统计 MUST 标明「未配单价」。
+### Requirement: 用量按运行归属、费用按固定价目表
+收口时 MUST 读取 `usage-report.py` 的机读输出并取 `run` 等于本次运行目录名的那条，记录 input / output / total / cached token、调用次数、耗时。费用 = input 百万 token × 该模型 input 单价 + output 百万 token × 该模型 output 单价，单价取自固定价目表 `MODEL_PRICES`（键为模型名），MUST NOT 作为项目属性配置；模型不在价目表时费用为 0 且统计 MUST 标明「未配单价」。
+
+#### Scenario: 模型不在价目表
+- WHEN 运行记录的模型名不在 `MODEL_PRICES` 里
+- THEN 费用 MUST 为 0，统计 MUST 标明未配单价，token 数照常记录
 
 #### Scenario: 用量条目不存在
 - WHEN 用量报告里没有本次运行目录名对应的条目

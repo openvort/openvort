@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from openvort.contacts.models import Member
 from openvort.core.execution.docker_executor import DockerExecutor
 from openvort.db.models import RemoteNode, ScheduleJob
 from openvort.plugins.autodev import contract as ct
@@ -28,11 +29,8 @@ from openvort.utils.logging import get_logger
 log = get_logger("plugins.autodev.service")
 
 PROJECT_FIELDS = (
-    "master_node_id", "repo_path", "jira_project_key", "sync_jql", "sync_window_days",
-    "sync_first_window_days", "sync_max_results", "status_map_json", "worker_script", "worker_image",
-    "model", "dispatch_root", "usage_report", "daily_cap", "failure_threshold", "timeout_seconds",
-    "deliver", "enabled", "paused", "env_json", "price_in_per_m", "price_out_per_m",
-    "hcm_base_url", "hcm_username",
+    "repo_path", "jira_project_key", "sync_jql", "sync_window_days", "sync_first_window_days",
+    "sync_max_results", "deliver", "enabled", "paused", "env_json", "hcm_base_url", "hcm_username",
 )
 # 超过这个时长仍没有 rc，判 lost（worker 自身 6h 超时 + 收口余量）
 LOST_AFTER = timedelta(hours=9)
@@ -83,6 +81,18 @@ class AutodevService:
         self.ai_member_id: str = ""  # 全局唯一 AI 员工，插件配置注入
 
     # ---------- master 节点 ----------
+
+    async def master_node_id(self) -> str:
+        """master = 全局 AI 员工绑定的工作机；不按项目配置。"""
+        if not self.ai_member_id:
+            raise AutodevError("未配置全局 AI 员工（插件配置 ai_member_id）")
+        async with self._sf() as db:
+            m = await db.get(Member, self.ai_member_id)
+        if not m:
+            raise AutodevError(f"AI 员工不存在: {self.ai_member_id}")
+        if not m.remote_node_id:
+            raise AutodevError(f"AI 员工「{m.name}」未绑定工作机（master）")
+        return m.remote_node_id
 
     async def _node(self, node_id: str) -> tuple[str, dict]:
         if not node_id:
@@ -138,12 +148,6 @@ class AutodevService:
             if isinstance(env, str):
                 env = json.loads(env or "{}")
             data["env_json"] = json.dumps(ct.validate_env(env), ensure_ascii=False)
-        if "status_map_json" in data and data["status_map_json"] is not None:
-            smj = data["status_map_json"]
-            if isinstance(smj, dict):
-                smj = json.dumps(smj, ensure_ascii=False)
-            ct.status_map(smj)  # 校验
-            data["status_map_json"] = smj
         password = data.pop("hcm_password", None)
         async with self._sf() as db:
             res = await db.execute(select(AutodevProject).where(AutodevProject.project_id == flow_project_id))
@@ -185,11 +189,11 @@ class AutodevService:
         """一轮同步：经 master 列单 → 创建/更新 story + 映射。返回计数。Jira 是真相，本方法不写 Jira。"""
         window = p.sync_window_days if p.last_synced_at else p.sync_first_window_days
         text = await self.exec_on(
-            p.master_node_id, ct.jira_sync_cmd(p.jira_project_key, p.sync_jql, window, p.sync_max_results),
-            timeout=120,
+            await self.master_node_id(),
+            ct.jira_sync_cmd(p.jira_project_key, p.sync_jql, window, p.sync_max_results), timeout=120,
         )
         issues = ct.parse_jira_issues(text)
-        table = ct.status_map(p.status_map_json)
+        table = ct.STATUS_MAP
         counts = {"seen": len(issues), "created": 0, "updated": 0, "state_changed": 0, "unmapped": 0}
         if not issues:
             log.info(f"autodev sync {p.jira_project_key}: JQL 零命中，保留既有 story")
@@ -286,13 +290,10 @@ class AutodevService:
                     FlowStory.assignee_id == self.ai_member_id, FlowStory.id.not_in(sub))
             )).scalar() or 0)
 
-    async def _running_on_node(self, node_id: str) -> int:
+    async def _running_total(self) -> int:
+        """全部项目共用一台 master，slot 按全局 running 数算。"""
         async with self._sf() as db:
-            stmt = (
-                select(func.count(AutodevRun.id))
-                .join(AutodevProject, AutodevProject.id == AutodevRun.project_id)
-                .where(AutodevRun.status == "running", AutodevProject.master_node_id == node_id)
-            )
+            stmt = select(func.count(AutodevRun.id)).where(AutodevRun.status == "running")
             return int((await db.execute(stmt)).scalar() or 0)
 
     async def _gate_input(self, p: AutodevProject) -> ct.GateInput:
@@ -307,14 +308,14 @@ class AutodevService:
                 select(AutodevRun.outcome)
                 .where(AutodevRun.project_id == p.id, AutodevRun.status != "running")
                 .order_by(AutodevRun.started_at.desc())
-                .limit(max(p.failure_threshold, 1))
+                .limit(max(ct.FAILURE_THRESHOLD, 1))
             )).scalars().all()
-        _, cfg = await self._node(p.master_node_id)
+        _, cfg = await self._node(await self.master_node_id())
         return ct.GateInput(
             enabled=p.enabled, paused=p.paused,
-            node_max_slots=ct.node_max_slots(cfg), node_running=await self._running_on_node(p.master_node_id),
-            daily_cap=p.daily_cap, started_today=started_today,
-            failure_threshold=p.failure_threshold, recent_outcomes=tuple(recent),
+            node_max_slots=ct.node_max_slots(cfg), node_running=await self._running_total(),
+            daily_cap=ct.DAILY_CAP, started_today=started_today,
+            failure_threshold=ct.FAILURE_THRESHOLD, recent_outcomes=tuple(recent),
         )
 
     async def _running_keys(self, project_pk: str) -> set[str]:
@@ -334,10 +335,9 @@ class AutodevService:
             return await self._dispatch_locked(p, issue_key=issue_key, max_starts=max_starts, trigger=trigger)
 
     async def _dispatch_locked(self, p: AutodevProject, *, issue_key: str, max_starts: int, trigger: str) -> dict:
-        if not p.repo_path or not p.master_node_id:
-            raise AutodevError("repo_path 与 master_node_id 都必须配置")
-        if not self.ai_member_id:
-            raise AutodevError("未配置全局 AI 员工（插件配置 ai_member_id）")
+        if not p.repo_path:
+            raise AutodevError("repo_path 必须配置")
+        await self.master_node_id()  # 员工未配 / 未绑机在这里就报，不走闸门
         missing = [k for k, v in self.hcm_values(p).items() if not v.strip()]
         if missing:
             reason = "凭据缺项：" + ", ".join(missing)
@@ -387,24 +387,25 @@ class AutodevService:
     async def _materialize_env(self, p: AutodevProject) -> None:
         """把三项平台凭据写进 <仓>/03_config/.env：只改三行、保留 HCM_TOKEN、相同不写。"""
         path = f"{p.repo_path.rstrip('/')}/{ENV_REL_PATH}"
-        existing = await self.exec_on(p.master_node_id, ct.env_read_cmd(path), timeout=15)
+        node = await self.master_node_id()
+        existing = await self.exec_on(node, ct.env_read_cmd(path), timeout=15)
         values = self.hcm_values(p)
         merged = ct.env_merge(existing, values)
         if merged is None:
             return
-        await self.write_on(p.master_node_id, ct.env_write_cmd(path), merged)
+        await self.write_on(node, ct.env_write_cmd(path), merged)
         log.info(f"autodev: 覆盖 {path} 的 {ct.env_changed_keys(existing, values)}（项目 {p.jira_project_key}）")
 
     async def start_run(self, p: AutodevProject, issue_key: str, *, story_id: str = "", trigger: str) -> AutodevRun:
         run_id = uuid.uuid4().hex
         run = AutodevRun(id=run_id, project_id=p.id, issue_key=issue_key, story_id=story_id, trigger=trigger,
-                         model=p.model, status="running")
-        dispatch_dir = f"{p.dispatch_root.rstrip('/')}/{issue_key}-{time.strftime('%Y%m%d-%H%M%S')}-{run_id[:8]}"
+                         model=ct.MODEL, status="running")
+        dispatch_dir = f"{ct.DISPATCH_ROOT}/{issue_key}-{time.strftime('%Y%m%d-%H%M%S')}-{run_id[:8]}"
         run.dispatch_dir = dispatch_dir
         spec = ct.LaunchSpec(
-            worker_script=p.worker_script, repo_path=p.repo_path, issue_key=issue_key,
-            dispatch_dir=dispatch_dir, image=p.worker_image, model=p.model, deliver=p.deliver,
-            timeout_seconds=p.timeout_seconds, env=json.loads(p.env_json or "{}"),
+            worker_script=ct.WORKER_SCRIPT, repo_path=p.repo_path, issue_key=issue_key,
+            dispatch_dir=dispatch_dir, image=ct.WORKER_IMAGE, model=ct.MODEL, deliver=p.deliver,
+            timeout_seconds=ct.TIMEOUT_SECONDS, env=json.loads(p.env_json or "{}"),
         )
         # 先落库再起容器：起了没记比记了没起更糟（前者没人回收）
         async with self._sf() as db:
@@ -415,7 +416,7 @@ class AutodevService:
                     story.state = ct.STATE_IN_PROGRESS
             await db.commit()
         try:
-            out = await self.exec_on(p.master_node_id, ct.launch_cmd(spec), timeout=30)
+            out = await self.exec_on(await self.master_node_id(), ct.launch_cmd(spec), timeout=30)
             if "launched" not in out:
                 raise AutodevError(f"启动输出异常: {out[:200]}")
         except Exception as e:
@@ -476,7 +477,8 @@ class AutodevService:
         return done
 
     async def _reconcile(self, run: AutodevRun, p: AutodevProject) -> bool:
-        probe = ct.parse_probe(await self.exec_on(p.master_node_id, ct.probe_cmd(run.dispatch_dir), timeout=30))
+        node = await self.master_node_id()
+        probe = ct.parse_probe(await self.exec_on(node, ct.probe_cmd(run.dispatch_dir), timeout=30))
         if probe.rc is None:
             if datetime.now() - run.started_at > LOST_AFTER:
                 await self._finalize(run.id, status="lost", outcome=ct.OUTCOME_FAILED,
@@ -491,7 +493,7 @@ class AutodevService:
         errors: list[str] = []
         if probe.summary_path:
             try:
-                s = ct.parse_summary(await self.exec_on(p.master_node_id, ct.summary_cmd(probe.summary_path)))
+                s = ct.parse_summary(await self.exec_on(node, ct.summary_cmd(probe.summary_path)))
                 fields.update({
                     "branch": s.get("branch") or "", "worktree": s.get("worktree") or "",
                     "mr_url": s.get("mr_url") or "", "image_id": s.get("image_id") or "",
@@ -507,7 +509,7 @@ class AutodevService:
         if run_dir:
             try:
                 usage = ct.pick_usage(
-                    await self.exec_on(p.master_node_id, ct.usage_cmd(p.usage_report, run.issue_key), timeout=60),
+                    await self.exec_on(node, ct.usage_cmd(ct.USAGE_REPORT, run.issue_key), timeout=60),
                     run_dir,
                 )
                 if usage:
@@ -520,7 +522,7 @@ class AutodevService:
                         "duration_ms": int(usage.get("durMs") or 0),
                     })
                     fields["cost"] = ct.compute_cost(
-                        fields["input_tokens"], fields["output_tokens"], p.price_in_per_m, p.price_out_per_m
+                        fields["input_tokens"], fields["output_tokens"], fields.get("model") or run.model
                     )
                 else:
                     errors.append("用量缺失：usage-report 里没有本次运行目录的条目")
@@ -589,7 +591,7 @@ class AutodevService:
             "input_tokens": sum(r.input_tokens for r in finished),
             "output_tokens": sum(r.output_tokens for r in finished),
             "cost": round(sum(r.cost for r in finished), 4),
-            "priced": bool(p.price_in_per_m or p.price_out_per_m),
+            "priced": ct.MODEL in ct.MODEL_PRICES,
             "queue": len([q for q in queue if q["key"] not in running_keys]),
             "queue_unmapped": await self.unmapped_dev_assign(p),
             "last_synced_at": p.last_synced_at.isoformat() if p.last_synced_at else None,

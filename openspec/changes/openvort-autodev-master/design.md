@@ -25,19 +25,22 @@
 
 ## Decisions
 
-1. **master = 长驻容器 RemoteNode，openvort 只 `docker exec`**（而非宿主 systemd 调度器 / openvort 直接 `docker run` 重写 worker.sh）。理由：复用现成执行器；worker.sh 已实测；宿主路径同名挂载后 worktree 的 `.git` 指针天然成立。代价：master 容器持有 docker.sock，与 openvort 主容器同级权限——本机 DooD 方案已知情接受。
+1. **master = 长驻容器 RemoteNode，openvort 只 `docker exec`**（而非宿主 systemd 调度器 / openvort 直接 `docker run` 重写 worker.sh）。master **全局唯一**，取自全局 AI 员工绑定的工作机（`Member.remote_node_id`），不是项目属性——一台机器服务所有项目，slot 因此按全局在跑数算。理由：复用现成执行器；worker.sh 已实测；宿主路径同名挂载后 worktree 的 `.git` 指针天然成立。代价：master 容器持有 docker.sock，与 openvort 主容器同级权限——本机 DooD 方案已知情接受。
 2. **派发经 `ScheduleJob` + action 注册表**（而非插件自带 APScheduler）。`ACTION_HANDLERS[action_type] = async (job, config) -> str`，插件 activate 时注册；`_execute_job` 先查表，查到即跳过 prompt 校验与 Agent。既有 `agent_chat` 路径不变。
 3. **一条全局派发任务，不按项目建任务**。处理器遍历 `enabled=true` 项目，按 `last_dispatched_at` 升序轮转；每轮每项目最多起 `max_starts`（默认 1）。同步任务同理一条全局 `autodev_sync`。
 4. **队列 = story 投影**。可派条件：`FlowStory.project_id = 本项目 ∧ state = dev_assign ∧ assignee_id = 全局 AI 员工 ∧ 存在 jira 映射`。派出后 story → `in_progress`（OpenVort 表内写，不违反「Jira 唯一真相」）。worker 结束：`delivered → testing`、`failed/lost → dev_assign`、`verified/no_change` 不动，并加一条系统评论（退出码含义 + MR）。下一次同步若 Jira 状态变了，按映射表覆盖。
-5. **Jira → story 状态映射表**（项目属性可改，默认）：`新增/补充说明/待确认 → submitted`、`OPEN → in_progress`、`已修复 → testing`、`不处理 → rejected`、`Closed/Resolved → done`。覆盖规则：仅当该单的 Jira 状态相对上次同步**发生变化**时覆盖 story 状态；否则保留 OpenVort 侧人推进的状态（含 `dev_assign`）。映射记录用 `FlowExternalMapping(local_type=story, adapter=jira, external_id=<KEY>, sync_cursor=<上次 Jira 状态名>)`。
+5. **Jira → story 状态映射表**（固定常量 `STATUS_MAP`，非项目属性）：`新增/补充说明/待确认 → submitted`、`OPEN → in_progress`、`已修复 → testing`、`不处理 → rejected`、`Closed/Resolved → done`。覆盖规则：仅当该单的 Jira 状态相对上次同步**发生变化**时覆盖 story 状态；否则保留 OpenVort 侧人推进的状态（含 `dev_assign`）。映射记录用 `FlowExternalMapping(local_type=story, adapter=jira, external_id=<KEY>, sync_cursor=<上次 Jira 状态名>)`。
 6. **同步经 master 跑 `jira --json issue list -p KEY --jql <JQL> --max N`**，openvort 只解析 JSON（返回体是 issue 列表，`fields.status.name` 等），不在 openvort 里养第二个 Jira 客户端。默认 JQL：`updated >= -<M>d ORDER BY updated DESC`，首次 `M` 取大值全量。
-7. **闸门六道全在 contract 纯函数里**：enabled · paused · 熔断（最近 N 次已结束运行全 failed）· slot（按节点：`running(node) < node.max_slots`，`max_slots` 是节点 config 参数）· 日上限（按项目）· 同单互斥（同 key 有 running 记录不派）。分支按「拿到了什么」封闭穷尽，理由不猜。
+7. **闸门六道全在 contract 纯函数里**：enabled · paused · 熔断（最近 N 次已结束运行全 failed）· slot（按节点：`running(node) < node.max_slots`，`max_slots` 是节点 config 参数）· 日上限（按项目计数，阈值 `DAILY_CAP` 是常量）· 同单互斥（同 key 有 running 记录不派）。熔断阈值同为常量 `FAILURE_THRESHOLD`。分支按「拿到了什么」封闭穷尽，理由不猜。
 8. **worker 后台化与回收**：launch = `docker exec` 里 `nohup setsid bash -c '<env> worker.sh KEY --repo R > D/worker.log 2>&1; echo $? > D/rc' &`，立即返回；回收循环每 60 s 对 running 记录 `cat D/rc` + grep 摘要行 → 读 `summary.json` → `usage-report.py --ticket KEY --json` 取 `run == basename($RUN)` 那条；超过 9 h 无 rc 判 `lost`。openvort 重启不影响在跑的 worker，重启后从 DB 继续回收。
 9. **密钥三层**：通用（Jira/GitLab/CodeBuddy/ocx）留宿主文件不动；每项目平台系统用户入 OpenVort（项目属性三字段 Fernet，复用 vortgit crypto key）；下发 = 派发前 `docker exec` 用 stdin 写 `<仓>/03_config/.env`，只替换三行、保留其余行（含 `HCM_TOKEN`）、内容相同不写、覆盖时记日志。不走 env。
 10. **员工绑定 master 但受黑名单**：`node_tools._resolve_container` 后加判据——节点 config `autodev_master: true` 时，`node_shell` 命令匹配 `worker\.sh|(^|\s)docker\s|/home/autodev/\.|\.git-credentials|\.jira-cli|glab-cli|03_config/\.env` 即拒绝并记日志；`node_file_write` 对同一路径集拒绝；`node_file_read` 对凭据路径拒绝。规则优先闸门化，不靠 prompt。
-11. **费用 = token × 项目单价**（每百万 input / output 单价，0 = 未配只报 token）。价目源：vault `tokenhub-billing-analysis.md`。
+11. **费用 = token × 固定价目表**（`MODEL_PRICES[模型] = (input, output)` 元每百万 token；模型不在表内则只报 token）。价目源：vault `codebuddy-本机模型价格-20260904.md`，取高峰价，不做峰谷切换。
 12. **前端**：项目详情页加「自动交付」tab（配置表单 / 队列 / 运行记录 / 统计 / 立即派发 / 暂停恢复）；定时任务页不改，全局任务由插件首次激活时按需创建（禁用态），管理员在自动交付页一键启用。
 13. **代码落点**：openvort 仓 `plugins/autodev/`（草稿已在盘上，按本设计改：候选源从 JQL 直查改为 story 队列；`max_slots` 从项目属性挪到节点 config；密钥字段与 `.env` 写入新增；黑名单新增）；master Dockerfile 放服务器 `/data/autodev/build/v4/Dockerfile.master`，openvort 仓只留使用说明。
+
+14. **部署级常量收敛（2026-09-08 修订）**：worker 脚本 / 镜像 / 模型 / 派发根目录 / 用量脚本 / 超时 / 日上限 / 熔断阈值 / 模型单价 / Jira 状态映射，原设计里的项目属性一律改为 `contract.py` 常量，页面只读展示，`GET /api/autodev/global` 的 `fixed` 返回。理由：这些值全流水线一套，逐项目配置只产生漂移和「哪份是真的」；改动条件明确（换镜像 / 换模型 / 服务器布局变 / Jira 工作流改名），改一处常量比改 N 个项目行更可审。项目属性只剩：仓路径、Jira key、同步 JQL 与窗口、真交付开关、启用开关、平台系统用户、非密变量。
+15. **master 不按项目绑定（2026-09-08 修订）**：项目表去掉 `master_node_id`，master = 全局 AI 员工的 `remote_node_id`。理由：AI 员工本来就绑一台工作机，让每个项目再选一次是同一事实的两处记录。
 
 ## Risks / Trade-offs
 
@@ -54,7 +57,7 @@
 
 1. 前置：合并 `send_instruction` 签名修复；服务器 worker.sh usage 每轮独立；建 `Dockerfile.master`、起 `autodev-master` 容器、登记节点（`config.container_id`、`autodev_master: true`、`max_slots: 1`）；vault 定调修订。
 2. 部署 openvort 分支到服务器（`update.sh feat/autodev-master`），建表自动完成。
-3. cpic 项目：填配置（仓路径 / Jira key / 镜像 / 模型 / 单价 / 平台系统用户）、`deliver=false`；启用同步任务，确认 story 投影正确（数量 = JQL 命中数）。
+3. cpic 项目：填配置（仓路径 / Jira key / 平台系统用户）、`deliver=false`；启用同步任务，确认 story 投影正确（数量 = JQL 命中数）。
 4. 指派 1 张 story 给 AI 员工 → 手动「立即派发」→ 回收得到 exit 15 与用量 → 员工能答出来。
 5. 启用全局派发任务（间隔 5 min），跑 3 张仍为 `deliver=false`；再翻 `deliver=true` 跑 1 张真交付。
 6. 回滚：禁用两条全局任务即停；删节点绑定不影响 Jira/GitLab（OpenVort 从不写它们）；`.env` 三行回滚 = 重新填写。

@@ -52,8 +52,8 @@ STATE_TESTING = "testing"
 STATE_REJECTED = "rejected"
 STATE_DONE = "done"
 
-# Jira 状态名 → story state（项目可覆盖）
-DEFAULT_STATUS_MAP: dict[str, str] = {
+# Jira 状态名 → story state（固定表，不按项目覆盖）
+STATUS_MAP: dict[str, str] = {
     "新增": STATE_SUBMITTED,
     "补充说明": STATE_SUBMITTED,
     "待确认": STATE_SUBMITTED,
@@ -66,6 +66,32 @@ DEFAULT_STATUS_MAP: dict[str, str] = {
 
 # Jira 优先级名 → story priority（1=紧急 2=高 3=中 4=低）
 PRIORITY_MAP: dict[str, int] = {"Highest": 1, "High": 2, "Medium": 3, "Low": 4, "Lowest": 4}
+
+# ---------- 固定参数：部署级常量，不按项目配置；改这里要同步改服务器 build/v4 ----------
+WORKER_SCRIPT = "/data/autodev/build/v4/worker.sh"
+WORKER_IMAGE = "autodev-worker:current"
+MODEL = "custom-local:deepseek-v4-pro"
+DISPATCH_ROOT = "/data/autodev/state/dispatch"
+USAGE_REPORT = "/data/autodev/bin/usage-report.py"
+TIMEOUT_SECONDS = 21600  # worker 内 codebuddy 墙钟上限（6 h）
+DAILY_CAP = 3  # 每项目每日最多起几次 worker
+FAILURE_THRESHOLD = 3  # 每项目最近 N 次已结束运行全 failed 即熔断
+# 元 / 百万 token：(input, output)。价目源 vault codebuddy-本机模型价格-20260904（高峰价，不按峰谷切换）
+MODEL_PRICES: dict[str, tuple[float, float]] = {
+    "custom-local:deepseek-v4-pro": (9.0, 27.0),
+}
+
+
+def fixed_params() -> dict:
+    """给 API / 页面展示用的固定参数快照。"""
+    price = MODEL_PRICES.get(MODEL)
+    return {
+        "worker_script": WORKER_SCRIPT, "worker_image": WORKER_IMAGE, "model": MODEL,
+        "dispatch_root": DISPATCH_ROOT, "usage_report": USAGE_REPORT, "timeout_seconds": TIMEOUT_SECONDS,
+        "daily_cap": DAILY_CAP, "failure_threshold": FAILURE_THRESHOLD,
+        "price_in_per_m": price[0] if price else None, "price_out_per_m": price[1] if price else None,
+        "status_map": dict(STATUS_MAP),
+    }
 
 # worker 结束后 story 的表内动作（spec: jira-projection）
 OUTCOME_TO_STATE: dict[str, str | None] = {
@@ -167,15 +193,6 @@ def parse_jira_issues(text: str) -> list[dict]:
     # 断言解析层没读错外层：有条目时 key 必须非空（ai-delegation 规则 3）
     assert all(i["key"] for i in items), "jira 返回体解析异常：存在无 key 的条目"
     return items
-
-
-def status_map(table_json: str) -> dict[str, str]:
-    if not (table_json or "").strip():
-        return dict(DEFAULT_STATUS_MAP)
-    table = json.loads(table_json)
-    if not isinstance(table, dict) or not all(isinstance(v, str) for v in table.values()):
-        raise ValueError("status_map_json 必须是 {Jira状态名: story状态} 对象")
-    return table
 
 
 def map_state(jira_status: str, table: dict[str, str]) -> str | None:
@@ -312,8 +329,12 @@ def pick_usage(report_text: str, run_dir: str) -> dict | None:
     return None
 
 
-def compute_cost(input_tokens: int, output_tokens: int, price_in_per_m: float, price_out_per_m: float) -> float:
-    return round(input_tokens / 1e6 * (price_in_per_m or 0) + output_tokens / 1e6 * (price_out_per_m or 0), 4)
+def compute_cost(input_tokens: int, output_tokens: int, model: str) -> float:
+    """按固定价目算费；模型不在价目表 → 0（只报 token）。缓存命中不单独计价。"""
+    price = MODEL_PRICES.get(model)
+    if not price:
+        return 0.0
+    return round(input_tokens / 1e6 * price[0] + output_tokens / 1e6 * price[1], 4)
 
 
 # ---------- .env 三行合并 ----------

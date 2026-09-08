@@ -38,7 +38,7 @@ class FakeExec:
         self.env_text = "HCM_BASE_URL=https://h\nHCM_USERNAME=u\nHCM_PASSWORD=p\nHCM_TOKEN=tok\n"
         self.rc_text = "RC=\n"
         self.summary = {"ticket": "TPYBX-1", "branch": "auto/TPYBX-1", "worktree": "/w", "mr_url": "http://gl/mr/9",
-                        "image_id": "sha256:abc", "model": "m", "exit_code": 0, "verdict": "全绿"}
+                        "image_id": "sha256:abc", "model": ct.MODEL, "exit_code": 0, "verdict": "全绿"}
         self.usage = [{"run": "TPYBX-1-20260907-120000", "inputTokens": 1000, "outputTokens": 100,
                        "totalTokens": 1100, "cachedInputTokens": 500, "calls": 3, "durMs": 4200}]
         self.fail_launch = False
@@ -78,8 +78,9 @@ async def sf():
         await conn.run_sync(Base.metadata.create_all, tables=[Base.metadata.tables[t] for t in TABLES])
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as db:
-        db.add(Member(id=AI, name="交付员", is_virtual=True))
+        db.add(Member(id=AI, name="交付员", is_virtual=True, remote_node_id="node1"))
         db.add(Member(id="human", name="顾问甲"))
+        db.add(Member(id="ai-unbound", name="没绑机", is_virtual=True))
         db.add(FlowProject(id="fp1", name="cpic"))
         db.add(FlowProject(id="fp2", name="spic"))
         db.add(RemoteNode(id="node1", name="master", node_type="docker", gateway_url="",
@@ -97,9 +98,8 @@ async def service(sf):
     s = AutodevService(sf, exec_fn=fake, write_fn=fake.write)
     s.ai_member_id = AI
     await s.upsert_project("fp1", {
-        "master_node_id": "node1", "repo_path": "/data/autodev/repos/cpic", "jira_project_key": "TPYBX",
-        "daily_cap": 2, "deliver": False, "env_json": {"HTTP_PROXY": "http://p"},
-        "price_in_per_m": 2.0, "price_out_per_m": 8.0,
+        "repo_path": "/data/autodev/repos/cpic", "jira_project_key": "TPYBX",
+        "deliver": False, "env_json": {"HTTP_PROXY": "http://p"},
         "hcm_base_url": "https://h", "hcm_username": "u", "hcm_password": "p",
     })
     s.fake = fake
@@ -125,11 +125,22 @@ async def _story(sf, key: str) -> FlowStory:
 # ---------- 配置 ----------
 
 
-async def test_upsert_rejects_secret_env_and_bad_status_map(service):
+async def test_upsert_rejects_secret_env_and_ignores_fixed_fields(service):
     with pytest.raises(ValueError):
         await service.upsert_project("fp1", {"env_json": {"GITLAB_TOKEN": "x"}})
-    with pytest.raises(ValueError):
-        await service.upsert_project("fp1", {"status_map_json": {"x": 1}})
+    # 固定参数不再是项目字段：传了也不落库、不报错
+    p = await service.upsert_project("fp1", {"daily_cap": 99, "model": "x", "master_node_id": "node1"})
+    assert not hasattr(p, "daily_cap") and not hasattr(p, "master_node_id")
+
+
+async def test_master_is_ai_member_bound_node(service):
+    assert await service.master_node_id() == "node1"
+    service.ai_member_id = "ai-unbound"
+    with pytest.raises(AutodevError, match="未绑定工作机"):
+        await service.master_node_id()
+    service.ai_member_id = ""
+    with pytest.raises(AutodevError, match="未配置全局 AI 员工"):
+        await service.dispatch("fp1")
 
 
 async def test_password_encrypted_and_mask_prefix_keeps_value(service):
@@ -250,7 +261,6 @@ async def test_env_materialized_before_launch_only_when_changed(service, sf):
     idx_launch = next(i for i, c in enumerate(service.fake.calls) if "nohup setsid" in c)
     assert idx_write < idx_launch
     # 第二次内容相同：不写
-    await service.upsert_project("fp1", {"daily_cap": 9})
     async with sf() as db:
         run = (await db.execute(select(AutodevRun))).scalars().one()
         run.status = "finished"
@@ -296,7 +306,7 @@ async def test_launch_failure_finalizes_run_and_returns_story(service, sf):
 
 async def test_dispatch_all_rotates_by_last_dispatched(service, sf):
     await service.upsert_project("fp2", {
-        "master_node_id": "node1", "repo_path": "/data/autodev/repos/spic", "jira_project_key": "SPIC",
+        "repo_path": "/data/autodev/repos/spic", "jira_project_key": "SPIC",
         "hcm_base_url": "https://h", "hcm_username": "u", "hcm_password": "p",
     })
     await service.sync_project(await service.get_project("fp1"))
@@ -334,7 +344,8 @@ async def test_poll_reconciles_summary_usage_and_story(service, sf):
         comments = (await db.execute(select(FlowComment).where(FlowComment.entity_id == sid))).scalars().all()
     assert run["status"] == "finished" and run["exit_code"] == 0 and run["outcome"] == "delivered"
     assert run["mr_url"] == "http://gl/mr/9" and run["input_tokens"] == 1000 and run["calls"] == 3
-    assert run["cost"] == pytest.approx(1000 / 1e6 * 2.0 + 100 / 1e6 * 8.0) and run["error"] == ""
+    price_in, price_out = ct.MODEL_PRICES[ct.MODEL]
+    assert run["cost"] == pytest.approx(1000 / 1e6 * price_in + 100 / 1e6 * price_out) and run["error"] == ""
     assert (await _story(sf, "TPYBX-1")).state == ct.STATE_TESTING
     assert len(comments) == 1 and "delivered" in comments[0].content and "http://gl/mr/9" in comments[0].content
     n = len(service.fake.calls)
@@ -376,8 +387,9 @@ async def test_poll_marks_lost_after_deadline(service, sf):
     assert row["status"] == "lost" and row["outcome"] == "failed"
 
 
-async def test_breaker_blocks_after_consecutive_failures(service, sf):
-    await service.upsert_project("fp1", {"failure_threshold": 2, "daily_cap": 10})
+async def test_breaker_blocks_after_consecutive_failures(service, sf, monkeypatch):
+    monkeypatch.setattr(ct, "FAILURE_THRESHOLD", 2)
+    monkeypatch.setattr(ct, "DAILY_CAP", 10)
     await service.sync_project(await service.get_project("fp1"))
     await _assign(sf, "TPYBX-1")
     async with sf() as db:

@@ -3,7 +3,6 @@ import request from "@/utils/request";
 export interface AutodevProjectConfig {
     id: string;
     project_id: string;
-    master_node_id: string;
     repo_path: string;
     jira_project_key: string;
     sync_jql: string;
@@ -11,16 +10,6 @@ export interface AutodevProjectConfig {
     sync_first_window_days: number;
     sync_max_results: number;
     last_synced_at: string | null;
-    status_map: Record<string, string>;
-    status_map_is_default: boolean;
-    worker_script: string;
-    worker_image: string;
-    model: string;
-    dispatch_root: string;
-    usage_report: string;
-    daily_cap: number;
-    failure_threshold: number;
-    timeout_seconds: number;
     deliver: boolean;
     enabled: boolean;
     paused: boolean;
@@ -29,8 +18,6 @@ export interface AutodevProjectConfig {
     hcm_username: string;
     hcm_password: string;
     env: Record<string, string>;
-    price_in_per_m: number;
-    price_out_per_m: number;
     updated_at: string | null;
 }
 
@@ -101,10 +88,6 @@ export function getAutodevRuns(projectId: string, limit = 50) {
 
 export function getAutodevStats(projectId: string, days = 7) {
     return request.get(`/autodev/projects/${projectId}/stats`, { params: { days, _t: Date.now() } });
-}
-
-export function getAutodevNodes() {
-    return request.get("/autodev/nodes");
 }
 
 export function getAutodevGlobal() {

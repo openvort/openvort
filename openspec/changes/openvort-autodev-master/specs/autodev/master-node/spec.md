@@ -8,12 +8,23 @@
 master SHALL 以 docker 类型工作节点登记，节点配置 MUST 含 `container_id`、`autodev_master: true`、`max_slots`（整数 ≥ 1）。OpenVort 对 master 的一切动作 MUST 经该节点的命令执行面完成，MUST NOT 直接操作宿主 docker。
 
 #### Scenario: 节点缺 container_id
-- WHEN 项目引用的 master 节点配置里没有 `container_id`
+- WHEN master 节点配置里没有 `container_id`
 - THEN 派发与同步 MUST 失败并返回「master 节点未配置 container_id」，不产生任何运行记录
 
 #### Scenario: 节点不是 docker 类型
-- WHEN 项目引用的节点 `node_type` 不是 `docker`
+- WHEN master 节点 `node_type` 不是 `docker`
 - THEN 派发与同步 MUST 拒绝并说明节点类型
+
+### Requirement: master 由全局 AI 员工的绑定工作机确定
+master 节点 MUST 取自全局 AI 员工（插件配置 `ai_member_id`）绑定的工作机，MUST NOT 作为项目属性逐项目配置——所有项目共用同一台 master，slot 也因此按全局在跑数计算。
+
+#### Scenario: AI 员工未绑定工作机
+- WHEN 全局 AI 员工的 `remote_node_id` 为空
+- THEN 派发与同步 MUST 失败并指出该员工未绑定工作机，不产生任何运行记录
+
+#### Scenario: 未配置全局 AI 员工
+- WHEN 插件配置里没有 `ai_member_id`
+- THEN 派发与同步 MUST 失败并提示先配置全局 AI 员工
 
 ### Requirement: master 容器以 worker 同一身份运行
 master 容器内执行命令的用户 MUST 是 uid 1001（autodev），且 `/data/autodev` 与 `/home/autodev` MUST 以宿主同名绝对路径挂载。

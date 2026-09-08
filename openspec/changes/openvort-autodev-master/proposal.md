@@ -6,10 +6,10 @@ autodev 无人值守交付流水线的 worker（`docker run --rm` 一次性容�
 
 ## What Changes
 
-- **master 节点**：一个长驻容器（以 worker 镜像为基底 + docker CLI，uid 1001，挂 docker.sock 与 `/data/autodev`、`/home/autodev` 同路径）登记为 OpenVort 的 docker 类型工作节点；OpenVort 对它只做 `docker exec`。worker.sh 与 run-task.sh **一行不改**。
-- **派发**：新增 `ScheduleJob` 的确定性 action 机制（非 `agent_chat` 的 action 走注册表里的处理器，不经 LLM）。一条**全局**派发任务遍历全部启用项目，按机械闸门起 worker：slot 按节点、日上限与熔断按项目、暂停、同单互斥、`AUTODEV_DELIVER` 开关；项目间按上次派发时间轮转。
+- **master 节点**：全局唯一，取自 AI 员工绑定的工作机；一个长驻容器（以 worker 镜像为基底 + docker CLI，uid 1001，挂 docker.sock 与 `/data/autodev`、`/home/autodev` 同路径）登记为 OpenVort 的 docker 类型工作节点；OpenVort 对它只做 `docker exec`。worker.sh 与 run-task.sh **一行不改**。
+- **派发**：新增 `ScheduleJob` 的确定性 action 机制（非 `agent_chat` 的 action 走注册表里的处理器，不经 LLM）。一条**全局**派发任务遍历全部启用项目，按机械闸门起 worker：slot 按节点、日上限与熔断按项目（阈值是部署级常量）、暂停、同单互斥、`AUTODEV_DELIVER` 开关；项目间按上次派发时间轮转。
 - **派发源 = OpenVort story**：Jira 工单经 master 上的 `jira` CLI 单向投影为本项目 story（Jira 是唯一真相），映射存 `FlowExternalMapping(adapter=jira)`。「可派」= `state = dev_assign` 且 `assignee = 全局唯一的 AI 员工`，人把 story 指派给 AI 员工即为选单动作——保住 kit「选单由人给」的规则。
-- **运行台账**：每次 worker 运行一条记录（单号、退出码及含义、结果四态、分支、MR、`usage-report.py` 归属的 token、按项目单价算的费用）；轮询回收，openvort 重启不丢在跑的 worker。
+- **运行台账**：每次 worker 运行一条记录（单号、退出码及含义、结果四态、分支、MR、`usage-report.py` 归属的 token、按固定价目表算的费用）；轮询回收，openvort 重启不丢在跑的 worker。
 - **AI 员工**：只读工具 `autodev_status` / `autodev_runs`；员工绑定 master 节点，但 `node_shell` / `node_file_write` 对 master 节点拒绝 `worker.sh` / `docker ` / 凭据路径等模式，**零 LLM 判据**。
 - **密钥**：Jira token / GitLab PAT / CodeBuddy / ocx 凭据保持宿主只读文件不变；**每项目**平台系统用户（`HCM_BASE_URL / HCM_USERNAME / HCM_PASSWORD`）入 OpenVort Fernet 存储，派发前写进该仓 `03_config/.env` 的这三行，保留 hcmo 自刷的 `HCM_TOKEN` 行，内容相同不写。
 - **前置修复**：`DockerExecutor.send_instruction` 补 `extra_system_prompt`（现状对 docker 节点必 `TypeError`）；worker.sh 的 usage.jsonl 改回每轮独立文件（并发前提）。

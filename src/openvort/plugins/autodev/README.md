@@ -34,31 +34,45 @@ docker exec autodev-master sh -c 'id -u; docker --version; jira --version'   # �
 
 ## 2. 插件配置
 
-系统设置 → 插件 → AutoDev：`ai_member_id` = 全公司唯一的自动交付 AI 员工的成员 ID。它是队列的判据（story 指派给它）也是两条全局定时任务的 owner。把这位员工绑定到 master 节点即可在聊天里查状态。
+系统设置 → 插件 → AutoDev：`ai_member_id` = 全公司唯一的自动交付 AI 员工的成员 ID。它有三个作用：队列判据（story 指派给它）、两条全局定时任务的 owner、**master 的来源**——派发与同步用的节点就是这位员工绑定的工作机（成员的 `remote_node_id`），项目里不再单独选 master。员工没绑机时派发与同步直接报「AI 员工未绑定工作机」。
 
 ## 3. 项目配置（项目详情页 → 自动交付）
 
+每项目只配这些（其余都是固定参数，见 §3.1）：
+
 | 字段 | 说明 |
 |---|---|
-| master 节点 | 上面登记的节点 |
 | 仓路径 | 宿主上交付仓的绝对路径（主仓，不是 worktree）；kit 仓须在同父目录 |
 | Jira 项目 key | 同步与派发都限定在这个项目 |
 | 同步 JQL / 窗口 | 空则 `updated >= -<窗口>d`；首次用大窗口全量 |
-| 状态映射 | Jira 状态名 → story 状态；默认见 `contract.DEFAULT_STATUS_MAP` |
-| 镜像 / 模型 / 超时 | 透传给 `worker.sh` 的 `AUTODEV_*` |
-| 日上限 / 熔断阈值 | 项目级闸门 |
 | 真交付 | `deliver=false` 时 worker 以 `AUTODEV_DELIVER=0` 跑，验证通过即停（退出码 15）；上线先跑几张再翻 |
+| 启用派发 | 关掉即不进全局派发轮转 |
 | 平台系统用户 | `HCM_BASE_URL / HCM_USERNAME / HCM_PASSWORD`，密码加密存储；派发前写进仓内 `03_config/.env` 的这三行，其余行（含 hcmo 自刷的 `HCM_TOKEN`）逐字保留，内容相同不写 |
 | 非密变量 | 传给 worker 的额外 env；键名含 TOKEN/SECRET/PASSWORD 等一律拒绝 |
-| 单价 | 每百万 token 的 input / output 单价；0 = 只报 token |
 
 通用密钥（Jira token、GitLab PAT、CodeBuddy、ocx）仍是 `/home/autodev` 下的只读文件，OpenVort 不碰。
+
+### 3.1 固定参数（不是项目属性）
+
+全流水线一套值，写死在 `contract.py`，页面只读展示，`GET /api/autodev/global` 的 `fixed` 字段也返回：
+
+| 常量 | 值 | 改动条件 |
+|---|---|---|
+| `WORKER_SCRIPT` / `DISPATCH_ROOT` / `USAGE_REPORT` | `/data/autodev/...` 三条路径 | 服务器 `build/v4` 布局变了 |
+| `WORKER_IMAGE` | `autodev-worker:current` | 换镜像 tag 策略 |
+| `MODEL` | `custom-local:deepseek-v4-pro` | 换模型 |
+| `TIMEOUT_SECONDS` | 21600（6 h） | worker 墙钟上限调整 |
+| `DAILY_CAP` / `FAILURE_THRESHOLD` | 3 / 3 | 闸门策略调整 |
+| `MODEL_PRICES` | deepseek-v4-pro = ¥9 / ¥27 每百万 token（高峰价） | 价目变动，源见 vault `codebuddy-本机模型价格` |
+| `STATUS_MAP` | 新增/补充说明/待确认→submitted、OPEN→in_progress、已修复→testing、不处理→rejected、Closed/Resolved→done | Jira 工作流改了状态名 |
+
+费用按运行记录里的模型查价；模型不在价目表则费用为 0，页面显示「未配单价」。并发上限 `max_slots` 仍在 master 节点 config 里（同机共享，不是项目属性）。
 
 ## 4. 队列、闸门与定时任务
 
 - **队列** = 本项目 · `state = dev_assign` · `assignee = AI 员工` · 有 Jira 映射的 story。人把 story 指派给 AI 员工就是选单；系统从不自动指派。
 - **同步**（全局任务 `autodev_sync`）：经 master 跑 `jira --json issue list`，单向投影为 story；Jira 是唯一真相，OpenVort 不写 Jira。story 状态只在 Jira 状态**变化**时被覆盖，人在 OpenVort 推进的 `dev_assign` 不会被打回。
-- **派发**（全局任务 `autodev_dispatch`）：遍历启用项目按上次派发时间轮转；六道闸门依次：未启用 · 暂停 · 熔断（最近 N 次全 failed）· 节点 slot · 项目日上限 · 同单互斥。派出后 story → `in_progress`。
+- **派发**（全局任务 `autodev_dispatch`）：遍历启用项目按上次派发时间轮转；六道闸门依次：未启用 · 暂停 · 熔断（最近 3 次全 failed）· 节点 slot · 项目日上限（3）· 同单互斥。派出后 story → `in_progress`。
 - **回收**：每 60 s 读 `<dispatch_dir>/rc`，收口后读 `summary.json` 与 `usage-report.py --ticket`；`delivered → testing`、`failed/lost → dev_assign`，并在 story 上加系统评论。OpenVort 重启不影响在跑的 worker。
 - 两条全局任务由「自动交付」页启停（也出现在定时任务列表里）；它们是确定性代码，不经 LLM。
 
@@ -72,4 +86,4 @@ docker exec autodev-master sh -c 'id -u; docker --version; jira --version'   # �
 
 ## 6. REST
 
-`/api/autodev`：`/nodes` · `/global`（GET）· `/global/{autodev_dispatch|autodev_sync}`（PUT，admin）· `/projects/{id}`（GET / PUT admin）· `/projects/{id}/queue` · `/projects/{id}/sync`（POST admin）· `/projects/{id}/dispatch`（POST admin，可带 `issue_key`）· `/projects/{id}/pause|resume`（admin）· `/projects/{id}/runs` · `/projects/{id}/stats` · `/poll`（admin）· `/exit-codes`。
+`/api/autodev`：`/global`（GET，含 `ai_member_id` / `master` / `fixed` / 两条任务状态）· `/global/{autodev_dispatch|autodev_sync}`（PUT，admin）· `/projects/{id}`（GET / PUT admin）· `/projects/{id}/queue` · `/projects/{id}/sync`（POST admin）· `/projects/{id}/dispatch`（POST admin，可带 `issue_key`）· `/projects/{id}/pause|resume`（admin）· `/projects/{id}/runs` · `/projects/{id}/stats` · `/poll`（admin）· `/exit-codes`。

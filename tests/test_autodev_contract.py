@@ -71,18 +71,15 @@ def test_parse_jira_issues_asserts_on_keyless_rows():
         ct.parse_jira_issues(json.dumps([{"fields": {"summary": "no key"}}]))
 
 
-def test_status_map_default_and_validation():
-    table = ct.status_map("")
+def test_status_map_fixed_table():
+    table = ct.STATUS_MAP
     assert table["OPEN"] == ct.STATE_IN_PROGRESS and table["已修复"] == ct.STATE_TESTING
-    assert ct.status_map('{"自定义": "done"}') == {"自定义": "done"}
-    with pytest.raises(ValueError):
-        ct.status_map('{"x": 1}')
     assert ct.map_state("表外", table) is None
     assert ct.map_priority("High") == 2 and ct.map_priority("") == 3
 
 
 def test_sync_decision_overrides_only_on_jira_change():
-    table = ct.DEFAULT_STATUS_MAP
+    table = ct.STATUS_MAP
     # 首次导入：按映射置初态；表外状态 → submitted 且标记 unmapped
     assert ct.sync_decision(existing=False, prev_status=None, jira_status="OPEN", table=table) == \
         ct.SyncDecision(create=True, set_state=ct.STATE_IN_PROGRESS, unmapped_status=False)
@@ -155,9 +152,13 @@ def test_pick_usage_matches_run_dir_name():
     assert ct.pick_usage(report, "/x/TPYBX-571-20260903-000000") is None
 
 
-def test_compute_cost():
-    assert ct.compute_cost(2_000_000, 500_000, 1.0, 4.0) == 4.0
-    assert ct.compute_cost(2_000_000, 500_000, 0, 0) == 0
+def test_compute_cost_fixed_price_table(monkeypatch):
+    monkeypatch.setitem(ct.MODEL_PRICES, "m-test", (1.0, 4.0))
+    assert ct.compute_cost(2_000_000, 500_000, "m-test") == 4.0
+    assert ct.compute_cost(2_000_000, 500_000, "unknown-model") == 0
+    assert ct.MODEL in ct.MODEL_PRICES  # 当前固定模型必须有价，否则统计只报 token
+    fixed = ct.fixed_params()
+    assert fixed["model"] == ct.MODEL and fixed["price_out_per_m"] == ct.MODEL_PRICES[ct.MODEL][1]
 
 
 # ---------- .env 三行合并 ----------

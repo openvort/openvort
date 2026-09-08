@@ -50,13 +50,12 @@ async def client(monkeypatch):
         await conn.run_sync(Base.metadata.create_all, tables=[Base.metadata.tables[t] for t in TABLES])
     sf = async_sessionmaker(engine, expire_on_commit=False)
     async with sf() as db:
-        db.add(Member(id=AI, name="交付员", is_virtual=True))
+        db.add(Member(id=AI, name="交付员", is_virtual=True, remote_node_id="node1"))
         db.add(FlowProject(id="fp1", name="cpic"))
         db.add(RemoteNode(id="node1", name="master", node_type="docker", gateway_url="",
                           config=json.dumps({"container_id": "cid", "autodev_master": True, "max_slots": 2})))
         await db.commit()
     monkeypatch.setattr(db_engine, "get_session_factory", lambda: sf)
-    monkeypatch.setattr("openvort.plugins.autodev.router.get_session_factory", lambda: sf)
     fake = FakeExec()
     svc = AutodevService(sf, exec_fn=fake, write_fn=fake.write)
     svc.ai_member_id = AI
@@ -77,9 +76,9 @@ def _auth(roles):
 ADMIN = _auth(["admin"])
 USER = _auth(["member"])
 CONFIG = {
-    "master_node_id": "node1", "repo_path": "/data/autodev/repos/cpic", "jira_project_key": "TPYBX",
+    "repo_path": "/data/autodev/repos/cpic", "jira_project_key": "TPYBX",
     "hcm_base_url": "https://h", "hcm_username": "sysuser", "hcm_password": "secret-pass",
-    "env": {"HTTP_PROXY": "http://p"}, "price_in_per_m": 2, "price_out_per_m": 8,
+    "env": {"HTTP_PROXY": "http://p"},
 }
 
 
@@ -95,14 +94,18 @@ def test_config_roundtrip_masks_password_and_rejects_secret_env(client):
     assert r.status_code == 200, r.text
     cfg = r.json()["config"]
     assert cfg["hcm_password"] == "****pass" and cfg["hcm_username"] == "sysuser"
-    assert cfg["status_map_is_default"] is True and cfg["status_map"]["OPEN"] == "in_progress"
+    assert "daily_cap" not in cfg and "master_node_id" not in cfg and "status_map" not in cfg
     assert client.get("/api/autodev/projects/fp1").json()["config"]["hcm_password"] == "****pass"
     # 原样提交脱敏值：不覆盖
-    client.put("/api/autodev/projects/fp1", json={"hcm_password": "****pass", "daily_cap": 5}, headers=ADMIN)
+    client.put("/api/autodev/projects/fp1", json={"hcm_password": "****pass", "sync_window_days": 5}, headers=ADMIN)
     svc = svc_mod.get_service()
     import asyncio
     p = asyncio.get_event_loop().run_until_complete(svc.get_project("fp1"))
-    assert svc.hcm_values(p)["HCM_PASSWORD"] == "secret-pass" and p.daily_cap == 5
+    assert svc.hcm_values(p)["HCM_PASSWORD"] == "secret-pass" and p.sync_window_days == 5
+    # 固定参数与 master 从 /global 读
+    g = client.get("/api/autodev/global").json()
+    assert g["master"]["node_id"] == "node1" and g["master"]["max_slots"] == 2
+    assert g["fixed"]["daily_cap"] == 3 and g["fixed"]["status_map"]["OPEN"] == "in_progress"
     bad = client.put("/api/autodev/projects/fp1", json={"env": {"GITLAB_TOKEN": "x"}}, headers=ADMIN)
     assert bad.status_code == 400 and "密钥" in bad.json()["detail"]
 
@@ -142,8 +145,6 @@ def test_sync_queue_dispatch_runs_stats(client):
     assert stats["running"] == 1 and stats["queue"] == 0 and stats["gate"]["allowed"] == 1  # 节点 slot=2
     assert client.get("/api/autodev/exit-codes").json()["codes"][0] == {
         "code": 0, "meaning": svc_mod.ct.EXIT_CODES[0], "outcome": "delivered"}
-    nodes = client.get("/api/autodev/nodes").json()["nodes"]
-    assert nodes[0]["autodev_master"] is True and nodes[0]["max_slots"] == 2
 
 
 def test_pause_resume_and_missing_project(client):

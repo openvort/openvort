@@ -16,14 +16,14 @@
 - THEN 它 MUST NOT 进入队列，派发器 MUST 在项目状态里列出「无映射被跳过」的数量
 
 ### Requirement: 六道闸门按结果分支封闭穷尽
-派发前 MUST 依次判定并在任一不通过时停止、给出唯一理由：①项目未启用 ②派发已暂停 ③熔断（该项目最近 N 次已结束运行全部 `failed`，N = 项目 `failure_threshold`，0 表示关闭）④节点 slot（该 master 节点上 running 记录数 ≥ 节点 `max_slots`）⑤项目日上限（当日已起运行数 ≥ `daily_cap`）⑥同单互斥（同一 Jira key 已有 running 记录）。通过时允许起的数量 = min(空余 slot, 日上限余量, 本轮上限)。
+派发前 MUST 依次判定并在任一不通过时停止、给出唯一理由：①项目未启用 ②派发已暂停 ③熔断（该项目最近 N 次已结束运行全部 `failed`，N = 固定常量 `FAILURE_THRESHOLD`，0 表示关闭）④节点 slot（master 上 running 记录数 ≥ 节点 `max_slots`）⑤项目日上限（当日已起运行数 ≥ 固定常量 `DAILY_CAP`）⑥同单互斥（同一 Jira key 已有 running 记录）。日上限与熔断阈值是部署级常量，MUST NOT 作为项目属性。通过时允许起的数量 = min(空余 slot, 日上限余量, 本轮上限)。
 
 #### Scenario: slot 由节点共享
-- WHEN 两个项目共用同一 master 节点，节点 `max_slots = 1`，项目 A 有一条 running
+- WHEN 两个项目（必然共用同一 master），节点 `max_slots = 1`，项目 A 有一条 running
 - THEN 项目 B 本轮 MUST 不派发，理由为 slot 已满
 
 #### Scenario: 熔断只看连续窗口
-- WHEN `failure_threshold = 3`，最近三次结果为 failed / delivered / failed
+- WHEN `FAILURE_THRESHOLD = 3`，最近三次结果为 failed / delivered / failed
 - THEN MUST 不触发熔断
 
 #### Scenario: 同单互斥
