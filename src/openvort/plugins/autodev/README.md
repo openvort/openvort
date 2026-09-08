@@ -64,7 +64,7 @@ docker exec autodev-master sh -c 'id -u; docker --version; jira --version'   # �
 | `TIMEOUT_SECONDS` | 21600（6 h） | worker 墙钟上限调整 |
 | `DAILY_CAP` / `FAILURE_THRESHOLD` | 3 / 3 | 闸门策略调整 |
 | `MODEL_PRICES` | deepseek-v4-pro = ¥9 / ¥27 每百万 token（高峰价） | 价目变动，源见 vault `codebuddy-本机模型价格` |
-| `STATUS_MAP` | 新增/补充说明/待确认→submitted、OPEN→in_progress、已修复→testing、不处理→rejected、Closed/Resolved→done | Jira 工作流改了状态名 |
+| `STATUS_MAP` | 新增·补充说明·待确认·转支持确认中→submitted、OPEN→in_progress、已修复·测试中→testing、不处理→rejected、CLOSE→done | Jira 工作流出现新状态名 |
 
 费用按运行记录里的模型查价；模型不在价目表则费用为 0，页面显示「未配单价」。并发上限 `max_slots` 仍在 master 节点 config 里（同机共享，不是项目属性）。
 

@@ -74,6 +74,10 @@ def test_parse_jira_issues_asserts_on_keyless_rows():
 def test_status_map_fixed_table():
     table = ct.STATUS_MAP
     assert table["OPEN"] == ct.STATE_IN_PROGRESS and table["已修复"] == ct.STATE_TESTING
+    # 覆盖 jira.hcmcloud.cn 实际工作流的全部 9 个状态名（2026-09-08 从 TPYBX + HC 实测）
+    assert set(table) == {"新增", "补充说明", "待确认", "转支持确认中", "OPEN",
+                          "已修复", "测试中", "不处理", "CLOSE"}
+    assert table["CLOSE"] == ct.STATE_DONE and table["测试中"] == ct.STATE_TESTING
     assert ct.map_state("表外", table) is None
     assert ct.map_priority("High") == 2 and ct.map_priority("") == 3
 

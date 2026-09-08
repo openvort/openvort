@@ -53,15 +53,18 @@ STATE_REJECTED = "rejected"
 STATE_DONE = "done"
 
 # Jira 状态名 → story state（固定表，不按项目覆盖）
+# 取自 jira.hcmcloud.cn 的实际工作流：TPYBX 与 HC 两个项目共 9 个状态名，这里全覆盖。
+# 表外状态一律保留 story 现状并记一次告警——发现新状态名往这里加，别改成猜。
 STATUS_MAP: dict[str, str] = {
     "新增": STATE_SUBMITTED,
     "补充说明": STATE_SUBMITTED,
     "待确认": STATE_SUBMITTED,
+    "转支持确认中": STATE_SUBMITTED,
     "OPEN": STATE_IN_PROGRESS,
     "已修复": STATE_TESTING,
+    "测试中": STATE_TESTING,
     "不处理": STATE_REJECTED,
-    "Closed": STATE_DONE,
-    "Resolved": STATE_DONE,
+    "CLOSE": STATE_DONE,
 }
 
 # Jira 优先级名 → story priority（1=紧急 2=高 3=中 4=低）
