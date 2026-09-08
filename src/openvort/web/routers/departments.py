@@ -23,7 +23,7 @@ class CreateDepartmentRequest(BaseModel):
 
 class UpdateDepartmentRequest(BaseModel):
     name: str | None = None
-    parent_id: int | None = ...
+    parent_id: int | None = None
     order: int | None = None
 
 
@@ -79,10 +79,12 @@ async def create_department(req: CreateDepartmentRequest):
 async def update_department(dept_id: int, req: UpdateDepartmentRequest):
     """编辑部门"""
     service = _get_service()
+    # parent_id 未出现在请求体里 = 不改父级；显式传 null = 移到根节点
+    parent_id = req.parent_id if "parent_id" in req.model_fields_set else ...
     ok = await service.update_department(
         dept_id,
         name=req.name,
-        parent_id=req.parent_id,
+        parent_id=parent_id,
         order=req.order,
     )
     return {"success": ok}
