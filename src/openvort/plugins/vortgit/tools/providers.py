@@ -216,13 +216,14 @@ class ManageProviderTool(BaseTool):
 
             token = decrypt_token(provider.access_token)
             platform = provider.platform
+            api_base = provider.api_base
             p_name = provider.name
             p_id = provider.id
 
         try:
             from openvort.plugins.vortgit.providers import create_provider
 
-            client = create_provider(platform, access_token=token)
+            client = create_provider(platform, access_token=token, api_base=api_base)
             try:
                 repos = await client.list_repos(page=1, per_page=1)
                 return json.dumps(

@@ -108,6 +108,36 @@ export function deleteVoiceProvider(providerId: string) {
     return request.delete(`/admin/voice-providers/${providerId}`);
 }
 
+// ---- Embedding Providers ----
+
+export function getEmbeddingProviders() {
+    return request.get("/admin/embedding-providers");
+}
+
+export function createEmbeddingProvider(data: {
+    name: string;
+    platform: string;
+    api_key?: string;
+    config?: Record<string, any>;
+    is_default?: boolean;
+}) {
+    return request.post("/admin/embedding-providers", data);
+}
+
+export function updateEmbeddingProvider(providerId: string, data: {
+    name?: string;
+    api_key?: string;
+    config?: Record<string, any>;
+    is_default?: boolean;
+    is_enabled?: boolean;
+}) {
+    return request.put(`/admin/embedding-providers/${providerId}`, data);
+}
+
+export function deleteEmbeddingProvider(providerId: string) {
+    return request.delete(`/admin/embedding-providers/${providerId}`);
+}
+
 // ---- System Settings ----
 
 export function getSettings() {
