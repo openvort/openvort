@@ -7,6 +7,7 @@ import ModelLibrary from "./ModelLibrary.vue";
 import ChatModel from "./ChatModel.vue";
 import CodingTools from "./CodingTools.vue";
 import VoiceProviders from "./VoiceProviders.vue";
+import EmbeddingProviders from "./EmbeddingProviders.vue";
 
 const activeTab = ref("models");
 
@@ -58,6 +59,11 @@ async function handleRestart() {
                 <VortTabPane tab-key="voice" tab="语音识别">
                     <div class="mt-4">
                         <VoiceProviders />
+                    </div>
+                </VortTabPane>
+                <VortTabPane tab-key="embedding" tab="向量服务">
+                    <div class="mt-4">
+                        <EmbeddingProviders />
                     </div>
                 </VortTabPane>
             </VortTabs>
