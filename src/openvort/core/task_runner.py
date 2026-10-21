@@ -10,6 +10,7 @@ Decouples Agent execution from SSE lifecycle so that:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
 import uuid
 from collections import deque
@@ -23,6 +24,9 @@ log = get_logger("core.task_runner")
 
 MAX_EVENT_BUFFER = 200
 CLEANUP_DELAY = 300  # seconds to keep event buffer after completion
+CANCEL_GRACE_SECONDS = 1.0
+CANCEL_FORCE_SECONDS = 1.0
+STREAM_CLOSE_SECONDS = 1.0
 
 
 @dataclass
@@ -39,15 +43,30 @@ class RunningTask:
     done: bool = False
     completed_at: float = 0.0
     inject_queue: asyncio.Queue = field(default_factory=asyncio.Queue)
+    cancel_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    finalize_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    finalized: asyncio.Event = field(default_factory=asyncio.Event)
+    finalization_task: asyncio.Task[bool] | None = None
+    terminal_status: str | None = None
 
 
 class AgentTaskRunner:
     """Manages background Agent task execution."""
 
-    def __init__(self, session_factory=None):
+    def __init__(
+        self,
+        session_factory=None,
+        *,
+        cancel_grace_seconds: float = CANCEL_GRACE_SECONDS,
+        cancel_force_seconds: float = CANCEL_FORCE_SECONDS,
+        stream_close_seconds: float = STREAM_CLOSE_SECONDS,
+    ):
         self._running: dict[str, RunningTask] = {}
         self._session_index: dict[str, str] = {}  # session_id -> task_id (for running tasks only)
         self._sf = session_factory
+        self._cancel_grace_seconds = cancel_grace_seconds
+        self._cancel_force_seconds = cancel_force_seconds
+        self._stream_close_seconds = stream_close_seconds
 
     def get_running_task_for_session(self, session_id: str) -> RunningTask | None:
         tid = self._session_index.get(session_id)
@@ -107,30 +126,36 @@ class AgentTaskRunner:
                 log.warning(f"Failed to create agent_task record: {e}")
 
         async def _run():
+            status = "completed"
+            summary = ""
             try:
-                await self._execute(rt, agent, content, images, files, owner_id, session_id, target_type, target_id)
+                status = await self._execute(
+                    rt, agent, content, images, files, owner_id, session_id, target_type, target_id,
+                )
+            except asyncio.CancelledError:
+                status = "cancelled"
             except Exception as e:
                 log.error(f"Task {task_id} failed: {e}")
-                self._emit(rt, {"type": "server_error", "data": str(e)})
-                await self._mark_completed(rt, "failed", str(e))
+                status = "failed"
+                summary = str(e)
             finally:
-                rt.done = True
-                self._emit(rt, {"type": "done", "data": "ok"})
-                self._session_index.pop(session_id, None)
-                asyncio.get_event_loop().call_later(CLEANUP_DELAY, lambda: self._running.pop(task_id, None))
+                # A caller cancelling this task must not interrupt terminal-state
+                # publication or leave the task visible as active.
+                rt.finalization_task = asyncio.create_task(self._finalize(rt, status, summary))
+                await asyncio.shield(rt.finalization_task)
 
         rt.asyncio_task = asyncio.create_task(_run())
         return task_id
 
     async def _execute(
         self, rt: RunningTask, agent, content, images, files, owner_id, session_id, target_type, target_id,
-    ):
+    ) -> str:
         cancel = rt.cancel_event
 
         self._emit(rt, {"type": "thinking", "data": "start"})
 
         cancelled = False
-        async for event in agent.process_stream_web(
+        stream = agent.process_stream_web(
             content,
             member_id=owner_id,
             images=images or [],
@@ -139,30 +164,37 @@ class AgentTaskRunner:
             cancel_event=cancel,
             target_type=target_type,
             target_id=target_id,
-        ):
-            if cancel.is_set():
-                cancelled = True
+        )
+        try:
+            async for event in stream:
+                if cancel.is_set():
+                    cancelled = True
+                    event_type = event.get("type", "")
+                    if event_type == "text":
+                        self._emit(rt, {"type": "text", "data": event["text"]})
+                    continue
+
                 event_type = event.get("type", "")
                 if event_type == "text":
                     self._emit(rt, {"type": "text", "data": event["text"]})
-                continue
-
-            event_type = event.get("type", "")
-            if event_type == "text":
-                self._emit(rt, {"type": "text", "data": event["text"]})
-            elif event_type in ("tool_use", "tool_output", "tool_progress", "tool_result", "usage", "action_button"):
-                import json
-                self._emit(rt, {"type": event_type, "data": json.dumps(event, ensure_ascii=False)})
+                elif event_type in (
+                    "tool_use", "tool_output", "tool_progress", "tool_result", "usage", "action_button",
+                ):
+                    import json
+                    self._emit(rt, {"type": event_type, "data": json.dumps(event, ensure_ascii=False)})
+        finally:
+            close = getattr(stream, "aclose", None)
+            if close is not None:
+                with contextlib.suppress(asyncio.TimeoutError, RuntimeError):
+                    await asyncio.wait_for(asyncio.shield(close()), timeout=self._stream_close_seconds)
 
         if cancelled or cancel.is_set():
-            self._emit(rt, {"type": "interrupted", "data": "aborted"})
-            await self._mark_completed(rt, "cancelled")
-            return
+            return "cancelled"
 
         # Persist result
         try:
-            from openvort.web.deps import get_session_store, get_db_session_factory
             from openvort.core.services.chat_message import write_chat_message
+            from openvort.web.deps import get_db_session_factory, get_session_store
 
             session_store = get_session_store()
             sf = get_db_session_factory()
@@ -197,7 +229,8 @@ class AgentTaskRunner:
         except Exception as e:
             log.warning(f"Failed to persist task result: {e}")
 
-        await self._mark_completed(rt, "completed")
+        if cancel.is_set():
+            return "cancelled"
 
         # Push WebSocket notifications
         try:
@@ -210,6 +243,8 @@ class AgentTaskRunner:
             })
         except Exception:
             pass
+
+        return "cancelled" if cancel.is_set() else "completed"
 
     def _emit(self, rt: RunningTask, event: dict):
         rt.event_buffer.append(event)
@@ -248,10 +283,32 @@ class AgentTaskRunner:
 
     async def cancel_task(self, task_id: str) -> bool:
         rt = self._running.get(task_id)
-        if not rt or rt.done:
+        if not rt:
             return False
-        rt.cancel_event.set()
-        return True
+        if rt.done:
+            return rt.terminal_status == "cancelled"
+
+        async with rt.cancel_lock:
+            if rt.done:
+                return rt.terminal_status == "cancelled"
+
+            rt.cancel_event.set()
+            task = rt.asyncio_task
+            if task is None:
+                return False
+
+            try:
+                await asyncio.wait_for(rt.finalized.wait(), timeout=self._cancel_grace_seconds)
+            except asyncio.TimeoutError:
+                if not rt.finalized.is_set():
+                    task.cancel()
+                try:
+                    await asyncio.wait_for(rt.finalized.wait(), timeout=self._cancel_force_seconds)
+                except asyncio.TimeoutError:
+                    log.error(f"Task {task_id} did not terminate after forced cancellation")
+                    return False
+
+            return rt.done and rt.terminal_status == "cancelled"
 
     async def inject_message(self, task_id: str, content: str) -> bool:
         rt = self._running.get(task_id)
@@ -278,6 +335,7 @@ class AgentTaskRunner:
         if self._sf:
             try:
                 from sqlalchemy import select
+
                 from openvort.db.models import AgentTask
                 async with self._sf() as db:
                     stmt = select(AgentTask).where(AgentTask.id == rt.task_id)
@@ -291,12 +349,43 @@ class AgentTaskRunner:
             except Exception as e:
                 log.warning(f"Failed to update agent_task status: {e}")
 
+    async def _finalize(self, rt: RunningTask, status: str, summary: str = "") -> bool:
+        """Publish exactly one terminal state and remove the task from active indexes."""
+        async with rt.finalize_lock:
+            if rt.done:
+                return False
+
+            rt.terminal_status = status
+            rt.completed_at = time.time()
+
+            if status == "cancelled":
+                self._emit(rt, {"type": "interrupted", "data": "aborted"})
+            elif status == "failed":
+                self._emit(rt, {"type": "server_error", "data": summary})
+
+            # Publish the complete terminal event sequence before exposing done.
+            # Database latency must not end SSE early or trigger task.cancel()
+            # while the shielded persistence operation is still running.
+            self._emit(rt, {"type": "done", "data": status})
+            rt.done = True
+
+            if self._session_index.get(rt.session_id) == rt.task_id:
+                self._session_index.pop(rt.session_id, None)
+            asyncio.get_event_loop().call_later(
+                CLEANUP_DELAY,
+                lambda: self._running.pop(rt.task_id, None),
+            )
+            rt.finalized.set()
+            await self._mark_completed(rt, status, summary)
+            return True
+
     async def recover_on_startup(self):
         """Mark any orphaned running tasks as failed on service restart."""
         if not self._sf:
             return
         try:
-            from sqlalchemy import select, update
+            from sqlalchemy import update
+
             from openvort.db.models import AgentTask
             async with self._sf() as db:
                 stmt = (
